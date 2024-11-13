@@ -104,11 +104,6 @@ func (w *AccountCreateWorker) Work(ctx context.Context, job *river.Job[AccountCr
 		return err
 	}
 
-	w.wc.Pub.Send(ctx, event.Event{
-		TrackingID: job.Args.TrackingID,
-		Status:     store.PENDING,
-	})
-
 	_, err = w.wc.QueueClient.InsertTx(ctx, tx, DispatchArgs{
 		TrackingID: job.Args.TrackingID,
 		OTXID:      otxID,
@@ -117,6 +112,11 @@ func (w *AccountCreateWorker) Work(ctx context.Context, job *river.Job[AccountCr
 	if err != nil {
 		return err
 	}
+
+	w.wc.Pub.Send(ctx, event.Event{
+		TrackingID: job.Args.TrackingID,
+		Status:     store.PENDING,
+	})
 
 	return tx.Commit(ctx)
 }
