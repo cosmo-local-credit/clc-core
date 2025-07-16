@@ -16,13 +16,14 @@ import (
 
 type (
 	TokenDeployArgs struct {
-		TrackingID    string `json:"trackingId"`
-		Name          string `json:"name"`
-		Symbol        string `json:"symbol"`
-		Decimals      uint8  `json:"decimals"`
-		InitialSupply string `json:"initialSupply"`
-		InitialMintee string `json:"initialMintee"`
-		Owner         string `json:"owner"`
+		TrackingID      string `json:"trackingId"`
+		Name            string `json:"name"`
+		Symbol          string `json:"symbol"`
+		Decimals        uint8  `json:"decimals"`
+		InitialSupply   string `json:"initialSupply"`
+		InitialMintee   string `json:"initialMintee"`
+		Owner           string `json:"owner"`
+		ExpiryTimestamp string `json:"expiryTimestamp,omitempty"`
 	}
 
 	TokenDeployWorker struct {
@@ -61,11 +62,24 @@ func (w *TokenDeployWorker) Work(ctx context.Context, job *river.Job[TokenDeploy
 		return err
 	}
 
+	expiry := big.NewInt(0)
+	if job.Args.ExpiryTimestamp != "" {
+		tmp, ok := new(big.Int).SetString(job.Args.ExpiryTimestamp, 10)
+		if ok {
+			expiry = tmp
+		}
+	}
+
+	otxType := store.STANDARD_TOKEN_DEPLOY
+	if expiry.Cmp(big.NewInt(0)) > 0 {
+		otxType = store.EXPIRING_TOKEN_DEPLOY
+	}
+
 	contract := contract.NewERC20(contract.ERC20ConstructorArgs{
 		Name:            job.Args.Name,
 		Symbol:          job.Args.Symbol,
 		Decimals:        job.Args.Decimals,
-		ExpiryTimestamp: big.NewInt(0),
+		ExpiryTimestamp: expiry,
 	})
 	byteCode, err := contract.Bytecode()
 	if err != nil {
@@ -92,7 +106,7 @@ func (w *TokenDeployWorker) Work(ctx context.Context, job *river.Job[TokenDeploy
 
 	deployContractOTXID, err := w.wc.store.InsertOTX(ctx, tx, store.OTX{
 		TrackingID:    job.Args.TrackingID,
-		OTXType:       store.STANDARD_TOKEN_DEPLOY,
+		OTXType:       otxType,
 		SignerAccount: systemKeypair.Public,
 		RawTx:         rawContractDeployTxHex,
 		TxHash:        builtContractDeployTx.Hash().Hex(),
