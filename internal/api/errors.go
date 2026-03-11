@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/grassrootseconomics/eth-custodial/pkg/api"
+	"github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 )

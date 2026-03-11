@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	custodialEvent "github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/grassrootseconomics/eth-custodial/internal/store"
-	custodialEvent "github.com/grassrootseconomics/eth-custodial/pkg/event"
 	"github.com/grassrootseconomics/eth-tracker/pkg/event"
 	"github.com/jackc/pgx/v5"
 )

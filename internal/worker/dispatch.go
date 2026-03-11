@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/grassrootseconomics/eth-custodial/internal/store"
-	"github.com/grassrootseconomics/eth-custodial/pkg/event"
 	"github.com/lmittmann/w3"
 	"github.com/lmittmann/w3/module/eth"
 	"github.com/riverqueue/river"

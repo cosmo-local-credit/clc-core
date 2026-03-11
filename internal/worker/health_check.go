@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	custodialEvent "github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/grassrootseconomics/eth-custodial/internal/store"
-	custodialEvent "github.com/grassrootseconomics/eth-custodial/pkg/event"
 	"github.com/lmittmann/w3"
 	"github.com/lmittmann/w3/module/eth"
 	"github.com/lmittmann/w3/w3types"

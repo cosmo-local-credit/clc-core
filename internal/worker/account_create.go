@@ -3,12 +3,12 @@ package worker
 import (
 	"context"
 
+	"github.com/cosmo-local-credit/clc-core/internal/keypair"
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/grassrootseconomics/eth-custodial/internal/keypair"
-	"github.com/grassrootseconomics/eth-custodial/internal/store"
-	"github.com/grassrootseconomics/eth-custodial/pkg/event"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/riverqueue/river"
 )

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/grassrootseconomics/eth-custodial/internal/store"
-	apiresp "github.com/grassrootseconomics/eth-custodial/pkg/api"
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/labstack/echo/v4"
 )
 

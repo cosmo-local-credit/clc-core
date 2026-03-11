@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/api"
+	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/grassrootseconomics/eth-custodial/internal/api"
-	"github.com/grassrootseconomics/eth-custodial/internal/util"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/knadh/koanf/v2"
 )

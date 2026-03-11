@@ -1,6 +1,6 @@
-# eth-custodial
+# clc-core
 
-![GitHub Tag](https://img.shields.io/github/v/tag/grassrootseconomics/eth-custodial)
+![GitHub Tag](https://img.shields.io/github/v/tag/cosmo-local-credit/clc-core)
 
 ## License
 

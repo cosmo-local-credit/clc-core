@@ -5,11 +5,11 @@ import (
 	"math/big"
 	"strconv"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/grassrootseconomics/eth-custodial/internal/store"
-	"github.com/grassrootseconomics/eth-custodial/pkg/event"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/grassrootseconomics/ge-publish/pkg/contract"
 	gepubutil "github.com/grassrootseconomics/ge-publish/pkg/util"

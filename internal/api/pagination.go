@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/grassrootseconomics/eth-custodial/pkg/api"
+	"github.com/cosmo-local-credit/clc-core/pkg/api"
 )
 
 type Pagination struct {

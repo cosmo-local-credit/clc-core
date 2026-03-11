@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/grassrootseconomics/eth-custodial/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/riverqueue/river"
 )
 

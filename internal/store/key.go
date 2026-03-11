@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/cosmo-local-credit/clc-core/internal/keypair"
 	"github.com/georgysavva/scany/v2/pgxscan"
-	"github.com/grassrootseconomics/eth-custodial/internal/keypair"
 	"github.com/jackc/pgx/v5"
 )
 
