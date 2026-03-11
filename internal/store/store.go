@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/grassrootseconomics/eth-custodial/internal/keypair"
+	"github.com/cosmo-local-credit/clc-core/internal/keypair"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

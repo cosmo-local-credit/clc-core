@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/grassrootseconomics/eth-custodial/pkg/event"
+	"github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )

@@ -1,13 +1,13 @@
 package api
 
 import (
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
-	"github.com/grassrootseconomics/eth-custodial/internal/store"
-	"github.com/grassrootseconomics/eth-custodial/internal/worker"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/kamikazechaser/jrpc"
 	"github.com/riverqueue/river"

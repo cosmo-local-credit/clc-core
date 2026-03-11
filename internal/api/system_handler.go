@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	apiresp "github.com/grassrootseconomics/eth-custodial/pkg/api"
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/labstack/echo/v4"
 )
 

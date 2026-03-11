@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
-	"github.com/grassrootseconomics/eth-custodial/internal/worker"
-	apiresp "github.com/grassrootseconomics/eth-custodial/pkg/api"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/labstack/echo/v4"
 	"github.com/lmittmann/w3"

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/golang-jwt/jwt/v5"
-	apiresp "github.com/grassrootseconomics/eth-custodial/pkg/api"
 	"github.com/grassrootseconomics/ethutils"
 	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"

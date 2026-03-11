@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kamikazechaser/common/logg"
+	"github.com/kamikazechaser/util/logg"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
@@ -13,7 +13,8 @@ import (
 )
 
 func InitLogger() *slog.Logger {
-	loggOpts := logg.LoggOpts{
+	loggOpts := logg.Opts{
+		Component:  "clc-core",
 		FormatType: logg.Logfmt,
 		LogLevel:   slog.LevelInfo,
 	}
@@ -25,6 +26,10 @@ func InitLogger() *slog.Logger {
 	if os.Getenv("DEV") != "" {
 		loggOpts.LogLevel = slog.LevelDebug
 		loggOpts.FormatType = logg.Human
+	}
+
+	if os.Getenv("LOG_FORMAT") == "json" {
+		loggOpts.FormatType = logg.JSON
 	}
 
 	return logg.NewLogg(loggOpts)
