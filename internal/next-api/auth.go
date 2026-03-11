@@ -1,0 +1,143 @@
+package nextapi
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/grassrootseconomics/ethutils"
+	echojwt "github.com/labstack/echo-jwt/v5"
+	"github.com/labstack/echo/v5"
+)
+
+type JWTCustomClaims struct {
+	PublicKey string `json:"publicKey"`
+	Service   bool   `json:"service"`
+	jwt.RegisteredClaims
+}
+
+const (
+	cookieName   = "__ge_cust_auth"
+	cookieDomain = "sarafu.network"
+
+	defaultExpiryPeriod = 1 * 24 * time.Hour
+)
+
+func (a *API) apiJWTAuthConfig() echojwt.Config {
+	return echojwt.Config{
+		ErrorHandler: func(c *echo.Context, err error) error {
+			var reason = "an unknown JWT error occurred"
+
+			if errors.Is(err, echojwt.ErrJWTMissing) {
+				reason = "token missing from Authorization header or cookie"
+			} else if errors.Is(err, echojwt.ErrJWTInvalid) {
+				reason = "token is invalid or expired"
+			} else {
+				a.logg.Error("unknown jwt error caught", "error", err)
+			}
+			return handleJWTAuthError(c, reason)
+		},
+		TokenLookup:   "header:Authorization:Bearer ,cookie:__ge_cust_auth",
+		SigningMethod:  jwt.SigningMethodEdDSA.Alg(),
+		SigningKey:     a.verifyingKey,
+	}
+}
+
+func (a *API) loginHandler(c *echo.Context) error {
+	req := apiresp.LoginRequest{}
+
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c)
+	}
+
+	if err := c.Validate(req); err != nil {
+		return handleValidateError(c)
+	}
+
+	issueDate := time.Now()
+	expiryDate := issueDate.Add(defaultExpiryPeriod)
+
+	claims := JWTCustomClaims{
+		Service:   false,
+		PublicKey: ethutils.ZeroAddress.Hex(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    fmt.Sprintf("eth-custodial-%s", a.build),
+			Subject:   ethutils.ZeroAddress.Hex(),
+			IssuedAt:  jwt.NewNumericDate(issueDate),
+			ExpiresAt: jwt.NewNumericDate(expiryDate),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	t, err := token.SignedString(a.signingKey)
+	if err != nil {
+		return err
+	}
+
+	cookie := &http.Cookie{
+		Name:     cookieName,
+		Value:    t,
+		Secure:   true,
+		Expires:  expiryDate,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Domain:   cookieDomain,
+	}
+	c.SetCookie(cookie)
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Login successful",
+		Result:      map[string]any{"token": t},
+	})
+}
+
+func (a *API) logoutHandler(c *echo.Context) error {
+	cookie := &http.Cookie{
+		Name:     cookieName,
+		Value:    "",
+		Secure:   true,
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Domain:   cookieDomain,
+	}
+	c.SetCookie(cookie)
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Logout successful",
+		Result:      nil,
+	})
+}
+
+func (a *API) authStatusMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			token, ok := c.Get("user").(*jwt.Token)
+			if !ok {
+				return handleJWTAuthError(c, "JWT token missing or invalid")
+			}
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				return handleJWTAuthError(c, "JWT invalid claims")
+			}
+			pubKey, ok := claims["publicKey"].(string)
+			if !ok {
+				return handleJWTAuthError(c, "public key missing in JWT claims")
+			}
+			serviceKey, ok := claims["service"].(bool)
+			if !ok {
+				return handleJWTAuthError(c, "service key missing in JWT claims")
+			}
+
+			c.Set("publicKey", pubKey)
+			c.Set("service", serviceKey)
+
+			return next(c)
+		}
+	}
+}

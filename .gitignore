@@ -2,4 +2,3 @@
 .idx
 **/*.env
 build
-deployer
