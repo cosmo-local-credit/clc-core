@@ -9,18 +9,18 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/gas"
 	nextapi "github.com/cosmo-local-credit/clc-core/internal/next-api"
+	nextworker "github.com/cosmo-local-credit/clc-core/internal/next-worker"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
-	"github.com/jackc/pgx/v5"
 	"github.com/knadh/koanf/v2"
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
 
 const defaultGracefulShutdownPeriod = time.Second * 20
@@ -38,8 +38,8 @@ var (
 
 func init() {
 	flag.StringVar(&confFlag, "config", "config.toml", "Config file location")
-	flag.StringVar(&migrationsFolderFlag, "migrations", "migrations/", "Migrations folder location")
-	flag.StringVar(&queriesFlag, "queries", "queries.sql", "Queries file location")
+	flag.StringVar(&migrationsFolderFlag, "migrations", "next-migrations/", "Migrations folder location")
+	flag.StringVar(&queriesFlag, "queries", "queries-next.sql", "Queries file location")
 	flag.Parse()
 
 	lo = util.InitLogger()
@@ -49,8 +49,9 @@ func init() {
 func main() {
 	pgStore := loadStore()
 	chainProvider := loadChainProvider()
+	gasOracle := loadGasOracle(chainProvider)
 	registry := loadRegistry(chainProvider)
-	queueClient := loadQueueClient(pgStore)
+	workerContainer := loadNextWorker(pgStore, chainProvider, gasOracle)
 
 	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
 	if err != nil {
@@ -68,15 +69,24 @@ func main() {
 		VerifyingKey:  publicKey,
 		Store:         pgStore,
 		ChainProvider: chainProvider,
-		QueueClient:   queueClient,
+		QueueClient:   workerContainer.Client(),
 		Logg:          lo,
 		BannedTokens:  ko.Strings("chain.banned_tokens"),
 	})
 
 	lo.Info("starting deployer", "build", build)
+	gasOracle.Start()
+	defer gasOracle.Stop()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+
+	go func() {
+		if err := workerContainer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			lo.Error("failed to start next-worker queue", "err", fmt.Sprintf("%T: %v", err, err))
+			os.Exit(1)
+		}
+	}()
 
 	go func() {
 		if err := apiServer.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -92,6 +102,9 @@ func main() {
 
 	if err := apiServer.Stop(shutdownCtx); err != nil {
 		lo.Error("failed to stop deployer HTTP server", "err", err)
+	}
+	if err := workerContainer.Stop(shutdownCtx); err != nil {
+		lo.Error("failed to stop next-worker queue", "err", err)
 	}
 }
 
@@ -132,14 +145,45 @@ func loadRegistry(chainProvider *ethutils.Provider) map[string]common.Address {
 	return registry
 }
 
-func loadQueueClient(pgStore store.Store) *river.Client[pgx.Tx] {
-	queueClient, err := river.NewClient(riverpgxv5.New(pgStore.Pool()), &river.Config{
-		Logger: lo,
-	})
-	if err != nil {
-		lo.Error("could not initialize river queue client", "error", err)
+func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
+	switch ko.MustString("gas.oracle_type") {
+	case "static":
+		return &gas.StaticGas{}
+	case "rpc":
+		gasOracle, err := gas.NewRPCGasOracle(gas.RPCGasOracleOpts{
+			Logg:          lo,
+			ChainProvider: chainProvider,
+		})
+		if err != nil {
+			lo.Error("could not initialize rpc gas oracle", "error", err)
+			os.Exit(1)
+		}
+		return gasOracle
+	default:
+		lo.Error("unknown gas oracle type", "type", ko.MustString("gas.oracle_type"))
 		os.Exit(1)
 	}
 
-	return queueClient
+	return nil
+}
+
+func loadNextWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *nextworker.WorkerContainer {
+	maxWorkers := ko.Int("workers.max")
+	if maxWorkers <= 0 {
+		maxWorkers = runtime.NumCPU() * 2
+	}
+
+	workerContainer := nextworker.New(nextworker.WorkerOpts{
+		MaxWorkers:    maxWorkers,
+		GasOracle:     gasOracle,
+		Store:         pgStore,
+		Logg:          lo,
+		ChainProvider: chainProvider,
+	})
+	if err := workerContainer.Bootstrap(); err != nil {
+		lo.Error("could not initialize next-worker container", "error", err)
+		os.Exit(1)
+	}
+
+	return workerContainer
 }

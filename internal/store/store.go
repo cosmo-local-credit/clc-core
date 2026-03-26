@@ -32,4 +32,11 @@ type Store interface {
 	// Dispatch
 	InsertDispatchTx(context.Context, pgx.Tx, DispatchTx) error
 	UpdateDispatchTxStatus(context.Context, pgx.Tx, DispatchTx) error
+	// Next ERC20
+	InsertNextERC20Workflow(context.Context, pgx.Tx, NextERC20Workflow) error
+	GetNextERC20WorkflowByTrackingID(context.Context, pgx.Tx, string) (NextERC20Workflow, error)
+	GetLatestNextERC20WorkflowBySymbol(context.Context, pgx.Tx, string) (NextERC20Workflow, error)
+	GetLatestNextERC20WorkflowByProxy(context.Context, pgx.Tx, string) (NextERC20Workflow, error)
+	GetLatestSuccessfulNextERC20WorkflowByProxy(context.Context, pgx.Tx, string) (NextERC20Workflow, error)
+	UpdateNextERC20Workflow(context.Context, pgx.Tx, NextERC20WorkflowUpdate) error
 }
