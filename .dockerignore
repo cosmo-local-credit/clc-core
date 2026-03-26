@@ -1,10 +1,12 @@
 /**
 !/cmd
 !/migrations
+!/next-migrations
 !/docs
 !/internal
 !/pkg
 !/LICENSE
 !/config.toml
 !/queries.sql
+!/queries-next.sql
 !/go.*

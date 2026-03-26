@@ -14,24 +14,30 @@ import (
 
 type (
 	Queries struct {
-		InsertKeyPair           string `query:"insert-keypair"`
-		ActivateKeyPair         string `query:"activate-keypair"`
-		LoadKey                 string `query:"load-key"`
-		CheckKeypair            string `query:"check-keypair"`
-		LoadMasterKey           string `query:"load-master-key"`
-		BootstrapMasterKey      string `query:"bootstrap-master-key"`
-		PeekNonce               string `query:"peek-nonce"`
-		AcquireNonce            string `query:"acquire-nonce"`
-		SetAcccountNonce        string `query:"set-account-nonce"`
-		InsertOTX               string `query:"insert-otx"`
-		GetOTXByTxHash          string `query:"get-otx-by-tx-hash"`
-		GetOTXByTrackingID      string `query:"get-otx-by-tracking-id"`
-		GetOTXByAccount         string `query:"get-otx-by-account"`
-		GetOTXByAccountNext     string `query:"get-otx-by-account-next"`
-		GetOTXByAccountPrevious string `query:"get-otx-by-account-previous"`
-		InsertDispatchTx        string `query:"insert-dispatch-tx"`
-		UpdateDispatchTxStatus  string `query:"update-dispatch-tx-status"`
-		GetFailedOTX            string `query:"get-failed-otx"`
+		InsertKeyPair                       string `query:"insert-keypair"`
+		ActivateKeyPair                     string `query:"activate-keypair"`
+		LoadKey                             string `query:"load-key"`
+		CheckKeypair                        string `query:"check-keypair"`
+		LoadMasterKey                       string `query:"load-master-key"`
+		BootstrapMasterKey                  string `query:"bootstrap-master-key"`
+		PeekNonce                           string `query:"peek-nonce"`
+		AcquireNonce                        string `query:"acquire-nonce"`
+		SetAcccountNonce                    string `query:"set-account-nonce"`
+		InsertOTX                           string `query:"insert-otx"`
+		GetOTXByTxHash                      string `query:"get-otx-by-tx-hash"`
+		GetOTXByTrackingID                  string `query:"get-otx-by-tracking-id"`
+		GetOTXByAccount                     string `query:"get-otx-by-account"`
+		GetOTXByAccountNext                 string `query:"get-otx-by-account-next"`
+		GetOTXByAccountPrevious             string `query:"get-otx-by-account-previous"`
+		InsertDispatchTx                    string `query:"insert-dispatch-tx"`
+		UpdateDispatchTxStatus              string `query:"update-dispatch-tx-status"`
+		GetFailedOTX                        string `query:"get-failed-otx"`
+		InsertNextERC20Workflow             string `query:"insert-next-erc20-workflow"`
+		GetNextERC20ByTrackingID            string `query:"get-next-erc20-by-tracking-id"`
+		GetLatestNextERC20BySymbol          string `query:"get-latest-next-erc20-by-symbol"`
+		GetLatestNextERC20ByProxy           string `query:"get-latest-next-erc20-by-proxy"`
+		GetLatestSuccessfulNextERC20ByProxy string `query:"get-latest-successful-next-erc20-by-proxy"`
+		UpdateNextERC20Workflow             string `query:"update-next-erc20-workflow"`
 	}
 
 	PgOpts struct {

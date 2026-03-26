@@ -26,7 +26,7 @@ type (
 		CORS          []string
 		Registry      map[string]common.Address
 		VerifyingKey  crypto.PublicKey
-		SigningKey     crypto.PrivateKey
+		SigningKey    crypto.PrivateKey
 		Store         store.Store
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
@@ -123,6 +123,7 @@ func New(o APIOpts) *API {
 	apiGroup.Use(a.authStatusMiddleware())
 
 	apiGroup.POST("/contracts/erc20", a.contractsERC20Handler)
+	apiGroup.POST("/contracts/erc20/upgrade", a.contractsERC20UpgradeHandler)
 	apiGroup.POST("/contracts/erc20-demurrage", a.contractsDemurrageERC20Handler)
 	apiGroup.POST("/contracts/pool", a.contractsPoolHandler)
 

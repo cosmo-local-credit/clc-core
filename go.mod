@@ -1,11 +1,12 @@
 module github.com/cosmo-local-credit/clc-core
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/MarceloPetrucio/go-scalar-api-reference v0.0.0-20240521013641-ce5d2efe0e06
 	github.com/VictoriaMetrics/metrics v1.38.0
-	github.com/ethereum/go-ethereum v1.16.7
+	github.com/cosmo-local-credit/protocol v0.5.5
+	github.com/ethereum/go-ethereum v1.16.8
 	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -15,16 +16,18 @@ require (
 	github.com/grassrootseconomics/ge-publish v1.5.0-stable
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/jackc/tern/v2 v2.3.3
-	github.com/kamikazechaser/common v1.0.0
 	github.com/kamikazechaser/jrpc v0.0.0-20250120083606-1ed5293c42ec
+	github.com/kamikazechaser/util v0.1.0
 	github.com/knadh/goyesql/v2 v2.2.0
 	github.com/knadh/koanf/parsers/toml v0.1.0
 	github.com/knadh/koanf/providers/env v1.1.0
 	github.com/knadh/koanf/providers/file v1.2.0
 	github.com/knadh/koanf/v2 v2.2.1
 	github.com/labstack/echo-jwt/v4 v4.3.1
+	github.com/labstack/echo-jwt/v5 v5.0.1
 	github.com/labstack/echo/v4 v4.13.4
-	github.com/lmittmann/w3 v0.20.5
+	github.com/labstack/echo/v5 v5.0.4
+	github.com/lmittmann/w3 v0.20.6
 	github.com/nats-io/nats.go v1.43.0
 	github.com/riverqueue/river v0.23.1
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.23.1
@@ -65,11 +68,8 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
-	github.com/kamikazechaser/util v0.1.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/knadh/koanf/maps v0.1.2 // indirect
-	github.com/labstack/echo-jwt/v5 v5.0.1 // indirect
-	github.com/labstack/echo/v5 v5.0.4 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lmittmann/tint v1.1.2 // indirect
@@ -86,8 +86,6 @@ require (
 	github.com/riverqueue/river/riverdriver v0.23.1 // indirect
 	github.com/riverqueue/river/rivershared v0.23.1 // indirect
 	github.com/riverqueue/river/rivertype v0.23.1 // indirect
-	github.com/samber/lo v1.52.0 // indirect
-	github.com/samber/slog-echo v1.21.0 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/cast v1.9.2 // indirect
@@ -105,8 +103,6 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/valyala/histogram v1.2.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.opentelemetry.io/otel v1.29.0 // indirect
-	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
