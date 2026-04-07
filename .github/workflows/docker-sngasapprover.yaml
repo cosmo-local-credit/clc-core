@@ -51,5 +51,5 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
           tags: |
-            ghcr.io/grassrootseconomics/sn-gas-approver:latest
-            ghcr.io/grassrootseconomics/sn-gas-approver:${{ env.RELEASE_SHORT_COMMIT }}
+            ghcr.io/cosmo-local-credit/sn-gas-approver:latest
+            ghcr.io/cosmo-local-credit/sn-gas-approver:${{ env.RELEASE_SHORT_COMMIT }}
