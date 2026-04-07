@@ -6,6 +6,7 @@ const (
 	Approve           = "approve"
 	Check             = "check"
 	GiveTo            = "giveTo"
+	Have              = "have"
 	MintTo            = "mintTo"
 	NextTime          = "nextTime"
 	Register          = "register"
@@ -37,7 +38,8 @@ var Abi = map[string]*w3.Func{
 	Withdraw:  w3.MustNewFunc("withdraw(address,address,uint256)", ""),
 	Deposit:   w3.MustNewFunc("deposit(address,uint256)", ""),
 	SetQuoter: w3.MustNewFunc("setQuoter(address)", ""),
-	// TokenIndex
+	// AccountIndex / TokenIndex
+	Have:      w3.MustNewFunc("have(address)", "bool"),
 	Add:       w3.MustNewFunc("add(address)", "bool"),
 	AddressOf: w3.MustNewFunc("addressOf(bytes32)", "address"),
 }

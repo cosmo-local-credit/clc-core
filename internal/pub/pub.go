@@ -23,10 +23,10 @@ type (
 	}
 )
 
-const pushStream = "CUSTODIAL"
+const pushStream = "CUSTODIAL_SNGAS_APPROVER"
 
 var pushStreamSubjects = []string{
-	"CUSTODIAL.*",
+	"CUSTODIAL_SNGAS_APPROVER.*",
 }
 
 func NewPub(o PubOpts) *Pub {

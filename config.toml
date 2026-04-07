@@ -45,7 +45,7 @@ banned_tokens = ["0x471EcE3750Da237f93B8E339c536989b8978a438"]
 divvi_consumer = "0x5523058cdFfe5F3c1EaDADD5015E55C6E00fb439"
 
 [jetstream]
-endpoint = "nats://127.0.0.1:4222"
+endpoints = ["nats://127.0.0.1:4222"]
 id = "eth-custodial-1"
 persist_duration_hrs = 48
 

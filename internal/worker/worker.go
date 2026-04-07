@@ -119,6 +119,10 @@ func (w *WorkerContainer) Client() *river.Client[pgx.Tx] {
 	return w.queueClient
 }
 
+func (w *WorkerContainer) Registry() map[string]common.Address {
+	return w.registry
+}
+
 func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 	workers := river.NewWorkers()
 
@@ -171,6 +175,12 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 
 	if err := river.AddWorkerSafely(workers, &PoolDeployWorker{wc: wc}); err != nil {
 		return nil, err
+	}
+
+	if wc.registry[ethutils.AccountIndex] != (common.Address{}) {
+		if err := river.AddWorkerSafely(workers, &UsersIndexAddWorker{wc: wc}); err != nil {
+			return nil, err
+		}
 	}
 
 	return workers, nil

@@ -17,6 +17,9 @@ type Store interface {
 	CheckKeypair(context.Context, pgx.Tx, string) (bool, error)
 	LoadPrivateKey(context.Context, pgx.Tx, string) (keypair.Key, error)
 	LoadMasterSignerKey(context.Context, pgx.Tx) (keypair.Key, error)
+	// SN Gas Approver
+	InsertSNGasApproverAccount(context.Context, pgx.Tx, SNGasApproverAccount) error
+	GetSNGasApproverAccountByTrackingID(context.Context, pgx.Tx, string) (SNGasApproverAccount, error)
 	// Nonce
 	PeekNonce(context.Context, pgx.Tx, string) (uint64, error)
 	AcquireNonce(context.Context, pgx.Tx, string) (uint64, error)

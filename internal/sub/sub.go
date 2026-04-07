@@ -8,8 +8,11 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
+	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/riverqueue/river"
 )
 
 type (
@@ -21,6 +24,8 @@ type (
 		Pub                      *pub.Pub
 		Provider                 *ethutils.Provider
 		Logg                     *slog.Logger
+		QueueClient              *river.Client[pgx.Tx]
+		UsersIndex               common.Address
 	}
 
 	Sub struct {
@@ -31,6 +36,8 @@ type (
 		pub                      *pub.Pub
 		provider                 *ethutils.Provider
 		logg                     *slog.Logger
+		queueClient              *river.Client[pgx.Tx]
+		usersIndex               common.Address
 	}
 )
 
@@ -73,6 +80,8 @@ func NewSub(o SubObts) (*Sub, error) {
 		pub:                      o.Pub,
 		logg:                     o.Logg,
 		provider:                 o.Provider,
+		queueClient:              o.QueueClient,
+		usersIndex:               o.UsersIndex,
 	}, nil
 }
 

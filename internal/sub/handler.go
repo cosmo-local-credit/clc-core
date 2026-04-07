@@ -6,10 +6,13 @@ import (
 	"errors"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	custodialEvent "github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/eth-tracker/pkg/event"
 	"github.com/jackc/pgx/v5"
+	"github.com/lmittmann/w3"
+	"github.com/lmittmann/w3/module/eth"
 )
 
 func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) error {
@@ -44,9 +47,27 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 
 	if chainEvent.Success {
 		switch msgSubject {
-		case "TRACKER.CUSTODIAL_REGISTRATION":
-			if err := s.store.ActivateKeyPair(ctx, tx, chainEvent.Payload["account"].(string)); err != nil {
+		case "TRACKER.TOKEN_TRANSFER":
+			var inIndex bool
+			if err := s.provider.Client.CallCtx(
+				ctx,
+				eth.CallFunc(
+					s.usersIndex,
+					worker.Abi[worker.Have],
+					w3.A(otx.SignerAccount),
+				).Returns(&inIndex),
+			); err != nil {
 				return err
+			}
+			if inIndex {
+				s.logg.Debug("queueing gas refill for sn user", "address", otx.SignerAccount)
+				_, err = s.queueClient.InsertTx(ctx, tx, worker.GasRefillArgs{
+					TrackingID: otx.TrackingID,
+					Address:    otx.SignerAccount,
+				}, nil)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		updateDispatchStatus.Status = store.SUCCESS

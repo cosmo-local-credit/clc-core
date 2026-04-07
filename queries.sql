@@ -174,3 +174,22 @@ INNER JOIN otx ON keystore.id = otx.signer_account
 INNER JOIN dispatch ON otx.id = dispatch.otx_id
 WHERE dispatch.status NOT IN ('SUCCESS', 'REVERTED', 'PENDING') AND otx.otx_type NOT IN ('GENERIC_SIGN', 'OTHER_MANUAL')
 ORDER BY otx.id ASC LIMIT 100;
+
+--name: insert-sn-gas-approver-account
+-- Save a tracked sn-gas-approver account
+-- $1: tracking_id
+-- $2: address
+-- $3: users_index
+INSERT INTO sn_gas_approver_account (
+    tracking_id,
+    address,
+    users_index,
+    active
+) VALUES ($1, $2, $3, true);
+
+--name: get-sn-gas-approver-account-by-tracking-id
+-- Load tracked sn-gas-approver account by tracking id
+-- $1: tracking_id
+SELECT tracking_id, address, users_index, active, created_at, updated_at
+FROM sn_gas_approver_account
+WHERE tracking_id = $1;

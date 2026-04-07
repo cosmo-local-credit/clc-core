@@ -43,7 +43,7 @@ func loadJetStream() jetstream.JetStream {
 	var err error
 
 	natsConn, js, err = internaljs.NewJetStream(internaljs.JetStreamOpts{
-		Endpoint: ko.MustString("jetstream.endpoint"),
+		Endpoints: ko.Strings("jetstream.endpoints"),
 	})
 	if err != nil {
 		lo.Error("could not initialize jetstream", "error", err)
@@ -169,12 +169,14 @@ func initSub() *sub.Sub {
 	var err error
 
 	subopts := sub.SubObts{
-		Provider:   loadChainProvider(),
-		Store:      loadStore(),
-		JS:         loadJetStream(),
-		ConsumerID: ko.MustString("jetstream.id"),
-		Pub:        loadPub(),
-		Logg:       lo,
+		Provider:    loadChainProvider(),
+		Store:       loadStore(),
+		JS:          loadJetStream(),
+		ConsumerID:  ko.MustString("jetstream.id"),
+		Pub:         loadPub(),
+		Logg:        lo,
+		QueueClient: initWorker().Client(),
+		UsersIndex:  loadRegistry()[ethutils.AccountIndex],
 	}
 	if ko.MustInt64("chain.id") == ethutils.CeloMainnet {
 		lo.Info("activating divvi submissions on celo mainnet")
