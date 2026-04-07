@@ -193,3 +193,67 @@ INSERT INTO sn_gas_approver_account (
 SELECT tracking_id, address, users_index, active, created_at, updated_at
 FROM sn_gas_approver_account
 WHERE tracking_id = $1;
+
+--name: insert-next-erc20-workflow
+INSERT INTO next_erc20_workflow(
+    tracking_id,
+    action,
+    status,
+    name,
+    symbol,
+    decimals,
+    initial_supply,
+    initial_mintee,
+    owner,
+    expiry_timestamp,
+    factory_address,
+    admin_address,
+    proxy_address,
+    implementation_address,
+    previous_implementation_address,
+    version,
+    upgrade_calldata,
+    implementation_tx_hash,
+    action_tx_hash
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16, $17, $18, $19
+);
+
+--name: get-next-erc20-by-tracking-id
+SELECT id, tracking_id, action, status, name, symbol, decimals, initial_supply, initial_mintee, owner, expiry_timestamp, factory_address, admin_address, proxy_address, implementation_address, previous_implementation_address, version, upgrade_calldata, implementation_tx_hash, action_tx_hash, created_at, updated_at
+FROM next_erc20_workflow
+WHERE tracking_id = $1;
+
+--name: get-latest-next-erc20-by-symbol
+SELECT id, tracking_id, action, status, name, symbol, decimals, initial_supply, initial_mintee, owner, expiry_timestamp, factory_address, admin_address, proxy_address, implementation_address, previous_implementation_address, version, upgrade_calldata, implementation_tx_hash, action_tx_hash, created_at, updated_at
+FROM next_erc20_workflow
+WHERE symbol = $1
+ORDER BY version DESC, id DESC
+LIMIT 1;
+
+--name: get-latest-next-erc20-by-proxy
+SELECT id, tracking_id, action, status, name, symbol, decimals, initial_supply, initial_mintee, owner, expiry_timestamp, factory_address, admin_address, proxy_address, implementation_address, previous_implementation_address, version, upgrade_calldata, implementation_tx_hash, action_tx_hash, created_at, updated_at
+FROM next_erc20_workflow
+WHERE proxy_address = $1
+ORDER BY version DESC, id DESC
+LIMIT 1;
+
+--name: get-latest-successful-next-erc20-by-proxy
+SELECT id, tracking_id, action, status, name, symbol, decimals, initial_supply, initial_mintee, owner, expiry_timestamp, factory_address, admin_address, proxy_address, implementation_address, previous_implementation_address, version, upgrade_calldata, implementation_tx_hash, action_tx_hash, created_at, updated_at
+FROM next_erc20_workflow
+WHERE proxy_address = $1 AND status = 'SUCCESS'
+ORDER BY version DESC, id DESC
+LIMIT 1;
+
+--name: update-next-erc20-workflow
+UPDATE next_erc20_workflow
+SET status = $2,
+    proxy_address = CASE WHEN $3 = '' THEN proxy_address ELSE $3 END,
+    implementation_address = CASE WHEN $4 = '' THEN implementation_address ELSE $4 END,
+    previous_implementation_address = CASE WHEN $5 = '' THEN previous_implementation_address ELSE $5 END,
+    version = CASE WHEN $6 = 0 THEN version ELSE $6 END,
+    implementation_tx_hash = CASE WHEN $7 = '' THEN implementation_tx_hash ELSE $7 END,
+    action_tx_hash = CASE WHEN $8 = '' THEN action_tx_hash ELSE $8 END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tracking_id = $1;

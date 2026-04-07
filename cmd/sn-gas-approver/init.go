@@ -100,6 +100,7 @@ func loadRegistry() map[string]common.Address {
 		os.Exit(1)
 	}
 
+	lo.Info("sn regitsry loaded", "accountsIndex", registry[ethutils.AccountIndex].Hex(), "gasFaucet", registry[ethutils.GasFaucet].Hex())
 	return registry
 }
 

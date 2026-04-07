@@ -55,13 +55,20 @@ func NewSub(o SubObts) (*Sub, error) {
 		return nil, err
 	}
 
-	consumer, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+	consumer, err := stream.CreateConsumer(ctx, jetstream.ConsumerConfig{
 		Durable:       o.ConsumerID,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		FilterSubject: pullSubject,
+		DeliverPolicy: jetstream.DeliverNewPolicy,
 	})
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, jetstream.ErrConsumerExists) {
+			return nil, err
+		}
+		consumer, err = stream.Consumer(ctx, o.ConsumerID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	iter, err := consumer.Messages(
@@ -104,7 +111,6 @@ func (s *Sub) Process() {
 			}
 		}
 
-		s.logg.Debug("processing nats message", "subject", msg.Subject())
 		if err := s.processEvent(context.Background(), msg.Subject(), msg.Data()); err != nil {
 			s.logg.Error("jetstream: router: error processing nats message", "error", err)
 			msg.Nak()

@@ -86,18 +86,32 @@ func main() {
 	lo.Info("shutdown signal received")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultGracefulShutdownPeriod)
-	defer cancel()
 
-	subComponent.Close()
-	jsPub.Close()
-	loadGasOracle().Stop()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		subComponent.Close()
+		loadGasOracle().Stop()
+		if err := server.Stop(shutdownCtx); err != nil {
+			lo.Error("failed to stop sn-gas-approver HTTP server", "err", err)
+		}
+		if err := workerComponent.Stop(shutdownCtx); err != nil {
+			lo.Error("failed to stop worker queue", "err", err)
+		}
+	}()
 
-	if err := server.Stop(shutdownCtx); err != nil {
-		lo.Error("failed to stop sn-gas-approver HTTP server", "err", err)
+	go func() {
+		wg.Wait()
+		stop()
+		cancel()
+		os.Exit(0)
+	}()
+
+	<-shutdownCtx.Done()
+	if errors.Is(shutdownCtx.Err(), context.DeadlineExceeded) {
+		stop()
+		cancel()
+		lo.Error("graceful shutdown period exceeded, forcefully shutting down")
 	}
-	if err := workerComponent.Stop(shutdownCtx); err != nil {
-		lo.Error("failed to stop worker queue", "err", err)
-	}
-
-	wg.Wait()
+	os.Exit(1)
 }
