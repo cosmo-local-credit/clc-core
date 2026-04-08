@@ -257,3 +257,13 @@ SET status = $2,
     action_tx_hash = CASE WHEN $8 = '' THEN action_tx_hash ELSE $8 END,
     updated_at = CURRENT_TIMESTAMP
 WHERE tracking_id = $1;
+
+--name: get-sn-gas-approver-account-by-address
+SELECT tracking_id, address, users_index, active, status, created_at, updated_at
+FROM sn_gas_approver_account
+WHERE address = $1 AND status = 'SUCCESS';
+
+--name: update-sn-gas-approver-account-status
+UPDATE sn_gas_approver_account
+SET status = $2, updated_at = CURRENT_TIMESTAMP
+WHERE tracking_id = $1;

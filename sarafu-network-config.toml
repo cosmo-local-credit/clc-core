@@ -1,5 +1,6 @@
 [sn_gas_approver]
 address = ":5010"
+api_key = ""
 
 [postgres]
 dsn = "postgres://postgres:postgres@127.0.0.1:5432/ge_celo_custodial"

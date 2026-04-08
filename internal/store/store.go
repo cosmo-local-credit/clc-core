@@ -20,6 +20,8 @@ type Store interface {
 	// SN Gas Approver
 	InsertSNGasApproverAccount(context.Context, pgx.Tx, SNGasApproverAccount) error
 	GetSNGasApproverAccountByTrackingID(context.Context, pgx.Tx, string) (SNGasApproverAccount, error)
+	GetSNGasApproverAccountByAddress(context.Context, pgx.Tx, string) (SNGasApproverAccount, error)
+	UpdateSNGasApproverAccountStatus(context.Context, pgx.Tx, string, string) error
 	// Nonce
 	PeekNonce(context.Context, pgx.Tx, string) (uint64, error)
 	AcquireNonce(context.Context, pgx.Tx, string) (uint64, error)

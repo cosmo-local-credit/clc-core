@@ -9,6 +9,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	custodialEvent "github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/uuid"
 	"github.com/grassrootseconomics/eth-tracker/pkg/event"
 	"github.com/jackc/pgx/v5"
 	"github.com/lmittmann/w3"
@@ -16,7 +17,6 @@ import (
 )
 
 func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) error {
-	s.logg.Debug("sub processing event", "subject", msgSubject, "data", string(msg))
 	var chainEvent event.Event
 
 	if err := json.Unmarshal(msg, &chainEvent); err != nil {
@@ -29,6 +29,34 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	}
 	defer tx.Rollback(ctx)
 
+	if chainEvent.Success && msgSubject == "TRACKER.TOKEN_TRANSFER" {
+		from := chainEvent.Payload["from"].(string)
+
+		s.logg.Debug("processing token transfer event", "txHash", chainEvent.TxHash, "from", from)
+		var inIndex bool
+		if err := s.provider.Client.CallCtx(
+			ctx,
+			eth.CallFunc(
+				s.usersIndex,
+				worker.Abi[worker.Have],
+				w3.A(from),
+			).Returns(&inIndex),
+		); err != nil {
+			return err
+		}
+
+		if inIndex {
+			s.logg.Debug("queueing gas refill for sn user", "address", from)
+			_, err = s.queueClient.InsertTx(ctx, tx, worker.GasRefillArgs{
+				TrackingID: uuid.NewString(),
+				Address:    from,
+			}, nil)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	otx, err := s.store.GetOTXByTxHash(
 		ctx,
 		tx,
@@ -36,9 +64,11 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+			s.logg.Debug("external signed tx, skipping", "txHash", chainEvent.TxHash)
+			return tx.Commit(ctx)
+		} else {
+			return err
 		}
-		return err
 	}
 
 	updateDispatchStatus := store.DispatchTx{
@@ -47,27 +77,14 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 
 	if chainEvent.Success {
 		switch msgSubject {
-		case "TRACKER.TOKEN_TRANSFER":
-			var inIndex bool
-			if err := s.provider.Client.CallCtx(
-				ctx,
-				eth.CallFunc(
-					s.usersIndex,
-					worker.Abi[worker.Have],
-					w3.A(otx.SignerAccount),
-				).Returns(&inIndex),
-			); err != nil {
+		case "TRACKER.CUSTODIAL_REGISTRATION":
+			if err := s.store.ActivateKeyPair(ctx, tx, chainEvent.Payload["account"].(string)); err != nil {
 				return err
 			}
-			if inIndex {
-				s.logg.Debug("queueing gas refill for sn user", "address", otx.SignerAccount)
-				_, err = s.queueClient.InsertTx(ctx, tx, worker.GasRefillArgs{
-					TrackingID: otx.TrackingID,
-					Address:    otx.SignerAccount,
-				}, nil)
-				if err != nil {
-					return err
-				}
+		}
+		if otx.OTXType == store.USERS_INDEX_ADD {
+			if err := s.store.UpdateSNGasApproverAccountStatus(ctx, tx, otx.TrackingID, store.SNGasApproverStatusSuccess); err != nil {
+				return err
 			}
 		}
 		updateDispatchStatus.Status = store.SUCCESS

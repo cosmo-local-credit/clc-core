@@ -38,8 +38,10 @@ type (
 		GetLatestNextERC20ByProxy           string `query:"get-latest-next-erc20-by-proxy"`
 		GetLatestSuccessfulNextERC20ByProxy string `query:"get-latest-successful-next-erc20-by-proxy"`
 		UpdateNextERC20Workflow             string `query:"update-next-erc20-workflow"`
-		InsertSNGasApproverAccount          string `query:"insert-sn-gas-approver-account"`
-		GetSNGasApproverAccountByTrackingID string `query:"get-sn-gas-approver-account-by-tracking-id"`
+		InsertSNGasApproverAccount            string `query:"insert-sn-gas-approver-account"`
+		GetSNGasApproverAccountByTrackingID  string `query:"get-sn-gas-approver-account-by-tracking-id"`
+		GetSNGasApproverAccountByAddress     string `query:"get-sn-gas-approver-account-by-address"`
+		UpdateSNGasApproverAccountStatus     string `query:"update-sn-gas-approver-account-status"`
 	}
 
 	PgOpts struct {

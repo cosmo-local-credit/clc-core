@@ -203,6 +203,7 @@ func initServer() *sngasapprover.Server {
 
 	apiServer = sngasapprover.New(sngasapprover.ServerOpts{
 		ListenAddress: ko.MustString("sn_gas_approver.address"),
+		APIKey:        ko.MustString("sn_gas_approver.api_key"),
 		Store:         loadStore(),
 		Worker:        initWorker(),
 		Logg:          lo,
