@@ -36,9 +36,7 @@ func InitLogger() *slog.Logger {
 }
 
 func InitConfig(lo *slog.Logger, confFilePath string) *koanf.Koanf {
-	var (
-		ko = koanf.New(".")
-	)
+	var ko = koanf.New(".")
 
 	confFile := file.Provider(confFilePath)
 	if err := ko.Load(confFile, toml.Parser()); err != nil {
@@ -48,17 +46,21 @@ func InitConfig(lo *slog.Logger, confFilePath string) *koanf.Koanf {
 
 	err := ko.Load(env.ProviderWithValue("CUSTODIAL_", ".", func(s string, v string) (string, interface{}) {
 		key := strings.ReplaceAll(strings.ToLower(strings.TrimPrefix(s, "CUSTODIAL_")), "__", ".")
+		if strings.Contains(v, ",") {
+			return key, strings.Split(v, ",")
+		}
 		if strings.Contains(v, " ") {
 			return key, strings.Split(v, " ")
 		}
 		return key, v
 	}), nil)
+
 	if err != nil {
 		lo.Error("could not override config from env vars", "error", err)
 		os.Exit(1)
 	}
 
-	if os.Getenv("DEBUG") != "" || os.Getenv("DEV") != "" {
+	if os.Getenv("DEBUG") != "" {
 		ko.Print()
 	}
 

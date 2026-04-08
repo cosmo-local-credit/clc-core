@@ -16,7 +16,7 @@ func TestInitConfig_SpaceSeparatedEnvVarSplitIntoSlice(t *testing.T) {
 	}
 	f.Close()
 
-	t.Setenv("CUSTODIAL_JETSTREAM__ENDPOINTS", "nats://10.0.0.2:4222 nats://10.0.0.3:4222 nats://10.0.0.4:4222")
+	t.Setenv("CUSTODIAL_JETSTREAM__ENDPOINTS", "nats://10.0.0.2:4222,nats://10.0.0.3:4222,nats://10.0.0.4:4222")
 
 	ko := InitConfig(slog.Default(), f.Name())
 
