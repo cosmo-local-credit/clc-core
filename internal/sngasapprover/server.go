@@ -60,6 +60,9 @@ func New(o ServerOpts) *Server {
 		return c.JSON(http.StatusOK, map[string]bool{"ok": true})
 	})
 	router.POST("/approve", server.approveHandler, server.apiKeyMiddleware)
+	router.RouteNotFound("/*", func(c echo.Context) error {
+		return c.NoContent(http.StatusNotFound)
+	})
 
 	router.HTTPErrorHandler = server.httpErrorHandler
 
