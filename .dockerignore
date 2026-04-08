@@ -10,3 +10,4 @@
 !/queries.sql
 !/queries-next.sql
 !/go.*
+!/sarafu-network-config.toml
