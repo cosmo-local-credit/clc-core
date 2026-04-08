@@ -23,6 +23,7 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /build/sn-gas-approver .
 COPY --from=build /build/migrations ./migrations
 COPY --from=build /build/queries.sql .
+COPY --from=build /build/sarafu-network-config.toml .
 
 EXPOSE 5003
 
