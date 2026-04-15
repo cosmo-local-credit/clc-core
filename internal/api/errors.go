@@ -39,7 +39,8 @@ func handleBindError(c *echo.Context) error {
 	})
 }
 
-func handleValidateError(c *echo.Context) error {
+func (a *API) handleValidateError(c *echo.Context, err error) error {
+	a.logg.Error("validation error", "path", c.Path(), "err", err)
 	return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 		Ok:          false,
 		ErrCode:     apiresp.ErrCodeValidationFailed,

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
+	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,7 @@ type (
 		Store         store.Store
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
+		Pub           *pub.Pub
 	}
 
 	WorkerContainer struct {
@@ -32,6 +34,7 @@ type (
 		store         store.Store
 		logg          *slog.Logger
 		chainProvider *ethutils.Provider
+		pub           *pub.Pub
 	}
 )
 
@@ -42,6 +45,7 @@ func New(o WorkerOpts) *WorkerContainer {
 		store:         o.Store,
 		logg:          o.Logg,
 		chainProvider: o.ChainProvider,
+		pub:           o.Pub,
 	}
 }
 
@@ -50,7 +54,7 @@ func (w *WorkerContainer) Bootstrap() error {
 	defer cancel()
 
 	riverPgxDriver := riverpgxv5.New(w.store.Pool())
-	riverMigrator, err := rivermigrate.New(riverPgxDriver, &rivermigrate.Config{Logger: w.logg})
+	riverMigrator, err := rivermigrate.New(riverPgxDriver, nil)
 	if err != nil {
 		return err
 	}
@@ -101,6 +105,10 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 	}
 
 	if err := river.AddWorkerSafely(workers, &UpgradeERC20Worker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &DisptachWorker{wc: wc}); err != nil {
 		return nil, err
 	}
 

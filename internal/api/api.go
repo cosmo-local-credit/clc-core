@@ -8,7 +8,6 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/go-playground/validator/v10"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/jackc/pgx/v5"
@@ -24,30 +23,25 @@ type (
 		Build         string
 		Prod          bool
 		CORS          []string
-		Registry      map[string]common.Address
 		VerifyingKey  crypto.PublicKey
 		SigningKey    crypto.PrivateKey
 		Store         store.Store
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
 		QueueClient   *river.Client[pgx.Tx]
-		BannedTokens  []string
 	}
 
 	API struct {
 		listenAddress string
 		build         string
 		prod          bool
-		registry      map[string]common.Address
 		signingKey    crypto.PrivateKey
 		verifyingKey  crypto.PublicKey
 		store         store.Store
 		logg          *slog.Logger
 		chainProvider *ethutils.Provider
-		router        *echo.Echo
 		server        *http.Server
 		queueClient   *river.Client[pgx.Tx]
-		bannedTokens  map[string]struct{}
 	}
 )
 
@@ -60,7 +54,6 @@ func New(o APIOpts) *API {
 	a := &API{
 		prod:          o.Prod,
 		build:         o.Build,
-		registry:      o.Registry,
 		signingKey:    o.SigningKey,
 		verifyingKey:  o.VerifyingKey,
 		listenAddress: o.ListenAddress,
@@ -68,11 +61,6 @@ func New(o APIOpts) *API {
 		store:         o.Store,
 		chainProvider: o.ChainProvider,
 		queueClient:   o.QueueClient,
-		bannedTokens:  make(map[string]struct{}, len(o.BannedTokens)),
-	}
-
-	for _, addr := range o.BannedTokens {
-		a.bannedTokens[addr] = struct{}{}
 	}
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
@@ -114,10 +102,6 @@ func New(o APIOpts) *API {
 	}))
 	router.Use(middleware.CORSWithConfig(corsConfig))
 
-	authGroup := router.Group("/auth")
-	authGroup.POST("/login", a.loginHandler)
-	authGroup.POST("/logout", a.logoutHandler)
-
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(echojwt.WithConfig(a.apiJWTAuthConfig()))
 	apiGroup.Use(a.authStatusMiddleware())
@@ -125,7 +109,6 @@ func New(o APIOpts) *API {
 	apiGroup.POST("/contracts/erc20", a.contractsERC20Handler)
 	apiGroup.POST("/contracts/erc20/upgrade", a.contractsERC20UpgradeHandler)
 
-	a.router = router
 	a.server = &http.Server{
 		Addr:    o.ListenAddress,
 		Handler: router,

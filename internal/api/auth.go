@@ -2,13 +2,8 @@ package api
 
 import (
 	"errors"
-	"fmt"
-	"net/http"
-	"time"
 
-	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/grassrootseconomics/ethutils"
 	echojwt "github.com/labstack/echo-jwt/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -18,13 +13,6 @@ type JWTCustomClaims struct {
 	Service   bool   `json:"service"`
 	jwt.RegisteredClaims
 }
-
-const (
-	cookieName   = "__ge_cust_auth"
-	cookieDomain = "sarafu.network"
-
-	defaultExpiryPeriod = 1 * 24 * time.Hour
-)
 
 func (a *API) apiJWTAuthConfig() echojwt.Config {
 	return echojwt.Config{
@@ -44,74 +32,6 @@ func (a *API) apiJWTAuthConfig() echojwt.Config {
 		SigningMethod: jwt.SigningMethodEdDSA.Alg(),
 		SigningKey:    a.verifyingKey,
 	}
-}
-
-func (a *API) loginHandler(c *echo.Context) error {
-	req := apiresp.LoginRequest{}
-
-	if err := c.Bind(&req); err != nil {
-		return handleBindError(c)
-	}
-
-	if err := c.Validate(req); err != nil {
-		return handleValidateError(c)
-	}
-
-	issueDate := time.Now()
-	expiryDate := issueDate.Add(defaultExpiryPeriod)
-
-	claims := JWTCustomClaims{
-		Service:   false,
-		PublicKey: ethutils.ZeroAddress.Hex(),
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    fmt.Sprintf("eth-custodial-%s", a.build),
-			Subject:   ethutils.ZeroAddress.Hex(),
-			IssuedAt:  jwt.NewNumericDate(issueDate),
-			ExpiresAt: jwt.NewNumericDate(expiryDate),
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
-	t, err := token.SignedString(a.signingKey)
-	if err != nil {
-		return err
-	}
-
-	cookie := &http.Cookie{
-		Name:     cookieName,
-		Value:    t,
-		Secure:   true,
-		Expires:  expiryDate,
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Domain:   cookieDomain,
-	}
-	c.SetCookie(cookie)
-
-	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok:          true,
-		Description: "Login successful",
-		Result:      map[string]any{"token": t},
-	})
-}
-
-func (a *API) logoutHandler(c *echo.Context) error {
-	cookie := &http.Cookie{
-		Name:     cookieName,
-		Value:    "",
-		Secure:   true,
-		MaxAge:   -1,
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Domain:   cookieDomain,
-	}
-	c.SetCookie(cookie)
-
-	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok:          true,
-		Description: "Logout successful",
-		Result:      nil,
-	})
 }
 
 func (a *API) authStatusMiddleware() echo.MiddlewareFunc {

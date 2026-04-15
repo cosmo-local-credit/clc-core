@@ -18,7 +18,6 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/knadh/koanf/v2"
 )
@@ -50,7 +49,6 @@ func main() {
 	pgStore := loadStore()
 	chainProvider := loadChainProvider()
 	gasOracle := loadGasOracle(chainProvider)
-	registry := loadRegistry(chainProvider)
 	workerContainer := loadNextWorker(pgStore, chainProvider, gasOracle)
 
 	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
@@ -64,14 +62,12 @@ func main() {
 		Build:         build,
 		ListenAddress: ko.MustString("api.address"),
 		CORS:          ko.MustStrings("api.cors"),
-		Registry:      registry,
 		SigningKey:    privateKey,
 		VerifyingKey:  publicKey,
 		Store:         pgStore,
 		ChainProvider: chainProvider,
 		QueueClient:   workerContainer.Client(),
 		Logg:          lo,
-		BannedTokens:  ko.Strings("chain.banned_tokens"),
 	})
 
 	lo.Info("starting deployer", "build", build)
@@ -134,17 +130,6 @@ func loadChainProvider() *ethutils.Provider {
 		ethutils.WithDivviConsumerAddress(ko.MustString("chain.divvi_consumer")),
 	)
 }
-
-func loadRegistry(chainProvider *ethutils.Provider) map[string]common.Address {
-	registry, err := chainProvider.RegistryMap(context.Background(), ethutils.HexToAddress(ko.MustString("chain.ge_registry")))
-	if err != nil {
-		lo.Error("could not fetch on chain registry", "error", err)
-		os.Exit(1)
-	}
-
-	return registry
-}
-
 func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	switch ko.MustString("gas.oracle_type") {
 	case "static":

@@ -129,15 +129,45 @@ func (w *DeployERC20Worker) Work(ctx context.Context, job *river.Job[DeployERC20
 		return err
 	}
 
-	// Legacy integration used to enqueue dispatch jobs here.
-	// Keep the staged OTX + dispatch rows for now and add a next-native
-	// dispatch pipeline when the next worker stack is ready.
+	// enqueue dispatch jobs for implementation and proxy deployment
+	var insertParams []river.InsertManyParams
+	if implementationTx != nil {
+		insertParams = append(insertParams, river.InsertManyParams{
+			Args: DispatchArgs{
+				TrackingID: workflow.TrackingID,
+				OTXID:      implementationTx.OTXID,
+				RawTx:      implementationTx.RawHex,
+			},
+			InsertOpts: &river.InsertOpts{Priority: 1},
+		})
+	}
+	if proxyTx != nil {
+		insertParams = append(insertParams, river.InsertManyParams{
+			Args: DispatchArgs{
+				TrackingID: workflow.TrackingID,
+				OTXID:      proxyTx.OTXID,
+				RawTx:      proxyTx.RawHex,
+			},
+			InsertOpts: &river.InsertOpts{Priority: 2},
+		})
+	}
+
+	if len(insertParams) > 0 {
+		if _, err := w.wc.queueClient.InsertMany(ctx, insertParams); err != nil {
+			return err
+		}
+	}
+
+	var implTxHash string
+	if implementationTx != nil {
+		implTxHash = implementationTx.Hash
+	}
 
 	if err := w.wc.updateWorkflow(ctx, store.NextERC20WorkflowUpdate{
 		TrackingID:            workflow.TrackingID,
 		Status:                store.NextERC20StatusRunning,
 		ImplementationAddress: implementationAddress.Hex(),
-		ImplementationTxHash:  implementationTx.Hash,
+		ImplementationTxHash:  implTxHash,
 		ActionTxHash:          proxyTx.Hash,
 	}); err != nil {
 		return err
@@ -216,16 +246,46 @@ func (w *UpgradeERC20Worker) Work(ctx context.Context, job *river.Job[UpgradeERC
 		return err
 	}
 
-	// Legacy integration used to enqueue dispatch jobs here.
-	// Keep the staged OTX + dispatch rows for now and add a next-native
-	// dispatch pipeline when the next worker stack is ready.
+	// enqueue dispatch jobs
+	var insertParamsUpgrade []river.InsertManyParams
+	if implementationTx != nil {
+		insertParamsUpgrade = append(insertParamsUpgrade, river.InsertManyParams{
+			Args: DispatchArgs{
+				TrackingID: workflow.TrackingID,
+				OTXID:      implementationTx.OTXID,
+				RawTx:      implementationTx.RawHex,
+			},
+			InsertOpts: &river.InsertOpts{Priority: 1},
+		})
+	}
+	if upgradeTx != nil {
+		insertParamsUpgrade = append(insertParamsUpgrade, river.InsertManyParams{
+			Args: DispatchArgs{
+				TrackingID: workflow.TrackingID,
+				OTXID:      upgradeTx.OTXID,
+				RawTx:      upgradeTx.RawHex,
+			},
+			InsertOpts: &river.InsertOpts{Priority: 2},
+		})
+	}
+
+	if len(insertParamsUpgrade) > 0 {
+		if _, err := w.wc.queueClient.InsertMany(ctx, insertParamsUpgrade); err != nil {
+			return err
+		}
+	}
+
+	var implTxHashUp string
+	if implementationTx != nil {
+		implTxHashUp = implementationTx.Hash
+	}
 
 	if err := w.wc.updateWorkflow(ctx, store.NextERC20WorkflowUpdate{
 		TrackingID:                    workflow.TrackingID,
 		Status:                        store.NextERC20StatusRunning,
 		ImplementationAddress:         implementationAddress.Hex(),
 		PreviousImplementationAddress: workflow.PreviousImplementationAddress,
-		ImplementationTxHash:          implementationTx.Hash,
+		ImplementationTxHash:          implTxHashUp,
 		ActionTxHash:                  upgradeTx.Hash,
 	}); err != nil {
 		return err

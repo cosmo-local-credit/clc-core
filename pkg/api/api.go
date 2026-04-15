@@ -90,20 +90,22 @@ type (
 	}
 
 	NextERC20DeployRequest struct {
-		Name            string `json:"name" validate:"required"`
-		Symbol          string `json:"symbol" validate:"required"`
-		Decimals        uint8  `json:"decimals" validate:"required,number,gt=0"`
-		InitialSupply   string `json:"initialSupply" validate:"required"`
-		InitialMintee   string `json:"initialMintee" validate:"required,eth_addr_checksum"`
-		Owner           string `json:"owner" validate:"required,eth_addr_checksum"`
-		ExpiryTimestamp string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
-		FactoryAddress  string `json:"factoryAddress" validate:"required,eth_addr_checksum"`
-		AdminAddress    string `json:"adminAddress" validate:"required,eth_addr_checksum"`
+		Name                  string `json:"name" validate:"required"`
+		Symbol                string `json:"symbol" validate:"required"`
+		Decimals              uint8  `json:"decimals" validate:"required,number,gt=0"`
+		InitialSupply         string `json:"initialSupply" validate:"required"`
+		InitialMintee         string `json:"initialMintee" validate:"required,eth_addr_checksum"`
+		Owner                 string `json:"owner" validate:"required,eth_addr_checksum"`
+		ExpiryTimestamp       string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
+		FactoryAddress        string `json:"factoryAddress" validate:"required,eth_addr_checksum"`
+		ProxyAdminAddress     string `json:"proxyAdminAddress" validate:"required,eth_addr_checksum"`
+		ImplementationAddress string `json:"implementationAddress,omitempty" validate:"omitempty,eth_addr_checksum"`
 	}
 
 	NextERC20UpgradeRequest struct {
-		ProxyAddress    string `json:"proxyAddress" validate:"required,eth_addr_checksum"`
-		UpgradeCalldata string `json:"upgradeCalldata,omitempty"`
+		ProxyAddress          string `json:"proxyAddress" validate:"required,eth_addr_checksum"`
+		UpgradeCalldata       string `json:"upgradeCalldata,omitempty"`
+		ImplementationAddress string `json:"implementationAddress,omitempty" validate:"omitempty,eth_addr_checksum"`
 	}
 )
 
@@ -116,6 +118,5 @@ const (
 	ErrJWTAuth                 = "E06"
 	ErrNoRecordFound           = "E07"
 	ErrBannedToken             = "E08"
-	ErrSymbolAlreadyExists     = "E09"
 	ErrPretiumLeak             = "E10"
 )

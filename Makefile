@@ -17,7 +17,7 @@ build-clccore:
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${CLCCORE_BIN} cmd/clccore/main.go
 
 run:
-	${BUILD_CONF} ${DEBUG} go run cmd/service/*.go
+	${BUILD_CONF} ${DEBUG} go run cmd/clccore/main.go
 
 run-clccore:
 	${BUILD_CONF} ${DEBUG} go run cmd/clccore/main.go

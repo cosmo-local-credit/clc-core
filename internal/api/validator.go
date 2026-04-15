@@ -11,8 +11,3 @@ type Validator struct {
 func (v *Validator) Validate(i interface{}) error {
 	return v.ValidatorProvider.Struct(i)
 }
-
-func (a *API) isBannedToken(tokenAddress string) bool {
-	_, exists := a.bannedTokens[tokenAddress]
-	return exists
-}
