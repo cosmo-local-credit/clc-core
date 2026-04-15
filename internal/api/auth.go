@@ -9,8 +9,8 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/grassrootseconomics/ethutils"
-	echojwt "github.com/labstack/echo-jwt/v4"
-	"github.com/labstack/echo/v4"
+	echojwt "github.com/labstack/echo-jwt/v5"
+	"github.com/labstack/echo/v5"
 )
 
 type JWTCustomClaims struct {
@@ -28,8 +28,8 @@ const (
 
 func (a *API) apiJWTAuthConfig() echojwt.Config {
 	return echojwt.Config{
-		ErrorHandler: func(c echo.Context, err error) error {
-			var reason = "An unknown JWT error occurred"
+		ErrorHandler: func(c *echo.Context, err error) error {
+			var reason = "an unknown JWT error occurred"
 
 			if errors.Is(err, echojwt.ErrJWTMissing) {
 				reason = "token missing from Authorization header or cookie"
@@ -40,17 +40,13 @@ func (a *API) apiJWTAuthConfig() echojwt.Config {
 			}
 			return handleJWTAuthError(c, reason)
 		},
-		BeforeFunc: func(c echo.Context) {
-			a.logg.Info("header", "authorization", c.Request().Header.Get("Authorization"))
-		},
-		// Note that there is a space after Bearer to correctlty extract the token.
 		TokenLookup:   "header:Authorization:Bearer ,cookie:__ge_cust_auth",
 		SigningMethod: jwt.SigningMethodEdDSA.Alg(),
 		SigningKey:    a.verifyingKey,
 	}
 }
 
-func (a *API) loginHandler(c echo.Context) error {
+func (a *API) loginHandler(c *echo.Context) error {
 	req := apiresp.LoginRequest{}
 
 	if err := c.Bind(&req); err != nil {
@@ -65,12 +61,10 @@ func (a *API) loginHandler(c echo.Context) error {
 	expiryDate := issueDate.Add(defaultExpiryPeriod)
 
 	claims := JWTCustomClaims{
-		Service: false,
-		// FetchPublicKey from auth db
+		Service:   false,
 		PublicKey: ethutils.ZeroAddress.Hex(),
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer: fmt.Sprintf("eth-custodial-%s", a.build),
-			// Use PublicKey here as well
+			Issuer:    fmt.Sprintf("eth-custodial-%s", a.build),
 			Subject:   ethutils.ZeroAddress.Hex(),
 			IssuedAt:  jwt.NewNumericDate(issueDate),
 			ExpiresAt: jwt.NewNumericDate(expiryDate),
@@ -101,7 +95,7 @@ func (a *API) loginHandler(c echo.Context) error {
 	})
 }
 
-func (a *API) logoutHandler(c echo.Context) error {
+func (a *API) logoutHandler(c *echo.Context) error {
 	cookie := &http.Cookie{
 		Name:     cookieName,
 		Value:    "",
@@ -122,7 +116,7 @@ func (a *API) logoutHandler(c echo.Context) error {
 
 func (a *API) authStatusMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			token, ok := c.Get("user").(*jwt.Token)
 			if !ok {
 				return handleJWTAuthError(c, "JWT token missing or invalid")
@@ -133,11 +127,11 @@ func (a *API) authStatusMiddleware() echo.MiddlewareFunc {
 			}
 			pubKey, ok := claims["publicKey"].(string)
 			if !ok {
-				return handleJWTAuthError(c, "Public key missing in JWT claims")
+				return handleJWTAuthError(c, "public key missing in JWT claims")
 			}
 			serviceKey, ok := claims["service"].(bool)
 			if !ok {
-				return handleJWTAuthError(c, "Service key missing in JWT claims")
+				return handleJWTAuthError(c, "service key missing in JWT claims")
 			}
 
 			c.Set("publicKey", pubKey)

@@ -4,74 +4,62 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/cosmo-local-credit/clc-core/pkg/api"
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/jackc/pgx/v5"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
-func newBadRequestError(message ...interface{}) *echo.HTTPError {
-	return echo.NewHTTPError(http.StatusBadRequest, message...)
-}
-
-func (a *API) customHTTPErrorHandler(err error, c echo.Context) {
-	if c.Response().Committed {
+func (a *API) customHTTPErrorHandler(c *echo.Context, err error) {
+	if r, rErr := echo.UnwrapResponse(c.Response()); rErr == nil && r.Committed {
 		return
 	}
 
-	if hErr, ok := err.(*echo.HTTPError); ok {
-		var errorMsg string
-
-		if m, ok := hErr.Message.(error); ok {
-			errorMsg = m.Error()
-		} else if m, ok := hErr.Message.(string); ok {
-			errorMsg = m
-		}
-
-		c.JSON(hErr.Code, api.ErrResponse{
+	var hErr *echo.HTTPError
+	if errors.As(err, &hErr) {
+		c.JSON(hErr.Code, apiresp.ErrResponse{
 			Ok:          false,
-			Description: errorMsg,
+			Description: hErr.Message,
 		})
 		return
 	}
 
 	a.logg.Error("api: echo error", "path", c.Path(), "err", err)
-	c.JSON(http.StatusInternalServerError, api.ErrResponse{
+	c.JSON(http.StatusInternalServerError, apiresp.ErrResponse{
 		Ok:          false,
 		Description: "Internal server error",
-		ErrCode:     api.ErrCodeInternalServerError,
+		ErrCode:     apiresp.ErrCodeInternalServerError,
 	})
 }
 
-func handleBindError(c echo.Context) error {
-	return c.JSON(http.StatusBadRequest, api.ErrResponse{
+func handleBindError(c *echo.Context) error {
+	return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 		Ok:          false,
-		ErrCode:     api.ErrCodeInvalidJSON,
+		ErrCode:     apiresp.ErrCodeInvalidJSON,
 		Description: "Invalid or malformed request",
 	})
 }
 
-func handleValidateError(c echo.Context) error {
-	return c.JSON(http.StatusBadRequest, api.ErrResponse{
+func handleValidateError(c *echo.Context) error {
+	return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 		Ok:          false,
-		ErrCode:     api.ErrCodeValidationFailed,
+		ErrCode:     apiresp.ErrCodeValidationFailed,
 		Description: "Validation failed on one or more fields",
 	})
 }
 
-func handleJWTAuthError(c echo.Context, errorReason string) error {
-	return c.JSON(http.StatusUnauthorized, api.ErrResponse{
+func handleJWTAuthError(c *echo.Context, errorReason string) error {
+	return c.JSON(http.StatusUnauthorized, apiresp.ErrResponse{
 		Ok:          false,
-		ErrCode:     api.ErrJWTAuth,
-		Description: "JWT authentication failed " + errorReason,
+		ErrCode:     apiresp.ErrJWTAuth,
+		Description: "JWT authentication failed: " + errorReason,
 	})
 }
 
-func handlePostgresError(c echo.Context, err error) error {
-	// TODO: Use a switch case to handle moree pg errors if needed
+func handlePostgresError(c *echo.Context, err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
-		return c.JSON(http.StatusNotFound, api.ErrResponse{
+		return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
 			Ok:          false,
-			ErrCode:     api.ErrNoRecordFound,
+			ErrCode:     apiresp.ErrNoRecordFound,
 			Description: "Record(s) not found",
 		})
 	}

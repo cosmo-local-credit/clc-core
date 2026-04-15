@@ -2,33 +2,28 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 	"github.com/grassrootseconomics/ethutils"
-	"github.com/labstack/echo/v4"
+	"github.com/jackc/pgx/v5"
+	"github.com/labstack/echo/v5"
 	"github.com/lmittmann/w3"
 	"github.com/lmittmann/w3/module/eth"
+	"github.com/riverqueue/river"
 )
 
-// ERC20Handler godoc
-//
-//	@Summary		ERC20 deploy request
-//	@Description	ERC20 deploy request
-//	@Tags			Contracts
-//	@Accept			json
-//	@Produce		json
-//	@Param			erc20DeployRequest	body		apiresp.ERC20DeployRequest	true	"ERC20 deploy request"
-//	@Success		200					{object}	apiresp.OKResponse
-//	@Failure		400					{object}	apiresp.ErrResponse
-//	@Failure		500					{object}	apiresp.ErrResponse
-//	@Security		ApiKeyAuth
-//	@Router			/contracts/erc20 [post]
-func (a *API) contractsERC20Handler(c echo.Context) error {
-	req := apiresp.ERC20DeployRequest{}
+var funcAddressOf = w3.MustNewFunc("addressOf(bytes32)", "address")
+
+func (a *API) contractsERC20Handler(c *echo.Context) error {
+	req := apiresp.NextERC20DeployRequest{}
 
 	if err := c.Bind(&req); err != nil {
 		return handleBindError(c)
@@ -36,6 +31,24 @@ func (a *API) contractsERC20Handler(c echo.Context) error {
 
 	if err := c.Validate(req); err != nil {
 		return handleValidateError(c)
+	}
+
+	tx, err := a.store.Pool().Begin(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c.Request().Context())
+
+	existingWorkflow, err := a.store.GetLatestNextERC20WorkflowBySymbol(c.Request().Context(), tx, req.Symbol)
+	if err == nil && existingWorkflow.Status != store.NextERC20StatusFailed {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			Description: "Token with this symbol already has an active or completed next deployment",
+			ErrCode:     apiresp.ErrSymbolAlreadyExists,
+		})
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return handlePostgresError(c, err)
 	}
 
 	exists, err := a.alreadyExists(c.Request().Context(), a.registry[ethutils.TokenIndex], req.Symbol)
@@ -50,24 +63,43 @@ func (a *API) contractsERC20Handler(c echo.Context) error {
 		})
 	}
 
-	tx, err := a.store.Pool().Begin(c.Request().Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(c.Request().Context())
-
 	trackingID := uuid.NewString()
 
-	_, err = a.queueClient.InsertTx(c.Request().Context(), tx, worker.TokenDeployArgs{
+	initialSupply, err := strconv.ParseInt(req.InitialSupply, 10, 64)
+	if err != nil {
+		return handleValidateError(c)
+	}
+
+	expiryTimestamp := int64(0)
+	if req.ExpiryTimestamp != "" {
+		expiryTimestamp, err = strconv.ParseInt(req.ExpiryTimestamp, 10, 64)
+		if err != nil {
+			return handleValidateError(c)
+		}
+	}
+
+	err = a.store.InsertNextERC20Workflow(c.Request().Context(), tx, store.NextERC20Workflow{
 		TrackingID:      trackingID,
+		Action:          store.NextERC20ActionDeploy,
+		Status:          store.NextERC20StatusPending,
 		Name:            req.Name,
 		Symbol:          req.Symbol,
-		Decimals:        req.Decimals,
-		InitialSupply:   req.InitialSupply,
+		Decimals:        int(req.Decimals),
+		InitialSupply:   initialSupply,
 		InitialMintee:   req.InitialMintee,
 		Owner:           req.Owner,
-		ExpiryTimestamp: req.ExpiryTimestamp,
-	}, nil)
+		ExpiryTimestamp: expiryTimestamp,
+		FactoryAddress:  req.FactoryAddress,
+		AdminAddress:    req.AdminAddress,
+		Version:         1,
+	})
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	_, err = a.queueClient.InsertTx(c.Request().Context(), tx, worker.DeployERC20Args{
+		TrackingID: trackingID,
+	}, &river.InsertOpts{MaxAttempts: 1})
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -85,21 +117,8 @@ func (a *API) contractsERC20Handler(c echo.Context) error {
 	})
 }
 
-// PoolHandler godoc
-//
-//	@Summary		Pool deploy request
-//	@Description	Pool deploy request
-//	@Tags			Contracts
-//	@Accept			json
-//	@Produce		json
-//	@Param			poolDeployRequest	body		apiresp.PoolDeployRequest	true	"Pool deploy request"
-//	@Success		200					{object}	apiresp.OKResponse
-//	@Failure		400					{object}	apiresp.ErrResponse
-//	@Failure		500					{object}	apiresp.ErrResponse
-//	@Security		ApiKeyAuth
-//	@Router			/contracts/pool [post]
-func (a *API) contractsPoolHandler(c echo.Context) error {
-	req := apiresp.PoolDeployRequest{}
+func (a *API) contractsERC20UpgradeHandler(c *echo.Context) error {
+	req := apiresp.NextERC20UpgradeRequest{}
 
 	if err := c.Bind(&req); err != nil {
 		return handleBindError(c)
@@ -109,115 +128,58 @@ func (a *API) contractsPoolHandler(c echo.Context) error {
 		return handleValidateError(c)
 	}
 
-	poolIndex := a.registry[ethutils.PoolIndex]
-	if a.prod {
-		poolIndex = w3.A("0x01eD8Fe01a2Ca44Cb26D00b1309d7D777471D00C")
-	}
-
-	exists, err := a.alreadyExists(c.Request().Context(), poolIndex, req.Symbol)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			Description: "Token with this symbol already exists",
-			ErrCode:     apiresp.ErrSymbolAlreadyExists,
-		})
-	}
-
 	tx, err := a.store.Pool().Begin(c.Request().Context())
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(c.Request().Context())
 
-	trackingID := uuid.NewString()
-
-	_, err = a.queueClient.InsertTx(c.Request().Context(), tx, worker.PoolDeployArgs{
-		TrackingID: trackingID,
-		Name:       req.Name,
-		Symbol:     req.Symbol,
-		Owner:      req.Owner,
-	}, nil)
+	latestWorkflow, err := a.store.GetLatestNextERC20WorkflowByProxy(c.Request().Context(), tx, req.ProxyAddress)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
 
-	if err := tx.Commit(c.Request().Context()); err != nil {
+	if latestWorkflow.Status == store.NextERC20StatusPending || latestWorkflow.Status == store.NextERC20StatusRunning {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			Description: "Proxy already has an in-flight next workflow",
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+		})
+	}
+
+	currentWorkflow, err := a.store.GetLatestSuccessfulNextERC20WorkflowByProxy(c.Request().Context(), tx, req.ProxyAddress)
+	if err != nil {
 		return handlePostgresError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok:          true,
-		Description: "Pool deploy request successfully created",
-		Result: map[string]any{
-			"trackingId": trackingID,
-		},
+	trackingID := uuid.NewString()
+	nextVersion := currentWorkflow.Version + 1
+
+	err = a.store.InsertNextERC20Workflow(c.Request().Context(), tx, store.NextERC20Workflow{
+		TrackingID:                    trackingID,
+		Action:                        store.NextERC20ActionUpgrade,
+		Status:                        store.NextERC20StatusPending,
+		Name:                          currentWorkflow.Name,
+		Symbol:                        currentWorkflow.Symbol,
+		Decimals:                      currentWorkflow.Decimals,
+		InitialSupply:                 currentWorkflow.InitialSupply,
+		InitialMintee:                 currentWorkflow.InitialMintee,
+		Owner:                         currentWorkflow.Owner,
+		ExpiryTimestamp:               currentWorkflow.ExpiryTimestamp,
+		FactoryAddress:                currentWorkflow.FactoryAddress,
+		AdminAddress:                  currentWorkflow.AdminAddress,
+		ProxyAddress:                  req.ProxyAddress,
+		PreviousImplementationAddress: currentWorkflow.ImplementationAddress,
+		Version:                       nextVersion,
+		UpgradeCalldata:               strings.TrimSpace(req.UpgradeCalldata),
 	})
-}
-
-// DemurrageERC20Handler godoc
-//
-//	@Summary		Demurrage ERC20 deploy request
-//	@Description	Demurrage ERC20 deploy request
-//	@Tags			Contracts
-//	@Accept			json
-//	@Produce		json
-//	@Param			demurrageERC20DeployRequest	body		apiresp.DemurrageERC20DeployRequest	true	"Demurrage ERC20 deploy request"
-//	@Success		200							{object}	apiresp.OKResponse
-//	@Failure		400							{object}	apiresp.ErrResponse
-//	@Failure		500							{object}	apiresp.ErrResponse
-//	@Security		ApiKeyAuth
-//	@Router			/contracts/erc20-demurrage [post]
-func (a *API) contractsDemurrageERC20Handler(c echo.Context) error {
-	req := apiresp.DemurrageERC20DeployRequest{}
-
-	if err := c.Bind(&req); err != nil {
-		return handleBindError(c)
-	}
-
-	if err := c.Validate(req); err != nil {
-		return handleValidateError(c)
-	}
-
-	poolIndex := a.registry[ethutils.PoolIndex]
-	if a.prod {
-		poolIndex = w3.A("0x01eD8Fe01a2Ca44Cb26D00b1309d7D777471D00C")
-	}
-
-	exists, err := a.alreadyExists(c.Request().Context(), poolIndex, req.Symbol)
 	if err != nil {
-		return err
-	}
-	if exists {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			Description: "Token with this symbol already exists",
-			ErrCode:     apiresp.ErrSymbolAlreadyExists,
-		})
+		return handlePostgresError(c, err)
 	}
 
-	tx, err := a.store.Pool().Begin(c.Request().Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(c.Request().Context())
-
-	trackingID := uuid.NewString()
-
-	_, err = a.queueClient.InsertTx(c.Request().Context(), tx, worker.DemurrageTokenDeployArgs{
-		TrackingID:      trackingID,
-		Name:            req.Name,
-		Symbol:          req.Symbol,
-		Decimals:        req.Decimals,
-		InitialSupply:   req.InitialSupply,
-		InitialMintee:   req.InitialMintee,
-		Owner:           req.Owner,
-		DemurrageRate:   req.DemurrageRate,
-		DemurragePeriod: req.DemurragePeriod,
-		SinkAddress:     req.SinkAddress,
-	}, nil)
+	_, err = a.queueClient.InsertTx(c.Request().Context(), tx, worker.UpgradeERC20Args{
+		TrackingID: trackingID,
+	}, &river.InsertOpts{MaxAttempts: 1})
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -228,7 +190,7 @@ func (a *API) contractsDemurrageERC20Handler(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: "Demurrage ERC20 deploy request successfully created",
+		Description: "ERC20 upgrade request successfully created",
 		Result: map[string]any{
 			"trackingId": trackingID,
 		},
@@ -240,7 +202,7 @@ func (a *API) alreadyExists(ctx context.Context, index common.Address, tokenSymb
 
 	if err := a.chainProvider.Client.CallCtx(
 		ctx,
-		eth.CallFunc(index, worker.Abi[worker.AddressOf], common.BytesToHash(common.RightPadBytes([]byte(tokenSymbol), 32))).Returns(&address),
+		eth.CallFunc(index, funcAddressOf, common.BytesToHash(common.RightPadBytes([]byte(tokenSymbol), 32))).Returns(&address),
 	); err != nil {
 		return false, err
 	}

@@ -21,8 +21,8 @@ WORKDIR /service
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /build/clccore .
-COPY --from=build /build/next-migrations ./next-migrations
-COPY --from=build /build/queries-next.sql .
+COPY --from=build /build/migrations ./migrations
+COPY --from=build /build/queries.sql .
 
 EXPOSE 5003
 
