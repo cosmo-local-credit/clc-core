@@ -96,21 +96,6 @@ func (pg *Pg) GetNextERC20WorkflowByTrackingID(ctx context.Context, tx pgx.Tx, t
 	return workflow, nil
 }
 
-func (pg *Pg) GetLatestNextERC20WorkflowBySymbol(ctx context.Context, tx pgx.Tx, symbol string) (NextERC20Workflow, error) {
-	var workflow NextERC20Workflow
-
-	rows, err := tx.Query(ctx, pg.queries.GetLatestNextERC20BySymbol, symbol)
-	if err != nil {
-		return workflow, err
-	}
-
-	if err := pgxscan.ScanOne(&workflow, rows); err != nil {
-		return workflow, err
-	}
-
-	return workflow, nil
-}
-
 func (pg *Pg) GetLatestNextERC20WorkflowByProxy(ctx context.Context, tx pgx.Tx, proxyAddress string) (NextERC20Workflow, error) {
 	var workflow NextERC20Workflow
 

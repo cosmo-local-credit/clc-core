@@ -205,13 +205,6 @@ SELECT id, tracking_id, action, status, name, symbol, decimals, initial_supply, 
 FROM next_erc20_workflow
 WHERE tracking_id = $1;
 
---name: get-latest-next-erc20-by-symbol
-SELECT id, tracking_id, action, status, name, symbol, decimals, initial_supply, initial_mintee, owner, expiry_timestamp, factory_address, admin_address, proxy_address, implementation_address, previous_implementation_address, version, upgrade_calldata, implementation_tx_hash, action_tx_hash, created_at, updated_at
-FROM next_erc20_workflow
-WHERE symbol = $1
-ORDER BY version DESC, id DESC
-LIMIT 1;
-
 --name: get-latest-next-erc20-by-proxy
 SELECT id, tracking_id, action, status, name, symbol, decimals, initial_supply, initial_mintee, owner, expiry_timestamp, factory_address, admin_address, proxy_address, implementation_address, previous_implementation_address, version, upgrade_calldata, implementation_tx_hash, action_tx_hash, created_at, updated_at
 FROM next_erc20_workflow

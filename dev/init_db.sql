@@ -1,1 +1,1 @@
-CREATE DATABASE ge_celo_custodial;
+CREATE DATABASE clc_core;

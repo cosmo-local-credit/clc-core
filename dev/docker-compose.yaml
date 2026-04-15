@@ -9,7 +9,7 @@ services:
   #   volumes:
   #     - devnet-chaindata:/root/devnet-chaindata   
   custodial-pg-store:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     user: postgres
     environment:
@@ -29,7 +29,7 @@ services:
     image: ghcr.io/riverqueue/riverui:latest
     restart: unless-stopped
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@custodial-pg-store:5432/ge_celo_custodial
+      - DATABASE_URL=postgres://postgres:postgres@custodial-pg-store:5432/clc_core
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:

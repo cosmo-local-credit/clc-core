@@ -34,7 +34,6 @@ type (
 		GetFailedOTX                        string `query:"get-failed-otx"`
 		InsertNextERC20Workflow             string `query:"insert-next-erc20-workflow"`
 		GetNextERC20ByTrackingID            string `query:"get-next-erc20-by-tracking-id"`
-		GetLatestNextERC20BySymbol          string `query:"get-latest-next-erc20-by-symbol"`
 		GetLatestNextERC20ByProxy           string `query:"get-latest-next-erc20-by-proxy"`
 		GetLatestSuccessfulNextERC20ByProxy string `query:"get-latest-successful-next-erc20-by-proxy"`
 		UpdateNextERC20Workflow             string `query:"update-next-erc20-workflow"`
