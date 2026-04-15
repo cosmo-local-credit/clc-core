@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/api"
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
-	nextapi "github.com/cosmo-local-credit/clc-core/internal/next-api"
-	nextworker "github.com/cosmo-local-credit/clc-core/internal/next-worker"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/knadh/koanf/v2"
@@ -38,8 +38,8 @@ var (
 
 func init() {
 	flag.StringVar(&confFlag, "config", "config.toml", "Config file location")
-	flag.StringVar(&migrationsFolderFlag, "migrations", "next-migrations/", "Migrations folder location")
-	flag.StringVar(&queriesFlag, "queries", "queries-next.sql", "Queries file location")
+	flag.StringVar(&migrationsFolderFlag, "migrations", "migrations/", "Migrations folder location")
+	flag.StringVar(&queriesFlag, "queries", "queries.sql", "Queries file location")
 	flag.Parse()
 
 	lo = util.InitLogger()
@@ -59,7 +59,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	apiServer := nextapi.New(nextapi.APIOpts{
+	apiServer := api.New(api.APIOpts{
 		Prod:          ko.Bool("api.prod"),
 		Build:         build,
 		ListenAddress: ko.MustString("api.address"),
@@ -83,7 +83,7 @@ func main() {
 
 	go func() {
 		if err := workerContainer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			lo.Error("failed to start next-worker queue", "err", fmt.Sprintf("%T: %v", err, err))
+			lo.Error("failed to start worker queue", "err", fmt.Sprintf("%T: %v", err, err))
 			os.Exit(1)
 		}
 	}()
@@ -104,7 +104,7 @@ func main() {
 		lo.Error("failed to stop deployer HTTP server", "err", err)
 	}
 	if err := workerContainer.Stop(shutdownCtx); err != nil {
-		lo.Error("failed to stop next-worker queue", "err", err)
+		lo.Error("failed to stop worker queue", "err", err)
 	}
 }
 
@@ -167,13 +167,13 @@ func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	return nil
 }
 
-func loadNextWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *nextworker.WorkerContainer {
+func loadNextWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *worker.WorkerContainer {
 	maxWorkers := ko.Int("workers.max")
 	if maxWorkers <= 0 {
 		maxWorkers = runtime.NumCPU() * 2
 	}
 
-	workerContainer := nextworker.New(nextworker.WorkerOpts{
+	workerContainer := worker.New(worker.WorkerOpts{
 		MaxWorkers:    maxWorkers,
 		GasOracle:     gasOracle,
 		Store:         pgStore,
@@ -181,7 +181,7 @@ func loadNextWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOr
 		ChainProvider: chainProvider,
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
-		lo.Error("could not initialize next-worker container", "error", err)
+		lo.Error("could not initialize worker container", "error", err)
 		os.Exit(1)
 	}
 

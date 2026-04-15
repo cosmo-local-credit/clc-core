@@ -1,4 +1,4 @@
-package nextworker
+package worker
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"strings"
 
-	nextstore "github.com/cosmo-local-credit/clc-core/internal/next-store"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/protocol/pkg/publish"
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/giftabletoken"
@@ -134,9 +133,9 @@ func (w *DeployERC20Worker) Work(ctx context.Context, job *river.Job[DeployERC20
 	// Keep the staged OTX + dispatch rows for now and add a next-native
 	// dispatch pipeline when the next worker stack is ready.
 
-	if err := w.wc.updateWorkflow(ctx, nextstore.ERC20WorkflowUpdate{
+	if err := w.wc.updateWorkflow(ctx, store.NextERC20WorkflowUpdate{
 		TrackingID:            workflow.TrackingID,
-		Status:                nextstore.ERC20StatusRunning,
+		Status:                store.NextERC20StatusRunning,
 		ImplementationAddress: implementationAddress.Hex(),
 		ImplementationTxHash:  implementationTx.Hash,
 		ActionTxHash:          proxyTx.Hash,
@@ -221,9 +220,9 @@ func (w *UpgradeERC20Worker) Work(ctx context.Context, job *river.Job[UpgradeERC
 	// Keep the staged OTX + dispatch rows for now and add a next-native
 	// dispatch pipeline when the next worker stack is ready.
 
-	if err := w.wc.updateWorkflow(ctx, nextstore.ERC20WorkflowUpdate{
+	if err := w.wc.updateWorkflow(ctx, store.NextERC20WorkflowUpdate{
 		TrackingID:                    workflow.TrackingID,
-		Status:                        nextstore.ERC20StatusRunning,
+		Status:                        store.NextERC20StatusRunning,
 		ImplementationAddress:         implementationAddress.Hex(),
 		PreviousImplementationAddress: workflow.PreviousImplementationAddress,
 		ImplementationTxHash:          implementationTx.Hash,
@@ -235,20 +234,20 @@ func (w *UpgradeERC20Worker) Work(ctx context.Context, job *river.Job[UpgradeERC
 	return nil
 }
 
-func (w *WorkerContainer) loadWorkflow(ctx context.Context, trackingID string) (nextstore.ERC20Workflow, error) {
+func (w *WorkerContainer) loadWorkflow(ctx context.Context, trackingID string) (store.NextERC20Workflow, error) {
 	tx, err := w.store.Pool().Begin(ctx)
 	if err != nil {
-		return nextstore.ERC20Workflow{}, err
+		return store.NextERC20Workflow{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	workflow, err := w.store.GetNextERC20WorkflowByTrackingID(ctx, tx, trackingID)
 	if err != nil {
-		return nextstore.ERC20Workflow{}, err
+		return store.NextERC20Workflow{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nextstore.ERC20Workflow{}, err
+		return store.NextERC20Workflow{}, err
 	}
 
 	return workflow, nil
@@ -400,7 +399,7 @@ func (w *WorkerContainer) insertTrackedTx(ctx context.Context, tx pgx.Tx, tracki
 	}, nil
 }
 
-func (w *WorkerContainer) updateWorkflow(ctx context.Context, patch nextstore.ERC20WorkflowUpdate) error {
+func (w *WorkerContainer) updateWorkflow(ctx context.Context, patch store.NextERC20WorkflowUpdate) error {
 	tx, err := w.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
@@ -415,9 +414,9 @@ func (w *WorkerContainer) updateWorkflow(ctx context.Context, patch nextstore.ER
 }
 
 func (w *WorkerContainer) markWorkflowFailed(ctx context.Context, trackingID string) {
-	if err := w.updateWorkflow(ctx, nextstore.ERC20WorkflowUpdate{
+	if err := w.updateWorkflow(ctx, store.NextERC20WorkflowUpdate{
 		TrackingID: trackingID,
-		Status:     nextstore.ERC20StatusFailed,
+		Status:     store.NextERC20StatusFailed,
 	}); err != nil {
 		w.logg.Error("failed to mark next workflow as failed", "tracking_id", trackingID, "err", err)
 	}

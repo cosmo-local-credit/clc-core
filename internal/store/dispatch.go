@@ -16,17 +16,17 @@ type DispatchTx struct {
 }
 
 const (
-	PENDING                 string = "PENDING"
-	IN_NETWORK              string = "IN_NETWORK"
-	SUCCESS                 string = "SUCCESS"
-	REVERTED                string = "REVERTED"
-	LOW_NONCE               string = "LOW_NONCE"
-	NO_GAS                  string = "NO_GAS"
-	LOW_GAS_PRICE           string = "LOW_GAS_PRICE"
-	REPLACEMENT_UNDERPRICED string = "REPLACEMENT_UNDERPRICED"
-	NETWORK_ERROR           string = "NETWORK_ERROR"
-	EXTERNAL_DISPATCH       string = "EXTERNAL_DISPATCH"
-	UNKNOWN_RPC_ERROR       string = "UNKNOWN_ERROR"
+	PENDING                 = "PENDING"
+	IN_NETWORK              = "IN_NETWORK"
+	SUCCESS                 = "SUCCESS"
+	REVERTED                = "REVERTED"
+	LOW_NONCE               = "LOW_NONCE"
+	NO_GAS                  = "NO_GAS"
+	LOW_GAS_PRICE           = "LOW_GAS_PRICE"
+	REPLACEMENT_UNDERPRICED = "REPLACEMENT_UNDERPRICED"
+	NETWORK_ERROR           = "NETWORK_ERROR"
+	EXTERNAL_DISPATCH       = "EXTERNAL_DISPATCH"
+	UNKNOWN_RPC_ERROR       = "UNKNOWN_ERROR"
 )
 
 func (pg *Pg) InsertDispatchTx(ctx context.Context, tx pgx.Tx, dispatchTx DispatchTx) error {
