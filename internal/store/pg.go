@@ -29,14 +29,10 @@ type (
 		GetOTXByAccount                     string `query:"get-otx-by-account"`
 		GetOTXByAccountNext                 string `query:"get-otx-by-account-next"`
 		GetOTXByAccountPrevious             string `query:"get-otx-by-account-previous"`
-		InsertDispatchTx                    string `query:"insert-dispatch-tx"`
-		UpdateDispatchTxStatus              string `query:"update-dispatch-tx-status"`
-		GetFailedOTX                        string `query:"get-failed-otx"`
-		InsertNextERC20Workflow             string `query:"insert-next-erc20-workflow"`
-		GetNextERC20ByTrackingID            string `query:"get-next-erc20-by-tracking-id"`
-		GetLatestNextERC20ByProxy           string `query:"get-latest-next-erc20-by-proxy"`
-		GetLatestSuccessfulNextERC20ByProxy string `query:"get-latest-successful-next-erc20-by-proxy"`
-		UpdateNextERC20Workflow             string `query:"update-next-erc20-workflow"`
+		InsertDispatchTx       string `query:"insert-dispatch-tx"`
+		UpdateDispatchTxStatus string `query:"update-dispatch-tx-status"`
+		GetFailedOTX           string `query:"get-failed-otx"`
+		GetPlatformContracts   string `query:"get-platform-contracts"`
 	}
 
 	PgOpts struct {

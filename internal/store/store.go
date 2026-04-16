@@ -28,9 +28,5 @@ type Store interface {
 	GetFailedOTX(context.Context, pgx.Tx) ([]*OTX, error)
 	InsertDispatchTx(context.Context, pgx.Tx, DispatchTx) error
 	UpdateDispatchTxStatus(context.Context, pgx.Tx, DispatchTx) error
-	InsertNextERC20Workflow(context.Context, pgx.Tx, NextERC20Workflow) error
-	GetNextERC20WorkflowByTrackingID(context.Context, pgx.Tx, string) (NextERC20Workflow, error)
-	GetLatestNextERC20WorkflowByProxy(context.Context, pgx.Tx, string) (NextERC20Workflow, error)
-	GetLatestSuccessfulNextERC20WorkflowByProxy(context.Context, pgx.Tx, string) (NextERC20Workflow, error)
-	UpdateNextERC20Workflow(context.Context, pgx.Tx, NextERC20WorkflowUpdate) error
+	GetPlatformContracts(context.Context, pgx.Tx, int64, string) (PlatformContracts, error)
 }

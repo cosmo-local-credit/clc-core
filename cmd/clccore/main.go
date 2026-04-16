@@ -68,6 +68,7 @@ func main() {
 		ChainProvider: chainProvider,
 		QueueClient:   workerContainer.Client(),
 		Logg:          lo,
+		ChainID:       ko.MustInt64("chain.id"),
 	})
 
 	lo.Info("starting deployer", "build", build)
