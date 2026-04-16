@@ -24,11 +24,12 @@ type (
 		Prod          bool
 		CORS          []string
 		VerifyingKey  crypto.PublicKey
-		SigningKey    crypto.PrivateKey
+		SigningKey     crypto.PrivateKey
 		Store         store.Store
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
 		QueueClient   *river.Client[pgx.Tx]
+		ChainID       int64
 	}
 
 	API struct {
@@ -42,6 +43,7 @@ type (
 		chainProvider *ethutils.Provider
 		server        *http.Server
 		queueClient   *river.Client[pgx.Tx]
+		chainID       int64
 	}
 )
 
@@ -61,6 +63,7 @@ func New(o APIOpts) *API {
 		store:         o.Store,
 		chainProvider: o.ChainProvider,
 		queueClient:   o.QueueClient,
+		chainID:       o.ChainID,
 	}
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
@@ -106,8 +109,7 @@ func New(o APIOpts) *API {
 	apiGroup.Use(echojwt.WithConfig(a.apiJWTAuthConfig()))
 	apiGroup.Use(a.authStatusMiddleware())
 
-	apiGroup.POST("/contracts/erc20", a.contractsERC20Handler)
-	apiGroup.POST("/contracts/erc20/upgrade", a.contractsERC20UpgradeHandler)
+	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 
 	a.server = &http.Server{
 		Addr:    o.ListenAddress,

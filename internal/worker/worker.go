@@ -100,11 +100,7 @@ func (w *WorkerContainer) Client() *river.Client[pgx.Tx] {
 func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 	workers := river.NewWorkers()
 
-	if err := river.AddWorkerSafely(workers, &DeployERC20Worker{wc: wc}); err != nil {
-		return nil, err
-	}
-
-	if err := river.AddWorkerSafely(workers, &UpgradeERC20Worker{wc: wc}); err != nil {
+	if err := river.AddWorkerSafely(workers, &DeployTokenWorker{wc: wc}); err != nil {
 		return nil, err
 	}
 
