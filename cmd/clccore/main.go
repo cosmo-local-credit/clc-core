@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -46,63 +47,94 @@ func init() {
 }
 
 func main() {
+	var (
+		wg sync.WaitGroup
+
+		workerComponent *worker.WorkerContainer
+		apiComponent    *api.API
+		gasOracleInst   gas.GasOracle
+	)
+
+	ctx, stop := notifyShutdown()
+
 	pgStore := loadStore()
 	chainProvider := loadChainProvider()
-	gasOracle := loadGasOracle(chainProvider)
-	workerContainer := loadNextWorker(pgStore, chainProvider, gasOracle)
 
-	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
-	if err != nil {
-		lo.Error("could not load private key", "error", err)
+	switch mode := ko.MustString("service.mode"); mode {
+	case "worker":
+		gasOracleInst = loadGasOracle(chainProvider)
+		workerComponent = loadWorker(pgStore, chainProvider, gasOracleInst)
+	case "api":
+		apiComponent = loadAPI(pgStore, chainProvider, nil)
+	case "standalone":
+		gasOracleInst = loadGasOracle(chainProvider)
+		workerComponent = loadWorker(pgStore, chainProvider, gasOracleInst)
+		apiComponent = loadAPI(pgStore, chainProvider, workerComponent)
+	default:
+		lo.Error("service.mode must be one of: standalone, api, worker")
 		os.Exit(1)
 	}
 
-	apiServer := api.New(api.APIOpts{
-		Prod:          ko.Bool("api.prod"),
-		Build:         build,
-		ListenAddress: ko.MustString("api.address"),
-		CORS:          ko.MustStrings("api.cors"),
-		SigningKey:    privateKey,
-		VerifyingKey:  publicKey,
-		Store:         pgStore,
-		ChainProvider: chainProvider,
-		QueueClient:   workerContainer.Client(),
-		Logg:          lo,
-		ChainID:       ko.MustInt64("chain.id"),
-	})
+	lo.Info("starting clc-core", "build", build, "mode", ko.String("service.mode"))
 
-	lo.Info("starting deployer", "build", build)
-	gasOracle.Start()
-	defer gasOracle.Stop()
+	if workerComponent != nil {
+		wg.Go(func() {
+			gasOracleInst.Start()
+		})
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
+		wg.Go(func() {
+			if err := workerComponent.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				lo.Error("worker queue exited unexpectedly", "err", fmt.Sprintf("%T: %v", err, err))
+				os.Exit(1)
+			}
+		})
+	}
 
-	go func() {
-		if err := workerContainer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			lo.Error("failed to start worker queue", "err", fmt.Sprintf("%T: %v", err, err))
-			os.Exit(1)
-		}
-	}()
-
-	go func() {
-		if err := apiServer.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			lo.Error("failed to start deployer HTTP server", "err", fmt.Sprintf("%T: %v", err, err))
-			os.Exit(1)
-		}
-	}()
+	if apiComponent != nil {
+		wg.Go(func() {
+			if err := apiComponent.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				lo.Error("API server exited unexpectedly", "err", fmt.Sprintf("%T: %v", err, err))
+				os.Exit(1)
+			}
+		})
+	}
 
 	<-ctx.Done()
 	lo.Info("shutdown signal received")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultGracefulShutdownPeriod)
-	defer cancel()
 
-	if err := apiServer.Stop(shutdownCtx); err != nil {
-		lo.Error("failed to stop deployer HTTP server", "err", err)
+	wg.Go(func() {
+		if apiComponent != nil {
+			if err := apiComponent.Stop(shutdownCtx); err != nil {
+				lo.Error("failed to stop API server", "err", err)
+			}
+		}
+		if workerComponent != nil {
+			gasOracleInst.Stop()
+			if err := workerComponent.Stop(shutdownCtx); err != nil {
+				lo.Error("failed to stop worker queue", "err", err)
+			}
+		}
+	})
+
+	go func() {
+		wg.Wait()
+		stop()
+		cancel()
+		os.Exit(0)
+	}()
+
+	<-shutdownCtx.Done()
+	if errors.Is(shutdownCtx.Err(), context.DeadlineExceeded) {
+		lo.Error("graceful shutdown period exceeded, forcing exit")
 	}
-	if err := workerContainer.Stop(shutdownCtx); err != nil {
-		lo.Error("failed to stop worker queue", "err", err)
-	}
+	stop()
+	cancel()
+	os.Exit(1)
+}
+
+func notifyShutdown() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 }
 
 func loadStore() store.Store {
@@ -131,6 +163,7 @@ func loadChainProvider() *ethutils.Provider {
 		ethutils.WithDivviConsumerAddress(ko.MustString("chain.divvi_consumer")),
 	)
 }
+
 func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	switch ko.MustString("gas.oracle_type") {
 	case "static":
@@ -153,7 +186,7 @@ func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	return nil
 }
 
-func loadNextWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *worker.WorkerContainer {
+func loadWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *worker.WorkerContainer {
 	maxWorkers := ko.Int("workers.max")
 	if maxWorkers <= 0 {
 		maxWorkers = runtime.NumCPU() * 2
@@ -172,4 +205,30 @@ func loadNextWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOr
 	}
 
 	return workerContainer
+}
+
+func loadAPI(pgStore store.Store, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer) *api.API {
+	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
+	if err != nil {
+		lo.Error("could not load signing key", "error", err)
+		os.Exit(1)
+	}
+
+	opts := api.APIOpts{
+		Prod:          ko.Bool("api.prod"),
+		Build:         build,
+		ListenAddress: ko.MustString("api.address"),
+		CORS:          ko.MustStrings("api.cors"),
+		SigningKey:    privateKey,
+		VerifyingKey:  publicKey,
+		Store:         pgStore,
+		ChainProvider: chainProvider,
+		Logg:          lo,
+		ChainID:       ko.MustInt64("chain.id"),
+	}
+	if workerContainer != nil {
+		opts.QueueClient = workerContainer.Client()
+	}
+
+	return api.New(opts)
 }
