@@ -17,6 +17,11 @@ import (
 
 const migrationTimeout = 15 * time.Second
 
+// infoHandler suppresses debug logs from River without touching the global logger.
+type infoHandler struct{ slog.Handler }
+
+func (h infoHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= slog.LevelInfo }
+
 type (
 	WorkerOpts struct {
 		MaxWorkers    int
@@ -75,7 +80,7 @@ func (w *WorkerContainer) Bootstrap() error {
 			},
 		},
 		Workers: workers,
-		Logger:  w.logg,
+		Logger:  slog.New(infoHandler{w.logg.Handler()}),
 	})
 	if err != nil {
 		return err

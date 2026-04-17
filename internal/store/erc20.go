@@ -14,6 +14,7 @@ type PlatformContracts struct {
 	ContractType          string    `db:"contract_type"`
 	FactoryAddress        string    `db:"factory_address"`
 	ImplementationAddress string    `db:"implementation_address"`
+	Version               string    `db:"version"`
 	CreatedAt             time.Time `db:"created_at"`
 	UpdatedAt             time.Time `db:"updated_at"`
 }

@@ -27,8 +27,6 @@ type (
 		Name                  string `json:"name"`
 		Symbol                string `json:"symbol"`
 		Decimals              string `json:"decimals"`
-		InitialSupply         string `json:"initialSupply"`
-		InitialMintee         string `json:"initialMintee"`
 		Owner                 string `json:"owner"`
 		ExpiryTimestamp       string `json:"expiryTimestamp"`
 		FactoryAddress        string `json:"factoryAddress"`
@@ -56,12 +54,6 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 	if err != nil {
 		return err
 	}
-
-	supply, err := StringToBigInt(args.InitialSupply)
-	if err != nil {
-		return err
-	}
-	_ = supply // reserved for future initial-mint step
 
 	expiresAt := int64(0)
 	if args.ExpiryTimestamp != "" {
@@ -228,51 +220,4 @@ func (w *WorkerContainer) insertTrackedTx(ctx context.Context, tx pgx.Tx, tracki
 		Hash:   builtTx.Hash().Hex(),
 		RawHex: rawTxHex,
 	}, nil
-}
-
-// preparePublishTx signs and records a contract deployment transaction.
-// Used when deploying a new implementation to platform_contracts.
-func (w *WorkerContainer) preparePublishTx(
-	ctx context.Context,
-	trackingID string,
-	otxType string,
-	signerAddress common.Address,
-	privateKey *ecdsa.PrivateKey,
-	bytecode []byte,
-	gasLimit uint64,
-	gasFeeCap *big.Int,
-	gasTipCap *big.Int,
-) (common.Address, *preparedTx, error) {
-	tx, err := w.store.Pool().Begin(ctx)
-	if err != nil {
-		return common.Address{}, nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	nonce, err := w.store.AcquireNonce(ctx, tx, signerAddress.Hex())
-	if err != nil {
-		return common.Address{}, nil, err
-	}
-
-	builtTx, err := w.chainProvider.SignContractPublishTx(privateKey, ethutils.ContractPublishTxOpts{
-		ContractByteCode: bytecode,
-		GasFeeCap:        gasFeeCap,
-		GasTipCap:        gasTipCap,
-		GasLimit:         gasLimit,
-		Nonce:            nonce,
-	})
-	if err != nil {
-		return common.Address{}, nil, err
-	}
-
-	prepared, err := w.insertTrackedTx(ctx, tx, trackingID, otxType, signerAddress.Hex(), nonce, builtTx)
-	if err != nil {
-		return common.Address{}, nil, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return common.Address{}, nil, err
-	}
-
-	return crypto.CreateAddress(signerAddress, nonce), prepared, nil
 }

@@ -29,7 +29,7 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	pc, err := a.store.GetPlatformContracts(ctx, tx, a.chainID, "erc20")
+	pc, err := a.store.GetPlatformContracts(ctx, tx, a.chainID, "ERC20")
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -41,8 +41,6 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		Name:                  req.Name,
 		Symbol:                req.Symbol,
 		Decimals:              req.Decimals,
-		InitialSupply:         req.InitialSupply,
-		InitialMintee:         req.InitialMintee,
 		Owner:                 req.Owner,
 		ExpiryTimestamp:       req.ExpiryTimestamp,
 		FactoryAddress:        pc.FactoryAddress,
