@@ -8,29 +8,24 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
-	"github.com/grassrootseconomics/ethutils"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 type (
 	SubObts struct {
-		ActivateDivviSubmissions bool
-		Store                    store.Store
-		JS                       jetstream.JetStream
-		ConsumerID               string
-		Pub                      *pub.Pub
-		Provider                 *ethutils.Provider
-		Logg                     *slog.Logger
+		Store      store.Store
+		JS         jetstream.JetStream
+		ConsumerID string
+		Pub        *pub.Pub
+		Logg       *slog.Logger
 	}
 
 	Sub struct {
-		activateDivviSubmissions bool
-		store                    store.Store
-		js                       jetstream.JetStream
-		jsIter                   jetstream.MessagesContext
-		pub                      *pub.Pub
-		provider                 *ethutils.Provider
-		logg                     *slog.Logger
+		store  store.Store
+		js     jetstream.JetStream
+		jsIter jetstream.MessagesContext
+		pub    *pub.Pub
+		logg   *slog.Logger
 	}
 )
 
@@ -66,13 +61,11 @@ func NewSub(o SubObts) (*Sub, error) {
 	}
 
 	return &Sub{
-		activateDivviSubmissions: o.ActivateDivviSubmissions,
-		store:                    o.Store,
-		js:                       o.JS,
-		jsIter:                   iter,
-		pub:                      o.Pub,
-		logg:                     o.Logg,
-		provider:                 o.Provider,
+		store:  o.Store,
+		js:     o.JS,
+		jsIter: iter,
+		pub:    o.Pub,
+		logg:   o.Logg,
 	}, nil
 }
 

@@ -16,7 +16,10 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/api"
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
+	internaljs "github.com/cosmo-local-credit/clc-core/internal/jetstream"
+	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/sub"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	"github.com/grassrootseconomics/ethutils"
@@ -53,6 +56,8 @@ func main() {
 		workerComponent *worker.WorkerContainer
 		apiComponent    *api.API
 		gasOracleInst   gas.GasOracle
+		subComponent    *sub.Sub
+		pubComponent    *pub.Pub
 	)
 
 	ctx, stop := notifyShutdown()
@@ -66,12 +71,14 @@ func main() {
 		workerComponent = loadWorker(pgStore, chainProvider, gasOracleInst)
 	case "api":
 		apiComponent = loadAPI(pgStore, chainProvider, nil)
+	case "sub":
+		subComponent, pubComponent = loadSub(pgStore)
 	case "standalone":
 		gasOracleInst = loadGasOracle(chainProvider)
 		workerComponent = loadWorker(pgStore, chainProvider, gasOracleInst)
 		apiComponent = loadAPI(pgStore, chainProvider, workerComponent)
 	default:
-		lo.Error("service.mode must be one of: standalone, api, worker")
+		lo.Error("service.mode must be one of: standalone, api, worker, sub")
 		os.Exit(1)
 	}
 
@@ -99,6 +106,12 @@ func main() {
 		})
 	}
 
+	if subComponent != nil {
+		wg.Go(func() {
+			subComponent.Process()
+		})
+	}
+
 	<-ctx.Done()
 	lo.Info("shutdown signal received")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultGracefulShutdownPeriod)
@@ -114,6 +127,10 @@ func main() {
 			if err := workerComponent.Stop(shutdownCtx); err != nil {
 				lo.Error("failed to stop worker queue", "err", err)
 			}
+		}
+		if subComponent != nil {
+			subComponent.Close()
+			pubComponent.Close()
 		}
 	})
 
@@ -205,6 +222,40 @@ func loadWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle
 	}
 
 	return workerContainer
+}
+
+func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
+	endpoints := ko.MustStrings("jetstream.endpoints")
+	persistDuration := time.Duration(ko.MustInt("jetstream.persist_duration_hrs")) * time.Hour
+
+	natsConn, js, err := internaljs.NewJetStream(internaljs.JetStreamOpts{
+		Endpoints: endpoints,
+	})
+	if err != nil {
+		lo.Error("could not initialize jetstream connection", "error", err)
+		os.Exit(1)
+	}
+	lo.Info("connected to NATS", "endpoints", endpoints)
+
+	pubInst := pub.NewPub(pub.PubOpts{
+		PersistDuration: persistDuration,
+		JS:              js,
+		NatsConn:        natsConn,
+	})
+
+	subInst, err := sub.NewSub(sub.SubObts{
+		Store:      pgStore,
+		JS:         js,
+		ConsumerID: ko.MustString("jetstream.id"),
+		Pub:        pubInst,
+		Logg:       lo,
+	})
+	if err != nil {
+		lo.Error("could not initialize jetstream subscriber", "error", err)
+		os.Exit(1)
+	}
+
+	return subInst, pubInst
 }
 
 func loadAPI(pgStore store.Store, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer) *api.API {
