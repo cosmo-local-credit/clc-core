@@ -7,7 +7,6 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	custodialEvent "github.com/cosmo-local-credit/clc-core/pkg/event"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/eth-tracker/pkg/event"
 	"github.com/jackc/pgx/v5"
 )
@@ -26,11 +25,7 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	}
 	defer tx.Rollback(ctx)
 
-	otx, err := s.store.GetOTXByTxHash(
-		ctx,
-		tx,
-		chainEvent.TxHash,
-	)
+	otx, err := s.store.GetOTXByTxHash(ctx, tx, chainEvent.TxHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -43,12 +38,6 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	}
 
 	if chainEvent.Success {
-		switch msgSubject {
-		case "TRACKER.CUSTODIAL_REGISTRATION":
-			if err := s.store.ActivateKeyPair(ctx, tx, chainEvent.Payload["account"].(string)); err != nil {
-				return err
-			}
-		}
 		updateDispatchStatus.Status = store.SUCCESS
 	} else {
 		updateDispatchStatus.Status = store.REVERTED
@@ -62,12 +51,6 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		TrackingID: otx.TrackingID,
 		Status:     updateDispatchStatus.Status,
 	})
-
-	// Divvi refferal submission
-	// Best effort, no error checking here
-	if s.activateDivviSubmissions {
-		s.provider.SubmitReferral(ctx, common.HexToHash(chainEvent.TxHash))
-	}
 
 	return tx.Commit(ctx)
 }
