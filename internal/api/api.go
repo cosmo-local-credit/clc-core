@@ -24,7 +24,7 @@ type (
 		Prod          bool
 		CORS          []string
 		VerifyingKey  crypto.PublicKey
-		SigningKey     crypto.PrivateKey
+		SigningKey    crypto.PrivateKey
 		Store         store.Store
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
@@ -120,11 +120,11 @@ func New(o APIOpts) *API {
 }
 
 func (a *API) Start() error {
-	a.logg.Info("starting API HTTP server", "listen_address", a.listenAddress)
+	a.logg.Info("Starting API HTTP server", "listen_address", a.listenAddress)
 	return a.server.ListenAndServe()
 }
 
 func (a *API) Stop(ctx context.Context) error {
-	a.logg.Info("shutting down API server")
+	a.logg.Info("Shutting down API server")
 	return a.server.Shutdown(ctx)
 }

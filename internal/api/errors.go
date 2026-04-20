@@ -23,7 +23,7 @@ func (a *API) customHTTPErrorHandler(c *echo.Context, err error) {
 		return
 	}
 
-	a.logg.Error("api: echo error", "path", c.Path(), "err", err)
+	a.logg.Error("API: echo error", "path", c.Path(), "err", err)
 	c.JSON(http.StatusInternalServerError, apiresp.ErrResponse{
 		Ok:          false,
 		Description: "Internal server error",
@@ -40,7 +40,7 @@ func handleBindError(c *echo.Context) error {
 }
 
 func (a *API) handleValidateError(c *echo.Context, err error) error {
-	a.logg.Error("validation error", "path", c.Path(), "err", err)
+	a.logg.Error("Validation error", "path", c.Path(), "err", err)
 	return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 		Ok:          false,
 		ErrCode:     apiresp.ErrCodeValidationFailed,

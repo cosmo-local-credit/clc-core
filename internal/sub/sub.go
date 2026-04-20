@@ -26,6 +26,7 @@ type (
 		jsIter jetstream.MessagesContext
 		pub    *pub.Pub
 		logg   *slog.Logger
+		done   chan struct{}
 	}
 )
 
@@ -47,6 +48,7 @@ func NewSub(o SubObts) (*Sub, error) {
 		Durable:       o.ConsumerID,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		FilterSubject: pullSubject,
+		DeliverPolicy: jetstream.DeliverNewPolicy,
 	})
 	if err != nil {
 		return nil, err
@@ -66,31 +68,41 @@ func NewSub(o SubObts) (*Sub, error) {
 		jsIter: iter,
 		pub:    o.Pub,
 		logg:   o.Logg,
+		done:   make(chan struct{}),
 	}, nil
 }
 
-func (s *Sub) Close() {
-	s.logg.Debug("sub: closing js sub iterator")
-	s.jsIter.Stop()
+func (s *Sub) Close(ctx context.Context) error {
+	s.logg.Debug("Sub: draining js sub iterator")
+	s.jsIter.Drain()
+	select {
+	case <-s.done:
+		return nil
+	case <-ctx.Done():
+		s.logg.Warn("Sub: drain deadline exceeded, forcing stop")
+		s.jsIter.Stop()
+		<-s.done
+		return ctx.Err()
+	}
 }
 
 func (s *Sub) Process() {
-	s.logg.Debug("sub: starting js sub iterator processor")
+	defer close(s.done)
+	s.logg.Debug("Sub: starting js sub iterator processor")
 	for {
 		msg, err := s.jsIter.Next()
 		if err != nil {
 			if errors.Is(err, jetstream.ErrMsgIteratorClosed) {
-				s.logg.Debug("sub: iterator closed")
+				s.logg.Debug("Sub: iterator closed")
 				return
-			} else {
-				s.logg.Debug("sub: unknown iterator error", "error", err)
-				continue
 			}
+			s.logg.Error("Sub: iterator error, stopping", "error", err)
+			return
 		}
 
-		s.logg.Debug("processing nats message", "subject", msg.Subject())
+		s.logg.Debug("Processing nats message", "subject", msg.Subject())
 		if err := s.processEvent(context.Background(), msg.Subject(), msg.Data()); err != nil {
-			s.logg.Error("jetstream: router: error processing nats message", "error", err)
+			s.logg.Error("Jetstream: router: error processing nats message", "error", err)
 			msg.Nak()
 		} else {
 			msg.Ack()

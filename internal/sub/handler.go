@@ -12,7 +12,7 @@ import (
 )
 
 func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) error {
-	s.logg.Debug("sub processing event", "subject", msgSubject, "data", string(msg))
+	s.logg.Debug("Sub processing event", "subject", msgSubject, "data", string(msg))
 	var chainEvent event.Event
 
 	if err := json.Unmarshal(msg, &chainEvent); err != nil {
