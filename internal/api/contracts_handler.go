@@ -14,7 +14,7 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	req := apiresp.DeployTokenRequest{}
 
 	if err := c.Bind(&req); err != nil {
-		return handleBindError(c)
+		return handleBindError(c, err)
 	}
 
 	if err := c.Validate(req); err != nil {

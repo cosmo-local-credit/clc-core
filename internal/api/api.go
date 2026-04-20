@@ -48,7 +48,7 @@ type (
 )
 
 const (
-	apiVersion  = "/api/v1"
+	apiVersion  = "/api/v2"
 	maxBodySize = 1 << 20 // 1MB
 )
 
@@ -88,16 +88,28 @@ func New(o APIOpts) *API {
 		LogURI:      true,
 		HandleError: true,
 		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
-			if v.Error == nil {
-				o.Logg.LogAttrs(context.Background(), slog.LevelInfo, "REQUEST",
+			errMsg := ""
+			if v.Error != nil {
+				errMsg = v.Error.Error()
+			}
+
+			switch {
+			case v.Status >= http.StatusInternalServerError:
+				o.Logg.LogAttrs(context.Background(), slog.LevelError, http.StatusText(v.Status),
 					slog.String("uri", v.URI),
 					slog.Int("status", v.Status),
+					slog.String("err", errMsg),
 				)
-			} else {
-				o.Logg.LogAttrs(context.Background(), slog.LevelError, "REQUEST_ERROR",
+			case v.Status == http.StatusBadRequest || v.Status == http.StatusForbidden:
+				o.Logg.LogAttrs(context.Background(), slog.LevelWarn, http.StatusText(v.Status),
 					slog.String("uri", v.URI),
 					slog.Int("status", v.Status),
-					slog.String("err", v.Error.Error()),
+					slog.String("err", errMsg),
+				)
+			default:
+				o.Logg.LogAttrs(context.Background(), slog.LevelInfo, http.StatusText(v.Status),
+					slog.String("uri", v.URI),
+					slog.Int("status", v.Status),
 				)
 			}
 			return nil
