@@ -17,6 +17,7 @@ const (
 	Deposit           = "deposit"
 	Sweep             = "sweep"
 	Add               = "add"
+	Remove            = "remove"
 	SetQuoter         = "setQuoter"
 	AddressOf         = "addressOf"
 )
@@ -41,5 +42,6 @@ var Abi = map[string]*w3.Func{
 	// AccountIndex / TokenIndex
 	Have:      w3.MustNewFunc("have(address)", "bool"),
 	Add:       w3.MustNewFunc("add(address)", "bool"),
+	Remove:    w3.MustNewFunc("remove(address)", "bool"),
 	AddressOf: w3.MustNewFunc("addressOf(bytes32)", "address"),
 }

@@ -38,6 +38,10 @@ type (
 	ApproveRequest struct {
 		Address string `json:"address"`
 	}
+
+	RemoveRequest struct {
+		Address string `json:"address"`
+	}
 )
 
 func New(o ServerOpts) *Server {
@@ -60,6 +64,7 @@ func New(o ServerOpts) *Server {
 		return c.JSON(http.StatusOK, map[string]bool{"ok": true})
 	})
 	router.POST("/approve", server.approveHandler, server.apiKeyMiddleware)
+	router.POST("/remove", server.removeHandler, server.apiKeyMiddleware)
 	router.RouteNotFound("/*", func(c echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	})
@@ -166,6 +171,86 @@ func (s *Server) approveHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "User queued for users index approval",
+		Result: map[string]any{
+			"address":    address,
+			"trackingId": trackingID,
+		},
+	})
+}
+
+func (s *Server) removeHandler(c echo.Context) error {
+	var req RemoveRequest
+
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			Description: "Invalid or malformed request",
+			ErrCode:     apiresp.ErrCodeInvalidJSON,
+		})
+	}
+
+	if !common.IsHexAddress(req.Address) {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			Description: "Validation failed on one or more fields",
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+		})
+	}
+
+	address := common.HexToAddress(req.Address).Hex()
+
+	checkTx, err := s.store.Pool().Begin(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	defer checkTx.Rollback(c.Request().Context())
+
+	existing, err := s.store.GetSNGasApproverAccountByAddress(c.Request().Context(), checkTx, address)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+				Ok:          false,
+				Description: "Address not found or not approved",
+				ErrCode:     apiresp.ErrCodeValidationFailed,
+			})
+		}
+		return err
+	}
+	if existing.Address == "" {
+		return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+			Ok:          false,
+			Description: "Address not found or not approved",
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+		})
+	}
+
+	trackingID := uuid.NewString()
+
+	tx, err := s.store.Pool().Begin(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c.Request().Context())
+
+	if err := s.store.DeactivateSNGasApproverAccount(c.Request().Context(), tx, address); err != nil {
+		return err
+	}
+
+	_, err = s.worker.Client().InsertTx(c.Request().Context(), tx, worker.UsersIndexRemoveArgs{
+		TrackingID: trackingID,
+		Address:    address,
+	}, nil)
+	if err != nil {
+		return err
+	}
+
+	if err := tx.Commit(c.Request().Context()); err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "User queued for users index removal",
 		Result: map[string]any{
 			"address":    address,
 			"trackingId": trackingID,

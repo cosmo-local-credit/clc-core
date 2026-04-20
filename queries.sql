@@ -267,3 +267,10 @@ WHERE address = $1 AND status = 'SUCCESS';
 UPDATE sn_gas_approver_account
 SET status = $2, updated_at = CURRENT_TIMESTAMP
 WHERE tracking_id = $1;
+
+--name: deactivate-sn-gas-approver-account
+-- Deactivate an sn-gas-approver account by address
+-- $1: address
+UPDATE sn_gas_approver_account
+SET active = false, updated_at = CURRENT_TIMESTAMP
+WHERE address = $1 AND active = true;
