@@ -94,7 +94,7 @@ func (w *WorkerContainer) Start(ctx context.Context) error {
 }
 
 func (w *WorkerContainer) Stop(ctx context.Context) error {
-	w.logg.Info("shutting down worker queue")
+	w.logg.Info("Shutting down worker queue")
 	return w.queueClient.Stop(ctx)
 }
 

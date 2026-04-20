@@ -11,16 +11,16 @@ clean:
 
 build:
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${BIN} cmd/service/*.go
-	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/gen-service-token cmd/gen-service-token/main.go
+	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/gen-service-token cmd/gen-service-token/*.go
 
 build-clccore:
-	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${CLCCORE_BIN} cmd/clccore/main.go
+	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${CLCCORE_BIN} cmd/clccore/*.go
 
 run:
-	${BUILD_CONF} ${DEBUG} go run cmd/clccore/main.go
+	${BUILD_CONF} ${DEBUG} go run cmd/clccore/*.go
 
 run-clccore:
-	${BUILD_CONF} ${DEBUG} go run cmd/clccore/main.go
+	${BUILD_CONF} ${DEBUG} go run cmd/clccore/*.go
 
 docs:
 	swag fmt --dir internal/api/

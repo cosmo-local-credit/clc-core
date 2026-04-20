@@ -56,7 +56,7 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 		if ok {
 			if dispatchErr.Err == ErrNetwork {
 				updateTxStatus.Status = store.NETWORK_ERROR
-				w.wc.logg.Error("network related dispatch error", "original_error", dispatchErr.OriginalErr)
+				w.wc.logg.Error("Network related dispatch error", "original_error", dispatchErr.OriginalErr)
 				if err := w.wc.store.UpdateDispatchTxStatus(ctx, tx, updateTxStatus); err != nil {
 					return err
 				}
@@ -71,7 +71,7 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 				return dispatchErr
 			}
 
-			w.wc.logg.Error("chain related dispatch error", "error", dispatchErr.Err, "original_error", dispatchErr.OriginalErr)
+			w.wc.logg.Error("Chain related dispatch error", "error", dispatchErr.Err, "original_error", dispatchErr.OriginalErr)
 			switch dispatchErr.Err {
 			case ErrGasPriceTooLow:
 				updateTxStatus.Status = store.LOW_GAS_PRICE
@@ -107,7 +107,7 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 			return river.JobCancel(dispatchErr)
 		}
 
-		w.wc.logg.Error("unknown dispatch error", "error", err)
+		w.wc.logg.Error("Unknown dispatch error", "error", err)
 		return err
 	}
 	updateTxStatus.Status = store.IN_NETWORK

@@ -24,7 +24,7 @@ func (a *API) apiJWTAuthConfig() echojwt.Config {
 			} else if errors.Is(err, echojwt.ErrJWTInvalid) {
 				reason = "token is invalid or expired"
 			} else {
-				a.logg.Error("unknown jwt error caught", "error", err)
+				a.logg.Error("Unknown JWT error caught", "error", err)
 			}
 			return handleJWTAuthError(c, reason)
 		},
