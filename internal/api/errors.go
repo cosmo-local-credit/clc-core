@@ -14,46 +14,82 @@ func (a *API) customHTTPErrorHandler(c *echo.Context, err error) {
 		return
 	}
 
-	var hErr *echo.HTTPError
-	if errors.As(err, &hErr) {
-		c.JSON(hErr.Code, apiresp.ErrResponse{
-			Ok:          false,
-			Description: hErr.Message,
-		})
-		return
+	status := http.StatusInternalServerError
+	description := "Internal server error"
+	errCode := apiresp.ErrCodeInternalServerError
+
+	var sc echo.HTTPStatusCoder
+	if errors.As(err, &sc) {
+		status = sc.StatusCode()
+		description = http.StatusText(status)
+		errCode = errCodeForStatus(status)
+
+		var hErr *echo.HTTPError
+		if errors.As(err, &hErr) && hErr.Message != "" {
+			description = hErr.Message
+		}
 	}
 
-	a.logg.Error("API: echo error", "path", c.Path(), "err", err)
-	c.JSON(http.StatusInternalServerError, apiresp.ErrResponse{
+	if status >= http.StatusInternalServerError {
+		a.logg.Error("API: internal error", "path", c.Path(), "err", err)
+	}
+
+	c.JSON(status, apiresp.ErrResponse{
 		Ok:          false,
-		Description: "Internal server error",
-		ErrCode:     apiresp.ErrCodeInternalServerError,
+		Description: description,
+		ErrCode:     errCode,
 	})
 }
 
-func handleBindError(c *echo.Context) error {
-	return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+func handleBindError(c *echo.Context, err error) error {
+	if jErr := c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 		Ok:          false,
 		ErrCode:     apiresp.ErrCodeInvalidJSON,
 		Description: "Invalid or malformed request",
-	})
+	}); jErr != nil {
+		return jErr
+	}
+	return err
 }
 
 func (a *API) handleValidateError(c *echo.Context, err error) error {
-	a.logg.Error("Validation error", "path", c.Path(), "err", err)
-	return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+	if jErr := c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 		Ok:          false,
 		ErrCode:     apiresp.ErrCodeValidationFailed,
 		Description: "Validation failed on one or more fields",
-	})
+	}); jErr != nil {
+		return jErr
+	}
+	return err
 }
 
 func handleJWTAuthError(c *echo.Context, errorReason string) error {
-	return c.JSON(http.StatusUnauthorized, apiresp.ErrResponse{
+	if jErr := c.JSON(http.StatusUnauthorized, apiresp.ErrResponse{
 		Ok:          false,
 		ErrCode:     apiresp.ErrJWTAuth,
 		Description: "JWT authentication failed: " + errorReason,
-	})
+	}); jErr != nil {
+		return jErr
+	}
+	return errors.New(errorReason)
+}
+
+func errCodeForStatus(status int) string {
+	switch status {
+	case http.StatusNotFound:
+		return apiresp.ErrCodeNotFound
+	case http.StatusMethodNotAllowed:
+		return apiresp.ErrCodeMethodNotAllowed
+	case http.StatusRequestTimeout:
+		return apiresp.ErrCodeRequestTimeout
+	case http.StatusRequestEntityTooLarge:
+		return apiresp.ErrCodePayloadTooLarge
+	case http.StatusUnauthorized:
+		return apiresp.ErrJWTAuth
+	case http.StatusInternalServerError:
+		return apiresp.ErrCodeInternalServerError
+	}
+	return ""
 }
 
 func handlePostgresError(c *echo.Context, err error) error {

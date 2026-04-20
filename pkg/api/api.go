@@ -31,7 +31,11 @@ type (
 const (
 	ErrCodeInternalServerError = "E01"
 	ErrCodeInvalidJSON         = "E02"
-	ErrCodeValidationFailed = "E04"
-	ErrJWTAuth              = "E06"
-	ErrNoRecordFound        = "E07"
+	ErrCodeNotFound            = "E03"
+	ErrCodeValidationFailed    = "E04"
+	ErrCodeMethodNotAllowed    = "E05"
+	ErrJWTAuth                 = "E06"
+	ErrNoRecordFound           = "E07"
+	ErrCodePayloadTooLarge     = "E08"
+	ErrCodeRequestTimeout      = "E09"
 )
