@@ -82,7 +82,7 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 				return err
 			}
 		}
-		if otx.OTXType == store.USERS_INDEX_ADD {
+		if otx.OTXType == store.USERS_INDEX_ADD || otx.OTXType == store.USERS_INDEX_REMOVE {
 			if err := s.store.UpdateSNGasApproverAccountStatus(ctx, tx, otx.TrackingID, store.SNGasApproverStatusSuccess); err != nil {
 				return err
 			}

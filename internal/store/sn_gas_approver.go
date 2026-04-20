@@ -69,3 +69,8 @@ func (pg *Pg) UpdateSNGasApproverAccountStatus(ctx context.Context, tx pgx.Tx, t
 	_, err := tx.Exec(ctx, pg.queries.UpdateSNGasApproverAccountStatus, trackingID, status)
 	return err
 }
+
+func (pg *Pg) DeactivateSNGasApproverAccount(ctx context.Context, tx pgx.Tx, address string) error {
+	_, err := tx.Exec(ctx, pg.queries.DeactivateSNGasApproverAccount, address)
+	return err
+}

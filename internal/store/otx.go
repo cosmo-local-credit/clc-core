@@ -50,6 +50,7 @@ const (
 	NEXT_ERC20_INITIAL_MINT          string = "NEXT_ERC20_INITIAL_MINT"
 	NEXT_ERC20_PROXY_UPGRADE         string = "NEXT_ERC20_PROXY_UPGRADE"
 	USERS_INDEX_ADD                  string = "USERS_INDEX_ADD"
+	USERS_INDEX_REMOVE               string = "USERS_INDEX_REMOVE"
 )
 
 func (pg *Pg) InsertOTX(ctx context.Context, tx pgx.Tx, otx OTX) (uint64, error) {

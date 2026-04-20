@@ -42,6 +42,7 @@ type (
 		GetSNGasApproverAccountByTrackingID  string `query:"get-sn-gas-approver-account-by-tracking-id"`
 		GetSNGasApproverAccountByAddress     string `query:"get-sn-gas-approver-account-by-address"`
 		UpdateSNGasApproverAccountStatus     string `query:"update-sn-gas-approver-account-status"`
+		DeactivateSNGasApproverAccount       string `query:"deactivate-sn-gas-approver-account"`
 	}
 
 	PgOpts struct {
