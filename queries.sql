@@ -64,3 +64,23 @@ WHERE otx_id = $2;
 SELECT id, chain_id, contract_type, factory_address, implementation_address, version, created_at, updated_at
 FROM platform_contracts
 WHERE chain_id = $1 AND contract_type = $2::contract_type;
+
+--name: insert-deployed-token
+INSERT INTO deployed_tokens (otx_id, platform_contract_id, address, symbol, name, admin)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id;
+
+--name: get-deployed-token-by-address
+SELECT id, otx_id, platform_contract_id, address, symbol, name, admin, created_at, updated_at
+FROM deployed_tokens
+WHERE address = $1;
+
+--name: insert-token-deploy-meta
+INSERT INTO token_deploy_meta (otx_id, platform_contract_id, token_name, token_symbol, admin)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id;
+
+--name: get-token-deploy-meta-by-otx-id
+SELECT id, otx_id, platform_contract_id, token_name, token_symbol, admin, created_at, updated_at
+FROM token_deploy_meta
+WHERE otx_id = $1;

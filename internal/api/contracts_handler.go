@@ -45,6 +45,7 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		ExpiryTimestamp:       req.ExpiryTimestamp,
 		FactoryAddress:        pc.FactoryAddress,
 		ImplementationAddress: pc.ImplementationAddress,
+		PlatformContractID:    pc.ID,
 	}, &river.InsertOpts{MaxAttempts: 1})
 	if err != nil {
 		return handlePostgresError(c, err)
