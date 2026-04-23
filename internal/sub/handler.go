@@ -47,6 +47,24 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		return err
 	}
 
+	if chainEvent.Success && otx.OTXType == store.TOKEN_PROXY_DEPLOY {
+		meta, err := s.store.GetTokenDeployMetaByOTXID(ctx, tx, otx.ID)
+		if err != nil {
+			return err
+		}
+
+		if _, err := s.store.InsertDeployedToken(ctx, tx, store.DeployedToken{
+			OTXID:              otx.ID,
+			PlatformContractID: meta.PlatformContractID,
+			Address:            chainEvent.ContractAddress,
+			Symbol:             meta.TokenSymbol,
+			Name:               meta.TokenName,
+			Admin:              meta.Admin,
+		}); err != nil {
+			return err
+		}
+	}
+
 	s.pub.Send(ctx, custodialEvent.Event{
 		TrackingID: otx.TrackingID,
 		Status:     updateDispatchStatus.Status,

@@ -20,4 +20,8 @@ type Store interface {
 	InsertDispatchTx(context.Context, pgx.Tx, DispatchTx) error
 	UpdateDispatchTxStatus(context.Context, pgx.Tx, DispatchTx) error
 	GetPlatformContracts(context.Context, pgx.Tx, int64, string) (PlatformContracts, error)
+	InsertDeployedToken(context.Context, pgx.Tx, DeployedToken) (uint64, error)
+	GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
+	InsertTokenDeployMeta(context.Context, pgx.Tx, TokenDeployMeta) error
+	GetTokenDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (TokenDeployMeta, error)
 }

@@ -31,6 +31,7 @@ type (
 		ExpiryTimestamp       string `json:"expiryTimestamp"`
 		FactoryAddress        string `json:"factoryAddress"`
 		ImplementationAddress string `json:"implementationAddress"`
+		PlatformContractID    uint64 `json:"platformContractId"`
 	}
 
 	DeployTokenWorker struct {
@@ -106,6 +107,26 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		gasSettings.GasTipCap,
 	)
 	if err != nil {
+		return err
+	}
+
+	metaTx, err := w.wc.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer metaTx.Rollback(ctx)
+
+	if err := w.wc.store.InsertTokenDeployMeta(ctx, metaTx, store.TokenDeployMeta{
+		OTXID:              proxyTx.OTXID,
+		PlatformContractID: args.PlatformContractID,
+		TokenName:          args.Name,
+		TokenSymbol:        args.Symbol,
+		Admin:              signerAddress.Hex(),
+	}); err != nil {
+		return err
+	}
+
+	if err := metaTx.Commit(ctx); err != nil {
 		return err
 	}
 

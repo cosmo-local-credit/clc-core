@@ -14,16 +14,20 @@ import (
 
 type (
 	Queries struct {
-		InsertKeyPair          string `query:"insert-keypair"`
-		ActivateKeyPair        string `query:"activate-keypair"`
-		LoadMasterKey          string `query:"load-master-key"`
-		BootstrapMasterKey     string `query:"bootstrap-master-key"`
-		AcquireNonce           string `query:"acquire-nonce"`
-		InsertOTX              string `query:"insert-otx"`
-		GetOTXByTxHash         string `query:"get-otx-by-tx-hash"`
-		InsertDispatchTx       string `query:"insert-dispatch-tx"`
-		UpdateDispatchTxStatus string `query:"update-dispatch-tx-status"`
-		GetPlatformContracts   string `query:"get-platform-contracts"`
+		InsertKeyPair             string `query:"insert-keypair"`
+		ActivateKeyPair           string `query:"activate-keypair"`
+		LoadMasterKey             string `query:"load-master-key"`
+		BootstrapMasterKey        string `query:"bootstrap-master-key"`
+		AcquireNonce              string `query:"acquire-nonce"`
+		InsertOTX                 string `query:"insert-otx"`
+		GetOTXByTxHash            string `query:"get-otx-by-tx-hash"`
+		InsertDispatchTx          string `query:"insert-dispatch-tx"`
+		UpdateDispatchTxStatus    string `query:"update-dispatch-tx-status"`
+		GetPlatformContracts      string `query:"get-platform-contracts"`
+		InsertDeployedToken       string `query:"insert-deployed-token"`
+		GetDeployedTokenByAddress string `query:"get-deployed-token-by-address"`
+		InsertTokenDeployMeta     string `query:"insert-token-deploy-meta"`
+		GetTokenDeployMetaByOTXID string `query:"get-token-deploy-meta-by-otx-id"`
 	}
 
 	PgOpts struct {
