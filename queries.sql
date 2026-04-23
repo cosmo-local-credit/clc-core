@@ -84,3 +84,43 @@ RETURNING id;
 SELECT id, otx_id, platform_contract_id, token_name, token_symbol, admin, created_at, updated_at
 FROM token_deploy_meta
 WHERE otx_id = $1;
+
+-- Pool addresses (shared singleton addresses)
+--name: get-pool-address
+SELECT address FROM pool_addresses WHERE key = $1;
+
+--name: set-pool-address
+INSERT INTO pool_addresses (key, address) VALUES ($1, $2)
+ON CONFLICT (key) DO UPDATE SET address = EXCLUDED.address, updated_at = CURRENT_TIMESTAMP;
+
+-- Pool deploy meta
+--name: insert-pool-deploy-meta
+INSERT INTO pool_deploy_meta (
+    otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id;
+
+--name: get-pool-deploy-meta-by-otx-id
+SELECT id, otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
+FROM pool_deploy_meta
+WHERE otx_id = $1;
+
+-- Deployed pools
+--name: insert-deployed-pool
+INSERT INTO deployed_pools (
+    otx_id, platform_contract_id, address, name, symbol,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id;
+
+--name: get-deployed-pool-by-address
+SELECT id, otx_id, platform_contract_id, address, name, symbol,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
+FROM deployed_pools
+WHERE address = $1;

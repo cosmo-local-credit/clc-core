@@ -28,6 +28,12 @@ type (
 		GetDeployedTokenByAddress string `query:"get-deployed-token-by-address"`
 		InsertTokenDeployMeta     string `query:"insert-token-deploy-meta"`
 		GetTokenDeployMetaByOTXID string `query:"get-token-deploy-meta-by-otx-id"`
+		GetPoolAddress            string `query:"get-pool-address"`
+		SetPoolAddress            string `query:"set-pool-address"`
+		InsertDeployedPool        string `query:"insert-deployed-pool"`
+		GetDeployedPoolByAddress  string `query:"get-deployed-pool-by-address"`
+		InsertPoolDeployMeta      string `query:"insert-pool-deploy-meta"`
+		GetPoolDeployMetaByOTXID  string `query:"get-pool-deploy-meta-by-otx-id"`
 	}
 
 	PgOpts struct {

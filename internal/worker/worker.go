@@ -109,6 +109,10 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 		return nil, err
 	}
 
+	if err := river.AddWorkerSafely(workers, &DeployPoolWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
 	if err := river.AddWorkerSafely(workers, &DisptachWorker{wc: wc}); err != nil {
 		return nil, err
 	}

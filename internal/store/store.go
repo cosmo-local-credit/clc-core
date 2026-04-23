@@ -24,4 +24,10 @@ type Store interface {
 	GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 	InsertTokenDeployMeta(context.Context, pgx.Tx, TokenDeployMeta) error
 	GetTokenDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (TokenDeployMeta, error)
+	GetPoolAddress(context.Context, pgx.Tx, string) (string, error)
+	SetPoolAddress(context.Context, pgx.Tx, string, string) error
+	InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
+	GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
+	InsertPoolDeployMeta(context.Context, pgx.Tx, PoolDeployMeta) error
+	GetPoolDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (PoolDeployMeta, error)
 }

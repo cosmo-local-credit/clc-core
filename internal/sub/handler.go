@@ -65,6 +65,30 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		}
 	}
 
+	if chainEvent.Success && otx.OTXType == store.POOL_PROXY_DEPLOY {
+		meta, err := s.store.GetPoolDeployMetaByOTXID(ctx, tx, otx.ID)
+		if err != nil {
+			return err
+		}
+
+		if _, err := s.store.InsertDeployedPool(ctx, tx, store.DeployedPool{
+			OTXID:                        otx.ID,
+			PlatformContractID:           meta.PlatformContractID,
+			Address:                      chainEvent.ContractAddress,
+			Name:                         meta.PoolName,
+			Symbol:                       meta.PoolSymbol,
+			TokenRegistryAddress:         meta.TokenRegistryAddress,
+			LimiterAddress:               meta.LimiterAddress,
+			FeePolicyAddress:             meta.FeePolicyAddress,
+			QuoterAddress:                meta.QuoterAddress,
+			ProtocolFeeControllerAddress: meta.ProtocolFeeControllerAddress,
+			FeesDecoupled:                meta.FeesDecoupled,
+			Admin:                        meta.Admin,
+		}); err != nil {
+			return err
+		}
+	}
+
 	s.pub.Send(ctx, custodialEvent.Event{
 		TrackingID: otx.TrackingID,
 		Status:     updateDispatchStatus.Status,
