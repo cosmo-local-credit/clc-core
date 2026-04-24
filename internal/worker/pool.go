@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"strconv"
 
@@ -84,6 +85,12 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		var addr common.Address
 		err := w.wc.chainProvider.Client.CallCtx(ctx, eth.CallFunc(factoryAddress, funcPredict, salt).Returns(&addr))
 		return addr, err
+	}
+
+	switch args.QuoterType {
+	case "decimal", "oracle", "relative":
+	default:
+		return fmt.Errorf("unsupported quoter type: %s", args.QuoterType)
 	}
 
 	needsQuoterProxy := args.QuoterType != "decimal"
@@ -299,6 +306,8 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 			quoterInit, err = relativequoter.EncodeInit(relativequoter.InitArgs{
 				Owner: ownerAddress,
 			})
+		default:
+			return fmt.Errorf("unsupported quoter type: %s", args.QuoterType)
 		}
 		if err != nil {
 			return err

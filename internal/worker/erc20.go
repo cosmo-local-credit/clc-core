@@ -19,7 +19,6 @@ import (
 	"github.com/riverqueue/river"
 )
 
-var funcDeployAndCall = w3.MustNewFunc("deployAndCall(address,address,bytes)", "address")
 var funcDeployDeterministicAndCall = w3.MustNewFunc("deployDeterministicAndCall(address,address,bytes32,bytes)", "address")
 
 type (

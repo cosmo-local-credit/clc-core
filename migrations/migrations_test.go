@@ -97,3 +97,37 @@ func TestMigration003CreatesPoolTables(t *testing.T) {
 	assert.Contains(t, s, "REFERENCES platform_contracts(id)")
 	assert.Contains(t, s, "update_timestamp()")
 }
+
+func TestMigration004Exists(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	require.NoError(t, err)
+
+	found := false
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "004_") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected a 004_* migration file in migrations/")
+}
+
+func TestMigration004CreatesOracleFeeds(t *testing.T) {
+	content, err := os.ReadFile("004_oracle_feeds.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS oracle_feeds")
+	assert.Contains(t, s, "name       TEXT NOT NULL UNIQUE")
+	assert.Contains(t, s, "address    TEXT NOT NULL")
+	assert.Contains(t, s, "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+	assert.Contains(t, s, "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+	assert.Contains(t, s, "CREATE TRIGGER update_oracle_feeds_timestamp")
+	assert.Contains(t, s, "BEFORE UPDATE ON oracle_feeds")
+	assert.Contains(t, s, "update_timestamp()")
+	assert.Contains(t, s, "INSERT INTO oracle_feeds (name, address) VALUES")
+	assert.Contains(t, s, "('USDT', '0x5e37AF40A7A344ec9b03CCD34a250F3dA9a20B02')")
+	assert.Contains(t, s, "('KES',  '0x85d4Ec34339478F73c153710B19f2D5C402dce6F')")
+	assert.Contains(t, s, "ON CONFLICT (name) DO UPDATE SET")
+	assert.Contains(t, s, "updated_at = CURRENT_TIMESTAMP")
+}

@@ -7,6 +7,7 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
+	"github.com/grassrootseconomics/ethutils"
 	"github.com/labstack/echo/v5"
 	"github.com/riverqueue/river"
 )
@@ -30,7 +31,14 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 				Description: "Validation failed: baseCurrency is required when quoterType is oracle",
 			})
 		}
-		if common.HexToAddress(req.BaseCurrency) == (common.Address{}) {
+		if !common.IsHexAddress(req.BaseCurrency) {
+			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeValidationFailed,
+				Description: "Validation failed: baseCurrency must be a valid hex address",
+			})
+		}
+		if common.HexToAddress(req.BaseCurrency) == ethutils.ZeroAddress {
 			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 				Ok:          false,
 				ErrCode:     apiresp.ErrCodeValidationFailed,
