@@ -20,6 +20,7 @@ import (
 )
 
 var funcDeployAndCall = w3.MustNewFunc("deployAndCall(address,address,bytes)", "address")
+var funcDeployDeterministicAndCall = w3.MustNewFunc("deployDeterministicAndCall(address,address,bytes32,bytes)", "address")
 
 type (
 	DeployTokenArgs struct {
@@ -85,9 +86,12 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		return err
 	}
 
-	calldata, err := funcDeployAndCall.EncodeArgs(
+	salt := publish.GenerateSalt(signerAddress, args.Name)
+
+	calldata, err := funcDeployDeterministicAndCall.EncodeArgs(
 		common.HexToAddress(args.ImplementationAddress),
 		signerAddress,
+		salt,
 		initData,
 	)
 	if err != nil {

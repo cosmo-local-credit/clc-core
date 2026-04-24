@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/grassrootseconomics/ethutils"
+	"github.com/lmittmann/w3"
 	"github.com/lmittmann/w3/module/eth"
 	"github.com/riverqueue/river"
 )
@@ -68,17 +69,23 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	// Query factory nonce to predict CREATE addresses for proxy deployments
 	factoryAddress := common.HexToAddress(args.FactoryAddress)
-	var factoryNonce uint64
-	if err := w.wc.chainProvider.Client.CallCtx(
-		ctx,
-		eth.Nonce(factoryAddress, nil).Returns(&factoryNonce),
-	); err != nil {
-		return err
+
+	createSalt := func(suffix string) common.Hash {
+		hash := crypto.Keccak256Hash([]byte(args.TrackingID + "-" + suffix))
+		var salt common.Hash
+		copy(salt[:20], signerAddress.Bytes())
+		copy(salt[20:], hash[20:])
+		return salt
 	}
 
-	// Determine number of dependency deployments (before SwapPool)
+	funcPredict := w3.MustNewFunc("predictDeterministicAddress(bytes32)", "address")
+	predictAddress := func(salt common.Hash) (common.Address, error) {
+		var addr common.Address
+		err := w.wc.chainProvider.Client.CallCtx(ctx, eth.CallFunc(factoryAddress, funcPredict, salt).Returns(&addr))
+		return addr, err
+	}
+
 	needsQuoterProxy := args.QuoterType != "decimal"
 	depCount := 3 // TokenIndex, Limiter, FeePolicy
 	if needsQuoterProxy {
@@ -86,19 +93,32 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	}
 	totalDeployments := depCount + 1 // +1 for SwapPool
 
-	// Predict proxy addresses using factory CREATE address derivation
-	predictedAddresses := make([]common.Address, totalDeployments)
-	for i := 0; i < totalDeployments; i++ {
-		predictedAddresses[i] = crypto.CreateAddress(factoryAddress, factoryNonce+uint64(i))
+	tokenIndexSalt := createSalt("TokenIndex")
+	limiterSalt := createSalt("Limiter")
+	feePolicySalt := createSalt("FeePolicy")
+	swapPoolSalt := createSalt("SwapPool")
+
+	tokenIndexAddr, err := predictAddress(tokenIndexSalt)
+	if err != nil {
+		return err
+	}
+	limiterAddr, err := predictAddress(limiterSalt)
+	if err != nil {
+		return err
+	}
+	feePolicyAddr, err := predictAddress(feePolicySalt)
+	if err != nil {
+		return err
 	}
 
-	tokenIndexAddr := predictedAddresses[0]
-	limiterAddr := predictedAddresses[1]
-	feePolicyAddr := predictedAddresses[2]
-
+	var quoterSalt common.Hash
 	var quoterAddr common.Address
 	if needsQuoterProxy {
-		quoterAddr = predictedAddresses[3]
+		quoterSalt = createSalt("Quoter")
+		quoterAddr, err = predictAddress(quoterSalt)
+		if err != nil {
+			return err
+		}
 	} else {
 		quoterAddr = common.HexToAddress(args.DecimalQuoterAddress)
 	}
@@ -132,9 +152,10 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	tokenIndexCalldata, err := funcDeployAndCall.EncodeArgs(
+	tokenIndexCalldata, err := funcDeployDeterministicAndCall.EncodeArgs(
 		common.HexToAddress(args.TokenIndexImplAddress),
 		signerAddress,
+		tokenIndexSalt,
 		tokenIndexInit,
 	)
 	if err != nil {
@@ -175,9 +196,10 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	limiterCalldata, err := funcDeployAndCall.EncodeArgs(
+	limiterCalldata, err := funcDeployDeterministicAndCall.EncodeArgs(
 		common.HexToAddress(args.LimiterImplAddress),
 		signerAddress,
+		limiterSalt,
 		limiterInit,
 	)
 	if err != nil {
@@ -227,9 +249,10 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	feePolicyCalldata, err := funcDeployAndCall.EncodeArgs(
+	feePolicyCalldata, err := funcDeployDeterministicAndCall.EncodeArgs(
 		common.HexToAddress(args.FeePolicyImplAddress),
 		signerAddress,
+		feePolicySalt,
 		feePolicyInit,
 	)
 	if err != nil {
@@ -281,9 +304,10 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 			return err
 		}
 
-		quoterCalldata, err := funcDeployAndCall.EncodeArgs(
+		quoterCalldata, err := funcDeployDeterministicAndCall.EncodeArgs(
 			common.HexToAddress(args.QuoterImplAddress),
 			signerAddress,
+			quoterSalt,
 			quoterInit,
 		)
 		if err != nil {
@@ -335,9 +359,10 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	swapPoolCalldata, err := funcDeployAndCall.EncodeArgs(
+	swapPoolCalldata, err := funcDeployDeterministicAndCall.EncodeArgs(
 		common.HexToAddress(args.SwapPoolImplAddress),
 		signerAddress,
+		swapPoolSalt,
 		swapPoolInit,
 	)
 	if err != nil {
