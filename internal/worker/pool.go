@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"strconv"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/swappool"
 	"github.com/cosmo-local-credit/protocol/pkg/publish/contracts/tokenuniquesymbolindex"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/lmittmann/w3"
 	"github.com/lmittmann/w3/module/eth"
@@ -72,14 +70,6 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 
 	factoryAddress := common.HexToAddress(args.FactoryAddress)
 
-	createSalt := func(suffix string) common.Hash {
-		hash := crypto.Keccak256Hash([]byte(args.TrackingID + "-" + suffix))
-		var salt common.Hash
-		copy(salt[:20], signerAddress.Bytes())
-		copy(salt[20:], hash[20:])
-		return salt
-	}
-
 	funcPredict := w3.MustNewFunc("predictDeterministicAddress(bytes32)", "address")
 	predictAddress := func(salt common.Hash) (common.Address, error) {
 		var addr common.Address
@@ -87,23 +77,20 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return addr, err
 	}
 
-	switch args.QuoterType {
-	case "decimal", "oracle", "relative":
-	default:
-		return fmt.Errorf("unsupported quoter type: %s", args.QuoterType)
-	}
-
+	// decimals is a stateless smart contract so we use the single deployed instance
 	needsQuoterProxy := args.QuoterType != "decimal"
-	depCount := 3 // TokenIndex, Limiter, FeePolicy
+	// TokenIndex, Limiter, FeePolicy
+	depCount := 3
 	if needsQuoterProxy {
 		depCount++
 	}
-	totalDeployments := depCount + 1 // +1 for SwapPool
+	// +1 for SwapPool
+	totalDeployments := depCount + 1
 
-	tokenIndexSalt := createSalt("TokenIndex")
-	limiterSalt := createSalt("Limiter")
-	feePolicySalt := createSalt("FeePolicy")
-	swapPoolSalt := createSalt("SwapPool")
+	tokenIndexSalt := createSalt(signerAddress, args.TrackingID, "TokenIndex")
+	limiterSalt := createSalt(signerAddress, args.TrackingID, "Limiter")
+	feePolicySalt := createSalt(signerAddress, args.TrackingID, "FeePolicy")
+	swapPoolSalt := createSalt(signerAddress, args.TrackingID, "SwapPool")
 
 	tokenIndexAddr, err := predictAddress(tokenIndexSalt)
 	if err != nil {
@@ -121,7 +108,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	var quoterSalt common.Hash
 	var quoterAddr common.Address
 	if needsQuoterProxy {
-		quoterSalt = createSalt("Quoter")
+		quoterSalt = createSalt(signerAddress, args.TrackingID, "Quoter")
 		quoterAddr, err = predictAddress(quoterSalt)
 		if err != nil {
 			return err
@@ -130,14 +117,13 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		quoterAddr = common.HexToAddress(args.DecimalQuoterAddress)
 	}
 
-	// Begin DB transaction for all OTX inserts + dispatch queueing
 	dbTx, err := w.wc.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer dbTx.Rollback(ctx)
 
-	// Acquire consecutive nonces for all deployments
+	// Acquire consecutive nonces for all deployments.
 	signerNonces := make([]uint64, totalDeployments)
 	for i := 0; i < totalDeployments; i++ {
 		nonce, err := w.wc.store.AcquireNonce(ctx, dbTx, signerAddress.Hex())
@@ -147,11 +133,9 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		signerNonces[i] = nonce
 	}
 
-	var dispatchParams []river.InsertManyParams
-
 	ownerAddress := common.HexToAddress(args.Owner)
 
-	// --- 1. TokenUniqueSymbolIndex ---
+	// 1. TokenUniqueSymbolIndex
 	tokenIndexInit, err := tokenuniquesymbolindex.EncodeInit(tokenuniquesymbolindex.InitArgs{
 		Owner: ownerAddress,
 	})
@@ -186,16 +170,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	dispatchParams = append(dispatchParams, river.InsertManyParams{
-		Args: DispatchArgs{
-			TrackingID: args.TrackingID,
-			OTXID:      tokenIndexPrepared.OTXID,
-			RawTx:      tokenIndexPrepared.RawHex,
-		},
-		InsertOpts: &river.InsertOpts{Priority: 2},
-	})
-
-	// --- 2. Limiter ---
+	// 2. Limiter
 	limiterInit, err := limiter.EncodeInit(limiter.InitArgs{
 		Owner: ownerAddress,
 	})
@@ -230,16 +205,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	dispatchParams = append(dispatchParams, river.InsertManyParams{
-		Args: DispatchArgs{
-			TrackingID: args.TrackingID,
-			OTXID:      limiterPrepared.OTXID,
-			RawTx:      limiterPrepared.RawHex,
-		},
-		InsertOpts: &river.InsertOpts{Priority: 2},
-	})
-
-	// --- 3. FeePolicy ---
+	// 3. FeePolicy
 	var feePolicyDefaultFee uint64
 	if args.FeePolicyDefaultFee != "" {
 		feePolicyDefaultFee, err = strconv.ParseUint(args.FeePolicyDefaultFee, 10, 64)
@@ -283,16 +249,8 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	dispatchParams = append(dispatchParams, river.InsertManyParams{
-		Args: DispatchArgs{
-			TrackingID: args.TrackingID,
-			OTXID:      feePolicyPrepared.OTXID,
-			RawTx:      feePolicyPrepared.RawHex,
-		},
-		InsertOpts: &river.InsertOpts{Priority: 2},
-	})
-
-	// --- 4. Quoter proxy (if oracle/relative) ---
+	// 4. Quoter proxy (if oracle/relative)
+	var quoterPrepared *preparedTx
 	if needsQuoterProxy {
 		var quoterInit []byte
 
@@ -306,8 +264,6 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 			quoterInit, err = relativequoter.EncodeInit(relativequoter.InitArgs{
 				Owner: ownerAddress,
 			})
-		default:
-			return fmt.Errorf("unsupported quoter type: %s", args.QuoterType)
 		}
 		if err != nil {
 			return err
@@ -335,22 +291,13 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 			return err
 		}
 
-		quoterPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[3], quoterSignedTx)
+		quoterPrepared, err = w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[3], quoterSignedTx)
 		if err != nil {
 			return err
 		}
-
-		dispatchParams = append(dispatchParams, river.InsertManyParams{
-			Args: DispatchArgs{
-				TrackingID: args.TrackingID,
-				OTXID:      quoterPrepared.OTXID,
-				RawTx:      quoterPrepared.RawHex,
-			},
-			InsertOpts: &river.InsertOpts{Priority: 2},
-		})
 	}
 
-	// --- 5. SwapPool ---
+	// 5. SwapPool
 	swapPoolInit, err := swappool.EncodeInit(swappool.InitArgs{
 		Name:                  args.PoolName,
 		Symbol:                args.PoolSymbol,
@@ -396,15 +343,6 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	dispatchParams = append(dispatchParams, river.InsertManyParams{
-		Args: DispatchArgs{
-			TrackingID: args.TrackingID,
-			OTXID:      swapPoolPrepared.OTXID,
-			RawTx:      swapPoolPrepared.RawHex,
-		},
-		InsertOpts: &river.InsertOpts{Priority: 1},
-	})
-
 	// Insert pool deploy meta linked to the SwapPool OTX
 	if err := w.wc.store.InsertPoolDeployMeta(ctx, dbTx, store.PoolDeployMeta{
 		OTXID:                        swapPoolPrepared.OTXID,
@@ -422,6 +360,51 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	}); err != nil {
 		return err
 	}
+
+	dispatchParams := []river.InsertManyParams{
+		{
+			Args: DispatchArgs{
+				TrackingID: args.TrackingID,
+				OTXID:      tokenIndexPrepared.OTXID,
+				RawTx:      tokenIndexPrepared.RawHex,
+			},
+			InsertOpts: &river.InsertOpts{Priority: 2},
+		},
+		{
+			Args: DispatchArgs{
+				TrackingID: args.TrackingID,
+				OTXID:      limiterPrepared.OTXID,
+				RawTx:      limiterPrepared.RawHex,
+			},
+			InsertOpts: &river.InsertOpts{Priority: 2},
+		},
+		{
+			Args: DispatchArgs{
+				TrackingID: args.TrackingID,
+				OTXID:      feePolicyPrepared.OTXID,
+				RawTx:      feePolicyPrepared.RawHex,
+			},
+			InsertOpts: &river.InsertOpts{Priority: 2},
+		},
+	}
+	if quoterPrepared != nil {
+		dispatchParams = append(dispatchParams, river.InsertManyParams{
+			Args: DispatchArgs{
+				TrackingID: args.TrackingID,
+				OTXID:      quoterPrepared.OTXID,
+				RawTx:      quoterPrepared.RawHex,
+			},
+			InsertOpts: &river.InsertOpts{Priority: 2},
+		})
+	}
+	dispatchParams = append(dispatchParams, river.InsertManyParams{
+		Args: DispatchArgs{
+			TrackingID: args.TrackingID,
+			OTXID:      swapPoolPrepared.OTXID,
+			RawTx:      swapPoolPrepared.RawHex,
+		},
+		InsertOpts: &river.InsertOpts{Priority: 1},
+	})
 
 	// Atomically enqueue all dispatch jobs within the same transaction
 	if _, err := w.wc.queueClient.InsertManyTx(ctx, dbTx, dispatchParams); err != nil {
