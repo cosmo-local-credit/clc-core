@@ -109,6 +109,17 @@ SELECT id, otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
 FROM pool_deploy_meta
 WHERE otx_id = $1;
 
+-- Oracle feeds
+--name: get-oracle-feed-by-name
+SELECT id, name, address, created_at, updated_at
+FROM oracle_feeds
+WHERE name = $1;
+
+--name: list-oracle-feeds
+SELECT id, name, address, created_at, updated_at
+FROM oracle_feeds
+ORDER BY name;
+
 -- Deployed pools
 --name: insert-deployed-pool
 INSERT INTO deployed_pools (

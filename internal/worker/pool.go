@@ -122,9 +122,11 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 
 	var dispatchParams []river.InsertManyParams
 
+	ownerAddress := common.HexToAddress(args.Owner)
+
 	// --- 1. TokenUniqueSymbolIndex ---
 	tokenIndexInit, err := tokenuniquesymbolindex.EncodeInit(tokenuniquesymbolindex.InitArgs{
-		Owner: signerAddress,
+		Owner: ownerAddress,
 	})
 	if err != nil {
 		return err
@@ -167,7 +169,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 
 	// --- 2. Limiter ---
 	limiterInit, err := limiter.EncodeInit(limiter.InitArgs{
-		Owner: signerAddress,
+		Owner: ownerAddress,
 	})
 	if err != nil {
 		return err
@@ -218,8 +220,8 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	}
 
 	feePolicyInit, err := feepolicy.EncodeInit(feepolicy.InitArgs{
-		Owner:      signerAddress,
-		DefaultFee: big.NewInt(int64(feePolicyDefaultFee)),
+		Owner:      ownerAddress,
+		DefaultFee: new(big.Int).SetUint64(feePolicyDefaultFee),
 	})
 	if err != nil {
 		return err
@@ -267,12 +269,12 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		switch args.QuoterType {
 		case "oracle":
 			quoterInit, err = oraclequoter.EncodeInit(oraclequoter.InitArgs{
-				Owner:        signerAddress,
+				Owner:        ownerAddress,
 				BaseCurrency: common.HexToAddress(args.BaseCurrency),
 			})
 		case "relative":
 			quoterInit, err = relativequoter.EncodeInit(relativequoter.InitArgs{
-				Owner: signerAddress,
+				Owner: ownerAddress,
 			})
 		}
 		if err != nil {
@@ -320,9 +322,9 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		Name:                  args.PoolName,
 		Symbol:                args.PoolSymbol,
 		Decimals:              uint8(poolDecimals),
-		Owner:                 signerAddress,
+		Owner:                 ownerAddress,
 		FeePolicy:             feePolicyAddr,
-		FeeAddress:            signerAddress,
+		FeeAddress:            ownerAddress,
 		TokenRegistry:         tokenIndexAddr,
 		TokenLimiter:          limiterAddr,
 		Quoter:                quoterAddr,
@@ -382,7 +384,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		QuoterAddress:                quoterAddr.Hex(),
 		ProtocolFeeControllerAddress: args.ProtocolFeeController,
 		FeesDecoupled:                args.FeesDecoupled,
-		Admin:                        signerAddress.Hex(),
+		Admin:                        ownerAddress.Hex(),
 	}); err != nil {
 		return err
 	}

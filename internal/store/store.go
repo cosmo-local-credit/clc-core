@@ -30,4 +30,6 @@ type Store interface {
 	GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 	InsertPoolDeployMeta(context.Context, pgx.Tx, PoolDeployMeta) error
 	GetPoolDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (PoolDeployMeta, error)
+	GetOracleFeedByName(context.Context, pgx.Tx, string) (OracleFeed, error)
+	ListOracleFeeds(context.Context, pgx.Tx) ([]OracleFeed, error)
 }

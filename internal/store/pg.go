@@ -34,6 +34,8 @@ type (
 		GetDeployedPoolByAddress  string `query:"get-deployed-pool-by-address"`
 		InsertPoolDeployMeta      string `query:"insert-pool-deploy-meta"`
 		GetPoolDeployMetaByOTXID  string `query:"get-pool-deploy-meta-by-otx-id"`
+		GetOracleFeedByName       string `query:"get-oracle-feed-by-name"`
+		ListOracleFeeds           string `query:"list-oracle-feeds"`
 	}
 
 	PgOpts struct {

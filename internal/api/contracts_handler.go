@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/riverqueue/river"
@@ -19,6 +20,23 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
+	}
+
+	if req.QuoterType == "oracle" {
+		if req.BaseCurrency == "" {
+			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeValidationFailed,
+				Description: "Validation failed: baseCurrency is required when quoterType is oracle",
+			})
+		}
+		if common.HexToAddress(req.BaseCurrency) == (common.Address{}) {
+			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeValidationFailed,
+				Description: "Validation failed: baseCurrency must not be the zero address",
+			})
+		}
 	}
 
 	ctx := c.Request().Context()
