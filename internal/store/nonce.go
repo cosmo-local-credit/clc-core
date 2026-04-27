@@ -15,3 +15,13 @@ func (pg *Pg) AcquireNonce(ctx context.Context, tx pgx.Tx, publicKey string) (ui
 
 	return nonce, nil
 }
+
+func (pg *Pg) PeekNonce(ctx context.Context, tx pgx.Tx, publicKey string) (uint64, error) {
+	var nonce uint64
+
+	if err := tx.QueryRow(ctx, pg.queries.PeekNonce, publicKey).Scan(&nonce); err != nil {
+		return 0, err
+	}
+
+	return nonce, nil
+}

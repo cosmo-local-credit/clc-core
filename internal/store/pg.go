@@ -28,6 +28,20 @@ type (
 		GetDeployedTokenByAddress string `query:"get-deployed-token-by-address"`
 		InsertTokenDeployMeta     string `query:"insert-token-deploy-meta"`
 		GetTokenDeployMetaByOTXID string `query:"get-token-deploy-meta-by-otx-id"`
+		GetPoolAddress            string `query:"get-pool-address"`
+		SetPoolAddress            string `query:"set-pool-address"`
+		InsertDeployedPool        string `query:"insert-deployed-pool"`
+		GetDeployedPoolByAddress  string `query:"get-deployed-pool-by-address"`
+		InsertPoolDeployMeta      string `query:"insert-pool-deploy-meta"`
+		GetPoolDeployMetaByOTXID  string `query:"get-pool-deploy-meta-by-otx-id"`
+		GetOracleFeedByName       string `query:"get-oracle-feed-by-name"`
+		ListOracleFeeds           string `query:"list-oracle-feeds"`
+		GetOTXByTrackingID        string `query:"get-otx-by-tracking-id"`
+		GetOTXByAccount           string `query:"get-otx-by-account"`
+		GetOTXByAccountNext       string `query:"get-otx-by-account-next"`
+		GetOTXByAccountPrev       string `query:"get-otx-by-account-prev"`
+		PeekNonce                 string `query:"peek-nonce"`
+		CheckKeypair              string `query:"check-keypair"`
 	}
 
 	PgOpts struct {

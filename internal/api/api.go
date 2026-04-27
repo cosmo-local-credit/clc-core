@@ -122,6 +122,12 @@ func New(o APIOpts) *API {
 	apiGroup.Use(a.authStatusMiddleware())
 
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
+	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
+
+	apiGroup.GET("/system", a.systemHandler)
+	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)
+	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
+	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
 	a.server = &http.Server{
 		Addr:    o.ListenAddress,

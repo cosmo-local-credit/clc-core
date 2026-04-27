@@ -84,3 +84,101 @@ RETURNING id;
 SELECT id, otx_id, platform_contract_id, token_name, token_symbol, admin, created_at, updated_at
 FROM token_deploy_meta
 WHERE otx_id = $1;
+
+-- Pool addresses (shared singleton addresses)
+--name: get-pool-address
+SELECT address FROM pool_addresses WHERE key = $1;
+
+--name: set-pool-address
+INSERT INTO pool_addresses (key, address) VALUES ($1, $2)
+ON CONFLICT (key) DO UPDATE SET address = EXCLUDED.address, updated_at = CURRENT_TIMESTAMP;
+
+-- Pool deploy meta
+--name: insert-pool-deploy-meta
+INSERT INTO pool_deploy_meta (
+    otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id;
+
+--name: get-pool-deploy-meta-by-otx-id
+SELECT id, otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
+FROM pool_deploy_meta
+WHERE otx_id = $1;
+
+-- Oracle feeds
+--name: get-oracle-feed-by-name
+SELECT id, name, address, created_at, updated_at
+FROM oracle_feeds
+WHERE name = $1;
+
+--name: list-oracle-feeds
+SELECT id, name, address, created_at, updated_at
+FROM oracle_feeds
+ORDER BY name;
+
+-- Deployed pools
+--name: insert-deployed-pool
+INSERT INTO deployed_pools (
+    otx_id, platform_contract_id, address, name, symbol,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id;
+
+--name: get-deployed-pool-by-address
+SELECT id, otx_id, platform_contract_id, address, name, symbol,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
+FROM deployed_pools
+WHERE address = $1;
+
+--name: get-otx-by-tracking-id
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE otx.tracking_id = $1::uuid
+ORDER BY otx.id;
+
+--name: get-otx-by-account
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE k.public_key = $1
+ORDER BY otx.id DESC
+LIMIT $2;
+
+--name: get-otx-by-account-next
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE k.public_key = $1 AND otx.id > $2
+ORDER BY otx.id ASC
+LIMIT $3;
+
+--name: get-otx-by-account-prev
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE k.public_key = $1 AND otx.id < $2
+ORDER BY otx.id DESC
+LIMIT $3;
+
+--name: peek-nonce
+SELECT next_nonce FROM noncestore
+INNER JOIN keystore ON keystore.id = noncestore.keystore_id
+WHERE keystore.public_key = $1;
+
+--name: check-keypair
+SELECT active FROM keystore WHERE public_key = $1;
