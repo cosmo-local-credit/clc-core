@@ -23,6 +23,10 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
+	if req.QuoterType == "" {
+		req.QuoterType = "decimal"
+	}
+
 	if req.QuoterType == "oracle" {
 		if req.BaseCurrency == "" {
 			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{

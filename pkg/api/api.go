@@ -18,7 +18,7 @@ type (
 		Symbol           string `json:"symbol" validate:"required"`
 		Decimals         string `json:"decimals" validate:"required"`
 		Owner            string `json:"owner" validate:"required,eth_addr_checksum"`
-		QuoterType       string `json:"quoterType" validate:"required,oneof=decimal oracle relative"`
+		QuoterType       string `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
 		FeesDecoupled    bool   `json:"feesDecoupled"`
 		FeePolicyDefault string `json:"feePolicyDefault" validate:"omitempty"`
 		BaseCurrency     string `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
