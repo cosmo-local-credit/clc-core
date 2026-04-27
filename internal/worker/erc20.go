@@ -85,7 +85,7 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		return err
 	}
 
-	salt := publish.GenerateSalt(signerAddress, args.Name)
+	salt := createSalt(signerAddress, args.TrackingID, "token")
 
 	calldata, err := funcDeployDeterministicAndCall.EncodeArgs(
 		common.HexToAddress(args.ImplementationAddress),
