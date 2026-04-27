@@ -49,12 +49,22 @@ func (a *API) systemHandler(c *echo.Context) error {
 //	@Produce		json
 //	@Param			trackingId	path		string	true	"Tracking ID"
 //	@Success		200			{object}	apiresp.OKResponse
+//	@Failure		400			{object}	apiresp.ErrResponse
 //	@Failure		500			{object}	apiresp.ErrResponse
 //	@Security		ApiKeyAuth
 //	@Router			/otx/track/{trackingId} [get]
 func (a *API) trackOTXHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
-	trackingID := c.Param("trackingId")
+
+	req := apiresp.TrackOTXRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	trackingID := req.TrackingID
 
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {

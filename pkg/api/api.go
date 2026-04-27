@@ -32,6 +32,10 @@ type (
 		ExpiryTimestamp string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
 	}
 
+	TrackOTXRequest struct {
+		TrackingID string `param:"trackingId" validate:"required,uuid"`
+	}
+
 	OTXByAccountRequest struct {
 		Address string `param:"address" validate:"required,eth_addr_checksum"`
 		PerPage uint64 `query:"perPage"`
