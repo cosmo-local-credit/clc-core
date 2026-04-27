@@ -34,6 +34,16 @@ func (pg *Pg) LoadMasterSignerKey(ctx context.Context, tx pgx.Tx) (keypair.Key, 
 	return key, nil
 }
 
+func (pg *Pg) CheckKeypair(ctx context.Context, tx pgx.Tx, publicKey string) (bool, error) {
+	var active bool
+
+	if err := tx.QueryRow(ctx, pg.queries.CheckKeypair, publicKey).Scan(&active); err != nil {
+		return false, err
+	}
+
+	return active, nil
+}
+
 func (pg *Pg) bootstrapMasterSigner(ctx context.Context, tx pgx.Tx) error {
 	_, err := pg.LoadMasterSignerKey(ctx, tx)
 	if err != nil {

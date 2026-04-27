@@ -13,10 +13,15 @@ type (
 		ErrCode     string `json:"errorCode"`
 	}
 
-	PoolDeployRequest struct {
-		Name   string `json:"name" validate:"required"`
-		Symbol string `json:"symbol" validate:"required"`
-		Owner  string `json:"owner" validate:"required,eth_addr_checksum"`
+	DeployPoolRequest struct {
+		Name             string `json:"name" validate:"required"`
+		Symbol           string `json:"symbol" validate:"required"`
+		Decimals         string `json:"decimals" validate:"required"`
+		Owner            string `json:"owner" validate:"required,eth_addr_checksum"`
+		QuoterType       string `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
+		FeesDecoupled    bool   `json:"feesDecoupled"`
+		FeePolicyDefault string `json:"feePolicyDefault" validate:"omitempty"`
+		BaseCurrency     string `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
 	}
 
 	DeployTokenRequest struct {
@@ -25,6 +30,21 @@ type (
 		Decimals        string `json:"decimals" validate:"required"`
 		Owner           string `json:"owner" validate:"required,eth_addr_checksum"`
 		ExpiryTimestamp string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
+	}
+
+	TrackOTXRequest struct {
+		TrackingID string `param:"trackingId" validate:"required,uuid"`
+	}
+
+	OTXByAccountRequest struct {
+		Address string `param:"address" validate:"required,eth_addr_checksum"`
+		PerPage uint64 `query:"perPage"`
+		Next    bool   `query:"next"`
+		Cursor  uint64 `query:"cursor"`
+	}
+
+	AccountAddressParam struct {
+		Address string `param:"address" validate:"required,eth_addr_checksum"`
 	}
 )
 

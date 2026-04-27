@@ -24,6 +24,9 @@ type OTX struct {
 
 const TOKEN_PROXY_DEPLOY = "TOKEN_PROXY_DEPLOY"
 
+const POOL_DEPLOY_STEP = "POOL_DEPLOY_STEP"
+const POOL_PROXY_DEPLOY = "POOL_PROXY_DEPLOY"
+
 func (pg *Pg) InsertOTX(ctx context.Context, tx pgx.Tx, otx OTX) (uint64, error) {
 	var id uint64
 
@@ -56,4 +59,64 @@ func (pg *Pg) GetOTXByTxHash(ctx context.Context, tx pgx.Tx, txHash string) (OTX
 	}
 
 	return otx, nil
+}
+
+func (pg *Pg) GetOTXByTrackingID(ctx context.Context, tx pgx.Tx, trackingID string) ([]*OTX, error) {
+	var otxs []*OTX
+
+	rows, err := tx.Query(ctx, pg.queries.GetOTXByTrackingID, trackingID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&otxs, rows); err != nil {
+		return nil, err
+	}
+
+	return otxs, nil
+}
+
+func (pg *Pg) GetOTXByAccount(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]*OTX, error) {
+	var otxs []*OTX
+
+	rows, err := tx.Query(ctx, pg.queries.GetOTXByAccount, address, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&otxs, rows); err != nil {
+		return nil, err
+	}
+
+	return otxs, nil
+}
+
+func (pg *Pg) GetOTXByAccountNext(ctx context.Context, tx pgx.Tx, address string, cursor uint64, limit uint64) ([]*OTX, error) {
+	var otxs []*OTX
+
+	rows, err := tx.Query(ctx, pg.queries.GetOTXByAccountNext, address, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&otxs, rows); err != nil {
+		return nil, err
+	}
+
+	return otxs, nil
+}
+
+func (pg *Pg) GetOTXByAccountPrevious(ctx context.Context, tx pgx.Tx, address string, cursor uint64, limit uint64) ([]*OTX, error) {
+	var otxs []*OTX
+
+	rows, err := tx.Query(ctx, pg.queries.GetOTXByAccountPrev, address, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&otxs, rows); err != nil {
+		return nil, err
+	}
+
+	return otxs, nil
 }

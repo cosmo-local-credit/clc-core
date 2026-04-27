@@ -74,17 +74,29 @@ components:
           additionalProperties: {}
           type: object
       type: object
-    api.PoolDeployRequest:
+    api.DeployPoolRequest:
       properties:
+        baseCurrency:
+          type: string
+        decimals:
+          type: string
+        feePolicyDefault:
+          type: string
+        feesDecoupled:
+          type: boolean
         name:
           type: string
         owner:
           type: string
+        quoterType:
+          type: string
         symbol:
           type: string
       required:
+      - decimals
       - name
       - owner
+      - quoterType
       - symbol
       type: object
     api.PoolDepositRequest:
@@ -357,7 +369,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/api.PoolDeployRequest'
+              $ref: '#/components/schemas/api.DeployPoolRequest'
         description: Pool deploy request
         required: true
       responses:
