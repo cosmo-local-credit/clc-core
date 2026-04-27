@@ -36,6 +36,12 @@ type (
 		GetPoolDeployMetaByOTXID  string `query:"get-pool-deploy-meta-by-otx-id"`
 		GetOracleFeedByName       string `query:"get-oracle-feed-by-name"`
 		ListOracleFeeds           string `query:"list-oracle-feeds"`
+		GetOTXByTrackingID        string `query:"get-otx-by-tracking-id"`
+		GetOTXByAccount           string `query:"get-otx-by-account"`
+		GetOTXByAccountNext       string `query:"get-otx-by-account-next"`
+		GetOTXByAccountPrev       string `query:"get-otx-by-account-prev"`
+		PeekNonce                 string `query:"peek-nonce"`
+		CheckKeypair              string `query:"check-keypair"`
 	}
 
 	PgOpts struct {

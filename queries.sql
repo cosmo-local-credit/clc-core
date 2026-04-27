@@ -135,3 +135,50 @@ SELECT id, otx_id, platform_contract_id, address, name, symbol,
     protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
 FROM deployed_pools
 WHERE address = $1;
+
+--name: get-otx-by-tracking-id
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE otx.tracking_id = $1::uuid
+ORDER BY otx.id;
+
+--name: get-otx-by-account
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE k.public_key = $1
+ORDER BY otx.id DESC
+LIMIT $2;
+
+--name: get-otx-by-account-next
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE k.public_key = $1 AND otx.id > $2
+ORDER BY otx.id ASC
+LIMIT $3;
+
+--name: get-otx-by-account-prev
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE k.public_key = $1 AND otx.id < $2
+ORDER BY otx.id DESC
+LIMIT $3;
+
+--name: peek-nonce
+SELECT next_nonce FROM noncestore
+INNER JOIN keystore ON keystore.id = noncestore.keystore_id
+WHERE keystore.public_key = $1;
+
+--name: check-keypair
+SELECT active FROM keystore WHERE public_key = $1;

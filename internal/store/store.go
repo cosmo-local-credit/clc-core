@@ -32,4 +32,10 @@ type Store interface {
 	GetPoolDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (PoolDeployMeta, error)
 	GetOracleFeedByName(context.Context, pgx.Tx, string) (OracleFeed, error)
 	ListOracleFeeds(context.Context, pgx.Tx) ([]OracleFeed, error)
+	GetOTXByTrackingID(context.Context, pgx.Tx, string) ([]*OTX, error)
+	GetOTXByAccount(context.Context, pgx.Tx, string, uint64) ([]*OTX, error)
+	GetOTXByAccountNext(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
+	GetOTXByAccountPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
+	PeekNonce(context.Context, pgx.Tx, string) (uint64, error)
+	CheckKeypair(context.Context, pgx.Tx, string) (bool, error)
 }

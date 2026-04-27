@@ -31,6 +31,17 @@ type (
 		Owner           string `json:"owner" validate:"required,eth_addr_checksum"`
 		ExpiryTimestamp string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
 	}
+
+	OTXByAccountRequest struct {
+		Address string `param:"address" validate:"required,eth_addr_checksum"`
+		PerPage uint64 `query:"perPage"`
+		Next    bool   `query:"next"`
+		Cursor  uint64 `query:"cursor"`
+	}
+
+	AccountAddressParam struct {
+		Address string `param:"address" validate:"required,eth_addr_checksum"`
+	}
 )
 
 const (
