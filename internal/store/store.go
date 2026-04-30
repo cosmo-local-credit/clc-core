@@ -57,4 +57,9 @@ type Store interface {
 	ListPoolsByUser(context.Context, pgx.Tx, string) ([]DeployedPool, error)
 	ListAllTokens(context.Context, pgx.Tx) ([]DeployedToken, error)
 	ListAllPools(context.Context, pgx.Tx) ([]DeployedPool, error)
+
+	SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
+	ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)
+	InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error
+	GetUpgradeMetaByOTXID(context.Context, pgx.Tx, uint64) (UpgradeMeta, error)
 }

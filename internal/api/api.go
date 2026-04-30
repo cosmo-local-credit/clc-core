@@ -146,6 +146,9 @@ func New(o APIOpts) *API {
 
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
+	apiGroup.POST("/contracts/version", a.contractsVersionHandler)
+	apiGroup.POST("/contracts/upgrade/token", a.upgradeTokenHandler)
+	apiGroup.POST("/contracts/upgrade/pool", a.upgradePoolHandler)
 
 	apiGroup.GET("/system", a.systemHandler)
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)

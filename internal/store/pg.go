@@ -60,6 +60,11 @@ type (
 		ListPoolsByUser               string `query:"list-pools-by-user"`
 		ListAllTokens                 string `query:"list-all-tokens"`
 		ListAllPools                  string `query:"list-all-pools"`
+
+		SetPlatformContracts  string `query:"set-platform-contracts"`
+		ListPlatformContracts string `query:"list-platform-contracts"`
+		InsertUpgradeMeta     string `query:"insert-upgrade-meta"`
+		GetUpgradeMetaByOTXID string `query:"get-upgrade-meta-by-otx-id"`
 	}
 
 	PgOpts struct {

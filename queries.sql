@@ -279,3 +279,28 @@ SELECT id, otx_id, platform_contract_id, address, name, symbol,
     protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
 FROM deployed_pools
 ORDER BY created_at DESC;
+
+-- Set platform contracts implementation and version
+--name: set-platform-contracts
+UPDATE platform_contracts
+SET implementation_address = $1, version = $2, updated_at = CURRENT_TIMESTAMP
+WHERE chain_id = $3 AND contract_type = $4::contract_type
+RETURNING id, chain_id, contract_type, factory_address, implementation_address, version, created_at, updated_at;
+
+-- Get all platform contracts for a chain
+--name: list-platform-contracts
+SELECT id, chain_id, contract_type, factory_address, implementation_address, version, created_at, updated_at
+FROM platform_contracts
+WHERE chain_id = $1;
+
+-- Insert upgrade meta
+--name: insert-upgrade-meta
+INSERT INTO upgrade_meta (otx_id, proxy_address, contract_type, new_implementation, version)
+VALUES ($1, $2, $3::contract_type, $4, $5)
+RETURNING id;
+
+-- Get upgrade meta by OTX ID
+--name: get-upgrade-meta-by-otx-id
+SELECT id, otx_id, proxy_address, contract_type, new_implementation, version, created_at
+FROM upgrade_meta
+WHERE otx_id = $1;

@@ -33,3 +33,33 @@ func (pg *Pg) GetPlatformContracts(ctx context.Context, tx pgx.Tx, chainID int64
 
 	return pc, nil
 }
+
+func (pg *Pg) SetPlatformContracts(ctx context.Context, tx pgx.Tx, chainID int64, contractType string, implAddress string, version string) (PlatformContracts, error) {
+	var pc PlatformContracts
+
+	rows, err := tx.Query(ctx, pg.queries.SetPlatformContracts, implAddress, version, chainID, contractType)
+	if err != nil {
+		return pc, err
+	}
+
+	if err := pgxscan.ScanOne(&pc, rows); err != nil {
+		return pc, err
+	}
+
+	return pc, nil
+}
+
+func (pg *Pg) ListPlatformContracts(ctx context.Context, tx pgx.Tx, chainID int64) ([]PlatformContracts, error) {
+	var pcs []PlatformContracts
+
+	rows, err := tx.Query(ctx, pg.queries.ListPlatformContracts, chainID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&pcs, rows); err != nil {
+		return nil, err
+	}
+
+	return pcs, nil
+}
