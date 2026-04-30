@@ -89,6 +89,12 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		}
 	}
 
+	if otx.OTXType == store.PROXY_UPGRADE {
+		if _, err := s.store.GetUpgradeMetaByOTXID(ctx, tx, otx.ID); err != nil {
+			return err
+		}
+	}
+
 	s.pub.Send(ctx, custodialEvent.Event{
 		TrackingID: otx.TrackingID,
 		Status:     updateDispatchStatus.Status,

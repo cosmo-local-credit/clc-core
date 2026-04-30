@@ -32,6 +32,20 @@ type (
 		ExpiryTimestamp string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
 	}
 
+	RegisterVersionRequest struct {
+		Version               string `json:"version" validate:"required"`
+		ContractType          string `json:"contractType" validate:"required"`
+		ImplementationAddress string `json:"implementationAddress" validate:"required"`
+	}
+
+	UpgradeTokenRequest struct {
+		Address string `json:"address" validate:"required,eth_addr_checksum"`
+	}
+
+	UpgradePoolRequest struct {
+		Address string `json:"address" validate:"required,eth_addr_checksum"`
+	}
+
 	TrackOTXRequest struct {
 		TrackingID string `param:"trackingId" validate:"required,uuid"`
 	}

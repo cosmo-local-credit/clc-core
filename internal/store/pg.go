@@ -42,6 +42,10 @@ type (
 		GetOTXByAccountPrev       string `query:"get-otx-by-account-prev"`
 		PeekNonce                 string `query:"peek-nonce"`
 		CheckKeypair              string `query:"check-keypair"`
+		SetPlatformContracts      string `query:"set-platform-contracts"`
+		ListPlatformContracts     string `query:"list-platform-contracts"`
+		InsertUpgradeMeta         string `query:"insert-upgrade-meta"`
+		GetUpgradeMetaByOTXID     string `query:"get-upgrade-meta-by-otx-id"`
 	}
 
 	PgOpts struct {
