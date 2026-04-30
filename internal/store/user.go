@@ -1,0 +1,137 @@
+package store
+
+import (
+	"context"
+	"time"
+
+	"github.com/georgysavva/scany/v2/pgxscan"
+	"github.com/jackc/pgx/v5"
+)
+
+type User struct {
+	ID              string    `db:"id"               json:"id"`
+	EthereumAddress string    `db:"ethereum_address" json:"ethereumAddress"`
+	Name            string    `db:"name"             json:"name"`
+	Email           string    `db:"email"            json:"email"`
+	Role            string    `db:"role"             json:"role"`
+	Status          string    `db:"status"           json:"status"`
+	MaxPools        int       `db:"max_pools"        json:"maxPools"`
+	MaxTokens       int       `db:"max_tokens"       json:"maxTokens"`
+	CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
+	UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
+}
+
+func (pg *Pg) InsertUser(ctx context.Context, tx pgx.Tx, u User) (User, error) {
+	var inserted User
+
+	row, err := tx.Query(
+		ctx,
+		pg.queries.InsertUser,
+		u.EthereumAddress,
+		u.Name,
+		u.Email,
+		u.Role,
+		u.Status,
+		u.MaxPools,
+		u.MaxTokens,
+	)
+	if err != nil {
+		return inserted, err
+	}
+
+	if err := pgxscan.ScanOne(&inserted, row); err != nil {
+		return inserted, err
+	}
+
+	return inserted, nil
+}
+
+func (pg *Pg) GetUserByAddress(ctx context.Context, tx pgx.Tx, address string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.GetUserByAddress, address)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
+func (pg *Pg) GetUserByID(ctx context.Context, tx pgx.Tx, id string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.GetUserByID, id)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
+func (pg *Pg) UpdateUserStatus(ctx context.Context, tx pgx.Tx, address string, status string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.UpdateUserStatus, address, status)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
+func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, maxPools int, maxTokens int) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.UpdateUserLimits, address, maxPools, maxTokens)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
+func (pg *Pg) ListUsers(ctx context.Context, tx pgx.Tx) ([]User, error) {
+	var users []User
+
+	rows, err := tx.Query(ctx, pg.queries.ListUsers)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&users, rows); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
+func (pg *Pg) ListUsersByStatus(ctx context.Context, tx pgx.Tx, status string) ([]User, error) {
+	var users []User
+
+	rows, err := tx.Query(ctx, pg.queries.ListUsersByStatus, status)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&users, rows); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}

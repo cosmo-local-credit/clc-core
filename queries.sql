@@ -183,6 +183,103 @@ WHERE keystore.public_key = $1;
 --name: check-keypair
 SELECT active FROM keystore WHERE public_key = $1;
 
+-- Users
+--name: insert-user
+INSERT INTO users (ethereum_address, name, email, role, status, max_pools, max_tokens)
+VALUES ($1, $2, $3, $4::user_role, $5::user_status, $6, $7)
+RETURNING id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at;
+
+--name: get-user-by-address
+SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
+FROM users
+WHERE ethereum_address = $1;
+
+--name: get-user-by-id
+SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
+FROM users
+WHERE id = $1::uuid;
+
+--name: update-user-status
+UPDATE users
+SET status = $2::user_status
+WHERE ethereum_address = $1
+RETURNING id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at;
+
+--name: update-user-limits
+UPDATE users
+SET max_pools = $2, max_tokens = $3
+WHERE ethereum_address = $1
+RETURNING id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at;
+
+--name: list-users
+SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
+FROM users
+ORDER BY created_at DESC;
+
+--name: list-users-by-status
+SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
+FROM users
+WHERE status = $1::user_status
+ORDER BY created_at DESC;
+
+-- User deployments
+--name: count-user-tokens
+SELECT COUNT(*) FROM user_deployments
+WHERE user_id = $1::uuid AND resource_type = 'TOKEN';
+
+--name: count-user-pools
+SELECT COUNT(*) FROM user_deployments
+WHERE user_id = $1::uuid AND resource_type = 'POOL';
+
+--name: insert-user-deployment
+INSERT INTO user_deployments (user_id, tracking_id, resource_type)
+VALUES ($1::uuid, $2::uuid, $3)
+RETURNING id;
+
+--name: list-user-deployments
+SELECT id, user_id, tracking_id, resource_type, created_at
+FROM user_deployments
+WHERE user_id = $1::uuid
+ORDER BY created_at DESC;
+
+--name: get-user-deployment-by-tracking-id
+SELECT id, user_id, tracking_id, resource_type, created_at
+FROM user_deployments
+WHERE tracking_id = $1::uuid AND user_id = $2::uuid;
+
+--name: list-all-deployments
+SELECT ud.id, ud.user_id, ud.tracking_id, ud.resource_type, ud.created_at,
+    u.ethereum_address, u.name AS user_name
+FROM user_deployments ud
+JOIN users u ON u.id = ud.user_id
+ORDER BY ud.created_at DESC;
+
+--name: list-tokens-by-user
+SELECT dt.*
+FROM deployed_tokens dt
+INNER JOIN otx o ON dt.otx_id = o.id
+INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+WHERE ud.user_id = $1::uuid AND ud.resource_type = 'TOKEN';
+
+--name: list-pools-by-user
+SELECT dp.*
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+WHERE ud.user_id = $1::uuid AND ud.resource_type = 'POOL';
+
+--name: list-all-tokens
+SELECT id, otx_id, platform_contract_id, address, symbol, name, admin, created_at, updated_at
+FROM deployed_tokens
+ORDER BY created_at DESC;
+
+--name: list-all-pools
+SELECT id, otx_id, platform_contract_id, address, name, symbol,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
+FROM deployed_pools
+ORDER BY created_at DESC;
+
 -- Set platform contracts implementation and version
 --name: set-platform-contracts
 UPDATE platform_contracts

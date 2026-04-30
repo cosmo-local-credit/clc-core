@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
@@ -51,6 +53,9 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		}
 	}
 
+	callerType, _ := c.Get("callerType").(string)
+	callerUserID, _ := c.Get("callerUserID").(string)
+
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -58,6 +63,28 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
+	if callerType == "user" {
+		callerRole, _ := c.Get("callerRole").(string)
+		if callerRole != "SUPERADMIN" {
+			user, err := a.store.GetUserByID(ctx, tx, callerUserID)
+			if err != nil {
+				return handlePostgresError(c, err)
+			}
+			count, err := a.store.CountUserPools(ctx, tx, callerUserID)
+			if err != nil {
+				return err
+			}
+			if count >= user.MaxPools {
+				return c.JSON(http.StatusTooManyRequests, apiresp.ErrResponse{
+					Ok:          false,
+					ErrCode:     apiresp.ErrCodeLimitExceeded,
+					Description: fmt.Sprintf("pool creation limit of %d reached", user.MaxPools),
+				})
+			}
+		}
+	}
 
 	swapPoolPC, err := a.store.GetPlatformContracts(ctx, tx, a.chainID, "SWAPPOOL")
 	if err != nil {
@@ -131,6 +158,17 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
+	// Record the deployment against the user so they can track it and so quota is enforced.
+	if callerType == "user" {
+		if err := a.store.InsertUserDeployment(ctx, tx, store.UserDeployment{
+			UserID:       callerUserID,
+			TrackingID:   trackingID,
+			ResourceType: "POOL",
+		}); err != nil {
+			return err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -155,6 +193,9 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
+	callerType, _ := c.Get("callerType").(string)
+	callerUserID, _ := c.Get("callerUserID").(string)
+
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -162,6 +203,28 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
+	if callerType == "user" {
+		callerRole, _ := c.Get("callerRole").(string)
+		if callerRole != "SUPERADMIN" {
+			user, err := a.store.GetUserByID(ctx, tx, callerUserID)
+			if err != nil {
+				return handlePostgresError(c, err)
+			}
+			count, err := a.store.CountUserTokens(ctx, tx, callerUserID)
+			if err != nil {
+				return err
+			}
+			if count >= user.MaxTokens {
+				return c.JSON(http.StatusTooManyRequests, apiresp.ErrResponse{
+					Ok:          false,
+					ErrCode:     apiresp.ErrCodeLimitExceeded,
+					Description: fmt.Sprintf("token creation limit of %d reached", user.MaxTokens),
+				})
+			}
+		}
+	}
 
 	pc, err := a.store.GetPlatformContracts(ctx, tx, a.chainID, "ERC20")
 	if err != nil {
@@ -183,6 +246,17 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}, &river.InsertOpts{MaxAttempts: 1})
 	if err != nil {
 		return handlePostgresError(c, err)
+	}
+
+	// Record the deployment against the user so they can track it and so quota is enforced.
+	if callerType == "user" {
+		if err := a.store.InsertUserDeployment(ctx, tx, store.UserDeployment{
+			UserID:       callerUserID,
+			TrackingID:   trackingID,
+			ResourceType: "TOKEN",
+		}); err != nil {
+			return err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

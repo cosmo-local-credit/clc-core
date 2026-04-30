@@ -42,10 +42,29 @@ type (
 		GetOTXByAccountPrev       string `query:"get-otx-by-account-prev"`
 		PeekNonce                 string `query:"peek-nonce"`
 		CheckKeypair              string `query:"check-keypair"`
-		SetPlatformContracts      string `query:"set-platform-contracts"`
-		ListPlatformContracts     string `query:"list-platform-contracts"`
-		InsertUpgradeMeta         string `query:"insert-upgrade-meta"`
-		GetUpgradeMetaByOTXID     string `query:"get-upgrade-meta-by-otx-id"`
+
+		InsertUser                    string `query:"insert-user"`
+		GetUserByAddress              string `query:"get-user-by-address"`
+		GetUserByID                   string `query:"get-user-by-id"`
+		UpdateUserStatus              string `query:"update-user-status"`
+		UpdateUserLimits              string `query:"update-user-limits"`
+		ListUsers                     string `query:"list-users"`
+		ListUsersByStatus             string `query:"list-users-by-status"`
+		CountUserTokens               string `query:"count-user-tokens"`
+		CountUserPools                string `query:"count-user-pools"`
+		InsertUserDeployment          string `query:"insert-user-deployment"`
+		ListUserDeployments           string `query:"list-user-deployments"`
+		GetUserDeploymentByTrackingID string `query:"get-user-deployment-by-tracking-id"`
+		ListAllDeployments            string `query:"list-all-deployments"`
+		ListTokensByUser              string `query:"list-tokens-by-user"`
+		ListPoolsByUser               string `query:"list-pools-by-user"`
+		ListAllTokens                 string `query:"list-all-tokens"`
+		ListAllPools                  string `query:"list-all-pools"`
+
+		SetPlatformContracts  string `query:"set-platform-contracts"`
+		ListPlatformContracts string `query:"list-platform-contracts"`
+		InsertUpgradeMeta     string `query:"insert-upgrade-meta"`
+		GetUpgradeMetaByOTXID string `query:"get-upgrade-meta-by-otx-id"`
 	}
 
 	PgOpts struct {
