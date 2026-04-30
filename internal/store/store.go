@@ -38,4 +38,8 @@ type Store interface {
 	GetOTXByAccountPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
 	PeekNonce(context.Context, pgx.Tx, string) (uint64, error)
 	CheckKeypair(context.Context, pgx.Tx, string) (bool, error)
+	SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
+	ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)
+	InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error
+	GetUpgradeMetaByOTXID(context.Context, pgx.Tx, uint64) (UpgradeMeta, error)
 }
