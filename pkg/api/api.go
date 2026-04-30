@@ -34,8 +34,8 @@ type (
 
 	RegisterVersionRequest struct {
 		Version               string `json:"version" validate:"required"`
-		ContractType          string `json:"contractType" validate:"required"`
-		ImplementationAddress string `json:"implementationAddress" validate:"required"`
+		ContractType          string `json:"contractType" validate:"required,oneof=token pool"`
+		ImplementationAddress string `json:"implementationAddress" validate:"required,eth_addr_checksum"`
 	}
 
 	UpgradeTokenRequest struct {
