@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"os/signal"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
 	internaljs "github.com/cosmo-local-credit/clc-core/internal/jetstream"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
+	"github.com/cosmo-local-credit/clc-core/internal/static"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/sub"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
@@ -134,6 +136,11 @@ func loadAPI(pgStore store.Store, chainProvider *ethutils.Provider, workerContai
 		os.Exit(1)
 	}
 
+	var staticFS fs.FS
+	if ko.Bool("api.serve_static") {
+		staticFS = static.WebFS
+	}
+
 	return api.New(api.APIOpts{
 		Prod:          ko.Bool("api.prod"),
 		Build:         build,
@@ -146,5 +153,6 @@ func loadAPI(pgStore store.Store, chainProvider *ethutils.Provider, workerContai
 		Logg:          lo,
 		ChainID:       ko.MustInt64("chain.id"),
 		QueueClient:   workerContainer.Client(),
+		StaticFS:      staticFS,
 	})
 }

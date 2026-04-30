@@ -4,23 +4,26 @@ BUILD_CONF := CGO_ENABLED=1 GOOS=linux GOARCH=amd64
 BUILD_COMMIT := $(shell git rev-parse --short HEAD 2> /dev/null)
 DEBUG := DEV=true
 
-.PHONY: build build-clccore run run-clccore clean docs gen-service-token
+.PHONY: build build-clccore run run-clccore clean docs gen-service-token build-frontend
 
 clean:
 	rm ${BIN} ${BOOTSTRAP_BIN}
 
-build:
+build-frontend:
+	cd ui/smart-contracts-deployer && pnpm install --frozen-lockfile && pnpm run build
+
+build: build-frontend
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${BIN} cmd/service/*.go
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/gen-service-token cmd/gen-service-token/*.go
 
-build-clccore:
+build-clccore: build-frontend
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${CLCCORE_BIN} cmd/clccore/*.go
 
-run:
-	${BUILD_CONF} ${DEBUG} go run cmd/clccore/*.go
+run: build-frontend
+	${BUILD_CONF} ${DEBUG} go run -tags embed cmd/clccore/*.go
 
-run-clccore:
-	${BUILD_CONF} ${DEBUG} go run cmd/clccore/*.go
+run-clccore: build-frontend
+	${BUILD_CONF} ${DEBUG} go run -tags embed cmd/clccore/*.go
 
 docs:
 	swag fmt --dir internal/api/

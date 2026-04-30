@@ -2,3 +2,5 @@
 .idx
 **/*.env
 build
+**/*node_modules
+**/*dist
