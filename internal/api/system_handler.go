@@ -65,12 +65,23 @@ func (a *API) trackOTXHandler(c *echo.Context) error {
 	}
 
 	trackingID := req.TrackingID
+	callerType, _ := c.Get("callerType").(string)
+	callerUserID, _ := c.Get("callerUserID").(string)
+	callerRole, _ := c.Get("callerRole").(string)
 
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// Non-superadmin user callers may only fetch tracking IDs they own.
+	if callerType == "user" && callerRole != "SUPERADMIN" {
+		_, ownerErr := a.store.GetUserDeploymentByTrackingID(ctx, tx, trackingID, callerUserID)
+		if ownerErr != nil {
+			return handlePostgresError(c, ownerErr)
+		}
+	}
 
 	otxs, err := a.store.GetOTXByTrackingID(ctx, tx, trackingID)
 	if err != nil {

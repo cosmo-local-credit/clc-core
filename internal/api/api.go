@@ -2,16 +2,18 @@ package api
 
 import (
 	"context"
-	"crypto"
 	"log/slog"
 	"net/http"
+	"strings"
+	"time"
+
+	"crypto"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/go-playground/validator/v10"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/jackc/pgx/v5"
-	echojwt "github.com/labstack/echo-jwt/v5"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/riverqueue/river"
@@ -25,6 +27,8 @@ type (
 		CORS          []string
 		VerifyingKey  crypto.PublicKey
 		SigningKey    crypto.PrivateKey
+		JWTSecret     []byte
+		Superadmins   []string
 		Store         store.Store
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
@@ -38,6 +42,9 @@ type (
 		prod          bool
 		signingKey    crypto.PrivateKey
 		verifyingKey  crypto.PublicKey
+		jwtSecret     []byte
+		superadmins   map[string]bool
+		nonceStore    *util.NonceStore
 		store         store.Store
 		logg          *slog.Logger
 		chainProvider *ethutils.Provider
@@ -53,11 +60,23 @@ const (
 )
 
 func New(o APIOpts) *API {
+	// Build a fast-lookup set of superadmin addresses (stored as lowercase).
+	superadmins := make(map[string]bool, len(o.Superadmins))
+	for _, addr := range o.Superadmins {
+		superadmins[strings.ToLower(addr)] = true
+	}
+
+	nonceStore := util.NewNonceStore()
+	nonceStore.StartCleanup(time.Minute)
+
 	a := &API{
 		prod:          o.Prod,
 		build:         o.Build,
 		signingKey:    o.SigningKey,
 		verifyingKey:  o.VerifyingKey,
+		jwtSecret:     o.JWTSecret,
+		superadmins:   superadmins,
+		nonceStore:    nonceStore,
 		listenAddress: o.ListenAddress,
 		logg:          o.Logg,
 		store:         o.Store,
@@ -117,10 +136,19 @@ func New(o APIOpts) *API {
 	}))
 	router.Use(middleware.CORSWithConfig(corsConfig))
 
-	apiGroup := router.Group(apiVersion)
-	apiGroup.Use(echojwt.WithConfig(a.apiJWTAuthConfig()))
-	apiGroup.Use(a.authStatusMiddleware())
+	// --- Public auth routes (no JWT required) ---
+	authGroup := router.Group("/auth")
+	authGroup.POST("/nonce", a.nonceHandler)
+	authGroup.POST("/signup", a.signupHandler)
+	authGroup.POST("/signin", a.signinHandler)
+	authGroup.POST("/logout", a.logoutHandler)
+	authGroup.GET("/session", a.sessionHandler) // Reown getSession: returns { address, chainId } or 204
 
+	// --- Protected API routes (user JWT cookie OR service JWT header/cookie) ---
+	apiGroup := router.Group(apiVersion)
+	apiGroup.Use(a.flexibleAuthMiddleware())
+
+	// Existing service + user endpoints
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
 
@@ -128,6 +156,23 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
+
+	// User-only routes (must be authenticated as a user, not a service token)
+	userGroup := apiGroup.Group("/users", a.requireUserAuth())
+	userGroup.GET("/me", a.userMeHandler)
+	userGroup.GET("/me/tokens", a.userTokensHandler)
+	userGroup.GET("/me/pools", a.userPoolsHandler)
+	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
+
+	// Superadmin-only routes
+	adminGroup := apiGroup.Group("/admin", a.requireSuperAdmin())
+	adminGroup.GET("/users", a.adminListUsersHandler)
+	adminGroup.PUT("/users/:address/approve", a.adminApproveUserHandler)
+	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
+	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)
+	adminGroup.GET("/tokens", a.adminListTokensHandler)
+	adminGroup.GET("/pools", a.adminListPoolsHandler)
+	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 
 	a.server = &http.Server{
 		Addr:    o.ListenAddress,

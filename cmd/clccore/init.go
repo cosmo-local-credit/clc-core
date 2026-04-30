@@ -141,6 +141,8 @@ func loadAPI(pgStore store.Store, chainProvider *ethutils.Provider, workerContai
 		CORS:          ko.MustStrings("api.cors"),
 		SigningKey:    privateKey,
 		VerifyingKey:  publicKey,
+		JWTSecret:     []byte(ko.MustString("auth.jwt_secret")),
+		Superadmins:   ko.Strings("auth.superadmin_addresses"),
 		Store:         pgStore,
 		ChainProvider: chainProvider,
 		Logg:          lo,

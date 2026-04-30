@@ -46,6 +46,38 @@ type (
 	AccountAddressParam struct {
 		Address string `param:"address" validate:"required,eth_addr_checksum"`
 	}
+
+	// Auth request/response types
+
+	SignupRequest struct {
+		Message   string `json:"message" validate:"required"`
+		Signature string `json:"signature" validate:"required"`
+		Name      string `json:"name" validate:"required"`
+		Email     string `json:"email" validate:"required,email"`
+	}
+
+	SigninRequest struct {
+		Message   string `json:"message" validate:"required"`
+		Signature string `json:"signature" validate:"required"`
+	}
+
+	// Admin request types
+
+	UpdateUserStatusRequest struct {
+		// Status is derived from the route; no request body is required.
+	}
+
+	UpdateUserLimitsRequest struct {
+		MaxPools  int `json:"maxPools" validate:"gte=0"`
+		MaxTokens int `json:"maxTokens" validate:"gte=0"`
+	}
+
+	// EthAddressParam is a path-parameter type for Ethereum addresses.
+	// Address normalisation (lowercasing / checksum) is handled in the handler
+	// layer, so checksum validation is intentionally omitted here.
+	EthAddressParam struct {
+		Address string `param:"address" validate:"required"`
+	}
 )
 
 const (
@@ -58,4 +90,6 @@ const (
 	ErrNoRecordFound           = "E07"
 	ErrCodePayloadTooLarge     = "E08"
 	ErrCodeRequestTimeout      = "E09"
+	ErrCodeForbidden           = "E10"
+	ErrCodeLimitExceeded       = "E11"
 )
