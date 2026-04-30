@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"crypto"
@@ -27,7 +26,6 @@ type (
 		CORS          []string
 		VerifyingKey  crypto.PublicKey
 		SigningKey    crypto.PrivateKey
-		Superadmins   []string
 		Store         store.Store
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
@@ -41,7 +39,6 @@ type (
 		prod          bool
 		signingKey    crypto.PrivateKey
 		verifyingKey  crypto.PublicKey
-		superadmins   map[string]bool
 		siweNonces    *util.SIWENonceStore
 		store         store.Store
 		logg          *slog.Logger
@@ -58,11 +55,6 @@ const (
 )
 
 func New(o APIOpts) *API {
-	superadmins := make(map[string]bool, len(o.Superadmins))
-	for _, addr := range o.Superadmins {
-		superadmins[strings.ToLower(addr)] = true
-	}
-
 	siweNonces := util.NewSIWENonceStore()
 	siweNonces.StartCleanup(time.Minute)
 
@@ -71,7 +63,6 @@ func New(o APIOpts) *API {
 		build:         o.Build,
 		signingKey:    o.SigningKey,
 		verifyingKey:  o.VerifyingKey,
-		superadmins:   superadmins,
 		siweNonces:    siweNonces,
 		listenAddress: o.ListenAddress,
 		logg:          o.Logg,

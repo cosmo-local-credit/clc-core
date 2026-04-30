@@ -82,20 +82,13 @@ func (a *API) signupHandler(c *echo.Context) error {
 		return lookupErr
 	}
 
-	// 5. Determine role and approval status.
-	// Superadmins (predefined in config) are auto-approved on first signup.
-	role, status := "USER", "PENDING"
-	if a.superadmins[signerAddr] {
-		role, status = "SUPERADMIN", "APPROVED"
-	}
-
-	// 6. Persist the new user.
+	// 5. Persist the new user.
 	user, err := a.store.InsertUser(ctx, tx, store.User{
 		EthereumAddress: signerAddr,
 		Name:            req.Name,
 		Email:           strings.ToLower(req.Email),
-		Role:            role,
-		Status:          status,
+		Role:            "USER",
+		Status:          "PENDING",
 		MaxPools:        10,
 		MaxTokens:       20,
 	})
