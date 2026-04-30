@@ -38,6 +38,26 @@ type Store interface {
 	GetOTXByAccountPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
 	PeekNonce(context.Context, pgx.Tx, string) (uint64, error)
 	CheckKeypair(context.Context, pgx.Tx, string) (bool, error)
+
+	InsertUser(context.Context, pgx.Tx, User) (User, error)
+	GetUserByAddress(context.Context, pgx.Tx, string) (User, error)
+	GetUserByID(context.Context, pgx.Tx, string) (User, error)
+	UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
+	UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
+	ListUsers(context.Context, pgx.Tx) ([]User, error)
+	ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
+
+	InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
+	CountUserTokens(context.Context, pgx.Tx, string) (int, error)
+	CountUserPools(context.Context, pgx.Tx, string) (int, error)
+	ListUserDeployments(context.Context, pgx.Tx, string) ([]UserDeployment, error)
+	GetUserDeploymentByTrackingID(context.Context, pgx.Tx, string, string) (UserDeployment, error)
+	ListAllDeployments(context.Context, pgx.Tx) ([]UserDeploymentWithUser, error)
+	ListTokensByUser(context.Context, pgx.Tx, string) ([]DeployedToken, error)
+	ListPoolsByUser(context.Context, pgx.Tx, string) ([]DeployedPool, error)
+	ListAllTokens(context.Context, pgx.Tx) ([]DeployedToken, error)
+	ListAllPools(context.Context, pgx.Tx) ([]DeployedPool, error)
+
 	SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
 	ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)
 	InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error

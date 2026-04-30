@@ -78,4 +78,10 @@ func TestBaselineMigrationContainsCurrentSchema(t *testing.T) {
 	assert.Contains(t, s, "('KES',  '0x85d4Ec34339478F73c153710B19f2D5C402dce6F')")
 	assert.Contains(t, s, "ON CONFLICT (name) DO UPDATE SET")
 	assert.Contains(t, s, "updated_at = CURRENT_TIMESTAMP")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS users")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS user_deployments")
+	assert.Contains(t, s, "user_role")
+	assert.Contains(t, s, "user_status")
+	assert.Contains(t, s, "SUPERADMIN")
+	assert.Contains(t, s, "0x33a573149db22e759fb9a38bcc461c12855c2645")
 }

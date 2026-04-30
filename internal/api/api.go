@@ -2,16 +2,17 @@ package api
 
 import (
 	"context"
-	"crypto"
 	"log/slog"
 	"net/http"
+	"time"
+
+	"crypto"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/go-playground/validator/v10"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/jackc/pgx/v5"
-	echojwt "github.com/labstack/echo-jwt/v5"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/riverqueue/river"
@@ -38,6 +39,7 @@ type (
 		prod          bool
 		signingKey    crypto.PrivateKey
 		verifyingKey  crypto.PublicKey
+		siweNonces    *util.SIWENonceStore
 		store         store.Store
 		logg          *slog.Logger
 		chainProvider *ethutils.Provider
@@ -53,11 +55,15 @@ const (
 )
 
 func New(o APIOpts) *API {
+	siweNonces := util.NewSIWENonceStore()
+	siweNonces.StartCleanup(time.Minute)
+
 	a := &API{
 		prod:          o.Prod,
 		build:         o.Build,
 		signingKey:    o.SigningKey,
 		verifyingKey:  o.VerifyingKey,
+		siweNonces:    siweNonces,
 		listenAddress: o.ListenAddress,
 		logg:          o.Logg,
 		store:         o.Store,
@@ -117,9 +123,17 @@ func New(o APIOpts) *API {
 	}))
 	router.Use(middleware.CORSWithConfig(corsConfig))
 
+	// Public auth routes (no JWT required)
+	authGroup := router.Group("/auth")
+	authGroup.POST("/nonce", a.nonceHandler)
+	authGroup.POST("/signup", a.signupHandler)
+	authGroup.POST("/signin", a.signinHandler)
+	authGroup.POST("/logout", a.logoutHandler)
+	authGroup.GET("/session", a.sessionHandler)
+
+	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
-	apiGroup.Use(echojwt.WithConfig(a.apiJWTAuthConfig()))
-	apiGroup.Use(a.authStatusMiddleware())
+	apiGroup.Use(a.flexibleAuthMiddleware())
 
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
@@ -131,6 +145,23 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
+
+	// User-only routes
+	userGroup := apiGroup.Group("/users", a.requireUserAuth())
+	userGroup.GET("/me", a.userMeHandler)
+	userGroup.GET("/me/tokens", a.userTokensHandler)
+	userGroup.GET("/me/pools", a.userPoolsHandler)
+	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
+
+	// Superadmin-only routes
+	adminGroup := apiGroup.Group("/admin", a.requireSuperAdmin())
+	adminGroup.GET("/users", a.adminListUsersHandler)
+	adminGroup.PUT("/users/:address/approve", a.adminApproveUserHandler)
+	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
+	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)
+	adminGroup.GET("/tokens", a.adminListTokensHandler)
+	adminGroup.GET("/pools", a.adminListPoolsHandler)
+	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 
 	a.server = &http.Server{
 		Addr:    o.ListenAddress,

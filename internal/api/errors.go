@@ -92,6 +92,17 @@ func errCodeForStatus(status int) string {
 	return ""
 }
 
+func handleForbiddenError(c *echo.Context, reason string) error {
+	if jErr := c.JSON(http.StatusForbidden, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeForbidden,
+		Description: reason,
+	}); jErr != nil {
+		return jErr
+	}
+	return errors.New(reason)
+}
+
 func handlePostgresError(c *echo.Context, err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
