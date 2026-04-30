@@ -26,6 +26,7 @@ const TOKEN_PROXY_DEPLOY = "TOKEN_PROXY_DEPLOY"
 
 const POOL_DEPLOY_STEP = "POOL_DEPLOY_STEP"
 const POOL_PROXY_DEPLOY = "POOL_PROXY_DEPLOY"
+const PROXY_UPGRADE = "PROXY_UPGRADE"
 
 func (pg *Pg) InsertOTX(ctx context.Context, tx pgx.Tx, otx OTX) (uint64, error) {
 	var id uint64
