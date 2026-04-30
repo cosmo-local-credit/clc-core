@@ -27,7 +27,6 @@ type (
 		CORS          []string
 		VerifyingKey  crypto.PublicKey
 		SigningKey    crypto.PrivateKey
-		JWTSecret     []byte
 		Superadmins   []string
 		Store         store.Store
 		Logg          *slog.Logger
@@ -42,9 +41,8 @@ type (
 		prod          bool
 		signingKey    crypto.PrivateKey
 		verifyingKey  crypto.PublicKey
-		jwtSecret     []byte
 		superadmins   map[string]bool
-		nonceStore    *util.NonceStore
+		siweNonces    *util.SIWENonceStore
 		store         store.Store
 		logg          *slog.Logger
 		chainProvider *ethutils.Provider
@@ -60,23 +58,21 @@ const (
 )
 
 func New(o APIOpts) *API {
-	// Build a fast-lookup set of superadmin addresses (stored as lowercase).
 	superadmins := make(map[string]bool, len(o.Superadmins))
 	for _, addr := range o.Superadmins {
 		superadmins[strings.ToLower(addr)] = true
 	}
 
-	nonceStore := util.NewNonceStore()
-	nonceStore.StartCleanup(time.Minute)
+	siweNonces := util.NewSIWENonceStore()
+	siweNonces.StartCleanup(time.Minute)
 
 	a := &API{
 		prod:          o.Prod,
 		build:         o.Build,
 		signingKey:    o.SigningKey,
 		verifyingKey:  o.VerifyingKey,
-		jwtSecret:     o.JWTSecret,
 		superadmins:   superadmins,
-		nonceStore:    nonceStore,
+		siweNonces:    siweNonces,
 		listenAddress: o.ListenAddress,
 		logg:          o.Logg,
 		store:         o.Store,
@@ -136,19 +132,18 @@ func New(o APIOpts) *API {
 	}))
 	router.Use(middleware.CORSWithConfig(corsConfig))
 
-	// --- Public auth routes (no JWT required) ---
+	// Public auth routes (no JWT required)
 	authGroup := router.Group("/auth")
 	authGroup.POST("/nonce", a.nonceHandler)
 	authGroup.POST("/signup", a.signupHandler)
 	authGroup.POST("/signin", a.signinHandler)
 	authGroup.POST("/logout", a.logoutHandler)
-	authGroup.GET("/session", a.sessionHandler) // Reown getSession: returns { address, chainId } or 204
+	authGroup.GET("/session", a.sessionHandler)
 
-	// --- Protected API routes (user JWT cookie OR service JWT header/cookie) ---
+	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
 
-	// Existing service + user endpoints
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
 
@@ -157,7 +152,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
-	// User-only routes (must be authenticated as a user, not a service token)
+	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)

@@ -13,7 +13,7 @@ import (
 )
 
 func (a *API) nonceHandler(c *echo.Context) error {
-	nonce := a.nonceStore.Generate()
+	nonce := a.siweNonces.Generate()
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "Nonce generated for SIWE challenge",
@@ -54,7 +54,7 @@ func (a *API) signupHandler(c *echo.Context) error {
 
 	// 3. Consume nonce (one-time use, 5-min TTL).
 	nonce, err := util.ParseSIWENonce(req.Message)
-	if err != nil || !a.nonceStore.Consume(nonce) {
+	if err != nil || !a.siweNonces.Consume(nonce) {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeValidationFailed,
@@ -149,7 +149,7 @@ func (a *API) signinHandler(c *echo.Context) error {
 
 	// 3. Consume nonce.
 	nonce, err := util.ParseSIWENonce(req.Message)
-	if err != nil || !a.nonceStore.Consume(nonce) {
+	if err != nil || !a.siweNonces.Consume(nonce) {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeValidationFailed,
@@ -223,17 +223,15 @@ func (a *API) logoutHandler(c *echo.Context) error {
 	})
 }
 
-// sessionHandler returns the minimal session object the Reown AppKit SDK
-// expects from getSession: { address, chainId }.
-// Returns 204 No Content when no valid auth cookie is present so the SDK
-// can cleanly detect an unauthenticated state.
+// sessionHandler returns the current session's address and chainId.
+// Returns 204 No Content when no valid session cookie is present.
 func (a *API) sessionHandler(c *echo.Context) error {
 	cookie, err := c.Cookie(userAuthCookieName)
 	if err != nil || cookie.Value == "" {
 		return c.NoContent(http.StatusNoContent)
 	}
 
-	token, parseErr := parseUserJWT(cookie.Value, a.jwtSecret)
+	token, parseErr := a.parseUserJWT(cookie.Value)
 	if parseErr != nil {
 		return c.NoContent(http.StatusNoContent)
 	}

@@ -7,23 +7,23 @@ import (
 	"time"
 )
 
-// NonceStore is a thread-safe in-memory store for SIWE challenge nonces.
+// SIWENonceStore is a thread-safe in-memory store for SIWE challenge nonces.
 // Each nonce has a 5-minute TTL after which it is considered expired.
-type NonceStore struct {
+type SIWENonceStore struct {
 	mu     sync.Mutex
 	nonces map[string]time.Time
 }
 
-// NewNonceStore creates a new, empty NonceStore.
-func NewNonceStore() *NonceStore {
-	return &NonceStore{
+// NewSIWENonceStore creates a new, empty SIWENonceStore.
+func NewSIWENonceStore() *SIWENonceStore {
+	return &SIWENonceStore{
 		nonces: make(map[string]time.Time),
 	}
 }
 
 // Generate creates a cryptographically random 32-hex-character nonce, records
 // it with a 5-minute expiry, and returns the nonce string.
-func (n *NonceStore) Generate() string {
+func (n *SIWENonceStore) Generate() string {
 	b := make([]byte, 16) // 16 bytes → 32 hex characters
 	if _, err := rand.Read(b); err != nil {
 		// crypto/rand.Read only fails on catastrophic OS-level errors; panic is
@@ -42,7 +42,7 @@ func (n *NonceStore) Generate() string {
 
 // Consume checks that the nonce exists and has not yet expired, then deletes
 // it (one-time use). Returns true when the nonce is valid, false otherwise.
-func (n *NonceStore) Consume(nonce string) bool {
+func (n *SIWENonceStore) Consume(nonce string) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -58,10 +58,8 @@ func (n *NonceStore) Consume(nonce string) bool {
 }
 
 // StartCleanup launches a background goroutine that periodically removes
-// expired nonces from the store. Call once at application startup, e.g.:
-//
-//	store.StartCleanup(time.Minute)
-func (n *NonceStore) StartCleanup(interval time.Duration) {
+// expired nonces from the store. Call once at application startup.
+func (n *SIWENonceStore) StartCleanup(interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
