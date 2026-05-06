@@ -22,12 +22,14 @@ type Store interface {
 	GetPlatformContracts(context.Context, pgx.Tx, int64, string) (PlatformContracts, error)
 	InsertDeployedToken(context.Context, pgx.Tx, DeployedToken) (uint64, error)
 	GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
+	GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 	InsertTokenDeployMeta(context.Context, pgx.Tx, TokenDeployMeta) error
 	GetTokenDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (TokenDeployMeta, error)
 	GetPoolAddress(context.Context, pgx.Tx, string) (string, error)
 	SetPoolAddress(context.Context, pgx.Tx, string, string) error
 	InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
 	GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
+	GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 	InsertPoolDeployMeta(context.Context, pgx.Tx, PoolDeployMeta) error
 	GetPoolDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (PoolDeployMeta, error)
 	GetOracleFeedByName(context.Context, pgx.Tx, string) (OracleFeed, error)
@@ -53,8 +55,12 @@ type Store interface {
 	ListUserDeployments(context.Context, pgx.Tx, string) ([]UserDeployment, error)
 	GetUserDeploymentByTrackingID(context.Context, pgx.Tx, string, string) (UserDeployment, error)
 	ListAllDeployments(context.Context, pgx.Tx) ([]UserDeploymentWithUser, error)
-	ListTokensByUser(context.Context, pgx.Tx, string) ([]DeployedToken, error)
-	ListPoolsByUser(context.Context, pgx.Tx, string) ([]DeployedPool, error)
+	ListTokensByUser(context.Context, pgx.Tx, string, uint64) ([]DeployedToken, error)
+	ListTokensByUserNext(context.Context, pgx.Tx, string, uint64, uint64) ([]DeployedToken, error)
+	ListTokensByUserPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]DeployedToken, error)
+	ListPoolsByUser(context.Context, pgx.Tx, string, uint64) ([]DeployedPool, error)
+	ListPoolsByUserNext(context.Context, pgx.Tx, string, uint64, uint64) ([]DeployedPool, error)
+	ListPoolsByUserPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]DeployedPool, error)
 	ListAllTokens(context.Context, pgx.Tx) ([]DeployedToken, error)
 	ListAllPools(context.Context, pgx.Tx) ([]DeployedPool, error)
 

@@ -98,10 +98,10 @@ func (pg *Pg) ListAllDeployments(ctx context.Context, tx pgx.Tx) ([]UserDeployme
 	return deployments, nil
 }
 
-func (pg *Pg) ListTokensByUser(ctx context.Context, tx pgx.Tx, userID string) ([]DeployedToken, error) {
+func (pg *Pg) ListTokensByUser(ctx context.Context, tx pgx.Tx, userID string, limit uint64) ([]DeployedToken, error) {
 	var tokens []DeployedToken
 
-	rows, err := tx.Query(ctx, pg.queries.ListTokensByUser, userID)
+	rows, err := tx.Query(ctx, pg.queries.ListTokensByUser, userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -113,10 +113,70 @@ func (pg *Pg) ListTokensByUser(ctx context.Context, tx pgx.Tx, userID string) ([
 	return tokens, nil
 }
 
-func (pg *Pg) ListPoolsByUser(ctx context.Context, tx pgx.Tx, userID string) ([]DeployedPool, error) {
+func (pg *Pg) ListTokensByUserNext(ctx context.Context, tx pgx.Tx, userID string, cursor uint64, limit uint64) ([]DeployedToken, error) {
+	var tokens []DeployedToken
+
+	rows, err := tx.Query(ctx, pg.queries.ListTokensByUserNext, userID, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&tokens, rows); err != nil {
+		return nil, err
+	}
+
+	return tokens, nil
+}
+
+func (pg *Pg) ListTokensByUserPrevious(ctx context.Context, tx pgx.Tx, userID string, cursor uint64, limit uint64) ([]DeployedToken, error) {
+	var tokens []DeployedToken
+
+	rows, err := tx.Query(ctx, pg.queries.ListTokensByUserPrev, userID, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&tokens, rows); err != nil {
+		return nil, err
+	}
+
+	return tokens, nil
+}
+
+func (pg *Pg) ListPoolsByUser(ctx context.Context, tx pgx.Tx, userID string, limit uint64) ([]DeployedPool, error) {
 	var pools []DeployedPool
 
-	rows, err := tx.Query(ctx, pg.queries.ListPoolsByUser, userID)
+	rows, err := tx.Query(ctx, pg.queries.ListPoolsByUser, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&pools, rows); err != nil {
+		return nil, err
+	}
+
+	return pools, nil
+}
+
+func (pg *Pg) ListPoolsByUserNext(ctx context.Context, tx pgx.Tx, userID string, cursor uint64, limit uint64) ([]DeployedPool, error) {
+	var pools []DeployedPool
+
+	rows, err := tx.Query(ctx, pg.queries.ListPoolsByUserNext, userID, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&pools, rows); err != nil {
+		return nil, err
+	}
+
+	return pools, nil
+}
+
+func (pg *Pg) ListPoolsByUserPrevious(ctx context.Context, tx pgx.Tx, userID string, cursor uint64, limit uint64) ([]DeployedPool, error) {
+	var pools []DeployedPool
+
+	rows, err := tx.Query(ctx, pg.queries.ListPoolsByUserPrev, userID, cursor, limit)
 	if err != nil {
 		return nil, err
 	}

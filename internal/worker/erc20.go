@@ -124,7 +124,7 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		PlatformContractID: args.PlatformContractID,
 		TokenName:          args.Name,
 		TokenSymbol:        args.Symbol,
-		Admin:              signerAddress.Hex(),
+		Admin:              args.Owner,
 	}); err != nil {
 		return err
 	}

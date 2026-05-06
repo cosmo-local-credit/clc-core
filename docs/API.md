@@ -669,49 +669,87 @@ Returns the full profile of the currently authenticated user.
 
 ### 6.2 `GET /api/v2/users/me/tokens`
 
-Returns all **confirmed** (on-chain) token contracts deployed by the authenticated user.
+Returns **confirmed** (on-chain) token contracts deployed by the authenticated user using cursor pagination.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | `int` | `100` | Results per page (max `100`) |
+| `next` | `bool` | `false` | When `true`, page toward newer records from `cursor` |
+| `cursor` | `int` | — | Use `last` to fetch older records or `first` with `next=true` to move back toward newer records |
 
 **Response `200`:**
 
-```/dev/null/me-tokens-response.json#L1-12
+```/dev/null/me-tokens-response.json#L1-18
 {
   "ok": true,
   "description": "Confirmed tokens for user f47ac10b-...",
   "result": {
     "tokens": [
       {
+        "id":      42,
         "address": "0xAbCd1234...",
         "symbol":  "MTK",
-        "name":    "My Token"
+        "name":    "My Token",
+        "admin":   "0xd8dA6BF2...",
+        "createdAt": "2024-01-15T10:30:00Z"
       }
-    ]
+    ],
+    "first": 42,
+    "last": 33
   }
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `tokens` | `array` | Current page of deployed tokens |
+| `first` | `int` | Highest record ID in the current page |
+| `last` | `int` | Lowest record ID in the current page |
 
 ---
 
 ### 6.3 `GET /api/v2/users/me/pools`
 
-Returns all **confirmed** (on-chain) SwapPool contracts deployed by the authenticated user.
+Returns **confirmed** (on-chain) SwapPool contracts deployed by the authenticated user using cursor pagination.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | `int` | `100` | Results per page (max `100`) |
+| `next` | `bool` | `false` | When `true`, page toward newer records from `cursor` |
+| `cursor` | `int` | — | Use `last` to fetch older records or `first` with `next=true` to move back toward newer records |
 
 **Response `200`:**
 
-```/dev/null/me-pools-response.json#L1-12
+```/dev/null/me-pools-response.json#L1-18
 {
   "ok": true,
   "description": "Confirmed pools for user f47ac10b-...",
   "result": {
     "pools": [
       {
+        "id":      51,
         "address": "0xAbCd5678...",
         "symbol":  "MYP",
-        "name":    "My Pool"
+        "name":    "My Pool",
+        "admin":   "0xd8dA6BF2...",
+        "createdAt": "2024-01-15T10:30:00Z"
       }
-    ]
+    ],
+    "first": 51,
+    "last": 44
   }
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `pools` | `array` | Current page of deployed pools |
+| `first` | `int` | Highest record ID in the current page |
+| `last` | `int` | Lowest record ID in the current page |
 
 ---
 

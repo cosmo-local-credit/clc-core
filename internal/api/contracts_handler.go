@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
@@ -51,6 +52,15 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 				Description: "Validation failed: baseCurrency must not be the zero address",
 			})
 		}
+	}
+
+	feePercent, feeParseErr := strconv.ParseFloat(req.FeePolicyDefault, 64)
+	if feeParseErr != nil || feePercent < 0 || feePercent > 100 {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "feePolicyDefault must be a number between 0 and 100",
+		})
 	}
 
 	callerType, _ := c.Get("callerType").(string)

@@ -71,9 +71,17 @@ VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id;
 
 --name: get-deployed-token-by-address
-SELECT id, otx_id, platform_contract_id, address, symbol, name, admin, created_at, updated_at
-FROM deployed_tokens
-WHERE address = $1;
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+FROM deployed_tokens dt
+INNER JOIN otx o ON dt.otx_id = o.id
+WHERE dt.address = $1;
+
+--name: get-deployed-token-by-tracking-id
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+FROM deployed_tokens dt
+INNER JOIN otx o ON dt.otx_id = o.id
+WHERE o.tracking_id = $1::uuid
+LIMIT 1;
 
 --name: insert-token-deploy-meta
 INSERT INTO token_deploy_meta (otx_id, platform_contract_id, token_name, token_symbol, admin)
@@ -130,11 +138,21 @@ INSERT INTO deployed_pools (
 RETURNING id;
 
 --name: get-deployed-pool-by-address
-SELECT id, otx_id, platform_contract_id, address, name, symbol,
-    token_registry_address, limiter_address, fee_policy_address, quoter_address,
-    protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
-FROM deployed_pools
-WHERE address = $1;
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+WHERE dp.address = $1;
+
+--name: get-deployed-pool-by-tracking-id
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+WHERE o.tracking_id = $1::uuid
+LIMIT 1;
 
 --name: get-otx-by-tracking-id
 SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
@@ -255,18 +273,58 @@ JOIN users u ON u.id = ud.user_id
 ORDER BY ud.created_at DESC;
 
 --name: list-tokens-by-user
-SELECT dt.*
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1::uuid AND ud.resource_type = 'TOKEN';
+WHERE ud.user_id = $1::uuid AND ud.resource_type = 'TOKEN'
+ORDER BY dt.id DESC
+LIMIT $2;
+
+--name: list-tokens-by-user-next
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+FROM deployed_tokens dt
+INNER JOIN otx o ON dt.otx_id = o.id
+INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+WHERE ud.user_id = $1::uuid AND ud.resource_type = 'TOKEN' AND dt.id > $2
+ORDER BY dt.id ASC
+LIMIT $3;
+
+--name: list-tokens-by-user-prev
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+FROM deployed_tokens dt
+INNER JOIN otx o ON dt.otx_id = o.id
+INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+WHERE ud.user_id = $1::uuid AND ud.resource_type = 'TOKEN' AND dt.id < $2
+ORDER BY dt.id DESC
+LIMIT $3;
 
 --name: list-pools-by-user
-SELECT dp.*
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1::uuid AND ud.resource_type = 'POOL';
+WHERE ud.user_id = $1::uuid AND ud.resource_type = 'POOL'
+ORDER BY dp.id DESC
+LIMIT $2;
+
+--name: list-pools-by-user-next
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+WHERE ud.user_id = $1::uuid AND ud.resource_type = 'POOL' AND dp.id > $2
+ORDER BY dp.id ASC
+LIMIT $3;
+
+--name: list-pools-by-user-prev
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+WHERE ud.user_id = $1::uuid AND ud.resource_type = 'POOL' AND dp.id < $2
+ORDER BY dp.id DESC
+LIMIT $3;
 
 --name: list-all-tokens
 SELECT id, otx_id, platform_contract_id, address, symbol, name, admin, created_at, updated_at

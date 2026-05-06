@@ -165,7 +165,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	tokenIndexPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[0], tokenIndexSignedTx)
+	tokenIndexPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_TOKEN_INDEX_DEPLOY, signerAddress.Hex(), signerNonces[0], tokenIndexSignedTx)
 	if err != nil {
 		return err
 	}
@@ -200,19 +200,17 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	limiterPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[1], limiterSignedTx)
+	limiterPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_LIMITER_DEPLOY, signerAddress.Hex(), signerNonces[1], limiterSignedTx)
 	if err != nil {
 		return err
 	}
 
 	// 3. FeePolicy
-	var feePolicyDefaultFee uint64
-	if args.FeePolicyDefaultFee != "" {
-		feePolicyDefaultFee, err = strconv.ParseUint(args.FeePolicyDefaultFee, 10, 64)
-		if err != nil {
-			return err
-		}
+	feePolicyPercent, err := strconv.ParseFloat(args.FeePolicyDefaultFee, 64)
+	if err != nil {
+		return err
 	}
+	feePolicyDefaultFee := uint64(feePolicyPercent * 10_000)
 
 	feePolicyInit, err := feepolicy.EncodeInit(feepolicy.InitArgs{
 		Owner:      ownerAddress,
@@ -244,7 +242,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	feePolicyPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[2], feePolicySignedTx)
+	feePolicyPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_FEE_POLICY_DEPLOY, signerAddress.Hex(), signerNonces[2], feePolicySignedTx)
 	if err != nil {
 		return err
 	}
@@ -253,6 +251,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	var quoterPrepared *preparedTx
 	if needsQuoterProxy {
 		var quoterInit []byte
+		var quoterOTXType string
 
 		switch args.QuoterType {
 		case "oracle":
@@ -260,10 +259,12 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 				Owner:        ownerAddress,
 				BaseCurrency: common.HexToAddress(args.BaseCurrency),
 			})
+			quoterOTXType = store.POOL_ORACLE_QUOTER_DEPLOY
 		case "relative":
 			quoterInit, err = relativequoter.EncodeInit(relativequoter.InitArgs{
 				Owner: ownerAddress,
 			})
+			quoterOTXType = store.POOL_RELATIVE_QUOTER_DEPLOY
 		}
 		if err != nil {
 			return err
@@ -291,7 +292,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 			return err
 		}
 
-		quoterPrepared, err = w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[3], quoterSignedTx)
+		quoterPrepared, err = w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, quoterOTXType, signerAddress.Hex(), signerNonces[3], quoterSignedTx)
 		if err != nil {
 			return err
 		}
