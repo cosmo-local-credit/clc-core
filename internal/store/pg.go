@@ -14,36 +14,36 @@ import (
 
 type (
 	Queries struct {
-		InsertKeyPair             string `query:"insert-keypair"`
-		ActivateKeyPair           string `query:"activate-keypair"`
-		LoadMasterKey             string `query:"load-master-key"`
-		BootstrapMasterKey        string `query:"bootstrap-master-key"`
-		AcquireNonce              string `query:"acquire-nonce"`
-		InsertOTX                 string `query:"insert-otx"`
-		GetOTXByTxHash            string `query:"get-otx-by-tx-hash"`
-		InsertDispatchTx          string `query:"insert-dispatch-tx"`
-		UpdateDispatchTxStatus    string `query:"update-dispatch-tx-status"`
-		GetPlatformContracts      string `query:"get-platform-contracts"`
-		InsertDeployedToken              string `query:"insert-deployed-token"`
-		GetDeployedTokenByAddress        string `query:"get-deployed-token-by-address"`
-		GetDeployedTokenByTrackingID     string `query:"get-deployed-token-by-tracking-id"`
-		InsertTokenDeployMeta            string `query:"insert-token-deploy-meta"`
-		GetTokenDeployMetaByOTXID        string `query:"get-token-deploy-meta-by-otx-id"`
-		GetPoolAddress                   string `query:"get-pool-address"`
-		SetPoolAddress                   string `query:"set-pool-address"`
-		InsertDeployedPool               string `query:"insert-deployed-pool"`
-		GetDeployedPoolByAddress         string `query:"get-deployed-pool-by-address"`
-		GetDeployedPoolByTrackingID      string `query:"get-deployed-pool-by-tracking-id"`
-		InsertPoolDeployMeta      string `query:"insert-pool-deploy-meta"`
-		GetPoolDeployMetaByOTXID  string `query:"get-pool-deploy-meta-by-otx-id"`
-		GetOracleFeedByName       string `query:"get-oracle-feed-by-name"`
-		ListOracleFeeds           string `query:"list-oracle-feeds"`
-		GetOTXByTrackingID        string `query:"get-otx-by-tracking-id"`
-		GetOTXByAccount           string `query:"get-otx-by-account"`
-		GetOTXByAccountNext       string `query:"get-otx-by-account-next"`
-		GetOTXByAccountPrev       string `query:"get-otx-by-account-prev"`
-		PeekNonce                 string `query:"peek-nonce"`
-		CheckKeypair              string `query:"check-keypair"`
+		InsertKeyPair                string `query:"insert-keypair"`
+		ActivateKeyPair              string `query:"activate-keypair"`
+		LoadMasterKey                string `query:"load-master-key"`
+		BootstrapMasterKey           string `query:"bootstrap-master-key"`
+		AcquireNonce                 string `query:"acquire-nonce"`
+		InsertOTX                    string `query:"insert-otx"`
+		GetOTXByTxHash               string `query:"get-otx-by-tx-hash"`
+		InsertDispatchTx             string `query:"insert-dispatch-tx"`
+		UpdateDispatchTxStatus       string `query:"update-dispatch-tx-status"`
+		GetPlatformContracts         string `query:"get-platform-contracts"`
+		InsertDeployedToken          string `query:"insert-deployed-token"`
+		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
+		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
+		InsertTokenDeployMeta        string `query:"insert-token-deploy-meta"`
+		GetTokenDeployMetaByOTXID    string `query:"get-token-deploy-meta-by-otx-id"`
+		GetPoolAddress               string `query:"get-pool-address"`
+		SetPoolAddress               string `query:"set-pool-address"`
+		InsertDeployedPool           string `query:"insert-deployed-pool"`
+		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
+		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
+		InsertPoolDeployMeta         string `query:"insert-pool-deploy-meta"`
+		GetPoolDeployMetaByOTXID     string `query:"get-pool-deploy-meta-by-otx-id"`
+		GetOracleFeedByName          string `query:"get-oracle-feed-by-name"`
+		ListOracleFeeds              string `query:"list-oracle-feeds"`
+		GetOTXByTrackingID           string `query:"get-otx-by-tracking-id"`
+		GetOTXByAccount              string `query:"get-otx-by-account"`
+		GetOTXByAccountNext          string `query:"get-otx-by-account-next"`
+		GetOTXByAccountPrev          string `query:"get-otx-by-account-prev"`
+		PeekNonce                    string `query:"peek-nonce"`
+		CheckKeypair                 string `query:"check-keypair"`
 
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
