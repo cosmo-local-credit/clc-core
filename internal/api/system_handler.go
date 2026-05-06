@@ -101,6 +101,65 @@ func (a *API) trackOTXHandler(c *echo.Context) error {
 	})
 }
 
+// trackContractHandler returns the deployed contract (token or pool) for a given tracking ID.
+// Returns 204 No Content when the deployment has not completed yet.
+func (a *API) trackContractHandler(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	trackingID := c.Param("trackingId")
+	callerType, _ := c.Get("callerType").(string)
+	callerUserID, _ := c.Get("callerUserID").(string)
+	callerRole, _ := c.Get("callerRole").(string)
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Non-superadmin user callers may only fetch tracking IDs they own.
+	if callerType == "user" && callerRole != "SUPERADMIN" {
+		_, ownerErr := a.store.GetUserDeploymentByTrackingID(ctx, tx, trackingID, callerUserID)
+		if ownerErr != nil {
+			return handlePostgresError(c, ownerErr)
+		}
+	}
+
+	// Try token first, then pool.
+	token, tokenErr := a.store.GetDeployedTokenByTrackingID(ctx, tx, trackingID)
+	if tokenErr == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return handlePostgresError(c, err)
+		}
+		return c.JSON(http.StatusOK, apiresp.OKResponse{
+			Ok:          true,
+			Description: fmt.Sprintf("Deployed token for tracking ID %s", trackingID),
+			Result: map[string]any{
+				"type":     "TOKEN",
+				"contract": token,
+			},
+		})
+	}
+
+	pool, poolErr := a.store.GetDeployedPoolByTrackingID(ctx, tx, trackingID)
+	if poolErr == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return handlePostgresError(c, err)
+		}
+		return c.JSON(http.StatusOK, apiresp.OKResponse{
+			Ok:          true,
+			Description: fmt.Sprintf("Deployed pool for tracking ID %s", trackingID),
+			Result: map[string]any{
+				"type":     "POOL",
+				"contract": pool,
+			},
+		})
+	}
+
+	// Neither found yet — deployment still in progress.
+	return c.NoContent(http.StatusNoContent)
+}
+
 func (a *API) accountOTXHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -112,7 +171,11 @@ func (a *API) accountOTXHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
-	p := normalizePagination(req)
+	p := normalizePagination(apiresp.CursorPaginationRequest{
+		PerPage: req.PerPage,
+		Next:    req.Next,
+		Cursor:  req.Cursor,
+	})
 
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
@@ -218,16 +281,16 @@ func (a *API) accountStatusHandler(c *echo.Context) error {
 }
 
 type paginationParams struct {
-	apiresp.OTXByAccountRequest
+	apiresp.CursorPaginationRequest
 	FirstPage bool
 }
 
-func normalizePagination(q apiresp.OTXByAccountRequest) paginationParams {
+func normalizePagination(q apiresp.CursorPaginationRequest) paginationParams {
 	if q.PerPage == 0 || q.PerPage > 100 {
 		q.PerPage = 100
 	}
 	return paginationParams{
-		OTXByAccountRequest: q,
-		FirstPage:           !q.Next && q.Cursor < 1,
+		CursorPaginationRequest: q,
+		FirstPage:               !q.Next && q.Cursor < 1,
 	}
 }

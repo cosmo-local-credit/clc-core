@@ -147,6 +147,7 @@ func New(o APIOpts) *API {
 
 	apiGroup.GET("/system", a.systemHandler)
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)
+	apiGroup.GET("/otx/track/:trackingId/contract", a.trackContractHandler)
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
@@ -154,7 +155,9 @@ func New(o APIOpts) *API {
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
+	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)
+	userGroup.GET("/me/pools/:address", a.userPoolByAddressHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
 
 	// Superadmin-only routes
@@ -197,6 +200,14 @@ func New(o APIOpts) *API {
 		Addr:    o.ListenAddress,
 		Handler: router,
 	}
+
+	// Log all registered routes for diagnostics
+	routes := router.Router().Routes()
+	a.logg.Debug("API routes registered", "count", len(routes))
+	for _, r := range routes {
+		a.logg.Debug("  route", "method", r.Method, "path", r.Path, "name", r.Name)
+	}
+
 	a.logg.Debug("API initialized", "listen_address", a.listenAddress)
 	return a
 }

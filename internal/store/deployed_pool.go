@@ -41,6 +41,7 @@ type (
 		ProtocolFeeControllerAddress string    `db:"protocol_fee_controller_address" json:"protocolFeeControllerAddress"`
 		FeesDecoupled                bool      `db:"fees_decoupled"                  json:"feesDecoupled"`
 		Admin                        string    `db:"admin"                           json:"admin"`
+		TrackingID                   string    `db:"tracking_id"                     json:"trackingId"`
 		CreatedAt                    time.Time `db:"created_at"                      json:"createdAt"`
 		UpdatedAt                    time.Time `db:"updated_at"                      json:"updatedAt"`
 	}
@@ -110,6 +111,21 @@ func (pg *Pg) GetDeployedPoolByAddress(ctx context.Context, tx pgx.Tx, address s
 	var dp DeployedPool
 
 	row, err := tx.Query(ctx, pg.queries.GetDeployedPoolByAddress, address)
+	if err != nil {
+		return dp, err
+	}
+
+	if err := pgxscan.ScanOne(&dp, row); err != nil {
+		return dp, err
+	}
+
+	return dp, nil
+}
+
+func (pg *Pg) GetDeployedPoolByTrackingID(ctx context.Context, tx pgx.Tx, trackingID string) (DeployedPool, error) {
+	var dp DeployedPool
+
+	row, err := tx.Query(ctx, pg.queries.GetDeployedPoolByTrackingID, trackingID)
 	if err != nil {
 		return dp, err
 	}

@@ -16,6 +16,7 @@ type DeployedToken struct {
 	Symbol              string    `db:"symbol"                json:"symbol"`
 	Name                string    `db:"name"                  json:"name"`
 	Admin               string    `db:"admin"                 json:"admin"`
+	TrackingID          string    `db:"tracking_id"           json:"trackingId"`
 	CreatedAt           time.Time `db:"created_at"            json:"createdAt"`
 	UpdatedAt           time.Time `db:"updated_at"            json:"updatedAt"`
 }
@@ -43,6 +44,21 @@ func (pg *Pg) GetDeployedTokenByAddress(ctx context.Context, tx pgx.Tx, address 
 	var dt DeployedToken
 
 	row, err := tx.Query(ctx, pg.queries.GetDeployedTokenByAddress, address)
+	if err != nil {
+		return dt, err
+	}
+
+	if err := pgxscan.ScanOne(&dt, row); err != nil {
+		return dt, err
+	}
+
+	return dt, nil
+}
+
+func (pg *Pg) GetDeployedTokenByTrackingID(ctx context.Context, tx pgx.Tx, trackingID string) (DeployedToken, error) {
+	var dt DeployedToken
+
+	row, err := tx.Query(ctx, pg.queries.GetDeployedTokenByTrackingID, trackingID)
 	if err != nil {
 		return dt, err
 	}

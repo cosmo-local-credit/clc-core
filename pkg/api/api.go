@@ -20,7 +20,7 @@ type (
 		Owner            string `json:"owner" validate:"required,eth_addr_checksum"`
 		QuoterType       string `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
 		FeesDecoupled    bool   `json:"feesDecoupled"`
-		FeePolicyDefault string `json:"feePolicyDefault" validate:"omitempty"`
+		FeePolicyDefault string `json:"feePolicyDefault" validate:"required"`
 		BaseCurrency     string `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
 	}
 
@@ -48,6 +48,12 @@ type (
 
 	TrackOTXRequest struct {
 		TrackingID string `param:"trackingId" validate:"required,uuid"`
+	}
+
+	CursorPaginationRequest struct {
+		PerPage uint64 `query:"perPage"`
+		Next    bool   `query:"next"`
+		Cursor  uint64 `query:"cursor"`
 	}
 
 	OTXByAccountRequest struct {

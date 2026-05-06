@@ -24,14 +24,16 @@ type (
 		InsertDispatchTx          string `query:"insert-dispatch-tx"`
 		UpdateDispatchTxStatus    string `query:"update-dispatch-tx-status"`
 		GetPlatformContracts      string `query:"get-platform-contracts"`
-		InsertDeployedToken       string `query:"insert-deployed-token"`
-		GetDeployedTokenByAddress string `query:"get-deployed-token-by-address"`
-		InsertTokenDeployMeta     string `query:"insert-token-deploy-meta"`
-		GetTokenDeployMetaByOTXID string `query:"get-token-deploy-meta-by-otx-id"`
-		GetPoolAddress            string `query:"get-pool-address"`
-		SetPoolAddress            string `query:"set-pool-address"`
-		InsertDeployedPool        string `query:"insert-deployed-pool"`
-		GetDeployedPoolByAddress  string `query:"get-deployed-pool-by-address"`
+		InsertDeployedToken              string `query:"insert-deployed-token"`
+		GetDeployedTokenByAddress        string `query:"get-deployed-token-by-address"`
+		GetDeployedTokenByTrackingID     string `query:"get-deployed-token-by-tracking-id"`
+		InsertTokenDeployMeta            string `query:"insert-token-deploy-meta"`
+		GetTokenDeployMetaByOTXID        string `query:"get-token-deploy-meta-by-otx-id"`
+		GetPoolAddress                   string `query:"get-pool-address"`
+		SetPoolAddress                   string `query:"set-pool-address"`
+		InsertDeployedPool               string `query:"insert-deployed-pool"`
+		GetDeployedPoolByAddress         string `query:"get-deployed-pool-by-address"`
+		GetDeployedPoolByTrackingID      string `query:"get-deployed-pool-by-tracking-id"`
 		InsertPoolDeployMeta      string `query:"insert-pool-deploy-meta"`
 		GetPoolDeployMetaByOTXID  string `query:"get-pool-deploy-meta-by-otx-id"`
 		GetOracleFeedByName       string `query:"get-oracle-feed-by-name"`
@@ -57,7 +59,11 @@ type (
 		GetUserDeploymentByTrackingID string `query:"get-user-deployment-by-tracking-id"`
 		ListAllDeployments            string `query:"list-all-deployments"`
 		ListTokensByUser              string `query:"list-tokens-by-user"`
+		ListTokensByUserNext          string `query:"list-tokens-by-user-next"`
+		ListTokensByUserPrev          string `query:"list-tokens-by-user-prev"`
 		ListPoolsByUser               string `query:"list-pools-by-user"`
+		ListPoolsByUserNext           string `query:"list-pools-by-user-next"`
+		ListPoolsByUserPrev           string `query:"list-pools-by-user-prev"`
 		ListAllTokens                 string `query:"list-all-tokens"`
 		ListAllPools                  string `query:"list-all-pools"`
 
