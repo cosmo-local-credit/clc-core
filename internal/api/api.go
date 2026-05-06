@@ -28,6 +28,7 @@ type (
 		VerifyingKey  crypto.PublicKey
 		SigningKey    crypto.PrivateKey
 		Store         store.Store
+		FederationStore store.FederationStore
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
 		QueueClient   *river.Client[pgx.Tx]
@@ -43,6 +44,7 @@ type (
 		verifyingKey  crypto.PublicKey
 		siweNonces    *util.SIWENonceStore
 		store         store.Store
+		federationStore store.FederationStore
 		logg          *slog.Logger
 		chainProvider *ethutils.Provider
 		server        *http.Server
@@ -70,6 +72,7 @@ func New(o APIOpts) *API {
 		listenAddress: o.ListenAddress,
 		logg:          o.Logg,
 		store:         o.Store,
+		federationStore: o.FederationStore,
 		chainProvider: o.ChainProvider,
 		queueClient:   o.QueueClient,
 		chainID:       o.ChainID,
@@ -169,6 +172,12 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
+
+	// Federation data routes — only if federation store is available
+	if a.federationStore != nil {
+		fedGroup := apiGroup.Group("/federation")
+		fedGroup.GET("/system", a.federationSystemHandler)
+	}
 
 	if a.staticFS != nil {
 		sub, err := fs.Sub(a.staticFS, "dist")

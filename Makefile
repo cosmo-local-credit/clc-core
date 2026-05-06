@@ -20,10 +20,10 @@ build-clccore: build-frontend
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${CLCCORE_BIN} cmd/clccore/*.go
 
 run: build-frontend
-	${BUILD_CONF} ${DEBUG} go run -tags embed cmd/clccore/*.go
+	${BUILD_CONF} ${DEBUG} go run cmd/clccore/*.go -queries core_queries.sql -federation-queries federated_queries.sql
 
 run-clccore: build-frontend
-	${BUILD_CONF} ${DEBUG} go run -tags embed cmd/clccore/*.go
+	${BUILD_CONF} ${DEBUG} go run cmd/clccore/*.go -queries core_queries.sql -federation-queries federated_queries.sql
 
 docs:
 	swag fmt --dir internal/api/

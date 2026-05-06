@@ -20,9 +20,10 @@ const defaultGracefulShutdownPeriod = time.Second * 20
 var (
 	build = "dev"
 
-	confFlag             string
-	migrationsFolderFlag string
-	queriesFlag          string
+	confFlag                 string
+	migrationsFolderFlag     string
+	queriesFlag              string
+	federationQueriesFlag    string
 
 	lo *slog.Logger
 	ko *koanf.Koanf
@@ -31,7 +32,8 @@ var (
 func init() {
 	flag.StringVar(&confFlag, "config", "config.toml", "Config file location")
 	flag.StringVar(&migrationsFolderFlag, "migrations", "migrations/", "Migrations folder location")
-	flag.StringVar(&queriesFlag, "queries", "queries.sql", "Queries file location")
+	flag.StringVar(&queriesFlag, "queries", "core_queries.sql", "Core queries file location")
+	flag.StringVar(&federationQueriesFlag, "federation-queries", "federated_queries.sql", "Federation queries file location")
 	flag.Parse()
 
 	lo = util.InitLogger()
@@ -44,10 +46,11 @@ func main() {
 	ctx, stop := notifyShutdown()
 
 	pgStore := loadStore()
+	federationStore := loadFederationStore()
 	chainProvider := loadChainProvider()
 	gasOracleInst := loadGasOracle(chainProvider)
 	workerComponent := loadWorker(pgStore, chainProvider, gasOracleInst)
-	apiComponent := loadAPI(pgStore, chainProvider, workerComponent)
+	apiComponent := loadAPI(pgStore, federationStore, chainProvider, workerComponent)
 	subComponent, pubComponent := loadSub(pgStore)
 
 	lo.Info("starting clc-core", "build", build)
@@ -100,6 +103,11 @@ func main() {
 			lo.Error("failed to stop worker queue", "err", err)
 		}
 		pubComponent.Close()
+
+		if federationStore != nil {
+			federationStore.Close()
+			lo.Info("federation DB pool closed")
+		}
 	}()
 
 	go func() {

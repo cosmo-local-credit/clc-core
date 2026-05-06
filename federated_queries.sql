@@ -1,0 +1,4 @@
+-- Federated / Warehouse Queries
+-- These queries target the federated PostgreSQL database.
+-- Use fully-qualified table names: schema_name.table_name
+-- since no default search_path is set on this connection.

@@ -5,3 +5,7 @@ build
 **/*node_modules
 **/*dist
 **/*.tanstack
+*.mcp.json
+clccore
+config.toml
+brand.html

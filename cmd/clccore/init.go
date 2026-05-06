@@ -44,6 +44,26 @@ func loadStore() store.Store {
 	return pgStore
 }
 
+func loadFederationStore() store.FederationStore {
+	dsn := ko.String("federation.dsn")
+	if dsn == "" {
+		lo.Info("federation DSN not configured, skipping federation store initialization")
+		return nil
+	}
+
+	fedStore, err := store.NewFederationStore(store.FederationStoreOpts{
+		Logg:              lo,
+		DSN:               dsn,
+		QueriesFolderPath: federationQueriesFlag,
+	})
+	if err != nil {
+		lo.Error("could not initialize federation store", "error", err)
+		os.Exit(1)
+	}
+
+	return fedStore
+}
+
 func loadChainProvider() *ethutils.Provider {
 	return ethutils.NewProvider(
 		ko.MustString("chain.rpc_endpoint"),
@@ -129,7 +149,7 @@ func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
 	return subInst, pubInst
 }
 
-func loadAPI(pgStore store.Store, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer) *api.API {
+func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer) *api.API {
 	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
 	if err != nil {
 		lo.Error("could not load signing key", "error", err)
@@ -142,17 +162,18 @@ func loadAPI(pgStore store.Store, chainProvider *ethutils.Provider, workerContai
 	}
 
 	return api.New(api.APIOpts{
-		Prod:          ko.Bool("api.prod"),
-		Build:         build,
-		ListenAddress: ko.MustString("api.address"),
-		CORS:          ko.MustStrings("api.cors"),
-		SigningKey:    privateKey,
-		VerifyingKey:  publicKey,
-		Store:         pgStore,
-		ChainProvider: chainProvider,
-		Logg:          lo,
-		ChainID:       ko.MustInt64("chain.id"),
-		QueueClient:   workerContainer.Client(),
-		StaticFS:      staticFS,
+		Prod:            ko.Bool("api.prod"),
+		Build:           build,
+		ListenAddress:   ko.MustString("api.address"),
+		CORS:            ko.MustStrings("api.cors"),
+		SigningKey:      privateKey,
+		VerifyingKey:    publicKey,
+		Store:           pgStore,
+		FederationStore: federationStore,
+		ChainProvider:   chainProvider,
+		Logg:            lo,
+		ChainID:         ko.MustInt64("chain.id"),
+		QueueClient:     workerContainer.Client(),
+		StaticFS:        staticFS,
 	})
 }
