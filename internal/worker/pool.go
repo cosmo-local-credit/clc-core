@@ -22,24 +22,32 @@ import (
 
 type (
 	DeployPoolArgs struct {
-		TrackingID                 string `json:"trackingId"`
-		PoolName                   string `json:"poolName"`
-		PoolSymbol                 string `json:"poolSymbol"`
-		PoolDecimals               string `json:"poolDecimals"`
-		Owner                      string `json:"owner"`
-		QuoterType                 string `json:"quoterType"`
-		FeesDecoupled              bool   `json:"feesDecoupled"`
-		FeePolicyDefaultFee        string `json:"feePolicyDefaultFee"`
-		BaseCurrency               string `json:"baseCurrency"`
-		FactoryAddress             string `json:"factoryAddress"`
-		SwapPoolImplAddress        string `json:"swapPoolImplAddress"`
-		TokenIndexImplAddress      string `json:"tokenIndexImplAddress"`
-		LimiterImplAddress         string `json:"limiterImplAddress"`
-		FeePolicyImplAddress       string `json:"feePolicyImplAddress"`
-		QuoterImplAddress          string `json:"quoterImplAddress"`
-		DecimalQuoterAddress       string `json:"decimalQuoterAddress"`
-		ProtocolFeeController      string `json:"protocolFeeController"`
-		SwapPoolPlatformContractID uint64 `json:"swapPoolPlatformContractId"`
+		TrackingID                 string   `json:"trackingId"`
+		PoolName                   string   `json:"poolName"`
+		PoolSymbol                 string   `json:"poolSymbol"`
+		PoolDecimals               string   `json:"poolDecimals"`
+		Owner                      string   `json:"owner"`
+		QuoterType                 string   `json:"quoterType"`
+		FeesDecoupled              bool     `json:"feesDecoupled"`
+		FeePolicyDefaultFee        string   `json:"feePolicyDefaultFee"`
+		BaseCurrency               string   `json:"baseCurrency"`
+		FactoryAddress             string   `json:"factoryAddress"`
+		SwapPoolImplAddress        string   `json:"swapPoolImplAddress"`
+		TokenIndexImplAddress      string   `json:"tokenIndexImplAddress"`
+		LimiterImplAddress         string   `json:"limiterImplAddress"`
+		FeePolicyImplAddress       string   `json:"feePolicyImplAddress"`
+		QuoterImplAddress          string   `json:"quoterImplAddress"`
+		DecimalQuoterAddress       string   `json:"decimalQuoterAddress"`
+		ProtocolFeeController      string   `json:"protocolFeeController"`
+		SwapPoolPlatformContractID uint64   `json:"swapPoolPlatformContractId"`
+		Description                string   `json:"description"`
+		Website                    string   `json:"website"`
+		Email                      string   `json:"email"`
+		Phone                      string   `json:"phone"`
+		LocationName               string   `json:"locationName"`
+		GeoLat                     *float64 `json:"geoLat"`
+		GeoLng                     *float64 `json:"geoLng"`
+		Tags                       []string `json:"tags"`
 	}
 
 	DeployPoolWorker struct {
@@ -358,8 +366,21 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		ProtocolFeeControllerAddress: args.ProtocolFeeController,
 		FeesDecoupled:                args.FeesDecoupled,
 		Admin:                        ownerAddress.Hex(),
+		Description:                  nilIfEmpty(args.Description),
+		Website:                      nilIfEmpty(args.Website),
+		Email:                        nilIfEmpty(args.Email),
+		Phone:                        nilIfEmpty(args.Phone),
+		LocationName:                 nilIfEmpty(args.LocationName),
+		GeoLat:                       args.GeoLat,
+		GeoLng:                       args.GeoLng,
 	}); err != nil {
 		return err
+	}
+
+	for _, tag := range args.Tags {
+		if err := w.wc.store.InsertPoolDeployMetaTag(ctx, dbTx, swapPoolPrepared.OTXID, tag); err != nil {
+			return err
+		}
 	}
 
 	dispatchParams := []river.InsertManyParams{

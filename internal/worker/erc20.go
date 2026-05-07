@@ -21,17 +21,34 @@ import (
 
 var funcDeployDeterministicAndCall = w3.MustNewFunc("deployDeterministicAndCall(address,address,bytes32,bytes)", "address")
 
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 type (
 	DeployTokenArgs struct {
-		TrackingID            string `json:"trackingId"`
-		Name                  string `json:"name"`
-		Symbol                string `json:"symbol"`
-		Decimals              string `json:"decimals"`
-		Owner                 string `json:"owner"`
-		ExpiryTimestamp       string `json:"expiryTimestamp"`
-		FactoryAddress        string `json:"factoryAddress"`
-		ImplementationAddress string `json:"implementationAddress"`
-		PlatformContractID    uint64 `json:"platformContractId"`
+		TrackingID            string   `json:"trackingId"`
+		Name                  string   `json:"name"`
+		Symbol                string   `json:"symbol"`
+		Decimals              string   `json:"decimals"`
+		Owner                 string   `json:"owner"`
+		ExpiryTimestamp       string   `json:"expiryTimestamp"`
+		FactoryAddress        string   `json:"factoryAddress"`
+		ImplementationAddress string   `json:"implementationAddress"`
+		PlatformContractID    uint64   `json:"platformContractId"`
+		Description           string   `json:"description"`
+		Website               string   `json:"website"`
+		Email                 string   `json:"email"`
+		Phone                 string   `json:"phone"`
+		VoucherUoa            string   `json:"voucherUoa"`
+		VoucherValue          *float64 `json:"voucherValue"`
+		LocationName          string   `json:"locationName"`
+		GeoLat                *float64 `json:"geoLat"`
+		GeoLng                *float64 `json:"geoLng"`
+		Tags                  []string `json:"tags"`
 	}
 
 	DeployTokenWorker struct {
@@ -125,8 +142,23 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		TokenName:          args.Name,
 		TokenSymbol:        args.Symbol,
 		Admin:              args.Owner,
+		Description:        nilIfEmpty(args.Description),
+		Website:            nilIfEmpty(args.Website),
+		Email:              nilIfEmpty(args.Email),
+		Phone:              nilIfEmpty(args.Phone),
+		VoucherUoa:         nilIfEmpty(args.VoucherUoa),
+		VoucherValue:       args.VoucherValue,
+		LocationName:       nilIfEmpty(args.LocationName),
+		GeoLat:             args.GeoLat,
+		GeoLng:             args.GeoLng,
 	}); err != nil {
 		return err
+	}
+
+	for _, tag := range args.Tags {
+		if err := w.wc.store.InsertTokenDeployMetaTag(ctx, metaTx, proxyTx.OTXID, tag); err != nil {
+			return err
+		}
 	}
 
 	if err := metaTx.Commit(ctx); err != nil {

@@ -21,17 +21,24 @@ type Store interface {
 	UpdateDispatchTxStatus(context.Context, pgx.Tx, DispatchTx) error
 	GetPlatformContracts(context.Context, pgx.Tx, int64, string) (PlatformContracts, error)
 	InsertDeployedToken(context.Context, pgx.Tx, DeployedToken) (uint64, error)
+	InsertDeployedTokenTag(context.Context, pgx.Tx, uint64, string) error
 	GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 	GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 	InsertTokenDeployMeta(context.Context, pgx.Tx, TokenDeployMeta) error
+	InsertTokenDeployMetaTag(context.Context, pgx.Tx, uint64, string) error
 	GetTokenDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (TokenDeployMeta, error)
+	GetTokenDeployMetaTags(context.Context, pgx.Tx, uint64) ([]string, error)
+	ListTokenTags(context.Context, pgx.Tx) ([]string, error)
 	GetPoolAddress(context.Context, pgx.Tx, string) (string, error)
 	SetPoolAddress(context.Context, pgx.Tx, string, string) error
 	InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
 	GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 	GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 	InsertPoolDeployMeta(context.Context, pgx.Tx, PoolDeployMeta) error
+	InsertPoolDeployMetaTag(context.Context, pgx.Tx, uint64, string) error
 	GetPoolDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (PoolDeployMeta, error)
+	GetPoolDeployMetaTags(context.Context, pgx.Tx, uint64) ([]string, error)
+	InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
 	GetOracleFeedByName(context.Context, pgx.Tx, string) (OracleFeed, error)
 	ListOracleFeeds(context.Context, pgx.Tx) ([]OracleFeed, error)
 	GetOTXByTrackingID(context.Context, pgx.Tx, string) ([]*OTX, error)

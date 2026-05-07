@@ -14,22 +14,40 @@ type (
 	}
 
 	DeployPoolRequest struct {
-		Name             string `json:"name" validate:"required"`
-		Symbol           string `json:"symbol" validate:"required"`
-		Decimals         string `json:"decimals" validate:"required"`
-		Owner            string `json:"owner" validate:"required,eth_addr_checksum"`
-		QuoterType       string `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
-		FeesDecoupled    bool   `json:"feesDecoupled"`
-		FeePolicyDefault string `json:"feePolicyDefault" validate:"required"`
-		BaseCurrency     string `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
+		Name             string   `json:"name" validate:"required"`
+		Symbol           string   `json:"symbol" validate:"required"`
+		Decimals         string   `json:"decimals" validate:"required"`
+		Owner            string   `json:"owner" validate:"required,eth_addr_checksum"`
+		QuoterType       string   `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
+		FeesDecoupled    bool     `json:"feesDecoupled"`
+		FeePolicyDefault string   `json:"feePolicyDefault" validate:"required"`
+		BaseCurrency     string   `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
+		Description      string   `json:"description,omitempty"`
+		Website          string   `json:"website,omitempty" validate:"omitempty,url"`
+		Email            string   `json:"email,omitempty" validate:"omitempty,email"`
+		Phone            string   `json:"phone,omitempty"`
+		LocationName     string   `json:"locationName,omitempty"`
+		GeoLat           *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
+		GeoLng           *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
+		Tags             []string `json:"tags,omitempty"`
 	}
 
 	DeployTokenRequest struct {
-		Name            string `json:"name" validate:"required"`
-		Symbol          string `json:"symbol" validate:"required"`
-		Decimals        string `json:"decimals" validate:"required"`
-		Owner           string `json:"owner" validate:"required,eth_addr_checksum"`
-		ExpiryTimestamp string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
+		Name            string   `json:"name" validate:"required"`
+		Symbol          string   `json:"symbol" validate:"required"`
+		Decimals        string   `json:"decimals" validate:"required"`
+		Owner           string   `json:"owner" validate:"required,eth_addr_checksum"`
+		ExpiryTimestamp string   `json:"expiryTimestamp,omitempty" validate:"omitempty"`
+		Description     string   `json:"description,omitempty"`
+		Website         string   `json:"website,omitempty" validate:"omitempty,url"`
+		Email           string   `json:"email,omitempty" validate:"omitempty,email"`
+		Phone           string   `json:"phone,omitempty"`
+		VoucherUoa      string   `json:"voucherUoa,omitempty"`
+		VoucherValue    *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
+		LocationName    string   `json:"locationName,omitempty"`
+		GeoLat          *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
+		GeoLng          *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
+		Tags            []string `json:"tags,omitempty"`
 	}
 
 	RegisterVersionRequest struct {

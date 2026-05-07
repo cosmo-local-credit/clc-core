@@ -66,32 +66,54 @@ FROM platform_contracts
 WHERE chain_id = $1 AND contract_type = $2::contract_type;
 
 --name: insert-deployed-token
-INSERT INTO deployed_tokens (otx_id, platform_contract_id, address, symbol, name, admin)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO deployed_tokens (otx_id, platform_contract_id, address, symbol, name, admin, description, website, email, phone, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING id;
 
+--name: insert-deployed-token-tag
+INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
+
 --name: get-deployed-token-by-address
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin,
+       dt.description, dt.website, dt.email, dt.phone, dt.voucher_uoa, dt.voucher_value,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.created_at, dt.updated_at, o.tracking_id,
+       COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
-WHERE dt.address = $1;
+LEFT JOIN deployed_token_tags dtt ON dtt.deployed_token_id = dt.id
+WHERE dt.address = $1
+GROUP BY dt.id, o.tracking_id;
 
 --name: get-deployed-token-by-tracking-id
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin,
+       dt.description, dt.website, dt.email, dt.phone, dt.voucher_uoa, dt.voucher_value,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.created_at, dt.updated_at, o.tracking_id,
+       COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
+LEFT JOIN deployed_token_tags dtt ON dtt.deployed_token_id = dt.id
 WHERE o.tracking_id = $1::uuid
+GROUP BY dt.id, o.tracking_id
 LIMIT 1;
 
 --name: insert-token-deploy-meta
-INSERT INTO token_deploy_meta (otx_id, platform_contract_id, token_name, token_symbol, admin)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO token_deploy_meta (otx_id, platform_contract_id, token_name, token_symbol, admin, description, website, email, phone, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 RETURNING id;
 
+--name: insert-token-deploy-meta-tag
+INSERT INTO token_deploy_meta_tags (otx_id, tag_value) VALUES ($1, $2);
+
 --name: get-token-deploy-meta-by-otx-id
-SELECT id, otx_id, platform_contract_id, token_name, token_symbol, admin, created_at, updated_at
+SELECT id, otx_id, platform_contract_id, token_name, token_symbol, admin, description, website, email, phone, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng, created_at, updated_at
 FROM token_deploy_meta
 WHERE otx_id = $1;
+
+--name: get-token-deploy-meta-tags
+SELECT tag_value FROM token_deploy_meta_tags WHERE otx_id = $1 ORDER BY tag_value;
+
+--name: list-token-tags
+SELECT value FROM token_tag ORDER BY value;
 
 -- Pool addresses (shared singleton addresses)
 --name: get-pool-address
@@ -106,16 +128,28 @@ ON CONFLICT (key) DO UPDATE SET address = EXCLUDED.address, updated_at = CURRENT
 INSERT INTO pool_deploy_meta (
     otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
-    protocol_fee_controller_address, fees_decoupled, admin
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    protocol_fee_controller_address, fees_decoupled, admin,
+    description, website, email, phone, location_name, geo_lat, geo_lng
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 RETURNING id;
 
 --name: get-pool-deploy-meta-by-otx-id
 SELECT id, otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
-    protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
+    protocol_fee_controller_address, fees_decoupled, admin,
+    description, website, email, phone, location_name, geo_lat, geo_lng,
+    created_at, updated_at
 FROM pool_deploy_meta
 WHERE otx_id = $1;
+
+--name: insert-pool-deploy-meta-tag
+INSERT INTO pool_deploy_meta_tags (otx_id, tag_value) VALUES ($1, $2);
+
+--name: get-pool-deploy-meta-tags
+SELECT tag_value FROM pool_deploy_meta_tags WHERE otx_id = $1 ORDER BY tag_value;
+
+--name: insert-deployed-pool-tag
+INSERT INTO deployed_pool_tags (deployed_pool_id, tag_value) VALUES ($1, $2);
 
 -- Oracle feeds
 --name: get-oracle-feed-by-name
@@ -133,25 +167,36 @@ ORDER BY name;
 INSERT INTO deployed_pools (
     otx_id, platform_contract_id, address, name, symbol,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
-    protocol_fee_controller_address, fees_decoupled, admin
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    protocol_fee_controller_address, fees_decoupled, admin,
+    description, website, email, phone, location_name, geo_lat, geo_lng
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 RETURNING id;
 
 --name: get-deployed-pool-by-address
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
-    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.created_at, dp.updated_at, o.tracking_id,
+    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
-WHERE dp.address = $1;
+LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
+WHERE dp.address = $1
+GROUP BY dp.id, o.tracking_id;
 
 --name: get-deployed-pool-by-tracking-id
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
-    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.created_at, dp.updated_at, o.tracking_id,
+    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
+LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
 WHERE o.tracking_id = $1::uuid
+GROUP BY dp.id, o.tracking_id
 LIMIT 1;
 
 --name: get-otx-by-tracking-id
