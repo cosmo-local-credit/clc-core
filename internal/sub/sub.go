@@ -13,11 +13,12 @@ import (
 
 type (
 	SubObts struct {
-		Store      store.Store
-		JS         jetstream.JetStream
-		ConsumerID string
-		Pub        *pub.Pub
-		Logg       *slog.Logger
+		Store       store.Store
+		JS          jetstream.JetStream
+		ConsumerID  string
+		SkipBacklog bool
+		Pub         *pub.Pub
+		Logg        *slog.Logger
 	}
 
 	Sub struct {
@@ -42,6 +43,14 @@ func NewSub(o SubObts) (*Sub, error) {
 	stream, err := o.JS.Stream(ctx, pullStream)
 	if err != nil {
 		return nil, err
+	}
+
+	// Dev-only escape hatch
+	if o.SkipBacklog {
+		if err := stream.DeleteConsumer(ctx, o.ConsumerID); err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
+			return nil, err
+		}
+		o.Logg.Warn("Sub: skip_backlog enabled, dropped durable consumer", "consumer", o.ConsumerID)
 	}
 
 	consumer, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{

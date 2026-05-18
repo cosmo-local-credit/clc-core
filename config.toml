@@ -34,5 +34,8 @@ divvi_consumer = "0x5523058cdFfe5F3c1EaDADD5015E55C6E00fb439"
 
 [jetstream]
 endpoints = ["nats://127.0.0.1:4222"]
-id = "clc-core-1"
+id = "clc-core-dev"
 persist_duration_hrs = 48
+# Dev-only: drop the durable consumer on startup so we skip the backlog and
+# Leave false in production.
+skip_backlog = false

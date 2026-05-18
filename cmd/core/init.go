@@ -126,11 +126,12 @@ func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
 	})
 
 	subInst, err := sub.NewSub(sub.SubObts{
-		Store:      pgStore,
-		JS:         js,
-		ConsumerID: ko.MustString("jetstream.id"),
-		Pub:        pubInst,
-		Logg:       lo,
+		Store:       pgStore,
+		JS:          js,
+		ConsumerID:  ko.MustString("jetstream.id"),
+		SkipBacklog: ko.Bool("jetstream.skip_backlog"),
+		Pub:         pubInst,
+		Logg:        lo,
 	})
 	if err != nil {
 		lo.Error("could not initialize jetstream subscriber", "error", err)
