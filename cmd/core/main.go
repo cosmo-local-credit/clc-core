@@ -20,10 +20,10 @@ const defaultGracefulShutdownPeriod = time.Second * 20
 var (
 	build = "dev"
 
-	confFlag                 string
-	migrationsFolderFlag     string
-	queriesFlag              string
-	federationQueriesFlag    string
+	confFlag              string
+	migrationsFolderFlag  string
+	queriesFlag           string
+	federationQueriesFlag string
 
 	lo *slog.Logger
 	ko *koanf.Koanf

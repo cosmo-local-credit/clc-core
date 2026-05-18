@@ -9,3 +9,6 @@ build
 clccore
 config.toml
 brand.html
+**/node_modules
+static
+e2e

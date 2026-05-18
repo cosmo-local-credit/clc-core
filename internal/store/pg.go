@@ -126,6 +126,11 @@ func (s *Pg) Bootstrap() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	if err := s.db.Ping(ctx); err != nil {
+		s.db.Close()
+		return err
+	}
+
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err

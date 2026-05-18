@@ -45,15 +45,9 @@ func loadStore() store.Store {
 }
 
 func loadFederationStore() store.FederationStore {
-	dsn := ko.String("federation.dsn")
-	if dsn == "" {
-		lo.Info("federation DSN not configured, skipping federation store initialization")
-		return nil
-	}
-
 	fedStore, err := store.NewFederationStore(store.FederationStoreOpts{
 		Logg:              lo,
-		DSN:               dsn,
+		DSN:               ko.String("federation.dsn"),
 		QueriesFolderPath: federationQueriesFlag,
 	})
 	if err != nil {
@@ -73,25 +67,22 @@ func loadChainProvider() *ethutils.Provider {
 }
 
 func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
-	switch ko.MustString("gas.oracle_type") {
-	case "static":
-		return &gas.StaticGas{}
-	case "rpc":
-		gasOracle, err := gas.NewRPCGasOracle(gas.RPCGasOracleOpts{
-			Logg:          lo,
-			ChainProvider: chainProvider,
-		})
-		if err != nil {
-			lo.Error("could not initialize rpc gas oracle", "error", err)
-			os.Exit(1)
-		}
-		return gasOracle
-	default:
-		lo.Error("unknown gas oracle type", "type", ko.MustString("gas.oracle_type"))
+	oracleType := ko.MustString("gas.oracle_type")
+	if oracleType != "rpc" {
+		lo.Error("unsupported gas oracle type", "type", oracleType, "required", "rpc")
 		os.Exit(1)
 	}
 
-	return nil
+	gasOracle, err := gas.NewRPCGasOracle(gas.RPCGasOracleOpts{
+		Logg:          lo,
+		ChainProvider: chainProvider,
+	})
+	if err != nil {
+		lo.Error("could not initialize rpc gas oracle", "error", err)
+		os.Exit(1)
+	}
+
+	return gasOracle
 }
 
 func loadWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *worker.WorkerContainer {
@@ -157,7 +148,12 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 	}
 
 	var staticFS fs.FS
-	if ko.Bool("api.serve_static") {
+	serveStatic := true
+	if ko.Exists("api.serve_static") {
+		serveStatic = ko.Bool("api.serve_static")
+	}
+
+	if serveStatic {
 		staticFS = static.WebFS
 	}
 
