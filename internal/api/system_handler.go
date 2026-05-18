@@ -66,7 +66,7 @@ func (a *API) trackOTXHandler(c *echo.Context) error {
 
 	trackingID := req.TrackingID
 	callerType, _ := c.Get("callerType").(string)
-	callerUserID, _ := c.Get("callerUserID").(string)
+	callerUserID, _ := c.Get("callerUserID").(uint64)
 	callerRole, _ := c.Get("callerRole").(string)
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -108,7 +108,7 @@ func (a *API) trackContractHandler(c *echo.Context) error {
 
 	trackingID := c.Param("trackingId")
 	callerType, _ := c.Get("callerType").(string)
-	callerUserID, _ := c.Get("callerUserID").(string)
+	callerUserID, _ := c.Get("callerUserID").(uint64)
 	callerRole, _ := c.Get("callerRole").(string)
 
 	tx, err := a.store.Pool().Begin(ctx)

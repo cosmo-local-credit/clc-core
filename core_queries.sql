@@ -260,7 +260,7 @@ WHERE ethereum_address = $1;
 --name: get-user-by-id
 SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
-WHERE id = $1::uuid;
+WHERE id = $1;
 
 --name: update-user-status
 UPDATE users
@@ -288,27 +288,27 @@ ORDER BY created_at DESC;
 -- User deployments
 --name: count-user-tokens
 SELECT COUNT(*) FROM user_deployments
-WHERE user_id = $1::uuid AND resource_type = 'TOKEN';
+WHERE user_id = $1 AND resource_type = 'TOKEN';
 
 --name: count-user-pools
 SELECT COUNT(*) FROM user_deployments
-WHERE user_id = $1::uuid AND resource_type = 'POOL';
+WHERE user_id = $1 AND resource_type = 'POOL';
 
 --name: insert-user-deployment
 INSERT INTO user_deployments (user_id, tracking_id, resource_type)
-VALUES ($1::uuid, $2::uuid, $3)
+VALUES ($1, $2::uuid, $3)
 RETURNING id;
 
 --name: list-user-deployments
 SELECT id, user_id, tracking_id, resource_type, created_at
 FROM user_deployments
-WHERE user_id = $1::uuid
+WHERE user_id = $1
 ORDER BY created_at DESC;
 
 --name: get-user-deployment-by-tracking-id
 SELECT id, user_id, tracking_id, resource_type, created_at
 FROM user_deployments
-WHERE tracking_id = $1::uuid AND user_id = $2::uuid;
+WHERE tracking_id = $1::uuid AND user_id = $2;
 
 --name: list-all-deployments
 SELECT ud.id, ud.user_id, ud.tracking_id, ud.resource_type, ud.created_at,
@@ -322,7 +322,7 @@ SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1::uuid AND ud.resource_type = 'TOKEN'
+WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN'
 ORDER BY dt.id DESC
 LIMIT $2;
 
@@ -331,7 +331,7 @@ SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1::uuid AND ud.resource_type = 'TOKEN' AND dt.id > $2
+WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.id > $2
 ORDER BY dt.id ASC
 LIMIT $3;
 
@@ -340,7 +340,7 @@ SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1::uuid AND ud.resource_type = 'TOKEN' AND dt.id < $2
+WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.id < $2
 ORDER BY dt.id DESC
 LIMIT $3;
 
@@ -349,7 +349,7 @@ SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1::uuid AND ud.resource_type = 'POOL'
+WHERE ud.user_id = $1 AND ud.resource_type = 'POOL'
 ORDER BY dp.id DESC
 LIMIT $2;
 
@@ -358,7 +358,7 @@ SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1::uuid AND ud.resource_type = 'POOL' AND dp.id > $2
+WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.id > $2
 ORDER BY dp.id ASC
 LIMIT $3;
 
@@ -367,7 +367,7 @@ SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1::uuid AND ud.resource_type = 'POOL' AND dp.id < $2
+WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.id < $2
 ORDER BY dp.id DESC
 LIMIT $3;
 

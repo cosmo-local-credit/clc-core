@@ -10,16 +10,16 @@ import (
 
 type (
 	UserDeployment struct {
-		ID           string    `db:"id"            json:"id"`
-		UserID       string    `db:"user_id"       json:"userId"`
+		ID           uint64    `db:"id"            json:"id"`
+		UserID       uint64    `db:"user_id"       json:"userId"`
 		TrackingID   string    `db:"tracking_id"   json:"trackingId"`
 		ResourceType string    `db:"resource_type" json:"resourceType"`
 		CreatedAt    time.Time `db:"created_at"    json:"createdAt"`
 	}
 
 	UserDeploymentWithUser struct {
-		ID              string    `db:"id"               json:"id"`
-		UserID          string    `db:"user_id"          json:"userId"`
+		ID              uint64    `db:"id"               json:"id"`
+		UserID          uint64    `db:"user_id"          json:"userId"`
 		TrackingID      string    `db:"tracking_id"      json:"trackingId"`
 		ResourceType    string    `db:"resource_type"    json:"resourceType"`
 		CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
@@ -33,7 +33,7 @@ func (pg *Pg) InsertUserDeployment(ctx context.Context, tx pgx.Tx, ud UserDeploy
 	return err
 }
 
-func (pg *Pg) CountUserTokens(ctx context.Context, tx pgx.Tx, userID string) (int, error) {
+func (pg *Pg) CountUserTokens(ctx context.Context, tx pgx.Tx, userID uint64) (int, error) {
 	var count int
 
 	if err := tx.QueryRow(ctx, pg.queries.CountUserTokens, userID).Scan(&count); err != nil {
@@ -43,7 +43,7 @@ func (pg *Pg) CountUserTokens(ctx context.Context, tx pgx.Tx, userID string) (in
 	return count, nil
 }
 
-func (pg *Pg) CountUserPools(ctx context.Context, tx pgx.Tx, userID string) (int, error) {
+func (pg *Pg) CountUserPools(ctx context.Context, tx pgx.Tx, userID uint64) (int, error) {
 	var count int
 
 	if err := tx.QueryRow(ctx, pg.queries.CountUserPools, userID).Scan(&count); err != nil {
@@ -53,7 +53,7 @@ func (pg *Pg) CountUserPools(ctx context.Context, tx pgx.Tx, userID string) (int
 	return count, nil
 }
 
-func (pg *Pg) ListUserDeployments(ctx context.Context, tx pgx.Tx, userID string) ([]UserDeployment, error) {
+func (pg *Pg) ListUserDeployments(ctx context.Context, tx pgx.Tx, userID uint64) ([]UserDeployment, error) {
 	var deployments []UserDeployment
 
 	rows, err := tx.Query(ctx, pg.queries.ListUserDeployments, userID)
@@ -68,7 +68,7 @@ func (pg *Pg) ListUserDeployments(ctx context.Context, tx pgx.Tx, userID string)
 	return deployments, nil
 }
 
-func (pg *Pg) GetUserDeploymentByTrackingID(ctx context.Context, tx pgx.Tx, trackingID string, userID string) (UserDeployment, error) {
+func (pg *Pg) GetUserDeploymentByTrackingID(ctx context.Context, tx pgx.Tx, trackingID string, userID uint64) (UserDeployment, error) {
 	var ud UserDeployment
 
 	row, err := tx.Query(ctx, pg.queries.GetUserDeploymentByTrackingID, trackingID, userID)
@@ -98,7 +98,7 @@ func (pg *Pg) ListAllDeployments(ctx context.Context, tx pgx.Tx) ([]UserDeployme
 	return deployments, nil
 }
 
-func (pg *Pg) ListTokensByUser(ctx context.Context, tx pgx.Tx, userID string, limit uint64) ([]DeployedToken, error) {
+func (pg *Pg) ListTokensByUser(ctx context.Context, tx pgx.Tx, userID uint64, limit uint64) ([]DeployedToken, error) {
 	var tokens []DeployedToken
 
 	rows, err := tx.Query(ctx, pg.queries.ListTokensByUser, userID, limit)
@@ -113,7 +113,7 @@ func (pg *Pg) ListTokensByUser(ctx context.Context, tx pgx.Tx, userID string, li
 	return tokens, nil
 }
 
-func (pg *Pg) ListTokensByUserNext(ctx context.Context, tx pgx.Tx, userID string, cursor uint64, limit uint64) ([]DeployedToken, error) {
+func (pg *Pg) ListTokensByUserNext(ctx context.Context, tx pgx.Tx, userID uint64, cursor uint64, limit uint64) ([]DeployedToken, error) {
 	var tokens []DeployedToken
 
 	rows, err := tx.Query(ctx, pg.queries.ListTokensByUserNext, userID, cursor, limit)
@@ -128,7 +128,7 @@ func (pg *Pg) ListTokensByUserNext(ctx context.Context, tx pgx.Tx, userID string
 	return tokens, nil
 }
 
-func (pg *Pg) ListTokensByUserPrevious(ctx context.Context, tx pgx.Tx, userID string, cursor uint64, limit uint64) ([]DeployedToken, error) {
+func (pg *Pg) ListTokensByUserPrevious(ctx context.Context, tx pgx.Tx, userID uint64, cursor uint64, limit uint64) ([]DeployedToken, error) {
 	var tokens []DeployedToken
 
 	rows, err := tx.Query(ctx, pg.queries.ListTokensByUserPrev, userID, cursor, limit)
@@ -143,7 +143,7 @@ func (pg *Pg) ListTokensByUserPrevious(ctx context.Context, tx pgx.Tx, userID st
 	return tokens, nil
 }
 
-func (pg *Pg) ListPoolsByUser(ctx context.Context, tx pgx.Tx, userID string, limit uint64) ([]DeployedPool, error) {
+func (pg *Pg) ListPoolsByUser(ctx context.Context, tx pgx.Tx, userID uint64, limit uint64) ([]DeployedPool, error) {
 	var pools []DeployedPool
 
 	rows, err := tx.Query(ctx, pg.queries.ListPoolsByUser, userID, limit)
@@ -158,7 +158,7 @@ func (pg *Pg) ListPoolsByUser(ctx context.Context, tx pgx.Tx, userID string, lim
 	return pools, nil
 }
 
-func (pg *Pg) ListPoolsByUserNext(ctx context.Context, tx pgx.Tx, userID string, cursor uint64, limit uint64) ([]DeployedPool, error) {
+func (pg *Pg) ListPoolsByUserNext(ctx context.Context, tx pgx.Tx, userID uint64, cursor uint64, limit uint64) ([]DeployedPool, error) {
 	var pools []DeployedPool
 
 	rows, err := tx.Query(ctx, pg.queries.ListPoolsByUserNext, userID, cursor, limit)
@@ -173,7 +173,7 @@ func (pg *Pg) ListPoolsByUserNext(ctx context.Context, tx pgx.Tx, userID string,
 	return pools, nil
 }
 
-func (pg *Pg) ListPoolsByUserPrevious(ctx context.Context, tx pgx.Tx, userID string, cursor uint64, limit uint64) ([]DeployedPool, error) {
+func (pg *Pg) ListPoolsByUserPrevious(ctx context.Context, tx pgx.Tx, userID uint64, cursor uint64, limit uint64) ([]DeployedPool, error) {
 	var pools []DeployedPool
 
 	rows, err := tx.Query(ctx, pg.queries.ListPoolsByUserPrev, userID, cursor, limit)

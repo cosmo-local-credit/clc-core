@@ -64,7 +64,7 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 
 	callerType, _ := c.Get("callerType").(string)
-	callerUserID, _ := c.Get("callerUserID").(string)
+	callerUserID, _ := c.Get("callerUserID").(uint64)
 
 	ctx := c.Request().Context()
 
@@ -232,7 +232,7 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 
 	callerType, _ := c.Get("callerType").(string)
-	callerUserID, _ := c.Get("callerUserID").(string)
+	callerUserID, _ := c.Get("callerUserID").(uint64)
 
 	ctx := c.Request().Context()
 

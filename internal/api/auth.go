@@ -26,7 +26,7 @@ type JWTCustomClaims struct {
 
 // UserJWTClaims holds claims for user-facing EdDSA JWTs delivered via cookie.
 type UserJWTClaims struct {
-	UserID          string `json:"userId"`
+	UserID          uint64 `json:"userId"`
 	EthereumAddress string `json:"ethereumAddress"`
 	Role            string `json:"role"`
 	jwt.RegisteredClaims
@@ -79,7 +79,7 @@ func clearUserAuthCookie(c *echo.Context) {
 // context keys for downstream handlers:
 //
 //	"callerType"    → "user" or "service"
-//	"callerUserID"  → UUID string (user callers only)
+//	"callerUserID"  → uint64 user id (user callers only)
 //	"callerAddress" → lowercase Ethereum address
 //	"callerRole"    → "USER", "SUPERADMIN", or "SERVICE"
 func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
@@ -176,9 +176,9 @@ func (a *API) parseUserJWT(tokenStr string) (*UserJWTClaims, error) {
 }
 
 // getUserClaims extracts the caller's identity from context.
-// Returns empty strings for service-token callers.
-func getUserClaims(c *echo.Context) (userID, address, role string) {
-	userID, _ = c.Get("callerUserID").(string)
+// Returns zero values for service-token callers.
+func getUserClaims(c *echo.Context) (userID uint64, address, role string) {
+	userID, _ = c.Get("callerUserID").(uint64)
 	address, _ = c.Get("callerAddress").(string)
 	role, _ = c.Get("callerRole").(string)
 	return

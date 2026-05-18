@@ -9,7 +9,7 @@ import (
 )
 
 type User struct {
-	ID              string    `db:"id"               json:"id"`
+	ID              uint64    `db:"id"               json:"id"`
 	EthereumAddress string    `db:"ethereum_address" json:"ethereumAddress"`
 	Name            string    `db:"name"             json:"name"`
 	Email           string    `db:"email"            json:"email"`
@@ -61,7 +61,7 @@ func (pg *Pg) GetUserByAddress(ctx context.Context, tx pgx.Tx, address string) (
 	return u, nil
 }
 
-func (pg *Pg) GetUserByID(ctx context.Context, tx pgx.Tx, id string) (User, error) {
+func (pg *Pg) GetUserByID(ctx context.Context, tx pgx.Tx, id uint64) (User, error) {
 	var u User
 
 	row, err := tx.Query(ctx, pg.queries.GetUserByID, id)

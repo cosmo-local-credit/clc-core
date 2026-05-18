@@ -88,7 +88,7 @@ func (a *API) userTokensHandler(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: fmt.Sprintf("Confirmed tokens for user %s", userID),
+		Description: fmt.Sprintf("Confirmed tokens for user %d", userID),
 		Result: map[string]any{
 			"tokens": tokens,
 			"first":  first,
@@ -142,7 +142,7 @@ func (a *API) userPoolsHandler(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: fmt.Sprintf("Confirmed pools for user %s", userID),
+		Description: fmt.Sprintf("Confirmed pools for user %d", userID),
 		Result: map[string]any{
 			"pools": pools,
 			"first": first,
@@ -228,7 +228,7 @@ func (a *API) userDeploymentsHandler(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: fmt.Sprintf("Deployment history for user %s", userID),
+		Description: fmt.Sprintf("Deployment history for user %d", userID),
 		Result: map[string]any{
 			"deployments": deployments,
 		},

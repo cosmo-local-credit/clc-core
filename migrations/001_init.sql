@@ -296,7 +296,7 @@ CREATE TYPE user_status AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
 -- Users: stores registered accounts authenticated via SIWE
 CREATE TABLE IF NOT EXISTS users (
-    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id               INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     ethereum_address TEXT UNIQUE NOT NULL,
     name             TEXT NOT NULL,
     email            TEXT UNIQUE NOT NULL,
@@ -317,8 +317,8 @@ CREATE TRIGGER update_users_timestamp
 
 -- User deployments: links a user to a tracked on-chain resource (token or pool)
 CREATE TABLE IF NOT EXISTS user_deployments (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id            INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id       INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     tracking_id   UUID NOT NULL UNIQUE,
     resource_type TEXT NOT NULL CHECK (resource_type IN ('TOKEN', 'POOL')),
     created_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
