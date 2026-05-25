@@ -44,7 +44,7 @@ func (a *API) signupHandler(c *echo.Context) error {
 
 	// 2. Confirm the address embedded in the message matches the recovered signer.
 	msgAddr, err := util.ParseSIWEAddress(req.Message)
-	if err != nil || signerAddr != msgAddr {
+	if err != nil || !strings.EqualFold(signerAddr, msgAddr) {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeValidationFailed,
@@ -132,7 +132,7 @@ func (a *API) signinHandler(c *echo.Context) error {
 
 	// 2. Address consistency check.
 	msgAddr, err := util.ParseSIWEAddress(req.Message)
-	if err != nil || signerAddr != msgAddr {
+	if err != nil || !strings.EqualFold(signerAddr, msgAddr) {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeValidationFailed,

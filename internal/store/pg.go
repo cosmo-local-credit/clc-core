@@ -57,6 +57,7 @@ type (
 		GetUserByID                   string `query:"get-user-by-id"`
 		UpdateUserStatus              string `query:"update-user-status"`
 		UpdateUserLimits              string `query:"update-user-limits"`
+		UpdateUserProfile             string `query:"update-user-profile"`
 		ListUsers                     string `query:"list-users"`
 		ListUsersByStatus             string `query:"list-users-by-status"`
 		CountUserTokens               string `query:"count-user-tokens"`
@@ -78,6 +79,10 @@ type (
 		ListPlatformContracts string `query:"list-platform-contracts"`
 		InsertUpgradeMeta     string `query:"insert-upgrade-meta"`
 		GetUpgradeMetaByOTXID string `query:"get-upgrade-meta-by-otx-id"`
+
+		UpsertWebAuthnCredential string `query:"upsert-webauthn-credential"`
+		GetWebAuthnCredential    string `query:"get-webauthn-credential"`
+		SetNonceIfHigher         string `query:"set-nonce-if-higher"`
 	}
 
 	PgOpts struct {

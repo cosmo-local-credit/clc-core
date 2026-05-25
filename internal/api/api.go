@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/go-playground/validator/v10"
@@ -21,36 +22,38 @@ import (
 
 type (
 	APIOpts struct {
-		ListenAddress string
-		Build         string
-		Prod          bool
-		CORS          []string
-		VerifyingKey  crypto.PublicKey
-		SigningKey    crypto.PrivateKey
-		Store         store.Store
+		ListenAddress   string
+		Build           string
+		Prod            bool
+		CORS            []string
+		VerifyingKey    crypto.PublicKey
+		SigningKey      crypto.PrivateKey
+		Store           store.Store
 		FederationStore store.FederationStore
-		Logg          *slog.Logger
-		ChainProvider *ethutils.Provider
-		QueueClient   *river.Client[pgx.Tx]
-		ChainID       int64
-		StaticFS      fs.FS
+		Logg            *slog.Logger
+		ChainProvider   *ethutils.Provider
+		QueueClient     *river.Client[pgx.Tx]
+		ChainID         int64
+		StaticFS        fs.FS
+		Relayer         *relayer.Relayer
 	}
 
 	API struct {
-		listenAddress string
-		build         string
-		prod          bool
-		signingKey    crypto.PrivateKey
-		verifyingKey  crypto.PublicKey
-		siweNonces    *util.SIWENonceStore
-		store         store.Store
+		listenAddress   string
+		build           string
+		prod            bool
+		signingKey      crypto.PrivateKey
+		verifyingKey    crypto.PublicKey
+		siweNonces      *util.SIWENonceStore
+		store           store.Store
 		federationStore store.FederationStore
-		logg          *slog.Logger
-		chainProvider *ethutils.Provider
-		server        *http.Server
-		queueClient   *river.Client[pgx.Tx]
-		chainID       int64
-		staticFS      fs.FS
+		logg            *slog.Logger
+		chainProvider   *ethutils.Provider
+		server          *http.Server
+		queueClient     *river.Client[pgx.Tx]
+		chainID         int64
+		staticFS        fs.FS
+		relayer         *relayer.Relayer
 	}
 )
 
@@ -64,19 +67,20 @@ func New(o APIOpts) *API {
 	siweNonces.StartCleanup(time.Minute)
 
 	a := &API{
-		prod:          o.Prod,
-		build:         o.Build,
-		signingKey:    o.SigningKey,
-		verifyingKey:  o.VerifyingKey,
-		siweNonces:    siweNonces,
-		listenAddress: o.ListenAddress,
-		logg:          o.Logg,
-		store:         o.Store,
+		prod:            o.Prod,
+		build:           o.Build,
+		signingKey:      o.SigningKey,
+		verifyingKey:    o.VerifyingKey,
+		siweNonces:      siweNonces,
+		listenAddress:   o.ListenAddress,
+		logg:            o.Logg,
+		store:           o.Store,
 		federationStore: o.FederationStore,
-		chainProvider: o.ChainProvider,
-		queueClient:   o.QueueClient,
-		chainID:       o.ChainID,
-		staticFS:      o.StaticFS,
+		chainProvider:   o.ChainProvider,
+		queueClient:     o.QueueClient,
+		chainID:         o.ChainID,
+		staticFS:        o.StaticFS,
+		relayer:         o.Relayer,
 	}
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
@@ -138,6 +142,16 @@ func New(o APIOpts) *API {
 	authGroup.POST("/logout", a.logoutHandler)
 	authGroup.GET("/session", a.sessionHandler)
 
+	// SIWE unified verify (public — returns JWT in body + sets cookie)
+	siweGroup := router.Group("/auth/siwe")
+	siweGroup.POST("/nonce", a.nonceHandler)
+	siweGroup.POST("/verify", a.siweVerifyHandler)
+
+	// Authenticated profile routes
+	profileAuthGroup := router.Group("/auth", a.flexibleAuthMiddleware(), a.requireUserAuth())
+	profileAuthGroup.GET("/profile", a.profileGetHandler)
+	profileAuthGroup.POST("/profile", a.profileUpdateHandler)
+
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
@@ -178,6 +192,22 @@ func New(o APIOpts) *API {
 	if a.federationStore != nil {
 		fedGroup := apiGroup.Group("/federation")
 		fedGroup.GET("/system", a.federationSystemHandler)
+	}
+
+	// Relayer (EIP-7702 / Calibur) routes — only registered when the
+	// relayer is configured. Mounted on a fresh group outside
+	// flexibleAuthMiddleware because first-time WebAuthn registration
+	// happens pre-JWT.
+	if a.relayer != nil {
+		relayerGroup := router.Group(apiVersion + "/relayer")
+		relayerGroup.GET("/health", a.relayerHealthHandler)
+		relayerGroup.GET("/nonce/:address", a.relayerEOANonceHandler)
+		relayerGroup.GET("/calibur-nonce/:address", a.caliburNonceHandler)
+		relayerGroup.GET("/calibur-nonce/:address/:keyHash", a.caliburNonceHandler)
+		relayerGroup.POST("/delegate", a.delegateHandler)
+		relayerGroup.POST("/relay", a.relayHandler)
+		relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
+		relayerGroup.POST("/webauthn/recover", a.webAuthnRecoverHandler)
 	}
 
 	if a.staticFS != nil {

@@ -25,3 +25,11 @@ func (pg *Pg) PeekNonce(ctx context.Context, tx pgx.Tx, publicKey string) (uint6
 
 	return nonce, nil
 }
+
+// SetNonceIfHigher fast-forwards the noncestore row for publicKey to
+// newNonce, but only when newNonce > current. Used at startup to align the
+// relayer signer with the on-chain pending nonce.
+func (pg *Pg) SetNonceIfHigher(ctx context.Context, tx pgx.Tx, publicKey string, newNonce uint64) error {
+	_, err := tx.Exec(ctx, pg.queries.SetNonceIfHigher, publicKey, newNonce)
+	return err
+}

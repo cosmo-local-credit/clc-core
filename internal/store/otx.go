@@ -32,6 +32,13 @@ const POOL_RELATIVE_QUOTER_DEPLOY = "POOL_RELATIVE_QUOTER_DEPLOY"
 const POOL_PROXY_DEPLOY = "POOL_PROXY_DEPLOY"
 const PROXY_UPGRADE = "PROXY_UPGRADE"
 
+// Relayer OTX types (EIP-7702 / Calibur).
+const (
+	RELAY_DELEGATE      = "RELAY_DELEGATE"      // Bare SetCodeTx delegating an EOA to Calibur.
+	RELAY_EXEC          = "RELAY_EXEC"          // DynamicFeeTx executing a signed batch on an already-delegated user.
+	RELAY_DELEGATE_EXEC = "RELAY_DELEGATE_EXEC" // SetCodeTx that delegates *and* executes in a single tx (first relay).
+)
+
 func (pg *Pg) InsertOTX(ctx context.Context, tx pgx.Tx, otx OTX) (uint64, error) {
 	var id uint64
 

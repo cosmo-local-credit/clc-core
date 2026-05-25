@@ -10,7 +10,7 @@ type (
 	ErrResponse struct {
 		Ok          bool   `json:"ok"`
 		Description string `json:"description"`
-		ErrCode     string `json:"errorCode"`
+		ErrCode     string `json:"code"`
 	}
 
 	DeployPoolRequest struct {
@@ -116,6 +116,85 @@ type (
 	EthAddressParam struct {
 		Address string `param:"address" validate:"required"`
 	}
+
+	// Relayer (EIP-7702 / Calibur) types.
+
+	RelayerEOANonceParam struct {
+		Address string `param:"address" validate:"required,eth_addr_checksum"`
+	}
+
+	CaliburNonceParam struct {
+		Address string `param:"address" validate:"required,eth_addr_checksum"`
+		KeyHash string `param:"keyHash" validate:"omitempty,len=66,startswith=0x,hexadecimal"`
+	}
+
+	EIP7702Authorization struct {
+		ChainID         string `json:"chainId"         validate:"required,numeric"`
+		ContractAddress string `json:"contractAddress" validate:"required,eth_addr_checksum"`
+		Nonce           string `json:"nonce"           validate:"required,numeric"`
+		YParity         uint8  `json:"yParity"         validate:"oneof=0 1"`
+		R               string `json:"r"               validate:"required,len=66,startswith=0x"`
+		S               string `json:"s"               validate:"required,len=66,startswith=0x"`
+	}
+
+	DelegateRequest struct {
+		EphemeralAddress string               `json:"ephemeralAddress" validate:"required,eth_addr_checksum"`
+		Authorization    EIP7702Authorization `json:"authorization"    validate:"required"`
+	}
+
+	CaliburCall struct {
+		To    string `json:"to"    validate:"required,eth_addr_checksum"`
+		Value string `json:"value" validate:"required,numeric"`
+		Data  string `json:"data"  validate:"required,startswith=0x"`
+	}
+
+	CaliburBatchedCall struct {
+		Calls           []CaliburCall `json:"calls"           validate:"required,min=1,dive"`
+		RevertOnFailure bool          `json:"revertOnFailure"`
+	}
+
+	CaliburSignedBatch struct {
+		BatchedCall CaliburBatchedCall `json:"batchedCall" validate:"required"`
+		Nonce       string             `json:"nonce"       validate:"required,numeric"`
+		KeyHash     string             `json:"keyHash"     validate:"required,len=66,startswith=0x,hexadecimal"`
+		Executor    string             `json:"executor"    validate:"required,eth_addr_checksum"`
+		Deadline    string             `json:"deadline"    validate:"required,numeric"`
+	}
+
+	RelayRequest struct {
+		UserAddress   string                `json:"userAddress"   validate:"required,eth_addr_checksum"`
+		SignedBatch   CaliburSignedBatch    `json:"signedBatch"   validate:"required"`
+		Signature     string                `json:"signature"     validate:"required,startswith=0x"`
+		SignatureType string                `json:"signatureType" validate:"required,oneof=secp256k1 webauthn"`
+		Authorization *EIP7702Authorization `json:"authorization,omitempty" validate:"omitempty"`
+		// Registration-time fields (passed alongside the first secp256k1-signed
+		// relay so the backend can persist the WebAuthn credential mapping).
+		CredentialID string `json:"credentialId,omitempty" validate:"omitempty"`
+		PublicKeyX   string `json:"publicKeyX,omitempty"   validate:"omitempty,numeric"`
+		PublicKeyY   string `json:"publicKeyY,omitempty"   validate:"omitempty,numeric"`
+	}
+
+	WebAuthnRecoverRequest struct {
+		CredentialID      string `json:"credentialId"      validate:"required"`
+		AuthenticatorData string `json:"authenticatorData" validate:"required"`
+		ClientDataJSON    string `json:"clientDataJSON"    validate:"required"`
+		Signature         string `json:"signature"         validate:"required"`
+	}
+
+	// SIWEVerifyRequest is the unified sign-in / sign-up request.
+	// Both flows share the same endpoint; the server upserts the user.
+	SIWEVerifyRequest struct {
+		Message   string `json:"message"   validate:"required"`
+		Signature string `json:"signature" validate:"required"`
+	}
+
+	// UpdateProfileRequest carries optional profile fields.
+	UpdateProfileRequest struct {
+		Name    string `json:"name"    validate:"omitempty,max=80"`
+		Email   string `json:"email"   validate:"omitempty,email"`
+		Phone   string `json:"phone"`
+		Country string `json:"country" validate:"omitempty,len=2"`
+	}
 )
 
 const (
@@ -130,4 +209,9 @@ const (
 	ErrCodeRequestTimeout      = "E09"
 	ErrCodeForbidden           = "E10"
 	ErrCodeLimitExceeded       = "E11"
+
+	ErrCodeRelayerDisabled            = "E12"
+	ErrCodeAuthorizationRequired      = "E13"
+	ErrCodeRelayerExecutorMismatch    = "E14"
+	ErrCodeWebAuthnVerificationFailed = "E15"
 )

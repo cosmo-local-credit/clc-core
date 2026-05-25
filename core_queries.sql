@@ -1,5 +1,5 @@
 --name: insert-keypair
-INSERT INTO keystore(public_key, private_key) VALUES($1, $2) RETURNING id;
+INSERT INTO keystore(public_key, private_key) VALUES($1, $2) ON CONFLICT (public_key) DO NOTHING RETURNING id;
 
 --name: activate-keypair
 UPDATE keystore
@@ -250,15 +250,15 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (ethereum_address, name, email, role, status, max_pools, max_tokens)
 VALUES ($1, $2, $3, $4::user_role, $5::user_status, $6, $7)
-RETURNING id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE ethereum_address = $1;
 
 --name: get-user-by-id
-SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
@@ -266,21 +266,27 @@ WHERE id = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE ethereum_address = $1
-RETURNING id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
 WHERE ethereum_address = $1
-RETURNING id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
+
+--name: update-user-profile
+UPDATE users
+SET name = $2, email = $3, phone = $4, country = $5
+WHERE ethereum_address = $1
+RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: list-users
-SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 ORDER BY created_at DESC;
 
 --name: list-users-by-status
-SELECT id, ethereum_address, name, email, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE status = $1::user_status
 ORDER BY created_at DESC;
@@ -407,3 +413,24 @@ RETURNING id;
 SELECT id, otx_id, proxy_address, contract_type, new_implementation, version, created_at
 FROM upgrade_meta
 WHERE otx_id = $1;
+
+-- Insert (idempotently) a WebAuthn credential registered during relayer
+-- registration. Re-registering with the same credential_id is a no-op.
+--name: upsert-webauthn-credential
+INSERT INTO webauthn_credentials (credential_id, address, key_hash, public_key_x, public_key_y)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (credential_id) DO NOTHING;
+
+-- Look up a WebAuthn credential by its credential_id for recovery flow.
+--name: get-webauthn-credential
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y, created_at
+FROM webauthn_credentials
+WHERE credential_id = $1;
+
+-- Fast-forward the relayer noncestore to the on-chain pending nonce, if
+-- the stored next_nonce is behind.
+--name: set-nonce-if-higher
+UPDATE noncestore
+SET next_nonce = $2
+WHERE keystore_id = (SELECT id FROM keystore WHERE public_key = $1)
+  AND next_nonce < $2;

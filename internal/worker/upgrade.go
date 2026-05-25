@@ -93,6 +93,7 @@ func (w *UpgradeProxyWorker) Work(ctx context.Context, job *river.Job[UpgradePro
 				TrackingID: args.TrackingID,
 				OTXID:      proxyTx.OTXID,
 				RawTx:      proxyTx.RawHex,
+				TxHash:     proxyTx.Hash,
 			},
 		},
 	})

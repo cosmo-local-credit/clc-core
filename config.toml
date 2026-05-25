@@ -2,7 +2,7 @@
 prod = false
 address = ":5003"
 serve_static = true
-cors = ["https://sarafu.network"]
+cors = ["https://sarafu.network", "http://localhost:3000", "http://localhost:3001", "http://192.168.1.20:3000"]
 # These are sample keys, replace them with your own in production.
 # openssl genpkey -algorithm ED25519 -out private.pem
 # openssl pkey -in private.pem -pubout -out public.pem
@@ -28,8 +28,8 @@ max = 0
 oracle_type = "rpc"
 
 [chain]
-id = 1337
-rpc_endpoint = "http://localhost:8545"
+id = 42220
+rpc_endpoint = "https://r4-celo.grassecon.org"
 divvi_consumer = "0x5523058cdFfe5F3c1EaDADD5015E55C6E00fb439"
 
 [jetstream]
@@ -39,3 +39,18 @@ persist_duration_hrs = 48
 # Dev-only: drop the durable consumer on startup so we skip the backlog and
 # Leave false in production.
 skip_backlog = false
+
+[relayer]
+# Endpoints under /api/v2/relayer are only registered when enabled = true.
+enabled = true
+# The relayer uses the master signing key stored in the DB (bootstrapped by
+# the store on first run). No separate private_key config is needed here.
+# Calibur implementation address on the target chain.
+# Celo mainnet: 0x1289fE793392fb1a905f78Ea23f632EDD3d15b85
+calibur_address = "0x1289fE793392fb1a905f78Ea23f632EDD3d15b85"
+# Hardcoded gas limits — gas estimation fails before delegation is active.
+setcode_gas_limit = 350000
+delegate_gas_limit = 200000
+# WebAuthn recovery verification.
+relying_party_id = "192.168.1.20"
+allowed_origins = ["http://localhost:3000", "http://192.168.1.20:3000"]

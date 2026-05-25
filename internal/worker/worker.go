@@ -117,6 +117,14 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 		return nil, err
 	}
 
+	if err := river.AddWorkerSafely(workers, &RetrierWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &ReceiptCheckerWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
 	if err := river.AddWorkerSafely(workers, &UpgradeProxyWorker{wc: wc}); err != nil {
 		return nil, err
 	}

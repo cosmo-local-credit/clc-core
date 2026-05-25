@@ -171,6 +171,7 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 				TrackingID: args.TrackingID,
 				OTXID:      proxyTx.OTXID,
 				RawTx:      proxyTx.RawHex,
+				TxHash:     proxyTx.Hash,
 			},
 		},
 	})

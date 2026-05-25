@@ -13,6 +13,8 @@ type User struct {
 	EthereumAddress string    `db:"ethereum_address" json:"ethereumAddress"`
 	Name            string    `db:"name"             json:"name"`
 	Email           string    `db:"email"            json:"email"`
+	Phone           string    `db:"phone"            json:"phone"`
+	Country         string    `db:"country"          json:"country"`
 	Role            string    `db:"role"             json:"role"`
 	Status          string    `db:"status"           json:"status"`
 	MaxPools        int       `db:"max_pools"        json:"maxPools"`
@@ -95,6 +97,21 @@ func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, m
 	var u User
 
 	row, err := tx.Query(ctx, pg.queries.UpdateUserLimits, address, maxPools, maxTokens)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
+func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, email, phone, country string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.UpdateUserProfile, address, name, email, phone, country)
 	if err != nil {
 		return u, err
 	}

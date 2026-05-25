@@ -1,5 +1,8 @@
 {
   "devDependencies": {
     "shadcn": "^4.6.0"
+  },
+  "dependencies": {
+    "viem": "^2.50.4"
   }
 }

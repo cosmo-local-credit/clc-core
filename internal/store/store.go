@@ -53,6 +53,7 @@ type Store interface {
 	GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 	UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 	UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
+	UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string) (User, error)
 	ListUsers(context.Context, pgx.Tx) ([]User, error)
 	ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
 
@@ -75,4 +76,8 @@ type Store interface {
 	ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)
 	InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error
 	GetUpgradeMetaByOTXID(context.Context, pgx.Tx, uint64) (UpgradeMeta, error)
+
+	UpsertWebAuthnCredential(context.Context, pgx.Tx, WebAuthnCredential) error
+	GetWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
+	SetNonceIfHigher(context.Context, pgx.Tx, string, uint64) error
 }

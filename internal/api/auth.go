@@ -96,7 +96,7 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 				}
 			}
 
-			// 2. Fall back to service JWT (Authorization header or legacy cookie).
+			// 2. Extract token from Authorization header or legacy cookie.
 			tokenStr := ""
 			if authHeader := c.Request().Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
 				tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
@@ -105,6 +105,16 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 			}
 
 			if tokenStr != "" {
+				// 2a. Try user JWT first — allows clients to send Bearer <user-jwt>.
+				if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
+					c.Set("callerType", "user")
+					c.Set("callerUserID", claims.UserID)
+					c.Set("callerAddress", claims.EthereumAddress)
+					c.Set("callerRole", claims.Role)
+					return next(c)
+				}
+
+				// 2b. Fall back to service JWT.
 				token, parseErr := jwt.ParseWithClaims(tokenStr, &JWTCustomClaims{},
 					func(t *jwt.Token) (interface{}, error) {
 						if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
