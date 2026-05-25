@@ -29,7 +29,7 @@ COPY . .
 
 COPY --from=ui-build /build/internal/static/dist ./internal/static/dist
 
-RUN go build -o clccore -ldflags="-X main.build=${BUILD} -s -w" ./cmd/clccore/
+RUN go build -o clccore -ldflags="-X main.build=${BUILD} -s -w" ./cmd/core/
 
 # ── Stage 3: Minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim
