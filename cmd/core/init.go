@@ -65,8 +65,6 @@ func loadChainProvider() *ethutils.Provider {
 	)
 }
 
-// loadGasOracle builds the RPC gas oracle, the only supported oracle. The
-// static oracle has been deprecated and removed.
 func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	gasOracle, err := gas.NewRPCGasOracle(gas.RPCGasOracleOpts{
 		Logg:          lo,
@@ -138,14 +136,6 @@ func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
 }
 
 func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *relayer.Relayer {
-	if !ko.Bool("relayer.enabled") {
-		lo.Info("relayer disabled")
-		return nil
-	}
-
-	// The relayer signs with the same master key the store already manages,
-	// but it never holds that key: every signature is produced inside a relay
-	// river worker that loads the key from the DB within its own transaction.
 	r, err := relayer.New(relayer.Opts{
 		Logg:           lo,
 		ChainProvider:  chainProvider,

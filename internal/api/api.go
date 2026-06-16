@@ -189,21 +189,18 @@ func New(o APIOpts) *API {
 		fedGroup.GET("/system", a.federationSystemHandler)
 	}
 
-	// Relayer (EIP-7702 / Calibur) routes — only registered when the
-	// relayer is configured. Mounted on a fresh group outside
+	// Relayer (EIP-7702 / Calibur) routes. Mounted on a fresh group outside
 	// flexibleAuthMiddleware because first-time WebAuthn registration
 	// happens pre-JWT.
-	if a.relayer != nil {
-		relayerGroup := router.Group(apiVersion + "/relayer")
-		relayerGroup.GET("/health", a.relayerHealthHandler)
-		relayerGroup.GET("/nonce/:address", a.relayerEOANonceHandler)
-		relayerGroup.GET("/calibur-nonce/:address", a.caliburNonceHandler)
-		relayerGroup.GET("/calibur-nonce/:address/:keyHash", a.caliburNonceHandler)
-		relayerGroup.POST("/delegate", a.delegateHandler)
-		relayerGroup.POST("/relay", a.relayHandler)
-		relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
-		relayerGroup.POST("/webauthn/recover", a.webAuthnRecoverHandler)
-	}
+	relayerGroup := router.Group(apiVersion + "/relayer")
+	relayerGroup.GET("/health", a.relayerHealthHandler)
+	relayerGroup.GET("/nonce/:address", a.relayerEOANonceHandler)
+	relayerGroup.GET("/calibur-nonce/:address", a.caliburNonceHandler)
+	relayerGroup.GET("/calibur-nonce/:address/:keyHash", a.caliburNonceHandler)
+	relayerGroup.POST("/delegate", a.delegateHandler)
+	relayerGroup.POST("/relay", a.relayHandler)
+	relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
+	relayerGroup.POST("/webauthn/recover", a.webAuthnRecoverHandler)
 
 	a.server = &http.Server{
 		Addr:    o.ListenAddress,

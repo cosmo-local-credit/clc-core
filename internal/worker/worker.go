@@ -133,16 +133,12 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 		return nil, err
 	}
 
-	// Relay workers are only registered when the relayer is configured;
-	// without it the build/sign calls would have no Calibur provider.
-	if wc.relayer != nil {
-		if err := river.AddWorkerSafely(workers, &RelayDelegateWorker{wc: wc}); err != nil {
-			return nil, err
-		}
+	if err := river.AddWorkerSafely(workers, &RelayDelegateWorker{wc: wc}); err != nil {
+		return nil, err
+	}
 
-		if err := river.AddWorkerSafely(workers, &RelayWorker{wc: wc}); err != nil {
-			return nil, err
-		}
+	if err := river.AddWorkerSafely(workers, &RelayWorker{wc: wc}); err != nil {
+		return nil, err
 	}
 
 	return workers, nil

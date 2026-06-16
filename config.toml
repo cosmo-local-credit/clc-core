@@ -37,8 +37,6 @@ persist_duration_hrs = 48
 skip_backlog = false
 
 [relayer]
-# Endpoints under /api/v2/relayer are only registered when enabled = true.
-enabled = true
 # The relayer uses the master signing key stored in the DB (bootstrapped by
 # the store on first run). No separate private_key config is needed here.
 # Calibur implementation address on the target chain.
