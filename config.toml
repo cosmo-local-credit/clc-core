@@ -23,9 +23,6 @@ dsn = "postgres://postgres:postgres@127.0.0.1:5433/federation"
 [workers]
 max = 0
 
-[gas]
-oracle_type = "rpc"
-
 [chain]
 id = 42220
 rpc_endpoint = "https://r4-celo.grassecon.org"

@@ -65,13 +65,9 @@ func loadChainProvider() *ethutils.Provider {
 	)
 }
 
+// loadGasOracle builds the RPC gas oracle, the only supported oracle. The
+// static oracle has been deprecated and removed.
 func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
-	oracleType := ko.MustString("gas.oracle_type")
-	if oracleType != "rpc" {
-		lo.Error("unsupported gas oracle type", "type", oracleType, "required", "rpc")
-		os.Exit(1)
-	}
-
 	gasOracle, err := gas.NewRPCGasOracle(gas.RPCGasOracleOpts{
 		Logg:          lo,
 		ChainProvider: chainProvider,
