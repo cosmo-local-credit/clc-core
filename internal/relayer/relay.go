@@ -2,6 +2,7 @@ package relayer
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"math/big"
@@ -49,11 +50,17 @@ func (r *Relayer) CaliburSeq(ctx context.Context, addr common.Address, keyHash c
 
 // BuildAndSignRelay produces a signed transaction relaying signedBatch.
 //
+// The master signing key and its derived signer address are loaded by the
+// relay river worker (within its Work transaction) and passed in — the
+// relayer never holds the key.
+//
 // When isDelegated is true a normal DynamicFeeTx to userAddr is produced.
 // Otherwise a SetCodeTx with an AuthList entry is produced — auth must be
 // non-nil in that case (the caller is responsible for validating presence).
 func (r *Relayer) BuildAndSignRelay(
 	ctx context.Context,
+	privateKey *ecdsa.PrivateKey,
+	signerAddr common.Address,
 	userAddr common.Address,
 	signedBatch apiresp.CaliburSignedBatch,
 	signature []byte,
@@ -70,9 +77,9 @@ func (r *Relayer) BuildAndSignRelay(
 
 	// Defence in depth: the contract enforces this too, but rejecting here
 	// saves wasted gas if a client misconfigures the executor field.
-	if gocaliburBatch.Executor != (common.Address{}) && gocaliburBatch.Executor != r.address {
+	if gocaliburBatch.Executor != (common.Address{}) && gocaliburBatch.Executor != signerAddr {
 		return nil, fmt.Errorf("relay: executor %s != relayer %s",
-			gocaliburBatch.Executor.Hex(), r.address.Hex())
+			gocaliburBatch.Executor.Hex(), signerAddr.Hex())
 	}
 
 	calldata, err := gocalibur.EncodeRelayedCalldata(gocaliburBatch, signature)
@@ -96,7 +103,7 @@ func (r *Relayer) BuildAndSignRelay(
 			Value:     big.NewInt(0),
 			Data:      calldata,
 		})
-		signed, err := types.SignTx(tx, types.LatestSignerForChainID(r.chainID), r.privateKey)
+		signed, err := types.SignTx(tx, types.LatestSignerForChainID(r.chainID), privateKey)
 		if err != nil {
 			return nil, fmt.Errorf("relay: sign exec: %w", err)
 		}
@@ -144,7 +151,7 @@ func (r *Relayer) BuildAndSignRelay(
 		Data:      calldata,
 		AuthList:  []types.SetCodeAuthorization{scAuth},
 	})
-	signed, err := types.SignTx(tx, types.LatestSignerForChainID(r.chainID), r.privateKey)
+	signed, err := types.SignTx(tx, types.LatestSignerForChainID(r.chainID), privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("relay: sign setcode+exec: %w", err)
 	}

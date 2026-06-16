@@ -2,12 +2,10 @@ package api
 
 import (
 	"errors"
-	"math/big"
 	"net/http"
 	"strconv"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
-	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
@@ -22,11 +20,9 @@ func (a *API) relayerHealthHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Relayer status",
 		Result: map[string]any{
-			"status":         "healthy",
-			"build":          a.build,
-			"chainId":        a.chainID,
-			"relayerAddress": a.relayer.Address().Hex(),
-			"caliburAddress": a.relayer.CaliburAddress().Hex(),
+			"status":  "healthy",
+			"build":   a.build,
+			"chainId": a.chainID,
 		},
 	})
 }
@@ -85,6 +81,10 @@ func (a *API) caliburNonceHandler(c *echo.Context) error {
 	})
 }
 
+// delegateHandler is a thin job-queue client: it validates the request and
+// hands it to the RELAY_DELEGATE river worker, which loads the master key,
+// acquires the nonce, signs, and dispatches within its own transaction. The
+// returned trackingId lets the caller follow the job.
 func (a *API) delegateHandler(c *echo.Context) error {
 	req := apiresp.DelegateRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -95,7 +95,6 @@ func (a *API) delegateHandler(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	ephemeralAddr := common.HexToAddress(req.EphemeralAddress)
 
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
@@ -103,55 +102,35 @@ func (a *API) delegateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	nonce, err := a.relayer.AcquireNonce(ctx, tx)
-	if err != nil {
-		return err
-	}
-
-	signedTx, err := a.relayer.BuildAndSignDelegate(ctx, ephemeralAddr, req.Authorization, nonce)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: err.Error(),
-		})
-	}
-
 	trackingID := uuid.NewString()
-	prepared, err := a.relayer.InsertTrackedTx(ctx, tx, trackingID, store.RELAY_DELEGATE, nonce, signedTx)
-	if err != nil {
-		return err
-	}
 
-	if _, err := a.queueClient.InsertTx(ctx, tx, worker.DispatchArgs{
-		TrackingID: trackingID,
-		OTXID:      prepared.OTXID,
-		RawTx:      prepared.RawHex,
-		TxHash:     prepared.Hash,
+	if _, err := a.queueClient.InsertTx(ctx, tx, worker.RelayDelegateArgs{
+		TrackingID:       trackingID,
+		EphemeralAddress: req.EphemeralAddress,
+		Authorization:    req.Authorization,
 	}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
-		return err
+		return handlePostgresError(c, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
 
-	a.logg.Info("relay delegate accepted",
-		"trackingId", trackingID,
-		"ephemeralAddress", ephemeralAddr.Hex(),
-		"txHash", prepared.Hash,
-	)
-
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: "Delegate submitted",
+		Description: "Delegate request accepted",
 		Result: map[string]any{
 			"trackingId": trackingID,
-			"txHash":     prepared.Hash,
 		},
 	})
 }
 
+// relayHandler is a thin job-queue client. It validates the request shape and
+// hands the whole payload to the RELAY river worker, which decides between a
+// plain execution and a delegate+execute, signs with the master key,
+// persists any registration credential, and dispatches — all within one
+// transaction. The executor / delegation / authorization checks now live in
+// the worker so the route stays a simple queue client.
 func (a *API) relayHandler(c *echo.Context) error {
 	req := apiresp.RelayRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -162,36 +141,6 @@ func (a *API) relayHandler(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	userAddr := common.HexToAddress(req.UserAddress)
-
-	if common.HexToAddress(req.SignedBatch.Executor) != a.relayer.Address() {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeRelayerExecutorMismatch,
-			Description: "signedBatch.executor must equal the relayer address",
-		})
-	}
-
-	signature := common.FromHex(req.Signature)
-	if len(signature) == 0 {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "invalid signature hex",
-		})
-	}
-
-	isDelegated, err := a.relayer.IsDelegated(ctx, userAddr)
-	if err != nil {
-		return err
-	}
-	if !isDelegated && req.Authorization == nil {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeAuthorizationRequired,
-			Description: "user not delegated; include signed authorization",
-		})
-	}
 
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
@@ -199,87 +148,31 @@ func (a *API) relayHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	nonce, err := a.relayer.AcquireNonce(ctx, tx)
-	if err != nil {
-		return err
-	}
-
-	result, err := a.relayer.BuildAndSignRelay(
-		ctx,
-		userAddr,
-		req.SignedBatch,
-		signature,
-		req.Authorization,
-		isDelegated,
-		nonce,
-	)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: err.Error(),
-		})
-	}
-
 	trackingID := uuid.NewString()
-	prepared, err := a.relayer.InsertTrackedTx(ctx, tx, trackingID, result.OTXType, nonce, result.Tx)
-	if err != nil {
-		return err
-	}
 
-	if _, err := a.queueClient.InsertTx(ctx, tx, worker.DispatchArgs{
-		TrackingID: trackingID,
-		OTXID:      prepared.OTXID,
-		RawTx:      prepared.RawHex,
-		TxHash:     prepared.Hash,
+	if _, err := a.queueClient.InsertTx(ctx, tx, worker.RelayArgs{
+		TrackingID:    trackingID,
+		UserAddress:   req.UserAddress,
+		SignedBatch:   req.SignedBatch,
+		Signature:     req.Signature,
+		SignatureType: req.SignatureType,
+		Authorization: req.Authorization,
+		CredentialID:  req.CredentialID,
+		PublicKeyX:    req.PublicKeyX,
+		PublicKeyY:    req.PublicKeyY,
 	}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
-		return err
-	}
-
-	// Persist the WebAuthn credential mapping when this relay carries a
-	// registration payload (registration is signed by the ephemeral
-	// secp256k1 key while the WebAuthn passkey itself doesn't exist yet
-	// in our records).
-	if req.SignatureType == "secp256k1" && req.CredentialID != "" && req.PublicKeyX != "" && req.PublicKeyY != "" {
-		x, okX := new(big.Int).SetString(req.PublicKeyX, 10)
-		y, okY := new(big.Int).SetString(req.PublicKeyY, 10)
-		if !okX || !okY {
-			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeValidationFailed,
-				Description: "publicKeyX / publicKeyY must be decimal integers",
-			})
-		}
-		keyHash := relayer.ComputeP256KeyHash(x, y)
-		if err := a.store.UpsertWebAuthnCredential(ctx, tx, store.WebAuthnCredential{
-			CredentialID: req.CredentialID,
-			Address:      userAddr.Hex(),
-			KeyHash:      keyHash.Hex(),
-			PublicKeyX:   req.PublicKeyX,
-			PublicKeyY:   req.PublicKeyY,
-		}); err != nil {
-			return err
-		}
+		return handlePostgresError(c, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
 
-	a.logg.Info("relay accepted",
-		"trackingId", trackingID,
-		"userAddress", userAddr.Hex(),
-		"otxType", result.OTXType,
-		"isDelegated", isDelegated,
-		"txHash", prepared.Hash,
-	)
-
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: "Relay submitted",
+		Description: "Relay request accepted",
 		Result: map[string]any{
 			"trackingId": trackingID,
-			"txHash":     prepared.Hash,
 		},
 	})
 }

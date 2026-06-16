@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io/fs"
 	"os"
 	"os/signal"
 	"runtime"
@@ -14,7 +13,6 @@ import (
 	internaljs "github.com/cosmo-local-credit/clc-core/internal/jetstream"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
-	"github.com/cosmo-local-credit/clc-core/internal/static"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/sub"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
@@ -86,7 +84,7 @@ func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	return gasOracle
 }
 
-func loadWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *worker.WorkerContainer {
+func loadWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer) *worker.WorkerContainer {
 	maxWorkers := ko.Int("workers.max")
 	if maxWorkers <= 0 {
 		maxWorkers = runtime.NumCPU() * 2
@@ -98,6 +96,7 @@ func loadWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle
 		Store:         pgStore,
 		Logg:          lo,
 		ChainProvider: chainProvider,
+		Relayer:       relayerInst,
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)
@@ -148,24 +147,9 @@ func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracl
 		return nil
 	}
 
-	// The relayer signs transactions with the same master key that the store
-	// already manages — one funded address for all on-chain operations.
-	// The private key is loaded from the DB rather than from config so there
-	// is never a second, separately-funded signer to worry about.
-	keyCtx, keyCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer keyCancel()
-	keyTx, err := pgStore.Pool().Begin(keyCtx)
-	if err != nil {
-		lo.Error("could not begin tx to load master signing key", "error", err)
-		os.Exit(1)
-	}
-	masterKey, err := pgStore.LoadMasterSignerKey(keyCtx, keyTx)
-	keyTx.Rollback(keyCtx) // read-only — always roll back
-	if err != nil {
-		lo.Error("could not load master signing key for relayer", "error", err)
-		os.Exit(1)
-	}
-
+	// The relayer signs with the same master key the store already manages,
+	// but it never holds that key: every signature is produced inside a relay
+	// river worker that loads the key from the DB within its own transaction.
 	r, err := relayer.New(relayer.Opts{
 		Logg:           lo,
 		ChainProvider:  chainProvider,
@@ -173,7 +157,6 @@ func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracl
 		Store:          pgStore,
 		ChainID:        ko.MustInt64("chain.id"),
 		RPCEndpoint:    ko.MustString("chain.rpc_endpoint"),
-		PrivateKey:     masterKey.Private,
 		CaliburAddress: ko.MustString("relayer.calibur_address"),
 		SetCodeGas:     uint64(ko.MustInt("relayer.setcode_gas_limit")),
 		DelegateGas:    uint64(ko.MustInt("relayer.delegate_gas_limit")),
@@ -202,16 +185,6 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		os.Exit(1)
 	}
 
-	var staticFS fs.FS
-	serveStatic := true
-	if ko.Exists("api.serve_static") {
-		serveStatic = ko.Bool("api.serve_static")
-	}
-
-	if serveStatic {
-		staticFS = static.WebFS
-	}
-
 	return api.New(api.APIOpts{
 		Prod:            ko.Bool("api.prod"),
 		Build:           build,
@@ -225,7 +198,6 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		Logg:            lo,
 		ChainID:         ko.MustInt64("chain.id"),
 		QueueClient:     workerContainer.Client(),
-		StaticFS:        staticFS,
 		Relayer:         relayerInst,
 	})
 }

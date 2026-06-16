@@ -2,6 +2,7 @@ package relayer
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"math/big"
@@ -17,9 +18,11 @@ import (
 // implementation. The relayer pays gas.
 //
 // nonce is the relayer's tx nonce, already acquired through the local nonce
-// store so retries stay serial.
+// store so retries stay serial. privateKey is the master signing key loaded
+// by the delegate river worker within its Work transaction.
 func (r *Relayer) BuildAndSignDelegate(
 	ctx context.Context,
+	privateKey *ecdsa.PrivateKey,
 	ephemeralAddr common.Address,
 	authReq apiresp.EIP7702Authorization,
 	nonce uint64,
@@ -70,7 +73,7 @@ func (r *Relayer) BuildAndSignDelegate(
 	})
 
 	signer := types.LatestSignerForChainID(r.chainID)
-	signedTx, err := types.SignTx(tx, signer, r.privateKey)
+	signedTx, err := types.SignTx(tx, signer, privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("delegate: sign: %w", err)
 	}

@@ -3,10 +3,8 @@ package api
 import (
 	"context"
 	"crypto"
-	"io/fs"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
@@ -34,7 +32,6 @@ type (
 		ChainProvider   *ethutils.Provider
 		QueueClient     *river.Client[pgx.Tx]
 		ChainID         int64
-		StaticFS        fs.FS
 		Relayer         *relayer.Relayer
 	}
 
@@ -52,7 +49,6 @@ type (
 		server          *http.Server
 		queueClient     *river.Client[pgx.Tx]
 		chainID         int64
-		staticFS        fs.FS
 		relayer         *relayer.Relayer
 	}
 )
@@ -79,7 +75,6 @@ func New(o APIOpts) *API {
 		chainProvider:   o.ChainProvider,
 		queueClient:     o.QueueClient,
 		chainID:         o.ChainID,
-		staticFS:        o.StaticFS,
 		relayer:         o.Relayer,
 	}
 
@@ -208,32 +203,6 @@ func New(o APIOpts) *API {
 		relayerGroup.POST("/relay", a.relayHandler)
 		relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
 		relayerGroup.POST("/webauthn/recover", a.webAuthnRecoverHandler)
-	}
-
-	if a.staticFS != nil {
-		sub, err := fs.Sub(a.staticFS, "dist")
-		if err != nil {
-			a.logg.Error("failed to create sub filesystem for static files", "err", err)
-		} else {
-			indexHTML, _ := fs.ReadFile(sub, "index.html")
-			fileServer := http.FileServer(http.FS(sub))
-			router.GET("/*", func(c *echo.Context) error {
-				req := c.Request()
-				path := strings.TrimPrefix(req.URL.Path, "/")
-				if path == "" {
-					path = "index.html"
-				}
-
-				f, err := sub.Open(path)
-				if err == nil {
-					f.Close()
-					fileServer.ServeHTTP(c.Response(), req)
-					return nil
-				}
-
-				return c.HTMLBlob(http.StatusOK, indexHTML)
-			})
-		}
 	}
 
 	a.server = &http.Server{

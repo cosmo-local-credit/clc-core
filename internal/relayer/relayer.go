@@ -8,20 +8,16 @@ package relayer
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
 
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
-	"github.com/cosmo-local-credit/clc-core/internal/keypair"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/grassrootseconomics/ethutils"
 	gocalibur "github.com/grassrootseconomics/go-calibur"
-	"github.com/jackc/pgx/v5"
 )
 
 type Opts struct {
@@ -31,7 +27,6 @@ type Opts struct {
 	Store          store.Store
 	ChainID        int64
 	RPCEndpoint    string
-	PrivateKey     string
 	CaliburAddress string
 	SetCodeGas     uint64
 	DelegateGas    uint64
@@ -39,6 +34,13 @@ type Opts struct {
 	AllowedOrigins []string
 }
 
+// Relayer holds the chain-read facilities and EIP-7702 / Calibur
+// configuration shared by the relay river workers and the read-only relayer
+// API handlers.
+//
+// It deliberately does NOT hold the master signing key: every signature is
+// produced inside a river worker's Work method, which loads the key from the
+// store within its own transaction (see internal/worker/relayer.go).
 type Relayer struct {
 	logg            *slog.Logger
 	chainProvider   *ethutils.Provider
@@ -46,8 +48,6 @@ type Relayer struct {
 	store           store.Store
 	caliburProvider *gocalibur.Provider
 
-	privateKey     *ecdsa.PrivateKey
-	address        common.Address
 	chainID        *big.Int
 	caliburAddress common.Address
 
@@ -60,25 +60,12 @@ type Relayer struct {
 }
 
 func New(o Opts) (*Relayer, error) {
-	if o.PrivateKey == "" {
-		return nil, errors.New("relayer: master signing key is empty — store.Bootstrap must run before loadRelayer")
-	}
 	if o.CaliburAddress == "" {
 		return nil, errors.New("relayer: calibur_address is required")
 	}
 	if !common.IsHexAddress(o.CaliburAddress) {
 		return nil, fmt.Errorf("relayer: invalid calibur_address %q", o.CaliburAddress)
 	}
-
-	pk := o.PrivateKey
-	if len(pk) >= 2 && pk[:2] == "0x" {
-		pk = pk[2:]
-	}
-	privateKey, err := crypto.HexToECDSA(pk)
-	if err != nil {
-		return nil, fmt.Errorf("relayer: invalid private_key: %w", err)
-	}
-	address := crypto.PubkeyToAddress(privateKey.PublicKey)
 
 	caliburAddr := common.HexToAddress(o.CaliburAddress)
 
@@ -106,8 +93,6 @@ func New(o Opts) (*Relayer, error) {
 		gasOracle:       o.GasOracle,
 		store:           o.Store,
 		caliburProvider: caliburProvider,
-		privateKey:      privateKey,
-		address:         address,
 		chainID:         big.NewInt(o.ChainID),
 		caliburAddress:  caliburAddr,
 		setCodeGas:      setCodeGas,
@@ -120,14 +105,9 @@ func New(o Opts) (*Relayer, error) {
 	return r, nil
 }
 
-func (r *Relayer) Address() common.Address        { return r.address }
 func (r *Relayer) CaliburAddress() common.Address { return r.caliburAddress }
 func (r *Relayer) ChainID() *big.Int              { return new(big.Int).Set(r.chainID) }
-func (r *Relayer) PrivateKey() *ecdsa.PrivateKey  { return r.privateKey }
 func (r *Relayer) Provider() *gocalibur.Provider  { return r.caliburProvider }
-
-func (r *Relayer) Store() store.Store    { return r.store }
-func (r *Relayer) GasOracle() gas.GasOracle { return r.gasOracle }
 
 // SetCodeGas returns the hardcoded gas limit for relays that include an
 // AuthList (delegation has not yet taken effect, so estimation fails).
@@ -136,9 +116,11 @@ func (r *Relayer) SetCodeGas() uint64 { return r.setCodeGas }
 // DelegateGas returns the gas limit for a bare SetCodeTx (no calldata).
 func (r *Relayer) DelegateGas() uint64 { return r.delegateGas }
 
-// Bootstrap ensures the relayer signer has a keystore row (so the
-// noncestore trigger seeds a nonce row) and fast-forwards the local
-// noncestore to the on-chain pending nonce.
+// Bootstrap fast-forwards the local noncestore for the master signer to the
+// on-chain pending nonce. The relayer signs with the same master key the
+// store already manages, so its keystore row and nonce seed already exist —
+// here we only guard against on-chain drift (e.g. txs sent out of band)
+// before the relay workers start acquiring nonces.
 //
 // Idempotent — safe to call on every startup.
 func (r *Relayer) Bootstrap(ctx context.Context) error {
@@ -148,32 +130,17 @@ func (r *Relayer) Bootstrap(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	active, err := r.store.CheckKeypair(ctx, tx, r.address.Hex())
-	if errors.Is(err, pgx.ErrNoRows) {
-		// Row doesn't exist yet — insert it (triggers noncestore seed) and activate.
-		if err := r.store.InsertKeyPair(ctx, tx, keypair.Key{
-			Public:  r.address.Hex(),
-			Private: "",
-		}); err != nil {
-			return fmt.Errorf("relayer: insert keypair: %w", err)
-		}
-		if err := r.store.ActivateKeyPair(ctx, tx, r.address.Hex()); err != nil {
-			return fmt.Errorf("relayer: activate keypair: %w", err)
-		}
-	} else if err != nil {
-		return fmt.Errorf("relayer: check keypair: %w", err)
-	} else if !active {
-		// Row exists but is inactive (e.g. was disabled) — just re-activate.
-		if err := r.store.ActivateKeyPair(ctx, tx, r.address.Hex()); err != nil {
-			return fmt.Errorf("relayer: activate keypair: %w", err)
-		}
+	masterKey, err := r.store.LoadMasterSignerKey(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("relayer: load master signer: %w", err)
 	}
+	signer := common.HexToAddress(masterKey.Public)
 
-	chainNonce, err := r.caliburProvider.GetNonce(ctx, r.address)
+	chainNonce, err := r.caliburProvider.GetNonce(ctx, signer)
 	if err != nil {
 		return fmt.Errorf("relayer: read on-chain nonce: %w", err)
 	}
-	if err := r.store.SetNonceIfHigher(ctx, tx, r.address.Hex(), chainNonce); err != nil {
+	if err := r.store.SetNonceIfHigher(ctx, tx, signer.Hex(), chainNonce); err != nil {
 		return fmt.Errorf("relayer: align nonce: %w", err)
 	}
 
@@ -181,7 +148,7 @@ func (r *Relayer) Bootstrap(ctx context.Context) error {
 		return err
 	}
 	r.logg.Info("relayer bootstrapped",
-		"address", r.address.Hex(),
+		"address", signer.Hex(),
 		"calibur", r.caliburAddress.Hex(),
 		"chainNonce", chainNonce,
 	)

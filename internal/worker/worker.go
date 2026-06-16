@@ -7,6 +7,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
+	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,7 @@ type (
 		Logg          *slog.Logger
 		ChainProvider *ethutils.Provider
 		Pub           *pub.Pub
+		Relayer       *relayer.Relayer
 	}
 
 	WorkerContainer struct {
@@ -40,6 +42,7 @@ type (
 		logg          *slog.Logger
 		chainProvider *ethutils.Provider
 		pub           *pub.Pub
+		relayer       *relayer.Relayer
 	}
 )
 
@@ -51,6 +54,7 @@ func New(o WorkerOpts) *WorkerContainer {
 		logg:          o.Logg,
 		chainProvider: o.ChainProvider,
 		pub:           o.Pub,
+		relayer:       o.Relayer,
 	}
 }
 
@@ -127,6 +131,18 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 
 	if err := river.AddWorkerSafely(workers, &UpgradeProxyWorker{wc: wc}); err != nil {
 		return nil, err
+	}
+
+	// Relay workers are only registered when the relayer is configured;
+	// without it the build/sign calls would have no Calibur provider.
+	if wc.relayer != nil {
+		if err := river.AddWorkerSafely(workers, &RelayDelegateWorker{wc: wc}); err != nil {
+			return nil, err
+		}
+
+		if err := river.AddWorkerSafely(workers, &RelayWorker{wc: wc}); err != nil {
+			return nil, err
+		}
 	}
 
 	return workers, nil

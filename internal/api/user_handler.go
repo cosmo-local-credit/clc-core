@@ -9,12 +9,6 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func reverseItems[T any](items []T) {
-	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
-		items[left], items[right] = items[right], items[left]
-	}
-}
-
 func (a *API) userMeHandler(c *echo.Context) error {
 	userID, _, _ := getUserClaims(c)
 	ctx := c.Request().Context()
@@ -68,7 +62,6 @@ func (a *API) userTokensHandler(c *echo.Context) error {
 		tokens, queryErr = a.store.ListTokensByUser(ctx, tx, userID, p.PerPage)
 	} else if p.Next {
 		tokens, queryErr = a.store.ListTokensByUserNext(ctx, tx, userID, p.Cursor, p.PerPage)
-		reverseItems(tokens)
 	} else {
 		tokens, queryErr = a.store.ListTokensByUserPrevious(ctx, tx, userID, p.Cursor, p.PerPage)
 	}
@@ -122,7 +115,6 @@ func (a *API) userPoolsHandler(c *echo.Context) error {
 		pools, queryErr = a.store.ListPoolsByUser(ctx, tx, userID, p.PerPage)
 	} else if p.Next {
 		pools, queryErr = a.store.ListPoolsByUserNext(ctx, tx, userID, p.Cursor, p.PerPage)
-		reverseItems(pools)
 	} else {
 		pools, queryErr = a.store.ListPoolsByUserPrevious(ctx, tx, userID, p.Cursor, p.PerPage)
 	}
