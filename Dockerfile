@@ -17,9 +17,13 @@ FROM golang:1.26.0-bookworm AS go-build
 
 ENV CGO_ENABLED=1
 
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
 ARG BUILD=dev
 
 WORKDIR /build
+
+RUN echo "Building on $BUILDPLATFORM, building for $TARGETPLATFORM"
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -29,7 +33,7 @@ COPY . .
 
 COPY --from=ui-build /build/internal/static/dist ./internal/static/dist
 
-RUN go build -o clccore -ldflags="-X main.build=${BUILD} -s -w" ./cmd/core/
+RUN go build -o clccore -ldflags="-X main.build=${BUILD} -s -w" ./cmd/clccore/
 
 # ── Stage 3: Minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim
