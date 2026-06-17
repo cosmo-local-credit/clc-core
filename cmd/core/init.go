@@ -44,14 +44,20 @@ func loadStore() store.Store {
 }
 
 func loadFederationStore() store.FederationStore {
+	dsn := ko.String("federation.dsn")
+	if dsn == "" {
+		lo.Warn("federation store disabled: federation.dsn is empty")
+		return nil
+	}
+
 	fedStore, err := store.NewFederationStore(store.FederationStoreOpts{
 		Logg:              lo,
-		DSN:               ko.String("federation.dsn"),
+		DSN:               dsn,
 		QueriesFolderPath: federationQueriesFlag,
 	})
 	if err != nil {
-		lo.Error("could not initialize federation store", "error", err)
-		os.Exit(1)
+		lo.Warn("federation store unavailable; legacy auto-approval disabled", "error", err)
+		return nil
 	}
 
 	return fedStore
@@ -78,19 +84,20 @@ func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	return gasOracle
 }
 
-func loadWorker(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer) *worker.WorkerContainer {
+func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer) *worker.WorkerContainer {
 	maxWorkers := ko.Int("workers.max")
 	if maxWorkers <= 0 {
 		maxWorkers = runtime.NumCPU() * 2
 	}
 
 	workerContainer := worker.New(worker.WorkerOpts{
-		MaxWorkers:    maxWorkers,
-		GasOracle:     gasOracle,
-		Store:         pgStore,
-		Logg:          lo,
-		ChainProvider: chainProvider,
-		Relayer:       relayerInst,
+		MaxWorkers:      maxWorkers,
+		GasOracle:       gasOracle,
+		Store:           pgStore,
+		FederationStore: federationStore,
+		Logg:            lo,
+		ChainProvider:   chainProvider,
+		Relayer:         relayerInst,
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)

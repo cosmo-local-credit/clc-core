@@ -93,6 +93,21 @@ func (pg *Pg) UpdateUserStatus(ctx context.Context, tx pgx.Tx, address string, s
 	return u, nil
 }
 
+func (pg *Pg) ApprovePendingUserByAddress(ctx context.Context, tx pgx.Tx, address string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.ApprovePendingUserByAddress, address)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
 func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, maxPools int, maxTokens int) (User, error) {
 	var u User
 

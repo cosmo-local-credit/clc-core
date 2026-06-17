@@ -52,6 +52,7 @@ type Store interface {
 	GetUserByAddress(context.Context, pgx.Tx, string) (User, error)
 	GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 	UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
+	ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 	UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
 	UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string) (User, error)
 	ListUsers(context.Context, pgx.Tx) ([]User, error)

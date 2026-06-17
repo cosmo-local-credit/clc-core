@@ -11,7 +11,9 @@ import (
 )
 
 type (
-	FederationQueries struct{}
+	FederationQueries struct {
+		LegacyUserExistsByBlockchainAddress string `query:"legacy-user-exists-by-blockchain-address"`
+	}
 
 	FederationStoreOpts struct {
 		Logg              *slog.Logger
@@ -21,6 +23,7 @@ type (
 
 	FederationStore interface {
 		Pool() *pgxpool.Pool
+		LegacyUserExistsByBlockchainAddress(context.Context, string) (bool, error)
 		Close()
 	}
 
@@ -65,6 +68,14 @@ func NewFederationStore(o FederationStoreOpts) (FederationStore, error) {
 
 func (s *FederationPg) Pool() *pgxpool.Pool {
 	return s.db
+}
+
+func (s *FederationPg) LegacyUserExistsByBlockchainAddress(ctx context.Context, address string) (bool, error) {
+	var exists bool
+	if err := s.db.QueryRow(ctx, s.queries.LegacyUserExistsByBlockchainAddress, address).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (s *FederationPg) Close() {

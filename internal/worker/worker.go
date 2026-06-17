@@ -25,36 +25,39 @@ func (h infoHandler) Enabled(_ context.Context, l slog.Level) bool { return l >=
 
 type (
 	WorkerOpts struct {
-		MaxWorkers    int
-		GasOracle     gas.GasOracle
-		Store         store.Store
-		Logg          *slog.Logger
-		ChainProvider *ethutils.Provider
-		Pub           *pub.Pub
-		Relayer       *relayer.Relayer
+		MaxWorkers      int
+		GasOracle       gas.GasOracle
+		Store           store.Store
+		FederationStore store.FederationStore
+		Logg            *slog.Logger
+		ChainProvider   *ethutils.Provider
+		Pub             *pub.Pub
+		Relayer         *relayer.Relayer
 	}
 
 	WorkerContainer struct {
-		queueClient   *river.Client[pgx.Tx]
-		maxWorkers    int
-		gasOracle     gas.GasOracle
-		store         store.Store
-		logg          *slog.Logger
-		chainProvider *ethutils.Provider
-		pub           *pub.Pub
-		relayer       *relayer.Relayer
+		queueClient     *river.Client[pgx.Tx]
+		maxWorkers      int
+		gasOracle       gas.GasOracle
+		store           store.Store
+		federationStore store.FederationStore
+		logg            *slog.Logger
+		chainProvider   *ethutils.Provider
+		pub             *pub.Pub
+		relayer         *relayer.Relayer
 	}
 )
 
 func New(o WorkerOpts) *WorkerContainer {
 	return &WorkerContainer{
-		maxWorkers:    o.MaxWorkers,
-		gasOracle:     o.GasOracle,
-		store:         o.Store,
-		logg:          o.Logg,
-		chainProvider: o.ChainProvider,
-		pub:           o.Pub,
-		relayer:       o.Relayer,
+		maxWorkers:      o.MaxWorkers,
+		gasOracle:       o.GasOracle,
+		store:           o.Store,
+		federationStore: o.FederationStore,
+		logg:            o.Logg,
+		chainProvider:   o.ChainProvider,
+		pub:             o.Pub,
+		relayer:         o.Relayer,
 	}
 }
 
@@ -138,6 +141,10 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 	}
 
 	if err := river.AddWorkerSafely(workers, &RelayWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &ApproveLegacyUserWorker{wc: wc}); err != nil {
 		return nil, err
 	}
 

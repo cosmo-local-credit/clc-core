@@ -56,6 +56,7 @@ type (
 		GetUserByAddress              string `query:"get-user-by-address"`
 		GetUserByID                   string `query:"get-user-by-id"`
 		UpdateUserStatus              string `query:"update-user-status"`
+		ApprovePendingUserByAddress   string `query:"approve-pending-user-by-address"`
 		UpdateUserLimits              string `query:"update-user-limits"`
 		UpdateUserProfile             string `query:"update-user-profile"`
 		ListUsers                     string `query:"list-users"`

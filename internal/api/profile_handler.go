@@ -8,16 +8,34 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
+	"github.com/riverqueue/river"
 )
+
+func newPendingSIWEUser(address string) store.User {
+	return store.User{
+		EthereumAddress: address,
+		Name:            "",
+		Email:           pendingSIWEEmail(address),
+		Role:            "USER",
+		Status:          "PENDING",
+		MaxPools:        10,
+		MaxTokens:       20,
+	}
+}
+
+func pendingSIWEEmail(address string) string {
+	return "pending+" + strings.TrimPrefix(strings.ToLower(address), "0x") + "@clc.local"
+}
 
 // siweVerifyHandler is a unified sign-in / sign-up endpoint.
 //
-// If the address is new it is auto-created and immediately APPROVED when
-// running in non-production mode (prod = false), allowing first-time WebAuthn
-// wallet holders to obtain a JWT without a manual admin step.
+// If the address is new it is auto-created as PENDING. A background worker may
+// later approve it if the address exists in the legacy federation database; an
+// admin can also approve it manually.
 func (a *API) siweVerifyHandler(c *echo.Context) error {
 	var req apiresp.SIWEVerifyRequest
 	if err := c.Bind(&req); err != nil {
@@ -61,33 +79,36 @@ func (a *API) siweVerifyHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
+	enqueueLegacyApproval := false
 	user, lookupErr := a.store.GetUserByAddress(ctx, tx, signerAddr)
 	if lookupErr != nil {
 		if !errors.Is(lookupErr, pgx.ErrNoRows) {
 			return lookupErr
 		}
 
-		// First-time: auto-register.
-		// WebAuthn users prove key ownership via the SIWE signature — that IS
-		// the authorisation proof, so always approve immediately rather than
-		// gating on an admin review step.
-		status := "APPROVED"
-		user, err = a.store.InsertUser(ctx, tx, store.User{
-			EthereumAddress: signerAddr,
-			Name:            "",
-			Email:           "",
-			Role:            "USER",
-			Status:          status,
-			MaxPools:        10,
-			MaxTokens:       20,
-		})
+		// First-time: auto-register as inactive. Approval happens either by an
+		// admin or asynchronously after checking the legacy federation DB.
+		user, err = a.store.InsertUser(ctx, tx, newPendingSIWEUser(signerAddr))
 		if err != nil {
 			return err
 		}
+		enqueueLegacyApproval = true
+	} else if user.Status == "PENDING" {
+		// Retry the async legacy approval check on later attempts in case the
+		// original job failed or federation DB was unavailable during signup.
+		enqueueLegacyApproval = true
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+
+	if enqueueLegacyApproval && a.queueClient != nil && a.federationStore != nil {
+		if _, err := a.queueClient.Insert(ctx, worker.ApproveLegacyUserArgs{
+			Address: signerAddr,
+		}, &river.InsertOpts{MaxAttempts: 5}); err != nil {
+			a.logg.Warn("failed to enqueue legacy user approval job", "address", signerAddr, "error", err)
+		}
 	}
 
 	if user.Status == "PENDING" {

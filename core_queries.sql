@@ -273,6 +273,12 @@ SET status = $2::user_status
 WHERE ethereum_address = $1
 RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
 
+--name: approve-pending-user-by-address
+UPDATE users
+SET status = 'APPROVED'::user_status
+WHERE ethereum_address = $1 AND status = 'PENDING'::user_status
+RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
+
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3

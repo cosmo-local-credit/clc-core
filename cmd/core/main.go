@@ -50,7 +50,7 @@ func main() {
 	chainProvider := loadChainProvider()
 	gasOracleInst := loadGasOracle(chainProvider)
 	relayerComponent := loadRelayer(pgStore, chainProvider, gasOracleInst)
-	workerComponent := loadWorker(pgStore, chainProvider, gasOracleInst, relayerComponent)
+	workerComponent := loadWorker(pgStore, federationStore, chainProvider, gasOracleInst, relayerComponent)
 	apiComponent := loadAPI(pgStore, federationStore, chainProvider, workerComponent, relayerComponent)
 	subComponent, pubComponent := loadSub(pgStore)
 

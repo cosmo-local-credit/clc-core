@@ -137,7 +137,7 @@ func New(o APIOpts) *API {
 	authGroup.POST("/logout", a.logoutHandler)
 	authGroup.GET("/session", a.sessionHandler)
 
-	// SIWE unified verify (public — returns JWT in body + sets cookie)
+	// SIWE unified verify (public — returns JWT for approved users)
 	siweGroup := router.Group("/auth/siwe")
 	siweGroup.POST("/nonce", a.nonceHandler)
 	siweGroup.POST("/verify", a.siweVerifyHandler)
