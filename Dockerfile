@@ -1,4 +1,4 @@
-FROM golang:1.24.0-bookworm AS build
+FROM golang:1.26.0-bookworm AS build
 
 ENV CGO_ENABLED=1
 
@@ -11,7 +11,7 @@ WORKDIR /build
 
 COPY . .
 RUN go mod download
-RUN go build -o eth-custodial -ldflags="-X main.build=${BUILD} -s -w" cmd/service/*.go
+RUN go build -o eth-custodial -ldflags="-X main.build=${BUILD} -s -w" cmd/clccore/*.go
 
 FROM debian:bookworm-slim
 
