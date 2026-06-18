@@ -27,6 +27,7 @@ services:
     labels:
       caddy: staging.cosmolocal.credit
       caddy.reverse_proxy: "{{upstreams 5003}}"
+      com.centurylinklabs.watchtower.enable: "true"
 
   caddy:
     image: lucaslorentz/caddy-docker-proxy:2.10-alpine
@@ -43,6 +44,17 @@ services:
       - caddy
     depends_on:
       - clc-core
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    command: --interval 120 --label-enable --cleanup --rolling-restart
+    environment:
+      WATCHTOWER_REGISTRY_AUTH: "true"
+      DOCKER_API_VERSION: "1.41"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/sohail/.docker/config.json:/config.json:ro
 
 volumes:
   postgres_data:

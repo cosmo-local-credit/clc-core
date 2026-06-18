@@ -85,12 +85,7 @@ func New(o APIOpts) *API {
 	}
 	router.HTTPErrorHandler = a.customHTTPErrorHandler
 
-	corsConfig := middleware.CORSConfig{
-		AllowOrigins:     o.CORS,
-		AllowCredentials: true,
-		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
-		MaxAge:           86400,
-	}
+	corsConfig := newCORSConfig(o.CORS)
 
 	router.Use(middleware.Recover())
 	router.Use(middleware.BodyLimit(maxBodySize))

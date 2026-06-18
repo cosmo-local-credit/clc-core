@@ -21,6 +21,7 @@ func TestOriginAllowed(t *testing.T) {
 		// Wildcard subdomain matches
 		{"branch build", "https://feat-wallet.clc-app.pages.dev", true},
 		{"short branch", "https://a.clc-app.pages.dev", true},
+		{"qa preview", "https://backend-integration.clc-app.pages.dev", true},
 
 		// Negative: wrong scheme
 		{"http not https", "http://app.cosmolocal.credit", false},
