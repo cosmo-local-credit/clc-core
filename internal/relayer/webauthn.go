@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 )
@@ -194,6 +195,29 @@ func originAllowed(origin string, allowed []string) bool {
 		if a == origin {
 			return true
 		}
+		// Wildcard subdomain match, e.g. https://*.clc-app.pages.dev matches
+		// https://feat-x.clc-app.pages.dev. The '*' stands for exactly one DNS
+		// label (no dots), matching Echo's CORS wildcard semantics.
+		if wildcardOriginMatch(a, origin) {
+			return true
+		}
 	}
 	return false
+}
+
+// wildcardOriginMatch reports whether pattern (containing a single '*') matches
+// origin. The '*' matches one non-empty label without dots, so a suffix anchor
+// like ".clc-app.pages.dev" cannot be bypassed by sibling domains.
+func wildcardOriginMatch(pattern, origin string) bool {
+	star := strings.IndexByte(pattern, '*')
+	if star < 0 {
+		return false
+	}
+	prefix := pattern[:star]
+	suffix := pattern[star+1:]
+	if !strings.HasPrefix(origin, prefix) || !strings.HasSuffix(origin, suffix) {
+		return false
+	}
+	label := origin[len(prefix) : len(origin)-len(suffix)]
+	return label != "" && !strings.Contains(label, ".")
 }
