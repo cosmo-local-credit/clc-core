@@ -50,6 +50,7 @@ type Relayer struct {
 
 	chainID        *big.Int
 	caliburAddress common.Address
+	signerAddress  common.Address
 
 	setCodeGas  uint64
 	delegateGas uint64
@@ -106,6 +107,7 @@ func New(o Opts) (*Relayer, error) {
 }
 
 func (r *Relayer) CaliburAddress() common.Address { return r.caliburAddress }
+func (r *Relayer) SignerAddress() common.Address  { return r.signerAddress }
 func (r *Relayer) ChainID() *big.Int              { return new(big.Int).Set(r.chainID) }
 func (r *Relayer) Provider() *gocalibur.Provider  { return r.caliburProvider }
 
@@ -147,6 +149,7 @@ func (r *Relayer) Bootstrap(ctx context.Context) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	r.signerAddress = signer
 	r.logg.Info("relayer bootstrapped",
 		"address", signer.Hex(),
 		"calibur", r.caliburAddress.Hex(),

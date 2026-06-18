@@ -20,9 +20,10 @@ func (a *API) relayerHealthHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Relayer status",
 		Result: map[string]any{
-			"status":  "healthy",
-			"build":   a.build,
-			"chainId": a.chainID,
+			"status":         "healthy",
+			"build":          a.build,
+			"chainId":        a.chainID,
+			"relayerAddress": a.relayer.SignerAddress().Hex(),
 		},
 	})
 }
