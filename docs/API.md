@@ -21,7 +21,9 @@
    - [POST /auth/signup](#42-post-authsignup)
    - [POST /auth/signin](#43-post-authsignin)
    - [POST /auth/logout](#44-post-authlogout)
-   - [GET /auth/session](#45-get-authsession)
+   - [POST /auth/siwe/nonce](#45-post-authsiwenonce)
+   - [POST /auth/siwe/verify](#46-post-authsiweverify)
+   - [GET /auth/session](#47-get-authsession)
 5. [Protected Endpoints (`/api/v2/*`)](#5-protected-endpoints-apiv2)
    - [GET /api/v2/system](#51-get-apiv2system)
    - [GET /api/v2/otx/track/:trackingId](#52-get-apiv2otxtracktrackingid)
@@ -66,7 +68,7 @@ Two mutually exclusive token types are accepted on protected routes.
 
 #### User JWT (`__clc_auth` cookie)
 
-Issued after a successful `/auth/signin`. Delivered and expected as an **HttpOnly cookie** named `__clc_auth`.
+Issued after a successful `/auth/signin` or `/auth/siwe/verify` for an approved user. Delivered and expected as an **HttpOnly cookie** named `__clc_auth`.
 
 | Property | Value |
 |---|---|
@@ -78,7 +80,7 @@ Issued after a successful `/auth/signin`. Delivered and expected as an **HttpOnl
 
 | Claim | Type | Description |
 |---|---|---|
-| `userId` | `string` (UUID) | Internal user identifier |
+| `userId` | `number` | Internal user identifier |
 | `ethereumAddress` | `string` | Checksummed Ethereum address |
 | `role` | `"USER"` \| `"SUPERADMIN"` | Authorization role |
 
@@ -107,9 +109,12 @@ Long-lived tokens issued offline by the `gen-service-token` CLI tool. Intended f
 1. POST /auth/nonce        → receive a one-time nonce (5-min TTL)
 2. Client builds an EIP-4361 message embedding the nonce, then signs it
    with a connected wallet
-3. POST /auth/signup       → create a new PENDING account  (first-time)
-   POST /auth/signin       → authenticate an APPROVED account
-                             → server sets __clc_auth HttpOnly cookie
+3. Either:
+   POST /auth/signup       → create a new PENDING account with profile fields
+   POST /auth/signin       → authenticate an existing APPROVED account
+   POST /auth/siwe/verify  → unified flow: create unknown addresses as PENDING,
+                             authenticate APPROVED accounts
+                             → server sets __clc_auth HttpOnly cookie on success
 4. Include cookie automatically on all /api/v2/* requests
 5. POST /auth/logout       → invalidates the cookie
 ```
@@ -132,7 +137,7 @@ Authorization: Bearer <token>
 
 ## 3. Response Format
 
-All responses are JSON objects. HTTP status codes are only used for top-level categories; use `ok` and `errorCode` for programmatic branching.
+All responses are JSON objects. HTTP status codes are only used for top-level categories; use `ok` and `code` for programmatic branching.
 
 ### 3.1 Success
 
@@ -150,7 +155,7 @@ All responses are JSON objects. HTTP status codes are only used for top-level ca
 {
   "ok": false,
   "description": "Human-readable error message",
-  "errorCode": "E0X"
+  "code": "E0X"
 }
 ```
 
@@ -209,8 +214,10 @@ Registers a new Ethereum address. The client constructs and signs an EIP-4361 me
 4. Returns `409 Conflict` if the address is already registered.
 
 **Account defaults:**
-- Status starts as `PENDING` and requires admin approval before the account can sign in.
-- Addresses listed as superadmins in `config.toml` are auto-approved and receive role `SUPERADMIN`.
+- Status starts as `PENDING` and requires approval before the account can sign in.
+- `/auth/signup` does not auto-approve on the request path.
+- Legacy federation auto-approval is triggered asynchronously by `/auth/siwe/verify` for pending users when the address exists in `sarafu_network.users.blockchain_address` on the configured federation database.
+- New signups receive role `USER`. Superadmin role is granted by an operator updating records outside the public signup flow.
 
 **Request body:**
 
@@ -237,7 +244,7 @@ Registers a new Ethereum address. The client constructs and signs an EIP-4361 me
   "ok": true,
   "description": "Registration successful",
   "result": {
-    "userId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "userId": 123,
     "status": "PENDING",
     "role":   "USER"
   }
@@ -246,7 +253,7 @@ Registers a new Ethereum address. The client constructs and signs an EIP-4361 me
 
 **Error cases:**
 
-| HTTP | `errorCode` | Condition |
+| HTTP | `code` | Condition |
 |---|---|---|
 | `409` | `E04` | Ethereum address already registered |
 | `400` | `E02` | Malformed request body |
@@ -281,7 +288,7 @@ Sets `Set-Cookie: __clc_auth=<jwt>; HttpOnly; Path=/; Max-Age=2592000`.
   "ok": true,
   "description": "Signed in successfully",
   "result": {
-    "userId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "userId": 123,
     "role":   "USER"
   }
 }
@@ -289,7 +296,7 @@ Sets `Set-Cookie: __clc_auth=<jwt>; HttpOnly; Path=/; Max-Age=2592000`.
 
 **Error cases:**
 
-| HTTP | `errorCode` | Condition |
+| HTTP | `code` | Condition |
 |---|---|---|
 | `404` | `E03` | Ethereum address not registered |
 | `403` | `E10` | Account status is `PENDING` or `REJECTED` |
@@ -315,7 +322,62 @@ Clears the `__clc_auth` session cookie. Safe to call even when not authenticated
 
 ---
 
-### 4.5 `GET /auth/session`
+### 4.5 `POST /auth/siwe/nonce`
+
+Alias for `POST /auth/nonce`. Generates a one-time SIWE nonce for clients that expect SIWE routes under `/auth/siwe/*`.
+
+**Request body:** none
+
+**Response `200`:** same shape as [`POST /auth/nonce`](#41-post-authnonce).
+
+---
+
+### 4.6 `POST /auth/siwe/verify`
+
+Unified SIWE sign-in / registration endpoint. The server verifies the SIWE signature and nonce, then:
+
+- If the address already exists and is `APPROVED`, issues a JWT cookie and returns a token in the response body.
+- If the address already exists and is `PENDING` or `REJECTED`, returns `403`.
+- If the address is unknown, inserts a `PENDING` user record, queues a background legacy-federation approval check, and returns `403` until approval completes.
+
+The legacy check is performed asynchronously by a River worker against `sarafu_network.users.blockchain_address` on the configured federation database, so this route does not block on the old database.
+
+**Request body:**
+
+```/dev/null/siwe-verify-request.json#L1-4
+{
+  "message":   "<EIP-4361 SIWE message string>",
+  "signature": "0x<65-byte hex signature>"
+}
+```
+
+**Response `200` — approved user:**
+
+```/dev/null/siwe-verify-response.json#L1-10
+{
+  "ok": true,
+  "description": "Authenticated successfully",
+  "result": {
+    "token": "<jwt>",
+    "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    "expiresAt": "2026-07-17T12:00:00Z"
+  }
+}
+```
+
+Also sets `Set-Cookie: __clc_auth=<jwt>; HttpOnly; SameSite=Strict; Path=/; Expires=<30 days>`.
+
+**Error cases:**
+
+| HTTP | `code` | Condition |
+|---|---|---|
+| `403` | `E10` | Account is newly registered as `PENDING`, still pending approval, or rejected |
+| `400` | `E04` | Invalid or expired nonce |
+| `401` | `E04` | Signature verification failed or signer/address mismatch |
+
+---
+
+### 4.7 `GET /auth/session`
 
 Returns the active session address and chain ID. Designed for use by wallet SDKs (e.g. Reown AppKit) that need to detect existing session state on page load.
 
@@ -323,14 +385,10 @@ Returns the active session address and chain ID. Designed for use by wallet SDKs
 
 **Response `200` — authenticated:**
 
-```/dev/null/session-response.json#L1-6
+```/dev/null/session-response.json#L1-4
 {
-  "ok": true,
-  "description": "Active session",
-  "result": {
-    "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-    "chainId": 42220
-  }
+  "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+  "chainId": 42220
 }
 ```
 
@@ -353,7 +411,7 @@ A missing or invalid credential returns:
 {
   "ok": false,
   "description": "Authentication required",
-  "errorCode": "E06"
+  "code": "E06"
 }
 ```
 
@@ -553,7 +611,7 @@ Submits a request to deploy an ERC-20 token contract. The deployment is queued a
 
 **Error cases:**
 
-| HTTP | `errorCode` | Condition |
+| HTTP | `code` | Condition |
 |---|---|---|
 | `400` | `E04` | Validation failure (missing fields, bad address) |
 | `403` | `E11` | User has reached their `maxTokens` quota |
@@ -616,7 +674,7 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 **Error cases:**
 
-| HTTP | `errorCode` | Condition |
+| HTTP | `code` | Condition |
 |---|---|---|
 | `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter) |
 | `403` | `E11` | User has reached their `maxPools` quota |
@@ -787,7 +845,7 @@ Returns the complete deployment history for the authenticated user, covering bot
 
 These endpoints require a caller with role `SUPERADMIN`. Any other caller (including service JWTs) receives `403 Forbidden` with error code `E10`.
 
-Addresses are promoted to `SUPERADMIN` by listing them in `config.toml` under `auth.superadmin_addresses`. They are auto-approved on first signup.
+The baseline migration seeds an initial approved superadmin account. Additional superadmins must be granted directly in the `users` table by an operator with write access; public signup and SIWE verify create normal `USER` accounts only.
 
 ---
 
@@ -968,7 +1026,7 @@ Lists all deployment history entries across all users.
 
 ## 8. SIWE Message Construction
 
-The following is a client-side example using the [`siwe`](https://www.npmjs.com/package/siwe) JavaScript library. This pattern applies to both `/auth/signup` and `/auth/signin`.
+The following is a client-side example using the [`siwe`](https://www.npmjs.com/package/siwe) JavaScript library. This pattern applies to `/auth/signup`, `/auth/signin`, and `/auth/siwe/verify`.
 
 ```/dev/null/siwe-example.js#L1-24
 import { SiweMessage } from 'siwe';
@@ -991,7 +1049,7 @@ const message = new SiweMessage({
 // Step 3: Sign with the connected wallet
 const signature = await signer.signMessage(message);
 
-// Step 4: Submit to /auth/signin (or /auth/signup for new accounts)
+// Step 4: Submit to /auth/signin (or /auth/siwe/verify for unified auth)
 await fetch('/auth/signin', {
   method:      'POST',
   headers:     { 'Content-Type': 'application/json' },
