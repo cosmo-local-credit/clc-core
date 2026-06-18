@@ -7,10 +7,33 @@ import (
 	"testing"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/ethereum/go-ethereum/common"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/labstack/echo/v5"
 )
+
+func TestIsPublicRelayerTrackingChain(t *testing.T) {
+	tests := []struct {
+		name string
+		otxs []*store.OTX
+		want bool
+	}{
+		{"empty", nil, false},
+		{"delegate only", []*store.OTX{{OTXType: store.RELAY_DELEGATE}}, true},
+		{"mixed relayer chain", []*store.OTX{{OTXType: store.RELAY_DELEGATE}, {OTXType: store.RELAY_EXEC}}, true},
+		{"non-relayer chain", []*store.OTX{{OTXType: store.TOKEN_PROXY_DEPLOY}}, false},
+		{"mixed relayer and non-relayer", []*store.OTX{{OTXType: store.RELAY_DELEGATE}, {OTXType: store.TOKEN_PROXY_DEPLOY}}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isPublicRelayerTrackingChain(tc.otxs); got != tc.want {
+				t.Fatalf("isPublicRelayerTrackingChain() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestRelayerHealthHandlerIncludesRelayerAddress(t *testing.T) {
 	e := echo.New()

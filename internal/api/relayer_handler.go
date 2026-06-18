@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
@@ -50,6 +51,20 @@ func (a *API) relayerEOANonceHandler(c *echo.Context) error {
 			"nonce":   strconv.FormatUint(nonce, 10),
 		},
 	})
+}
+
+func isPublicRelayerTrackingChain(otxs []*store.OTX) bool {
+	if len(otxs) == 0 {
+		return false
+	}
+	for _, otx := range otxs {
+		switch otx.OTXType {
+		case store.RELAY_DELEGATE, store.RELAY_EXEC, store.RELAY_DELEGATE_EXEC:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (a *API) caliburNonceHandler(c *echo.Context) error {
@@ -174,6 +189,47 @@ func (a *API) relayHandler(c *echo.Context) error {
 		Description: "Relay request accepted",
 		Result: map[string]any{
 			"trackingId": trackingID,
+		},
+	})
+}
+
+func (a *API) trackRelayerOTXHandler(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	req := apiresp.TrackOTXRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	otxs, err := a.store.GetOTXByTrackingID(ctx, tx, req.TrackingID)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	if !isPublicRelayerTrackingChain(otxs) {
+		return c.JSON(http.StatusForbidden, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeForbidden,
+			Description: "tracking id is not public relayer flow",
+		})
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Relayer OTX chain",
+		Result: map[string]any{
+			"otx": otxs,
 		},
 	})
 }

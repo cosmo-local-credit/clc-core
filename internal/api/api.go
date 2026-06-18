@@ -192,6 +192,7 @@ func New(o APIOpts) *API {
 	relayerGroup.GET("/nonce/:address", a.relayerEOANonceHandler)
 	relayerGroup.GET("/calibur-nonce/:address", a.caliburNonceHandler)
 	relayerGroup.GET("/calibur-nonce/:address/:keyHash", a.caliburNonceHandler)
+	relayerGroup.GET("/track/:trackingId", a.trackRelayerOTXHandler)
 	relayerGroup.POST("/delegate", a.delegateHandler)
 	relayerGroup.POST("/relay", a.relayHandler)
 	relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
