@@ -88,7 +88,7 @@ func (a *API) signupHandler(c *echo.Context) error {
 		Name:            req.Name,
 		Email:           strings.ToLower(req.Email),
 		Role:            "USER",
-		Status:          "PENDING",
+		Status:          "APPROVED",
 		MaxPools:        10,
 		MaxTokens:       20,
 	})

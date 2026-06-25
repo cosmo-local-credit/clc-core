@@ -5,8 +5,8 @@ import "testing"
 func TestNewPendingSIWEUserIsInactive(t *testing.T) {
 	user := newPendingSIWEUser("0xAbC123")
 
-	if user.Status != "PENDING" {
-		t.Fatalf("expected new SIWE user status PENDING, got %q", user.Status)
+	if user.Status != "APPROVED" {
+		t.Fatalf("expected new SIWE user status APPROVED, got %q", user.Status)
 	}
 	if user.Role != "USER" {
 		t.Fatalf("expected new SIWE user role USER, got %q", user.Role)
