@@ -9,6 +9,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -283,10 +284,10 @@ func (a *API) webAuthnSigninHandler(c *echo.Context) error {
 		})
 	}
 
-	// 3. Look up the registered user behind the recovered address. Credentials
-	//    persist the checksummed address (userAddr.Hex()), but users.ethereum_address
-	//    is stored lowercase (VerifySIWESignature), so normalize before lookup.
-	user, err := a.store.GetUserByAddress(ctx, tx, strings.ToLower(cred.Address))
+	// 3. Look up the registered user behind the recovered address. cred.Address
+	//    is the checksummed canonical form; GetUserByAddress matches
+	//    case-insensitively, so it resolves regardless of stored casing.
+	user, err := a.store.GetUserByAddress(ctx, tx, cred.Address)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
@@ -353,7 +354,9 @@ func (a *API) sessionHandler(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"address": token.EthereumAddress,
+		// Always emit the EIP-55 checksummed form, even for legacy lowercase
+		// tokens, so clients receive a consistent canonical address.
+		"address": common.HexToAddress(token.EthereumAddress).Hex(),
 		"chainId": a.chainID,
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -107,7 +108,7 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 				if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil {
 					c.Set("callerType", "user")
 					c.Set("callerUserID", claims.UserID)
-					c.Set("callerAddress", claims.EthereumAddress)
+					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
 					c.Set("callerRole", claims.Role)
 					return next(c)
 				}
@@ -126,7 +127,7 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 				if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
 					c.Set("callerType", "user")
 					c.Set("callerUserID", claims.UserID)
-					c.Set("callerAddress", claims.EthereumAddress)
+					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
 					c.Set("callerRole", claims.Role)
 					return next(c)
 				}
