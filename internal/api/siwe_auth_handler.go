@@ -101,6 +101,14 @@ func (a *API) signupHandler(c *echo.Context) error {
 		return err
 	}
 
+	// Sign-up auto-approves, so issue the session cookie immediately — a new
+	// user is authenticated without a separate sign-in round-trip.
+	tokenStr, err := a.generateUserToken(user)
+	if err != nil {
+		return err
+	}
+	a.setUserAuthCookie(c, tokenStr)
+
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "Registration successful",
@@ -275,8 +283,10 @@ func (a *API) webAuthnSigninHandler(c *echo.Context) error {
 		})
 	}
 
-	// 3. Look up the registered user behind the recovered address.
-	user, err := a.store.GetUserByAddress(ctx, tx, cred.Address)
+	// 3. Look up the registered user behind the recovered address. Credentials
+	//    persist the checksummed address (userAddr.Hex()), but users.ethereum_address
+	//    is stored lowercase (VerifySIWESignature), so normalize before lookup.
+	user, err := a.store.GetUserByAddress(ctx, tx, strings.ToLower(cred.Address))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
