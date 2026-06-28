@@ -130,6 +130,7 @@ func New(o APIOpts) *API {
 	authGroup.POST("/signup", a.signupHandler)
 	authGroup.POST("/signin", a.signinHandler)
 	authGroup.POST("/logout", a.logoutHandler)
+	authGroup.POST("/webauthn/verify", a.webAuthnSigninHandler)
 	authGroup.GET("/session", a.sessionHandler)
 
 	// SIWE unified verify (public — returns JWT for approved users)
