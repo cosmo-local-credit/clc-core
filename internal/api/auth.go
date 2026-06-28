@@ -47,6 +47,21 @@ func (a *API) generateUserToken(user store.User) (string, error) {
 	return token.SignedString(a.signingKey)
 }
 
+// authCookieSameSite picks the SameSite policy for the session cookie.
+//
+// In production the web app and API are served from different sites (e.g.
+// *.pages.dev previews, or app.cosmolocal.credit calling the API on
+// cosmolocal.credit), so the cookie must be SameSite=None to be sent on
+// cross-site XHR; None requires Secure, which prod already sets. Locally
+// (non-prod HTTP, same-origin) we use Lax so the cookie still works without
+// Secure.
+func (a *API) authCookieSameSite() http.SameSite {
+	if a.prod {
+		return http.SameSiteNoneMode
+	}
+	return http.SameSiteLaxMode
+}
+
 // setUserAuthCookie writes an HttpOnly cookie carrying the user JWT.
 // Secure is only set in production mode so local HTTP dev still works.
 func (a *API) setUserAuthCookie(c *echo.Context, tokenStr string) {
@@ -57,20 +72,22 @@ func (a *API) setUserAuthCookie(c *echo.Context, tokenStr string) {
 		HttpOnly: true,
 		Secure:   a.prod,
 		Path:     "/",
-		SameSite: http.SameSiteStrictMode,
+		SameSite: a.authCookieSameSite(),
 	})
 }
 
-// clearUserAuthCookie immediately expires the auth cookie.
-func clearUserAuthCookie(c *echo.Context) {
+// clearUserAuthCookie immediately expires the auth cookie. Attributes must
+// match setUserAuthCookie so the browser overwrites the existing cookie.
+func (a *API) clearUserAuthCookie(c *echo.Context) {
 	c.SetCookie(&http.Cookie{
 		Name:     userAuthCookieName,
 		Value:    "",
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   a.prod,
 		Path:     "/",
-		SameSite: http.SameSiteStrictMode,
+		SameSite: a.authCookieSameSite(),
 	})
 }
 

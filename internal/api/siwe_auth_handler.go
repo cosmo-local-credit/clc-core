@@ -209,7 +209,7 @@ func (a *API) signinHandler(c *echo.Context) error {
 }
 
 func (a *API) logoutHandler(c *echo.Context) error {
-	clearUserAuthCookie(c)
+	a.clearUserAuthCookie(c)
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "Signed out successfully",
