@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS keystore (
     private_key TEXT NOT NULL,
     active      BOOLEAN DEFAULT false,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT keystore_public_key_key UNIQUE (public_key)
 );
 CREATE INDEX IF NOT EXISTS public_key_idx ON keystore(public_key);
 
@@ -69,7 +70,11 @@ INSERT INTO otx_tx_type (value) VALUES
     ('POOL_FEE_POLICY_DEPLOY'),
     ('POOL_ORACLE_QUOTER_DEPLOY'),
     ('POOL_RELATIVE_QUOTER_DEPLOY'),
-    ('PROXY_UPGRADE')
+    ('PROXY_UPGRADE'),
+    ('RELAY_DELEGATE'),
+    ('RELAY_EXEC'),
+    ('RELAY_DELEGATE_EXEC'),
+    ('ACCOUNT_REGISTER')
 ON CONFLICT (value) DO NOTHING;
 
 -- Dispatch status type lookup
@@ -128,6 +133,18 @@ CREATE TYPE contract_type AS ENUM (
     'RELATIVE_QUOTER'
 );
 
+-- Upgrade meta: staging table to carry upgrade context from worker
+-- through to the subscriber confirmation path.
+CREATE TABLE IF NOT EXISTS upgrade_meta (
+    id                 INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    otx_id             INT REFERENCES otx(id) NOT NULL UNIQUE,
+    proxy_address      TEXT NOT NULL,
+    contract_type      contract_type NOT NULL,
+    new_implementation TEXT NOT NULL,
+    version            TEXT NOT NULL,
+    created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Platform contracts
 CREATE TABLE IF NOT EXISTS platform_contracts (
     id                      INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -165,6 +182,15 @@ CREATE TABLE IF NOT EXISTS deployed_tokens (
     symbol                TEXT NOT NULL,
     name                  TEXT NOT NULL,
     admin                 TEXT NOT NULL,
+    description           TEXT,
+    website               TEXT,
+    email                 TEXT,
+    phone                 TEXT,
+    voucher_uoa           TEXT,
+    voucher_value         NUMERIC,
+    location_name         TEXT,
+    geo_lat               FLOAT8,
+    geo_lng               FLOAT8,
     created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (otx_id),
@@ -184,6 +210,15 @@ CREATE TABLE IF NOT EXISTS token_deploy_meta (
     token_name            TEXT NOT NULL,
     token_symbol          TEXT NOT NULL,
     admin                 TEXT NOT NULL,
+    description           TEXT,
+    website               TEXT,
+    email                 TEXT,
+    phone                 TEXT,
+    voucher_uoa           TEXT,
+    voucher_value         NUMERIC,
+    location_name         TEXT,
+    geo_lat               FLOAT8,
+    geo_lng               FLOAT8,
     created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -191,6 +226,46 @@ CREATE TABLE IF NOT EXISTS token_deploy_meta (
 CREATE TRIGGER update_token_deploy_meta_timestamp
     BEFORE UPDATE ON token_deploy_meta
     FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
+
+-- Shared tag lookup for token and pool metadata.
+CREATE TABLE IF NOT EXISTS token_tag (
+    value TEXT PRIMARY KEY
+);
+INSERT INTO token_tag (value) VALUES
+    ('Agriculture'),
+    ('Care'),
+    ('Construction'),
+    ('Cleaning'),
+    ('Education'),
+    ('Elders'),
+    ('Endowments'),
+    ('Fellowship'),
+    ('Gathering'),
+    ('Handcrafts'),
+    ('Housekeeping'),
+    ('Lending'),
+    ('Market'),
+    ('Outreach'),
+    ('Software'),
+    ('Tree Planting'),
+    ('Training'),
+    ('Volunteer'),
+    ('Water Catchment'),
+    ('Youth'),
+    ('Other')
+ON CONFLICT (value) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS token_deploy_meta_tags (
+    otx_id    INT  REFERENCES token_deploy_meta(otx_id) ON DELETE CASCADE NOT NULL,
+    tag_value TEXT REFERENCES token_tag(value) NOT NULL,
+    PRIMARY KEY (otx_id, tag_value)
+);
+
+CREATE TABLE IF NOT EXISTS deployed_token_tags (
+    deployed_token_id INT  REFERENCES deployed_tokens(id) ON DELETE CASCADE NOT NULL,
+    tag_value         TEXT REFERENCES token_tag(value) NOT NULL,
+    PRIMARY KEY (deployed_token_id, tag_value)
+);
 
 -- Pool addresses: shared singleton addresses for protocol-level contracts
 CREATE TABLE IF NOT EXISTS pool_addresses (
@@ -228,6 +303,13 @@ CREATE TABLE IF NOT EXISTS pool_deploy_meta (
     protocol_fee_controller_address TEXT NOT NULL,
     fees_decoupled                  BOOLEAN NOT NULL DEFAULT false,
     admin                           TEXT NOT NULL,
+    description                     TEXT,
+    website                         TEXT,
+    email                           TEXT,
+    phone                           TEXT,
+    location_name                   TEXT,
+    geo_lat                         FLOAT8,
+    geo_lng                         FLOAT8,
     created_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -251,6 +333,13 @@ CREATE TABLE IF NOT EXISTS deployed_pools (
     protocol_fee_controller_address TEXT NOT NULL,
     fees_decoupled                  BOOLEAN NOT NULL DEFAULT false,
     admin                           TEXT NOT NULL,
+    description                     TEXT,
+    website                         TEXT,
+    email                           TEXT,
+    phone                           TEXT,
+    location_name                   TEXT,
+    geo_lat                         FLOAT8,
+    geo_lng                         FLOAT8,
     created_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -258,6 +347,18 @@ CREATE TABLE IF NOT EXISTS deployed_pools (
 CREATE TRIGGER update_deployed_pools_timestamp
     BEFORE UPDATE ON deployed_pools
     FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
+
+CREATE TABLE IF NOT EXISTS pool_deploy_meta_tags (
+    otx_id    INT  REFERENCES pool_deploy_meta(otx_id) ON DELETE CASCADE NOT NULL,
+    tag_value TEXT REFERENCES token_tag(value) NOT NULL,
+    PRIMARY KEY (otx_id, tag_value)
+);
+
+CREATE TABLE IF NOT EXISTS deployed_pool_tags (
+    deployed_pool_id INT  REFERENCES deployed_pools(id) ON DELETE CASCADE NOT NULL,
+    tag_value        TEXT REFERENCES token_tag(value) NOT NULL,
+    PRIMARY KEY (deployed_pool_id, tag_value)
+);
 
 -- Chainlink oracle feed registry: stores known oracle feed addresses for price feeds
 CREATE TABLE IF NOT EXISTS oracle_feeds (
@@ -332,6 +433,20 @@ CREATE TABLE IF NOT EXISTS user_deployments (
 
 CREATE INDEX IF NOT EXISTS user_deployments_user_id_idx ON user_deployments(user_id);
 CREATE INDEX IF NOT EXISTS user_deployments_tracking_id_idx ON user_deployments(tracking_id);
+
+-- WebAuthn credentials registered through the relayer during initial
+-- ephemeral-key registration. Looked up by credential_id during recovery
+-- to map a passkey back to its Calibur-delegated wallet.
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    credential_id TEXT      PRIMARY KEY,
+    address       TEXT      NOT NULL,
+    key_hash      TEXT      NOT NULL,
+    public_key_x  NUMERIC   NOT NULL,
+    public_key_y  NUMERIC   NOT NULL,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS webauthn_credentials_address_idx
+    ON webauthn_credentials (address);
 
 -- Seed superadmin accounts
 INSERT INTO users (blockchain_address, name, email, role, status) VALUES
