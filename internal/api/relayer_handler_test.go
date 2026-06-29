@@ -8,9 +8,10 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
-	"github.com/ethereum/go-ethereum/common"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/labstack/echo/v5"
+	"github.com/riverqueue/river/rivertype"
 )
 
 func TestIsPublicRelayerTrackingChain(t *testing.T) {
@@ -32,6 +33,31 @@ func TestIsPublicRelayerTrackingChain(t *testing.T) {
 				t.Fatalf("isPublicRelayerTrackingChain() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRelayDelegateTrackingIDUsesExistingUniqueJobArgs(t *testing.T) {
+	fallback := "new-tracking-id"
+	result := &rivertype.JobInsertResult{
+		Job: &rivertype.JobRow{
+			EncodedArgs: []byte(`{"trackingId":"existing-tracking-id","ephemeralAddress":"0x123"}`),
+		},
+		UniqueSkippedAsDuplicate: true,
+	}
+
+	if got := relayDelegateTrackingID(result, fallback); got != "existing-tracking-id" {
+		t.Fatalf("relayDelegateTrackingID() = %q, want existing-tracking-id", got)
+	}
+}
+
+func TestRelayDelegateTrackingIDFallsBackForMalformedArgs(t *testing.T) {
+	fallback := "new-tracking-id"
+	result := &rivertype.JobInsertResult{
+		Job: &rivertype.JobRow{EncodedArgs: []byte(`{"ephemeralAddress":"0x123"}`)},
+	}
+
+	if got := relayDelegateTrackingID(result, fallback); got != fallback {
+		t.Fatalf("relayDelegateTrackingID() = %q, want fallback %q", got, fallback)
 	}
 }
 

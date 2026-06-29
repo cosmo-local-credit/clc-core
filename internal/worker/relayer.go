@@ -17,7 +17,7 @@ import (
 type (
 	RelayDelegateArgs struct {
 		TrackingID       string                       `json:"trackingId"`
-		EphemeralAddress string                       `json:"ephemeralAddress"`
+		EphemeralAddress string                       `json:"ephemeralAddress" river:"unique"`
 		Authorization    apiresp.EIP7702Authorization `json:"authorization"`
 	}
 
@@ -45,6 +45,12 @@ type (
 )
 
 func (RelayDelegateArgs) Kind() string { return store.RELAY_DELEGATE }
+
+func (RelayDelegateArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		UniqueOpts: river.UniqueOpts{ByArgs: true},
+	}
+}
 
 // Work signs a bare EIP-7702 delegation for the ephemeral address and queues
 // it for dispatch. The master key is loaded, the nonce acquired, the tx

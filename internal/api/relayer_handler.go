@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 )
 
 func (a *API) relayerHealthHandler(c *echo.Context) error {
@@ -65,6 +67,18 @@ func isPublicRelayerTrackingChain(otxs []*store.OTX) bool {
 		}
 	}
 	return true
+}
+
+func relayDelegateTrackingID(result *rivertype.JobInsertResult, fallback string) string {
+	if result == nil || result.Job == nil || len(result.Job.EncodedArgs) == 0 {
+		return fallback
+	}
+
+	var args worker.RelayDelegateArgs
+	if err := json.Unmarshal(result.Job.EncodedArgs, &args); err != nil || args.TrackingID == "" {
+		return fallback
+	}
+	return args.TrackingID
 }
 
 func (a *API) caliburNonceHandler(c *echo.Context) error {
@@ -121,15 +135,20 @@ func (a *API) delegateHandler(c *echo.Context) error {
 	trackingID := uuid.NewString()
 	registerTrackingID := uuid.NewString()
 
-	if _, err := a.queueClient.InsertTx(ctx, tx, worker.RelayDelegateArgs{
+	insertResult, err := a.queueClient.InsertTx(ctx, tx, worker.RelayDelegateArgs{
 		TrackingID:       trackingID,
 		EphemeralAddress: req.EphemeralAddress,
 		Authorization:    req.Authorization,
-	}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
+	}, &river.InsertOpts{MaxAttempts: 1})
+	if err != nil {
 		return handlePostgresError(c, err)
 	}
 
-	if _, err := a.queueClient.InsertTx(ctx, tx, worker.RegisterUserArgs{
+	duplicate := insertResult != nil && insertResult.UniqueSkippedAsDuplicate
+	if duplicate {
+		trackingID = relayDelegateTrackingID(insertResult, trackingID)
+		registerTrackingID = ""
+	} else if _, err := a.queueClient.InsertTx(ctx, tx, worker.RegisterUserArgs{
 		TrackingID:  registerTrackingID,
 		UserAddress: req.EphemeralAddress,
 	}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
@@ -146,6 +165,7 @@ func (a *API) delegateHandler(c *echo.Context) error {
 		Result: map[string]any{
 			"trackingId":         trackingID,
 			"registerTrackingId": registerTrackingID,
+			"duplicate":          duplicate,
 		},
 	})
 }
