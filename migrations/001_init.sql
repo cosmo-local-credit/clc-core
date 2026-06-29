@@ -296,19 +296,25 @@ CREATE TYPE user_status AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
 -- Users: stores registered accounts authenticated via SIWE
 CREATE TABLE IF NOT EXISTS users (
-    id               INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    ethereum_address TEXT UNIQUE NOT NULL,
-    name             TEXT NOT NULL,
-    email            TEXT UNIQUE NOT NULL,
-    role             user_role NOT NULL DEFAULT 'USER',
-    status           user_status NOT NULL DEFAULT 'PENDING',
-    max_pools        INT NOT NULL DEFAULT 10,
-    max_tokens       INT NOT NULL DEFAULT 20,
-    created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id                  INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    blockchain_address  TEXT NOT NULL,
+    name                TEXT NOT NULL,
+    email               TEXT,
+    phone               TEXT,
+    country             TEXT NOT NULL DEFAULT '',
+    role                user_role NOT NULL DEFAULT 'USER',
+    status              user_status NOT NULL DEFAULT 'PENDING',
+    max_pools           INT NOT NULL DEFAULT 10,
+    max_tokens          INT NOT NULL DEFAULT 20,
+    created_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT users_blockchain_address_unique UNIQUE (blockchain_address),
+    CONSTRAINT users_email_unique UNIQUE (email),
+    CONSTRAINT users_phone_unique UNIQUE (phone),
+    CONSTRAINT users_at_least_one_contact CHECK (email IS NOT NULL OR phone IS NOT NULL)
 );
 
-CREATE INDEX IF NOT EXISTS users_ethereum_address_idx ON users(ethereum_address);
+CREATE INDEX IF NOT EXISTS users_blockchain_address_idx ON users(blockchain_address);
 CREATE INDEX IF NOT EXISTS users_status_idx ON users(status);
 
 CREATE TRIGGER update_users_timestamp
@@ -328,6 +334,6 @@ CREATE INDEX IF NOT EXISTS user_deployments_user_id_idx ON user_deployments(user
 CREATE INDEX IF NOT EXISTS user_deployments_tracking_id_idx ON user_deployments(tracking_id);
 
 -- Seed superadmin accounts
-INSERT INTO users (ethereum_address, name, email, role, status) VALUES
+INSERT INTO users (blockchain_address, name, email, role, status) VALUES
     ('0x33a573149db22e759fb9a38bcc461c12855c2645', 'Superadmin', 'devops@grassecon.org', 'SUPERADMIN', 'APPROVED')
-ON CONFLICT (ethereum_address) DO NOTHING;
+ON CONFLICT (blockchain_address) DO NOTHING;

@@ -10,6 +10,7 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/riverqueue/river"
 )
 
@@ -177,6 +178,19 @@ func (w *RelayWorker) Work(ctx context.Context, job *river.Job[RelayArgs]) error
 			PublicKeyX:   job.Args.PublicKeyX,
 			PublicKeyY:   job.Args.PublicKeyY,
 		}); err != nil {
+			return err
+		}
+	}
+
+	// On first relay (delegate+exec), the wallet is being activated —
+	// enqueue an onchain AccountIndex.add(userAddress) registration job
+	// in the same transaction so it commits atomically with the relay.
+	if result.OTXType == store.RELAY_DELEGATE_EXEC {
+		registerTrackingID := uuid.NewString()
+		if _, err := w.wc.queueClient.InsertTx(ctx, tx, RegisterUserArgs{
+			TrackingID:  registerTrackingID,
+			UserAddress: job.Args.UserAddress,
+		}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
 			return err
 		}
 	}

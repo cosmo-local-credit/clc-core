@@ -119,11 +119,19 @@ func (a *API) delegateHandler(c *echo.Context) error {
 	defer tx.Rollback(ctx)
 
 	trackingID := uuid.NewString()
+	registerTrackingID := uuid.NewString()
 
 	if _, err := a.queueClient.InsertTx(ctx, tx, worker.RelayDelegateArgs{
 		TrackingID:       trackingID,
 		EphemeralAddress: req.EphemeralAddress,
 		Authorization:    req.Authorization,
+	}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	if _, err := a.queueClient.InsertTx(ctx, tx, worker.RegisterUserArgs{
+		TrackingID:  registerTrackingID,
+		UserAddress: req.EphemeralAddress,
 	}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -136,7 +144,8 @@ func (a *API) delegateHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Delegate request accepted",
 		Result: map[string]any{
-			"trackingId": trackingID,
+			"trackingId":           trackingID,
+			"registerTrackingId":   registerTrackingID,
 		},
 	})
 }

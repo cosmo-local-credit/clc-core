@@ -37,6 +37,7 @@ const (
 	RELAY_DELEGATE      = "RELAY_DELEGATE"      // Bare SetCodeTx delegating an EOA to Calibur.
 	RELAY_EXEC          = "RELAY_EXEC"          // DynamicFeeTx executing a signed batch on an already-delegated user.
 	RELAY_DELEGATE_EXEC = "RELAY_DELEGATE_EXEC" // SetCodeTx that delegates *and* executes in a single tx (first relay).
+	ACCOUNT_REGISTER    = "ACCOUNT_REGISTER"    // AccountIndex.add(userAddress) — onchain user registration on wallet activation.
 )
 
 func (pg *Pg) InsertOTX(ctx context.Context, tx pgx.Tx, otx OTX) (uint64, error) {

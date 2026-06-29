@@ -17,6 +17,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/sub"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
 )
 
@@ -84,20 +85,51 @@ func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	return gasOracle
 }
 
-func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer) *worker.WorkerContainer {
+// loadRegistry resolves well-known contract addresses from the CICRegistry
+// pointer contract and returns the AccountIndex address. If ge_registry is
+// not configured or the registry is unreachable, the zero address is
+// returned — onchain user registration is silently disabled.
+func loadRegistry(chainProvider *ethutils.Provider) common.Address {
+	registryAddr := ko.String("chain.ge_registry")
+	if registryAddr == "" {
+		lo.Warn("chain.ge_registry not configured — onchain user registration disabled")
+		return common.Address{}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	registryMap, err := chainProvider.RegistryMap(ctx, common.HexToAddress(registryAddr))
+	if err != nil {
+		lo.Error("could not load registry map — onchain user registration disabled", "error", err)
+		return common.Address{}
+	}
+
+	accountIndex, ok := registryMap[ethutils.AccountIndex]
+	if !ok || accountIndex == (common.Address{}) {
+		lo.Warn("AccountIndex not found in registry — onchain user registration disabled")
+		return common.Address{}
+	}
+
+	lo.Info("registry loaded", "account_index", accountIndex.Hex())
+	return accountIndex
+}
+
+func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer, accountIndexAddress common.Address) *worker.WorkerContainer {
 	maxWorkers := ko.Int("workers.max")
 	if maxWorkers <= 0 {
 		maxWorkers = runtime.NumCPU() * 2
 	}
 
 	workerContainer := worker.New(worker.WorkerOpts{
-		MaxWorkers:      maxWorkers,
-		GasOracle:       gasOracle,
-		Store:           pgStore,
-		FederationStore: federationStore,
-		Logg:            lo,
-		ChainProvider:   chainProvider,
-		Relayer:         relayerInst,
+		MaxWorkers:           maxWorkers,
+		GasOracle:            gasOracle,
+		Store:                pgStore,
+		FederationStore:      federationStore,
+		Logg:                 lo,
+		ChainProvider:        chainProvider,
+		Relayer:              relayerInst,
+		AccountIndexAddress:  accountIndexAddress,
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)

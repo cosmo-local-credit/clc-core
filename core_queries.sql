@@ -253,51 +253,51 @@ SELECT active FROM keystore WHERE public_key = $1;
 
 -- Users
 --name: insert-user
-INSERT INTO users (ethereum_address, name, email, role, status, max_pools, max_tokens)
-VALUES ($1, $2, $3, $4::user_role, $5::user_status, $6, $7)
-RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
+INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
+VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
-WHERE ethereum_address = $1;
+WHERE blockchain_address = $1;
 
 --name: get-user-by-id
-SELECT id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: update-user-status
 UPDATE users
 SET status = $2::user_status
-WHERE ethereum_address = $1
-RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
+WHERE blockchain_address = $1
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
-WHERE ethereum_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
+WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
-WHERE ethereum_address = $1
-RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
+WHERE blockchain_address = $1
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
 UPDATE users
-SET name = $2, email = $3, phone = $4, country = $5
-WHERE ethereum_address = $1
-RETURNING id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at;
+SET name = $2, email = NULLIF($3, ''), phone = NULLIF($4, ''), country = $5
+WHERE blockchain_address = $1
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: list-users
-SELECT id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 ORDER BY created_at DESC;
 
 --name: list-users-by-status
-SELECT id, ethereum_address, name, email, phone, country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE status = $1::user_status
 ORDER BY created_at DESC;
@@ -329,7 +329,7 @@ WHERE tracking_id = $1::uuid AND user_id = $2;
 
 --name: list-all-deployments
 SELECT ud.id, ud.user_id, ud.tracking_id, ud.resource_type, ud.created_at,
-    u.ethereum_address, u.name AS user_name
+    u.blockchain_address AS ethereum_address, u.name AS user_name
 FROM user_deployments ud
 JOIN users u ON u.id = ud.user_id
 ORDER BY ud.created_at DESC;

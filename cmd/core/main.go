@@ -49,8 +49,9 @@ func main() {
 	federationStore := loadFederationStore()
 	chainProvider := loadChainProvider()
 	gasOracleInst := loadGasOracle(chainProvider)
+	accountIndexAddress := loadRegistry(chainProvider)
 	relayerComponent := loadRelayer(pgStore, chainProvider, gasOracleInst)
-	workerComponent := loadWorker(pgStore, federationStore, chainProvider, gasOracleInst, relayerComponent)
+	workerComponent := loadWorker(pgStore, federationStore, chainProvider, gasOracleInst, relayerComponent, accountIndexAddress)
 	apiComponent := loadAPI(pgStore, federationStore, chainProvider, workerComponent, relayerComponent)
 	subComponent, pubComponent := loadSub(pgStore)
 

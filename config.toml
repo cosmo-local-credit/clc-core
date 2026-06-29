@@ -27,6 +27,10 @@ max = 0
 id = 42220
 rpc_endpoint = "https://r4-celo.grassecon.org"
 divvi_consumer = "0x5523058cdFfe5F3c1EaDADD5015E55C6E00fb439"
+# CICRegistry pointer contract — resolves well-known contract addresses
+# (AccountIndex, CustodialRegistrationProxy, etc.) via addressOf(bytes32).
+# Used to register users onchain when a Calibur wallet is activated.
+ge_registry = "0xEA7a52e565C43598011cC5f509b8252Eb3e8dbE5"
 
 [jetstream]
 endpoints = ["nats://127.0.0.1:4222"]
