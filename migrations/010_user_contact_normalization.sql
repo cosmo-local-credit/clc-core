@@ -38,7 +38,35 @@ ALTER TABLE users ALTER COLUMN phone DROP DEFAULT;
 UPDATE users SET email = NULL WHERE email = '';
 UPDATE users SET phone = NULL WHERE phone = '';
 
--- 6. Add UNIQUE constraints (PostgreSQL permits multiple NULLs).
+-- 6. Deduplicate existing email/phone values. Migration 008 dropped the
+--    email uniqueness constraint, so duplicates may have accumulated.
+--    Keep the first occurrence (lowest id); NULL the rest. This runs
+--    before the CHECK constraint exists, so NULLing is always safe.
+UPDATE users u
+SET email = NULL
+FROM (
+    SELECT email, MIN(id) AS keep_id
+    FROM users
+    WHERE email IS NOT NULL
+    GROUP BY email
+    HAVING COUNT(*) > 1
+) dup
+WHERE u.email = dup.email
+  AND u.id <> dup.keep_id;
+
+UPDATE users u
+SET phone = NULL
+FROM (
+    SELECT phone, MIN(id) AS keep_id
+    FROM users
+    WHERE phone IS NOT NULL
+    GROUP BY phone
+    HAVING COUNT(*) > 1
+) dup
+WHERE u.phone = dup.phone
+  AND u.id <> dup.keep_id;
+
+-- 7. Add UNIQUE constraints (PostgreSQL permits multiple NULLs).
 --    Drop any implicit-name constraints from older schema versions first.
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_unique;
@@ -48,7 +76,9 @@ ALTER TABLE users DROP CONSTRAINT IF EXISTS users_phone_key;
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_phone_unique;
 ALTER TABLE users ADD CONSTRAINT users_phone_unique UNIQUE (phone);
 
--- 7. Enforce at least one contact method.
+-- 8. Enforce at least one contact method. NOT VALID grandfathers existing
+--    rows that may have been left with neither contact after dedup; the
+--    constraint is enforced on all future inserts and updates.
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_at_least_one_contact;
 ALTER TABLE users ADD CONSTRAINT users_at_least_one_contact
-    CHECK (email IS NOT NULL OR phone IS NOT NULL);
+    CHECK (email IS NOT NULL OR phone IS NOT NULL) NOT VALID;
