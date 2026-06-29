@@ -65,6 +65,7 @@ func (r *Relayer) BuildAndSignRelay(
 	userAddr common.Address,
 	signedBatch apiresp.CaliburSignedBatch,
 	signature []byte,
+	signatureType string,
 	auth *apiresp.EIP7702Authorization,
 	isDelegated bool,
 	relayerNonce uint64,
@@ -93,7 +94,7 @@ func (r *Relayer) BuildAndSignRelay(
 		return nil, fmt.Errorf("relay: gas settings: %w", err)
 	}
 
-	gasLimit := r.relayGasLimit(len(gocaliburBatch.BatchedCall.Calls), isDelegated)
+	gasLimit := r.relayGasLimit(len(gocaliburBatch.BatchedCall.Calls), isDelegated, signatureType == "webauthn")
 
 	if isDelegated {
 		tx := types.NewTx(&types.DynamicFeeTx{

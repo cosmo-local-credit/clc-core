@@ -38,9 +38,12 @@ single action (see `[relayer]` in `config.toml`).
 - `make test-integration` — boots `anvil --hardfork prague` forking Celo (where
   Calibur is deployed at `0x1289…`), deploys mock contracts, and relays real
   multi-call batches end to end through `BuildAndSignRelay` → dispatch:
-  - **relay 1**: first relay (`SetCodeTx`) — delegate + register a passkey +
-    `approve(0)/approve/pull` in one 4-call batch.
-  - **relay 2**: already-delegated (`DynamicFeeTx`) — `approve(0)/approve/pull`.
+  - **relay 1**: first relay (`SetCodeTx`), secp256k1 root key, 4-call batch:
+    delegate + register a passkey + `approve(0)/approve/pull`.
+  - **relay 2**: already-delegated (`DynamicFeeTx`), WebAuthn passkey (the one
+    registered in relay 1), 3-call batch: `approve(0)/approve/pull`.
+
+  Both gas branches and both signing methods are exercised on chain.
 
   Requires `anvil` (foundry) on `PATH`. Override the fork RPC with
   `CELO_FORK_RPC=<url>`; prefer a non-rate-limited node (the public forno
@@ -51,8 +54,6 @@ single action (see `[relayer]` in `config.toml`).
 `internal/relayer/testsign` builds and signs batches exactly as the dapp does
 (secp256k1 and WebAuthn), reusable from any backend test.
 
-An on-chain WebAuthn relay test (`TestIntegration_WebAuthnRelay`) is present but
-skipped: the wrapped WebAuthn signature is produced correctly (covered
-hermetically by the unit tests), but Calibur's on-chain WebAuthn verifier needs
-a `clientDataJSON` byte layout matching a real passkey assertion — capture one
-from the dapp and wire it into `testsign` to enable it.
+Note: a WebAuthn (P-256) relay reserves more gas than a secp256k1 relay because
+on-chain P-256 verification is costly. The relayer adds `webauthn_verify_gas`
+for passkey-signed batches.

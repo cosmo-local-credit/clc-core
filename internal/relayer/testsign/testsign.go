@@ -117,7 +117,11 @@ func WebAuthn(key *ecdsa.PrivateKey, rpID, origin string, p Params) (SignedRelay
 	if err != nil {
 		return SignedRelay{}, fmt.Errorf("testsign: encode webauthn: %w", err)
 	}
-	wrapped := gocalibur.WrapSignatureWithKeyHash(keyHash, encoded, nil)
+	// The relayed execute path wraps the key-specific signature as
+	// abi.encode(bytes signature, bytes hookData); the keyHash is carried in
+	// SignedBatchedCall.keyHash, NOT in the wrapper. (WrapSignatureWithKeyHash
+	// is for other entrypoints and misaligns the on-chain decode here.)
+	wrapped := gocalibur.WrapSignature(encoded, nil)
 
 	out := toAPISignedBatch(p, nonce, keyHash)
 	return SignedRelay{

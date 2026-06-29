@@ -188,11 +188,13 @@ func TestIntegration_BatchRelay(t *testing.T) {
 	h.send(h.signCall(token, mustEncode(t, mintFunc, userAddr, big.NewInt(1_000_000)), 4_000_000))
 
 	// A passkey registered on-chain in relay 1 (self-call inside the batch),
-	// demonstrating key registration as one call of a larger batch.
+	// then used to sign relay 2.
 	passkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("gen passkey: %v", err)
 	}
+	passkeyHashRaw := gocalibur.NewWebAuthnP256Key(passkey.PublicKey.X, passkey.PublicKey.Y).KeyHash()
+	passkeyHash := common.BytesToHash(passkeyHashRaw[:])
 
 	// ---- Relay 1: secp256k1, FIRST relay (delegate + execute) ----
 	// register(passkey) + approve(puller,0) + approve(puller,1000) + puller.pull
@@ -227,7 +229,7 @@ func TestIntegration_BatchRelay(t *testing.T) {
 	}
 
 	res1, err := r.BuildAndSignRelay(ctx, relayerKey, relayerAddr, userAddr,
-		relay1.SignedBatch, common.FromHex(relay1.Signature), apiAuth, false, h.nonce(relayerAddr))
+		relay1.SignedBatch, common.FromHex(relay1.Signature), relay1.SignatureType, apiAuth, false, h.nonce(relayerAddr))
 	if err != nil {
 		t.Fatalf("BuildAndSignRelay relay1: %v", err)
 	}
@@ -248,12 +250,12 @@ func TestIntegration_BatchRelay(t *testing.T) {
 	}
 	t.Log("relay1 OK: delegate + register passkey + approve0/approve/pull (1000)")
 
-	// ---- Relay 2: secp256k1 root key, ALREADY DELEGATED (DynamicFeeTx) ----
-	// Exercises the second gas branch: no AuthList, a plain DynamicFeeTx to the
-	// already-delegated account. Root-key sequence advanced to 1 after relay 1.
-	seq, err := r.CaliburSeq(ctx, userAddr, common.Hash{})
+	// ---- Relay 2: WebAuthn passkey, ALREADY DELEGATED (DynamicFeeTx) ----
+	// Exercises the second gas branch (no AuthList, plain DynamicFeeTx) and the
+	// passkey signing path, using the key registered in relay 1.
+	seq, err := r.CaliburSeq(ctx, userAddr, passkeyHash)
 	if err != nil {
-		t.Fatalf("getSeq root: %v", err)
+		t.Fatalf("getSeq passkey: %v", err)
 	}
 	batch2 := apiresp.CaliburBatchedCall{
 		Calls: []apiresp.CaliburCall{
@@ -263,7 +265,7 @@ func TestIntegration_BatchRelay(t *testing.T) {
 		},
 		RevertOnFailure: true,
 	}
-	relay2, err := testsign.Secp256k1(userKey, testsign.Params{
+	relay2, err := testsign.WebAuthn(passkey, relyingPartyID, intOrigin, testsign.Params{
 		ChainID: big.NewInt(intChainID), Calibur: calibur, User: userAddr,
 		Batch: batch2, Seq: seq, Deadline: big.NewInt(0),
 	})
@@ -271,7 +273,7 @@ func TestIntegration_BatchRelay(t *testing.T) {
 		t.Fatalf("sign relay2: %v", err)
 	}
 	res2, err := r.BuildAndSignRelay(ctx, relayerKey, relayerAddr, userAddr,
-		relay2.SignedBatch, common.FromHex(relay2.Signature), nil, true, h.nonce(relayerAddr))
+		relay2.SignedBatch, common.FromHex(relay2.Signature), relay2.SignatureType, nil, true, h.nonce(relayerAddr))
 	if err != nil {
 		t.Fatalf("BuildAndSignRelay relay2: %v", err)
 	}
@@ -283,21 +285,7 @@ func TestIntegration_BatchRelay(t *testing.T) {
 	if got := h.balance(token, puller); got.Cmp(big.NewInt(1500)) != 0 {
 		t.Fatalf("after relay2 puller balance = %s, want 1500", got)
 	}
-	t.Log("relay2 OK: already-delegated secp256k1 batch executed (500)")
-}
-
-// TestIntegration_WebAuthnRelay exercises a relayed batch signed by a
-// registered WebAuthn-P256 passkey end to end on chain.
-//
-// SKIPPED: the WebAuthn-wrapped signature is produced correctly by
-// internal/relayer/testsign (verified hermetically in TestBuildAndSignRelay_WebAuthn_FirstRelay),
-// but Calibur's on-chain WebAuthn verifier reverts with SliceOutOfBounds() on
-// our synthetic clientDataJSON. Confirming the exact clientDataJSON byte layout
-// (type/challenge indices) Calibur expects requires a known-good vector from a
-// real passkey assertion (capture one from the dapp). Enable once that vector
-// is wired into testsign.
-func TestIntegration_WebAuthnRelay(t *testing.T) {
-	t.Skip("pending a real-passkey clientDataJSON vector to satisfy Calibur's WebAuthn verifier (SliceOutOfBounds)")
+	t.Log("relay2 OK: already-delegated WebAuthn passkey batch executed (500)")
 }
 
 // --- harness ---

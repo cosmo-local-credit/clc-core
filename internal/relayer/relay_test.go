@@ -43,6 +43,7 @@ func testRelayer() *Relayer {
 		baseExecGas:           50_000,
 		delegationOverheadGas: 150_000,
 		maxRelayGas:           3_000_000,
+		webAuthnVerifyGas:     400_000,
 	}
 }
 
@@ -101,17 +102,21 @@ func TestGoldenDigest(t *testing.T) {
 func TestRelayGasLimit(t *testing.T) {
 	r := testRelayer()
 
-	// delegated: (50_000 + 80_000*3) * 1.10 = 319_000
-	if got := r.relayGasLimit(3, true); got != 319_000 {
+	// delegated secp256k1: (50_000 + 80_000*3) * 1.10 = 319_000
+	if got := r.relayGasLimit(3, true, false); got != 319_000 {
 		t.Fatalf("delegated 3-call gas = %d, want 319000", got)
 	}
 	// first relay adds delegation overhead: (50_000 + 240_000 + 150_000)*1.10 = 484_000
-	if got := r.relayGasLimit(3, false); got != 484_000 {
+	if got := r.relayGasLimit(3, false, false); got != 484_000 {
 		t.Fatalf("first-relay 3-call gas = %d, want 484000", got)
+	}
+	// delegated webauthn adds verify overhead: (50_000 + 240_000 + 400_000)*1.10 = 759_000
+	if got := r.relayGasLimit(3, true, true); got != 759_000 {
+		t.Fatalf("delegated webauthn 3-call gas = %d, want 759000", got)
 	}
 	// clamp
 	r.maxRelayGas = 100_000
-	if got := r.relayGasLimit(16, false); got != 100_000 {
+	if got := r.relayGasLimit(16, false, false); got != 100_000 {
 		t.Fatalf("clamped gas = %d, want 100000", got)
 	}
 }
@@ -152,7 +157,7 @@ func TestBuildAndSignRelay_Secp256k1_Delegated(t *testing.T) {
 	res, err := r.BuildAndSignRelay(
 		context.Background(), masterKey, signerAddr,
 		common.HexToAddress(testUser), relay.SignedBatch,
-		common.FromHex(relay.Signature), nil, true, 11,
+		common.FromHex(relay.Signature), "secp256k1", nil, true, 11,
 	)
 	if err != nil {
 		t.Fatalf("BuildAndSignRelay: %v", err)
@@ -164,8 +169,8 @@ func TestBuildAndSignRelay_Secp256k1_Delegated(t *testing.T) {
 	if res.Tx.Type() != types.DynamicFeeTxType {
 		t.Fatalf("tx type = %d, want DynamicFeeTx", res.Tx.Type())
 	}
-	if res.Tx.Gas() != r.relayGasLimit(3, true) {
-		t.Fatalf("gas = %d, want %d", res.Tx.Gas(), r.relayGasLimit(3, true))
+	if res.Tx.Gas() != r.relayGasLimit(3, true, false) {
+		t.Fatalf("gas = %d, want %d", res.Tx.Gas(), r.relayGasLimit(3, true, false))
 	}
 	if res.Tx.To() == nil || *res.Tx.To() != common.HexToAddress(testUser) {
 		t.Fatalf("tx.To = %v, want user", res.Tx.To())
@@ -212,7 +217,7 @@ func TestBuildAndSignRelay_WebAuthn_FirstRelay(t *testing.T) {
 	res, err := r.BuildAndSignRelay(
 		context.Background(), masterKey, signerAddr,
 		common.HexToAddress(testUser), relay.SignedBatch,
-		common.FromHex(relay.Signature), auth, false, 12,
+		common.FromHex(relay.Signature), "webauthn", auth, false, 12,
 	)
 	if err != nil {
 		t.Fatalf("BuildAndSignRelay (setcode): %v", err)
@@ -223,8 +228,8 @@ func TestBuildAndSignRelay_WebAuthn_FirstRelay(t *testing.T) {
 	if res.Tx.Type() != types.SetCodeTxType {
 		t.Fatalf("tx type = %d, want SetCodeTx", res.Tx.Type())
 	}
-	if res.Tx.Gas() != r.relayGasLimit(3, false) {
-		t.Fatalf("gas = %d, want %d", res.Tx.Gas(), r.relayGasLimit(3, false))
+	if res.Tx.Gas() != r.relayGasLimit(3, false, true) {
+		t.Fatalf("gas = %d, want %d", res.Tx.Gas(), r.relayGasLimit(3, false, true))
 	}
 	if len(res.Tx.SetCodeAuthorizations()) != 1 {
 		t.Fatalf("auth list len = %d, want 1", len(res.Tx.SetCodeAuthorizations()))

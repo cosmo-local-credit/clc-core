@@ -56,6 +56,10 @@ per_call_gas = 80000
 base_exec_gas = 50000
 delegation_overhead_gas = 150000
 max_relay_gas = 3000000
+# Extra gas added when the batch is signed by a WebAuthn/P256 passkey:
+# verifying a P-256 signature on chain costs far more than secp256k1 ecrecover
+# (no cheap precompile on every chain).
+webauthn_verify_gas = 400000
 # Gas limit for a bare delegation (no calldata).
 delegate_gas_limit = 200000
 # WebAuthn recovery verification.

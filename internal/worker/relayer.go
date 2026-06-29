@@ -146,6 +146,7 @@ func (w *RelayWorker) Work(ctx context.Context, job *river.Job[RelayArgs]) error
 		userAddr,
 		job.Args.SignedBatch,
 		common.FromHex(job.Args.Signature),
+		job.Args.SignatureType,
 		job.Args.Authorization,
 		isDelegated,
 		nonce,

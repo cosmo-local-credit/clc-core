@@ -187,6 +187,7 @@ func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracl
 		BaseExecGas:           uint64(ko.Int("relayer.base_exec_gas")),
 		DelegationOverheadGas: uint64(ko.Int("relayer.delegation_overhead_gas")),
 		MaxRelayGas:           uint64(ko.Int("relayer.max_relay_gas")),
+		WebAuthnVerifyGas:     uint64(ko.Int("relayer.webauthn_verify_gas")),
 		DelegateGas:           uint64(ko.MustInt("relayer.delegate_gas_limit")),
 		RelyingPartyID:        ko.String("relayer.relying_party_id"),
 		AllowedOrigins:        ko.Strings("relayer.allowed_origins"),

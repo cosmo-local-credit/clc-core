@@ -37,6 +37,10 @@ type Opts struct {
 	BaseExecGas           uint64
 	DelegationOverheadGas uint64
 	MaxRelayGas           uint64
+	// WebAuthnVerifyGas is added when the batch is signed by a WebAuthn/P256
+	// passkey: verifying a P-256 signature on chain costs far more than an
+	// secp256k1 ecrecover (no cheap precompile on every chain).
+	WebAuthnVerifyGas uint64
 	// DelegateGas is the limit for a bare delegation (no calldata).
 	DelegateGas    uint64
 	RelyingPartyID string
@@ -65,6 +69,7 @@ type Relayer struct {
 	baseExecGas           uint64
 	delegationOverheadGas uint64
 	maxRelayGas           uint64
+	webAuthnVerifyGas     uint64
 	delegateGas           uint64
 
 	challenges     *challengeStore
@@ -107,6 +112,10 @@ func New(o Opts) (*Relayer, error) {
 	if maxRelayGas == 0 {
 		maxRelayGas = 3_000_000
 	}
+	webAuthnVerifyGas := o.WebAuthnVerifyGas
+	if webAuthnVerifyGas == 0 {
+		webAuthnVerifyGas = 400_000
+	}
 	delegateGas := o.DelegateGas
 	if delegateGas == 0 {
 		delegateGas = 200_000
@@ -124,6 +133,7 @@ func New(o Opts) (*Relayer, error) {
 		baseExecGas:           baseExecGas,
 		delegationOverheadGas: delegationOverheadGas,
 		maxRelayGas:           maxRelayGas,
+		webAuthnVerifyGas:     webAuthnVerifyGas,
 		delegateGas:           delegateGas,
 		challenges:            newChallengeStore(),
 		relyingPartyID:        o.RelyingPartyID,
@@ -146,12 +156,16 @@ func (r *Relayer) DelegateGas() uint64 { return r.delegateGas }
 // the Calibur code is not live at the EOA until that tx executes, so an
 // estimate against current state would revert.
 //
-// limit = (baseExecGas + perCallGas*nCalls [+ delegationOverheadGas]) * 1.10,
-// clamped to maxRelayGas.
-func (r *Relayer) relayGasLimit(nCalls int, isDelegated bool) uint64 {
+// limit = (baseExecGas + perCallGas*nCalls [+ delegationOverheadGas]
+//
+//	[+ webAuthnVerifyGas]) * 1.10, clamped to maxRelayGas.
+func (r *Relayer) relayGasLimit(nCalls int, isDelegated, isWebAuthn bool) uint64 {
 	g := r.baseExecGas + r.perCallGas*uint64(nCalls)
 	if !isDelegated {
 		g += r.delegationOverheadGas
+	}
+	if isWebAuthn {
+		g += r.webAuthnVerifyGas
 	}
 	g += g / 10 // +10% safety bump
 	if r.maxRelayGas > 0 && g > r.maxRelayGas {
