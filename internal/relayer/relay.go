@@ -9,6 +9,7 @@ import (
 
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	gocalibur "github.com/grassrootseconomics/go-calibur"
 	"github.com/holiman/uint256"
@@ -92,13 +93,15 @@ func (r *Relayer) BuildAndSignRelay(
 		return nil, fmt.Errorf("relay: gas settings: %w", err)
 	}
 
+	gasLimit := r.relayGasLimit(len(gocaliburBatch.BatchedCall.Calls), isDelegated)
+
 	if isDelegated {
 		tx := types.NewTx(&types.DynamicFeeTx{
 			ChainID:   r.chainID,
 			Nonce:     relayerNonce,
 			GasTipCap: gasTipCap,
 			GasFeeCap: gasFeeCap,
-			Gas:       r.setCodeGas,
+			Gas:       gasLimit,
 			To:        &userAddr,
 			Value:     big.NewInt(0),
 			Data:      calldata,
@@ -145,7 +148,7 @@ func (r *Relayer) BuildAndSignRelay(
 		Nonce:     relayerNonce,
 		GasTipCap: uint256.MustFromBig(gasTipCap),
 		GasFeeCap: uint256.MustFromBig(gasFeeCap),
-		Gas:       r.setCodeGas,
+		Gas:       gasLimit,
 		To:        userAddr,
 		Value:     uint256.NewInt(0),
 		Data:      calldata,
@@ -202,6 +205,61 @@ func convertSignedBatch(in apiresp.CaliburSignedBatch) (gocalibur.SignedBatchedC
 		Executor: common.HexToAddress(in.Executor),
 		Deadline: deadline,
 	}, nil
+}
+
+// PreviewBatch resolves the Calibur sequence for (userAddr, keyHash), builds
+// the full Calibur nonce, and returns both that nonce and the EIP-712 digest
+// the user must sign over the batch. This lets the dapp avoid re-deriving the
+// nonce/digest client-side and guarantees the value it signs matches what the
+// relayer will submit.
+//
+// keyHashHex empty / zero == root (secp256k1) key.
+func (r *Relayer) PreviewBatch(
+	ctx context.Context,
+	userAddr common.Address,
+	batch apiresp.CaliburBatchedCall,
+	keyHashHex string,
+	executor string,
+	deadline string,
+) (nonce string, digest string, err error) {
+	var keyHash common.Hash
+	if keyHashHex != "" {
+		keyHash = common.HexToHash(keyHashHex)
+	}
+
+	seq, err := r.CaliburSeq(ctx, userAddr, keyHash)
+	if err != nil {
+		return "", "", fmt.Errorf("relay: preview seq: %w", err)
+	}
+
+	fullNonce := buildCaliburNonce(keyHash, seq)
+
+	gocaliburBatch, err := convertSignedBatch(apiresp.CaliburSignedBatch{
+		BatchedCall: batch,
+		Nonce:       fullNonce.String(),
+		KeyHash:     keyHash.Hex(),
+		Executor:    executor,
+		Deadline:    deadline,
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	domain := gocalibur.CaliburDomain(r.chainID, userAddr, r.caliburAddress)
+	d := gocalibur.ComputeDigest(domain, gocaliburBatch)
+
+	return fullNonce.String(), hexutil.Encode(d[:]), nil
+}
+
+// buildCaliburNonce packs a 192-bit key prefix and a 64-bit sequence into the
+// single uint256 Calibur uses as a per-key nonce: (keyHash[:24] << 64) | seq.
+// Mirrors the dapp's buildCaliburNonce in webauthn/logic.ts.
+func buildCaliburNonce(keyHash common.Hash, seq uint64) *big.Int {
+	keyBig := new(big.Int).SetBytes(keyHash[:])
+	mask := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 192), big.NewInt(1))
+	keyBig.And(keyBig, mask)
+	keyBig.Lsh(keyBig, 64)
+	return keyBig.Or(keyBig, new(big.Int).SetUint64(seq))
 }
 
 // ComputeP256KeyHash mirrors how Calibur derives a passkey key-hash from a

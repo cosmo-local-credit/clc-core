@@ -149,7 +149,7 @@ type (
 	}
 
 	CaliburBatchedCall struct {
-		Calls           []CaliburCall `json:"calls"           validate:"required,min=1,dive"`
+		Calls           []CaliburCall `json:"calls"           validate:"required,min=1,max=16,dive"`
 		RevertOnFailure bool          `json:"revertOnFailure"`
 	}
 
@@ -172,6 +172,17 @@ type (
 		CredentialID string `json:"credentialId,omitempty" validate:"omitempty"`
 		PublicKeyX   string `json:"publicKeyX,omitempty"   validate:"omitempty,numeric"`
 		PublicKeyY   string `json:"publicKeyY,omitempty"   validate:"omitempty,numeric"`
+	}
+
+	// RelayPreviewRequest asks the relayer to resolve the Calibur nonce and
+	// compute the EIP-712 digest for a batch, so the dapp can sign exactly
+	// what the relayer will submit. No signature is involved.
+	RelayPreviewRequest struct {
+		UserAddress string             `json:"userAddress" validate:"required,eth_addr_checksum"`
+		BatchedCall CaliburBatchedCall `json:"batchedCall" validate:"required"`
+		KeyHash     string             `json:"keyHash"     validate:"omitempty,len=66,startswith=0x,hexadecimal"`
+		Executor    string             `json:"executor"    validate:"required,eth_addr_checksum"`
+		Deadline    string             `json:"deadline"    validate:"required,numeric"`
 	}
 
 	WebAuthnRecoverRequest struct {

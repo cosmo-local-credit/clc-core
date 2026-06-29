@@ -196,6 +196,7 @@ func New(o APIOpts) *API {
 	relayerGroup.GET("/track/:trackingId", a.trackRelayerOTXHandler)
 	relayerGroup.POST("/delegate", a.delegateHandler)
 	relayerGroup.POST("/relay", a.relayHandler)
+	relayerGroup.POST("/relay/preview", a.relayPreviewHandler)
 	relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
 	relayerGroup.POST("/webauthn/recover", a.webAuthnRecoverHandler)
 

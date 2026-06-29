@@ -122,14 +122,14 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 	}
 
 	workerContainer := worker.New(worker.WorkerOpts{
-		MaxWorkers:           maxWorkers,
-		GasOracle:            gasOracle,
-		Store:                pgStore,
-		FederationStore:      federationStore,
-		Logg:                 lo,
-		ChainProvider:        chainProvider,
-		Relayer:              relayerInst,
-		AccountIndexAddress:  accountIndexAddress,
+		MaxWorkers:          maxWorkers,
+		GasOracle:           gasOracle,
+		Store:               pgStore,
+		FederationStore:     federationStore,
+		Logg:                lo,
+		ChainProvider:       chainProvider,
+		Relayer:             relayerInst,
+		AccountIndexAddress: accountIndexAddress,
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)
@@ -176,17 +176,20 @@ func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
 
 func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *relayer.Relayer {
 	r, err := relayer.New(relayer.Opts{
-		Logg:           lo,
-		ChainProvider:  chainProvider,
-		GasOracle:      gasOracle,
-		Store:          pgStore,
-		ChainID:        ko.MustInt64("chain.id"),
-		RPCEndpoint:    ko.MustString("chain.rpc_endpoint"),
-		CaliburAddress: ko.MustString("relayer.calibur_address"),
-		SetCodeGas:     uint64(ko.MustInt("relayer.setcode_gas_limit")),
-		DelegateGas:    uint64(ko.MustInt("relayer.delegate_gas_limit")),
-		RelyingPartyID: ko.String("relayer.relying_party_id"),
-		AllowedOrigins: ko.Strings("relayer.allowed_origins"),
+		Logg:                  lo,
+		ChainProvider:         chainProvider,
+		GasOracle:             gasOracle,
+		Store:                 pgStore,
+		ChainID:               ko.MustInt64("chain.id"),
+		RPCEndpoint:           ko.MustString("chain.rpc_endpoint"),
+		CaliburAddress:        ko.MustString("relayer.calibur_address"),
+		PerCallGas:            uint64(ko.Int("relayer.per_call_gas")),
+		BaseExecGas:           uint64(ko.Int("relayer.base_exec_gas")),
+		DelegationOverheadGas: uint64(ko.Int("relayer.delegation_overhead_gas")),
+		MaxRelayGas:           uint64(ko.Int("relayer.max_relay_gas")),
+		DelegateGas:           uint64(ko.MustInt("relayer.delegate_gas_limit")),
+		RelyingPartyID:        ko.String("relayer.relying_party_id"),
+		AllowedOrigins:        ko.Strings("relayer.allowed_origins"),
 	})
 	if err != nil {
 		lo.Error("could not initialize relayer", "error", err)

@@ -6,7 +6,16 @@ DEBUG := DEV=true
 ENV_FILE := .env
 LOAD_ENV := test ! -f $(ENV_FILE) || . ./$(ENV_FILE)
 
-.PHONY: build build-clccore run run-clccore clean docs gen-service-token build-frontend
+.PHONY: build build-clccore run run-clccore clean docs gen-service-token build-frontend test test-integration
+
+test:
+	go test ./...
+
+# Boots anvil (foundry) forking Celo and relays real multi-call batches through
+# the Calibur contract. Requires anvil on PATH; override the fork RPC with
+# CELO_FORK_RPC=<url> (use a non-rate-limited node for reliability).
+test-integration:
+	go test -tags integration -count=1 -timeout 300s ./internal/relayer/
 
 clean:
 	rm ${BIN} ${BOOTSTRAP_BIN}

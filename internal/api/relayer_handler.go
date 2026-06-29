@@ -144,8 +144,8 @@ func (a *API) delegateHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Delegate request accepted",
 		Result: map[string]any{
-			"trackingId":           trackingID,
-			"registerTrackingId":   registerTrackingID,
+			"trackingId":         trackingID,
+			"registerTrackingId": registerTrackingID,
 		},
 	})
 }
@@ -198,6 +198,41 @@ func (a *API) relayHandler(c *echo.Context) error {
 		Description: "Relay request accepted",
 		Result: map[string]any{
 			"trackingId": trackingID,
+		},
+	})
+}
+
+// relayPreviewHandler resolves the Calibur nonce for the given (user, keyHash)
+// and returns the EIP-712 digest the client must sign over the batch. It is a
+// read-only convenience: the client may instead derive the digest itself, but
+// using this guarantees the signed value matches what the relayer submits.
+func (a *API) relayPreviewHandler(c *echo.Context) error {
+	req := apiresp.RelayPreviewRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	nonce, digest, err := a.relayer.PreviewBatch(
+		c.Request().Context(),
+		common.HexToAddress(req.UserAddress),
+		req.BatchedCall,
+		req.KeyHash,
+		req.Executor,
+		req.Deadline,
+	)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Relay batch preview",
+		Result: map[string]any{
+			"nonce":  nonce,
+			"digest": digest,
 		},
 	})
 }

@@ -28,7 +28,16 @@ type Opts struct {
 	ChainID        int64
 	RPCEndpoint    string
 	CaliburAddress string
-	SetCodeGas     uint64
+	// Gas model for relayed batches. The limit is computed as
+	// BaseExecGas + PerCallGas*len(calls) (+ DelegationOverheadGas on the
+	// first relay, which also delegates) with a +10% safety bump, clamped to
+	// MaxRelayGas. We cannot eth_estimateGas the first relay because the
+	// delegation is not yet live, so we budget from known per-action averages.
+	PerCallGas            uint64
+	BaseExecGas           uint64
+	DelegationOverheadGas uint64
+	MaxRelayGas           uint64
+	// DelegateGas is the limit for a bare delegation (no calldata).
 	DelegateGas    uint64
 	RelyingPartyID string
 	AllowedOrigins []string
@@ -52,8 +61,11 @@ type Relayer struct {
 	caliburAddress common.Address
 	signerAddress  common.Address
 
-	setCodeGas  uint64
-	delegateGas uint64
+	perCallGas            uint64
+	baseExecGas           uint64
+	delegationOverheadGas uint64
+	maxRelayGas           uint64
+	delegateGas           uint64
 
 	challenges     *challengeStore
 	relyingPartyID string
@@ -79,9 +91,21 @@ func New(o Opts) (*Relayer, error) {
 		return nil, fmt.Errorf("relayer: calibur provider init: %w", err)
 	}
 
-	setCodeGas := o.SetCodeGas
-	if setCodeGas == 0 {
-		setCodeGas = 350_000
+	perCallGas := o.PerCallGas
+	if perCallGas == 0 {
+		perCallGas = 80_000
+	}
+	baseExecGas := o.BaseExecGas
+	if baseExecGas == 0 {
+		baseExecGas = 50_000
+	}
+	delegationOverheadGas := o.DelegationOverheadGas
+	if delegationOverheadGas == 0 {
+		delegationOverheadGas = 150_000
+	}
+	maxRelayGas := o.MaxRelayGas
+	if maxRelayGas == 0 {
+		maxRelayGas = 3_000_000
 	}
 	delegateGas := o.DelegateGas
 	if delegateGas == 0 {
@@ -89,18 +113,21 @@ func New(o Opts) (*Relayer, error) {
 	}
 
 	r := &Relayer{
-		logg:            o.Logg,
-		chainProvider:   o.ChainProvider,
-		gasOracle:       o.GasOracle,
-		store:           o.Store,
-		caliburProvider: caliburProvider,
-		chainID:         big.NewInt(o.ChainID),
-		caliburAddress:  caliburAddr,
-		setCodeGas:      setCodeGas,
-		delegateGas:     delegateGas,
-		challenges:      newChallengeStore(),
-		relyingPartyID:  o.RelyingPartyID,
-		allowedOrigins:  o.AllowedOrigins,
+		logg:                  o.Logg,
+		chainProvider:         o.ChainProvider,
+		gasOracle:             o.GasOracle,
+		store:                 o.Store,
+		caliburProvider:       caliburProvider,
+		chainID:               big.NewInt(o.ChainID),
+		caliburAddress:        caliburAddr,
+		perCallGas:            perCallGas,
+		baseExecGas:           baseExecGas,
+		delegationOverheadGas: delegationOverheadGas,
+		maxRelayGas:           maxRelayGas,
+		delegateGas:           delegateGas,
+		challenges:            newChallengeStore(),
+		relyingPartyID:        o.RelyingPartyID,
+		allowedOrigins:        o.AllowedOrigins,
 	}
 
 	return r, nil
@@ -111,12 +138,27 @@ func (r *Relayer) SignerAddress() common.Address  { return r.signerAddress }
 func (r *Relayer) ChainID() *big.Int              { return new(big.Int).Set(r.chainID) }
 func (r *Relayer) Provider() *gocalibur.Provider  { return r.caliburProvider }
 
-// SetCodeGas returns the hardcoded gas limit for relays that include an
-// AuthList (delegation has not yet taken effect, so estimation fails).
-func (r *Relayer) SetCodeGas() uint64 { return r.setCodeGas }
-
 // DelegateGas returns the gas limit for a bare SetCodeTx (no calldata).
 func (r *Relayer) DelegateGas() uint64 { return r.delegateGas }
+
+// relayGasLimit budgets gas for a relayed batch from known per-action
+// averages rather than eth_estimateGas: the first relay also delegates, and
+// the Calibur code is not live at the EOA until that tx executes, so an
+// estimate against current state would revert.
+//
+// limit = (baseExecGas + perCallGas*nCalls [+ delegationOverheadGas]) * 1.10,
+// clamped to maxRelayGas.
+func (r *Relayer) relayGasLimit(nCalls int, isDelegated bool) uint64 {
+	g := r.baseExecGas + r.perCallGas*uint64(nCalls)
+	if !isDelegated {
+		g += r.delegationOverheadGas
+	}
+	g += g / 10 // +10% safety bump
+	if r.maxRelayGas > 0 && g > r.maxRelayGas {
+		return r.maxRelayGas
+	}
+	return g
+}
 
 // Bootstrap fast-forwards the local noncestore for the master signer to the
 // on-chain pending nonce. The relayer signs with the same master key the

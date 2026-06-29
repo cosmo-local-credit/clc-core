@@ -46,8 +46,17 @@ skip_backlog = false
 # Calibur implementation address on the target chain.
 # Celo mainnet: 0x1289fE793392fb1a905f78Ea23f632EDD3d15b85
 calibur_address = "0x1289fE793392fb1a905f78Ea23f632EDD3d15b85"
-# Hardcoded gas limits — gas estimation fails before delegation is active.
-setcode_gas_limit = 350000
+# Relayed-batch gas budget. The first relay also delegates, and the Calibur
+# code is not live at the EOA until that tx executes, so eth_estimateGas would
+# revert — we budget from known per-action averages instead. The limit is
+# (base_exec_gas + per_call_gas*len(calls) [+ delegation_overhead_gas on the
+# first relay]) with a +10% safety bump, clamped to max_relay_gas.
+# per_call_gas should be the measured average gas of a single action.
+per_call_gas = 80000
+base_exec_gas = 50000
+delegation_overhead_gas = 150000
+max_relay_gas = 3000000
+# Gas limit for a bare delegation (no calldata).
 delegate_gas_limit = 200000
 # WebAuthn recovery verification.
 relying_party_id = "192.168.1.20"
