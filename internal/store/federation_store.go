@@ -13,6 +13,12 @@ import (
 type (
 	FederationQueries struct {
 		LegacyUserExistsByBlockchainAddress string `query:"legacy-user-exists-by-blockchain-address"`
+		ListUserTokenHoldings               string `query:"list-user-token-holdings"`
+		ListUserTokenHoldingsNext           string `query:"list-user-token-holdings-next"`
+		ListUserTokenHoldingsPrevious       string `query:"list-user-token-holdings-prev"`
+		ListUserTransferHistory             string `query:"list-user-transfer-history"`
+		ListUserTransferHistoryNext         string `query:"list-user-transfer-history-next"`
+		ListUserTransferHistoryPrevious     string `query:"list-user-transfer-history-prev"`
 	}
 
 	FederationStoreOpts struct {
@@ -24,6 +30,12 @@ type (
 	FederationStore interface {
 		Pool() *pgxpool.Pool
 		LegacyUserExistsByBlockchainAddress(context.Context, string) (bool, error)
+		ListUserTokenHoldings(context.Context, string, uint64) ([]FederationTokenBalance, error)
+		ListUserTokenHoldingsNext(context.Context, string, uint64, uint64) ([]FederationTokenBalance, error)
+		ListUserTokenHoldingsPrevious(context.Context, string, uint64, uint64) ([]FederationTokenBalance, error)
+		ListUserTransferHistory(context.Context, string, uint64) ([]FederationTransfer, error)
+		ListUserTransferHistoryNext(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
+		ListUserTransferHistoryPrevious(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
 		Close()
 	}
 

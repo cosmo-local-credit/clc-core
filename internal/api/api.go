@@ -143,6 +143,14 @@ func New(o APIOpts) *API {
 	profileAuthGroup.GET("/profile", a.profileGetHandler)
 	profileAuthGroup.POST("/profile", a.profileUpdateHandler)
 
+	// Public data routes.
+	publicAPIGroup := router.Group(apiVersion)
+	if a.federationStore != nil {
+		publicAPIGroup.GET("/accounts/:address/tokens/latest", a.accountLatestTokensHandler)
+		publicAPIGroup.GET("/accounts/:address/tokens", a.accountTokensHandler)
+		publicAPIGroup.GET("/accounts/:address/transfers", a.accountTransfersHandler)
+	}
+
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())

@@ -216,7 +216,7 @@ Registers a new Ethereum address. The client constructs and signs an EIP-4361 me
 **Account defaults:**
 - Status starts as `PENDING` and requires approval before the account can sign in.
 - `/auth/signup` does not auto-approve on the request path.
-- Legacy federation auto-approval is triggered asynchronously by `/auth/siwe/verify` for pending users when the address exists in `sarafu_network.users.blockchain_address` on the configured federation database.
+- Legacy federation auto-approval is triggered asynchronously by `/auth/siwe/verify` for pending users when the address exists in `sarafu_network.accounts.blockchain_address` on the configured federation database.
 - New signups receive role `USER`. Superadmin role is granted by an operator updating records outside the public signup flow.
 
 **Request body:**
@@ -340,7 +340,7 @@ Unified SIWE sign-in / registration endpoint. The server verifies the SIWE signa
 - If the address already exists and is `PENDING` or `REJECTED`, returns `403`.
 - If the address is unknown, inserts a `PENDING` user record, queues a background legacy-federation approval check, and returns `403` until approval completes.
 
-The legacy check is performed asynchronously by a River worker against `sarafu_network.users.blockchain_address` on the configured federation database, so this route does not block on the old database.
+The legacy check is performed asynchronously by a River worker against `sarafu_network.accounts.blockchain_address` on the configured federation database, so this route does not block on the old database.
 
 **Request body:**
 
