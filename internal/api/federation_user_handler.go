@@ -10,25 +10,32 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-type paginatedFederationListCallbacks[T any] struct {
-	firstPage func(context.Context, string, uint64) ([]T, error)
-	nextPage  func(context.Context, string, uint64, uint64) ([]T, error)
-	prevPage  func(context.Context, string, uint64, uint64) ([]T, error)
-}
+type (
+	// paginatedFederationListCallbacks groups the three pagination query
+	// functions for a federation resource of type T. Unlike
+	// paginatedListCallbacks these read directly from the federation pool (no
+	// pgx.Tx) because the federation store is read-only with respect to these
+	// queries.
+	paginatedFederationListCallbacks[T any] struct {
+		firstPage func(context.Context, string, uint64) ([]T, error)
+		nextPage  func(context.Context, string, uint64, uint64) ([]T, error)
+		prevPage  func(context.Context, string, uint64, uint64) ([]T, error)
+	}
+)
 
+// cursorPaginatedFederationList executes a cursor-paginated federation query
+// and returns a JSON response with the items and first/last cursor values. The
+// caller is responsible for binding and validating the request (including the
+// path-param address) and for normalising the pagination params, so this helper
+// never re-binds the query string — mirroring accountOTXHandler.
 func cursorPaginatedFederationList[T any](
-	a *API,
 	c *echo.Context,
 	p paginatedFederationListCallbacks[T],
 	address string,
+	pagination paginationParams,
 	resultKey, description string,
 	getID func(T) uint64,
 ) error {
-	req := apiresp.CursorPaginationRequest{}
-	if err := c.Bind(&req); err != nil {
-		return handleBindError(c, err)
-	}
-	pagination := normalizePagination(req)
 	ctx := c.Request().Context()
 
 	var (
@@ -98,11 +105,15 @@ func (a *API) accountTokensHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
-	return cursorPaginatedFederationList(a, c, paginatedFederationListCallbacks[store.FederationTokenBalance]{
+	return cursorPaginatedFederationList(c, paginatedFederationListCallbacks[store.FederationTokenBalance]{
 		firstPage: a.federationStore.ListUserTokenHoldings,
 		nextPage:  a.federationStore.ListUserTokenHoldingsNext,
 		prevPage:  a.federationStore.ListUserTokenHoldingsPrevious,
-	}, req.Address, "tokens", fmt.Sprintf("Token balances for %s", req.Address),
+	}, req.Address, normalizePagination(apiresp.CursorPaginationRequest{
+		PerPage: req.PerPage,
+		Next:    req.Next,
+		Cursor:  req.Cursor,
+	}), "tokens", fmt.Sprintf("Token balances for %s", req.Address),
 		func(t store.FederationTokenBalance) uint64 { return t.ID })
 }
 
@@ -115,10 +126,14 @@ func (a *API) accountTransfersHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
-	return cursorPaginatedFederationList(a, c, paginatedFederationListCallbacks[store.FederationTransfer]{
+	return cursorPaginatedFederationList(c, paginatedFederationListCallbacks[store.FederationTransfer]{
 		firstPage: a.federationStore.ListUserTransferHistory,
 		nextPage:  a.federationStore.ListUserTransferHistoryNext,
 		prevPage:  a.federationStore.ListUserTransferHistoryPrevious,
-	}, req.Address, "transfers", fmt.Sprintf("Transfer history for %s", req.Address),
+	}, req.Address, normalizePagination(apiresp.CursorPaginationRequest{
+		PerPage: req.PerPage,
+		Next:    req.Next,
+		Cursor:  req.Cursor,
+	}), "transfers", fmt.Sprintf("Transfer history for %s", req.Address),
 		func(t store.FederationTransfer) uint64 { return t.ID })
 }

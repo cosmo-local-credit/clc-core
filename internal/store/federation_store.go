@@ -19,6 +19,14 @@ type (
 		ListUserTransferHistory             string `query:"list-user-transfer-history"`
 		ListUserTransferHistoryNext         string `query:"list-user-transfer-history-next"`
 		ListUserTransferHistoryPrevious     string `query:"list-user-transfer-history-prev"`
+
+		CreateAccountTokenHoldingMV              string `query:"create-account-token-holding-mv"`
+		CreateAccountTokenHoldingHolderTokenIdx  string `query:"create-account-token-holding-holder-token-idx"`
+		CreateAccountTokenHoldingHolderLastTxIdx string `query:"create-account-token-holding-holder-last-tx-idx"`
+		CreateAccountTransferMV                  string `query:"create-account-transfer-mv"`
+		CreateAccountTransferHolderTransferIdx   string `query:"create-account-transfer-holder-transfer-idx"`
+		RefreshAccountTokenHoldingMV             string `query:"refresh-account-token-holding-mv"`
+		RefreshAccountTransferMV                 string `query:"refresh-account-transfer-mv"`
 	}
 
 	FederationStoreOpts struct {
@@ -36,6 +44,8 @@ type (
 		ListUserTransferHistory(context.Context, string, uint64) ([]FederationTransfer, error)
 		ListUserTransferHistoryNext(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
 		ListUserTransferHistoryPrevious(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
+		Bootstrap(context.Context) error
+		StartMaintenance(context.Context)
 		Close()
 	}
 
@@ -92,6 +102,76 @@ func (s *FederationPg) LegacyUserExistsByBlockchainAddress(ctx context.Context, 
 
 func (s *FederationPg) Close() {
 	s.db.Close()
+}
+
+// Bootstrap creates the account_token_holding and account_transfer materialized
+// views and their indexes on the federation database. The statements are
+// idempotent (IF NOT EXISTS) and run outside a transaction via pool.Exec —
+// CREATE MATERIALIZED VIEW cannot be wrapped in a transaction when it depends
+// on a concurrently-built structure, and REFRESH ... CONCURRENTLY is never
+// transactional. On first creation the views are populated immediately; on
+// subsequent restarts the DDL is a no-op and the maintenance loop keeps them
+// fresh. A failure here is logged by the caller rather than fatal so that the
+// legacy-user-approval path (which does not use the views) keeps working.
+func (s *FederationPg) Bootstrap(ctx context.Context) error {
+	ddls := []string{
+		s.queries.CreateAccountTokenHoldingMV,
+		s.queries.CreateAccountTokenHoldingHolderTokenIdx,
+		s.queries.CreateAccountTokenHoldingHolderLastTxIdx,
+		s.queries.CreateAccountTransferMV,
+		s.queries.CreateAccountTransferHolderTransferIdx,
+	}
+	for _, ddl := range ddls {
+		if _, err := s.db.Exec(ctx, ddl); err != nil {
+			return fmt.Errorf("federation bootstrap DDL: %w", err)
+		}
+	}
+	s.logg.Info("federation materialized views ready")
+	return nil
+}
+
+// StartMaintenance periodically refreshes the materialized views so balance and
+// transfer reads stay eventually consistent with the indexer. It refreshes once
+// immediately on startup (covers the restart-with-existing-views case) then on
+// a fixed interval until ctx is cancelled. REFRESH MATERIALIZED VIEW
+// CONCURRENTLY does not block readers but requires the unique indexes created
+// by Bootstrap.
+func (s *FederationPg) StartMaintenance(ctx context.Context) {
+	const (
+		refreshInterval = 2 * time.Minute
+		refreshTimeout  = 5 * time.Minute
+	)
+
+	if err := s.refreshViews(ctx, refreshTimeout); err != nil {
+		s.logg.Warn("federation materialized view initial refresh failed", "error", err)
+	}
+
+	ticker := time.NewTicker(refreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.refreshViews(ctx, refreshTimeout); err != nil {
+				s.logg.Warn("federation materialized view refresh failed", "error", err)
+			}
+		}
+	}
+}
+
+func (s *FederationPg) refreshViews(ctx context.Context, timeout time.Duration) error {
+	refreshCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if _, err := s.db.Exec(refreshCtx, s.queries.RefreshAccountTokenHoldingMV); err != nil {
+		return fmt.Errorf("refresh account_token_holding: %w", err)
+	}
+	if _, err := s.db.Exec(refreshCtx, s.queries.RefreshAccountTransferMV); err != nil {
+		return fmt.Errorf("refresh account_transfer: %w", err)
+	}
+	return nil
 }
 
 func loadFederationQueries(queriesPath string) (*FederationQueries, error) {

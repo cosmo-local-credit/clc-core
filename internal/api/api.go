@@ -143,14 +143,6 @@ func New(o APIOpts) *API {
 	profileAuthGroup.GET("/profile", a.profileGetHandler)
 	profileAuthGroup.POST("/profile", a.profileUpdateHandler)
 
-	// Public data routes.
-	publicAPIGroup := router.Group(apiVersion)
-	if a.federationStore != nil {
-		publicAPIGroup.GET("/accounts/:address/tokens/latest", a.accountLatestTokensHandler)
-		publicAPIGroup.GET("/accounts/:address/tokens", a.accountTokensHandler)
-		publicAPIGroup.GET("/accounts/:address/transfers", a.accountTransfersHandler)
-	}
-
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
@@ -167,6 +159,14 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/otx/track/:trackingId/contract", a.trackContractHandler)
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
+
+	// Federation account data (balances + transfers). Mounted on the authed
+	// apiGroup so the SIWE user JWT cookie (or service token) is required.
+	if a.federationStore != nil {
+		apiGroup.GET("/accounts/:address/tokens/latest", a.accountLatestTokensHandler)
+		apiGroup.GET("/accounts/:address/tokens", a.accountTokensHandler)
+		apiGroup.GET("/accounts/:address/transfers", a.accountTransfersHandler)
+	}
 
 	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
