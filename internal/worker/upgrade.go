@@ -10,7 +10,9 @@ import (
 	"github.com/riverqueue/river"
 )
 
-var funcUpgrade = w3.MustNewFunc("upgrade(address,address)", "")
+var (
+	funcUpgrade = w3.MustNewFunc("upgrade(address,address)", "")
+)
 
 type (
 	UpgradeProxyArgs struct {
@@ -24,6 +26,7 @@ type (
 
 	UpgradeProxyWorker struct {
 		river.WorkerDefaults[UpgradeProxyArgs]
+
 		wc *WorkerContainer
 	}
 )

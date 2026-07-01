@@ -7,13 +7,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type DispatchTx struct {
+type (
+	DispatchTx struct {
 	ID        uint64    `db:"id"         json:"id"`
 	OTXID     uint64    `db:"otx_id"     json:"otxId"`
 	Status    string    `db:"status"     json:"status"`
 	CreatedAt time.Time `db:"created_at" json:"createdAt"`
 	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
 }
+)
 
 const (
 	PENDING                 = "PENDING"

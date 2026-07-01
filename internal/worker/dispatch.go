@@ -28,16 +28,20 @@ type (
 
 	DisptachWorker struct {
 		river.WorkerDefaults[DispatchArgs]
+
 		wc *WorkerContainer
 	}
 
 	RetrierWorker struct {
 		river.WorkerDefaults[RetrierArgs]
+
 		wc *WorkerContainer
 	}
 )
 
-const DispatchID = "DISPATCH"
+const (
+	DispatchID = "DISPATCH"
+)
 
 func (DispatchArgs) Kind() string { return DispatchID }
 
@@ -58,16 +62,16 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 		Status: store.UNKNOWN_RPC_ERROR,
 	}
 	if err := w.sendRawTx(ctx, rawTx); err != nil {
-		dispatchErr, ok := err.(*DispatchError)
-		if ok {
-			if dispatchErr.Err == ErrNetwork {
+		var dispatchErr *DispatchError
+		if errors.As(err, &dispatchErr) {
+			if errors.Is(dispatchErr.Err, ErrNetwork) {
 				updateTxStatus.Status = store.NETWORK_ERROR
 				w.wc.logg.Error("Network related dispatch error", "original_error", dispatchErr.OriginalErr)
 				if err := w.wc.store.UpdateDispatchTxStatus(ctx, tx, updateTxStatus); err != nil {
 					return err
 				}
 				if w.wc.pub != nil {
-					w.wc.pub.Send(ctx, event.Event{
+					_ = w.wc.pub.Send(ctx, event.Event{
 						TrackingID: job.Args.TrackingID,
 						Status:     updateTxStatus.Status,
 					})
@@ -81,14 +85,14 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 			}
 
 			w.wc.logg.Error("Chain related dispatch error", "error", dispatchErr.Err, "original_error", dispatchErr.OriginalErr)
-			switch dispatchErr.Err {
-			case ErrGasPriceTooLow:
+			//nolint:gocritic // errors.Is prevents a switch on error values
+			if errors.Is(dispatchErr.Err, ErrGasPriceTooLow) {
 				updateTxStatus.Status = store.LOW_GAS_PRICE
-			case ErrInsufficientGas:
+			} else if errors.Is(dispatchErr.Err, ErrInsufficientGas) {
 				updateTxStatus.Status = store.NO_GAS
-			case ErrNonceTooLow:
+			} else if errors.Is(dispatchErr.Err, ErrNonceTooLow) {
 				updateTxStatus.Status = store.LOW_NONCE
-			case ErrReplacementTxUnderpriced:
+			} else if errors.Is(dispatchErr.Err, ErrReplacementTxUnderpriced) {
 				updateTxStatus.Status = store.REPLACEMENT_UNDERPRICED
 			}
 
@@ -96,7 +100,7 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 				return err
 			}
 			if w.wc.pub != nil {
-				w.wc.pub.Send(ctx, event.Event{
+				_ = w.wc.pub.Send(ctx, event.Event{
 					TrackingID: job.Args.TrackingID,
 					Status:     updateTxStatus.Status,
 				})
@@ -127,7 +131,7 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 		return err
 	}
 	if w.wc.pub != nil {
-		w.wc.pub.Send(ctx, event.Event{
+		_ = w.wc.pub.Send(ctx, event.Event{
 			TrackingID: job.Args.TrackingID,
 			Status:     updateTxStatus.Status,
 		})
@@ -152,8 +156,8 @@ func (w *DisptachWorker) sendRawTx(ctx context.Context, rawTx []byte) error {
 
 	var errs w3.CallErrors
 	if err := w.wc.chainProvider.Client.CallCtx(ctx, sendRawTxCall); errors.As(err, &errs) {
-		jsonErr, ok := errs[0].(rpc.Error)
-		if ok {
+		var jsonErr rpc.Error
+		if errors.As(errs[0], &jsonErr) {
 			if jsonRPCError := handleJSONRPCError(jsonErr.Error()); jsonRPCError != nil {
 				return &DispatchError{
 					Err:         jsonRPCError,

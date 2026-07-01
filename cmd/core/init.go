@@ -198,11 +198,12 @@ func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracl
 	}
 
 	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	if err := r.Bootstrap(bootstrapCtx); err != nil {
+		cancel()
 		lo.Error("relayer bootstrap failed", "error", err)
 		os.Exit(1)
 	}
+	cancel()
 
 	return r
 }

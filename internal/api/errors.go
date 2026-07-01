@@ -34,7 +34,7 @@ func (a *API) customHTTPErrorHandler(c *echo.Context, err error) {
 		a.logg.Error("API: internal error", "path", c.Path(), "err", err)
 	}
 
-	c.JSON(status, apiresp.ErrResponse{
+	_ = c.JSON(status, apiresp.ErrResponse{
 		Ok:          false,
 		Description: description,
 		ErrCode:     errCode,

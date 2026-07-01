@@ -1,6 +1,8 @@
 package api
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestNewPendingSIWEUserIsInactive(t *testing.T) {
 	user := newPendingSIWEUser("0xAbC123")

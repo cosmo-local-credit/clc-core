@@ -17,28 +17,30 @@ import (
 	gocalibur "github.com/grassrootseconomics/go-calibur"
 )
 
-// SignedRelay is the signed payload, ready to drop into apiresp.RelayRequest.
-type SignedRelay struct {
-	SignedBatch   apiresp.CaliburSignedBatch
-	Signature     string // 0x-hex wrapped signature
-	SignatureType string // "secp256k1" | "webauthn"
-	// Registration fields, populated for WebAuthn so the relay can persist the
-	// credential mapping on first use.
-	KeyHash    string
-	PublicKeyX string
-	PublicKeyY string
-}
+type (
+	// SignedRelay is the signed payload, ready to drop into apiresp.RelayRequest.
+	SignedRelay struct {
+		SignedBatch   apiresp.CaliburSignedBatch
+		Signature     string // 0x-hex wrapped signature
+		SignatureType string // "secp256k1" | "webauthn"
+		// Registration fields, populated for WebAuthn so the relay can persist the
+		// credential mapping on first use.
+		KeyHash    string
+		PublicKeyX string
+		PublicKeyY string
+	}
 
-// Params are the shared batch parameters.
-type Params struct {
-	ChainID  *big.Int
-	Calibur  common.Address
-	User     common.Address
-	Batch    apiresp.CaliburBatchedCall
-	Seq      uint64         // Calibur sequence for the signing key
-	Executor common.Address // zero == anyone
-	Deadline *big.Int       // zero == no deadline
-}
+	// Params are the shared batch parameters.
+	Params struct {
+		ChainID  *big.Int
+		Calibur  common.Address
+		User     common.Address
+		Batch    apiresp.CaliburBatchedCall
+		Seq      uint64         // Calibur sequence for the signing key
+		Executor common.Address // zero == anyone
+		Deadline *big.Int       // zero == no deadline
+	}
+)
 
 // Secp256k1 signs the batch with a root secp256k1 key (keyHash == 0), matching
 // gocalibur.SignSecp256k1 / the dapp's private-key connector.
@@ -72,6 +74,7 @@ func Secp256k1(key *ecdsa.PrivateKey, p Params) (SignedRelay, error) {
 // registered passkey, matching the dapp's calibur-webauthn connector.
 func WebAuthn(key *ecdsa.PrivateKey, rpID, origin string, p Params) (SignedRelay, error) {
 	pub := key.PublicKey
+	//nolint:staticcheck // gocalibur.NewWebAuthnP256Key requires *big.Int for X/Y
 	keyObj := gocalibur.NewWebAuthnP256Key(pub.X, pub.Y)
 	keyHash := keyObj.KeyHash()
 
@@ -129,8 +132,10 @@ func WebAuthn(key *ecdsa.PrivateKey, rpID, origin string, p Params) (SignedRelay
 		Signature:     hexEncode(wrapped),
 		SignatureType: "webauthn",
 		KeyHash:       common.BytesToHash(keyHash[:]).Hex(),
-		PublicKeyX:    pub.X.String(),
-		PublicKeyY:    pub.Y.String(),
+		//nolint:staticcheck // Serializing legacy ecdsa.PublicKey fields for WebAuthn credential storage
+		PublicKeyX: pub.X.String(),
+		//nolint:staticcheck // Serializing legacy ecdsa.PublicKey fields for WebAuthn credential storage
+		PublicKeyY: pub.Y.String(),
 	}, nil
 }
 

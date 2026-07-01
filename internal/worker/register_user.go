@@ -11,7 +11,9 @@ import (
 	"github.com/riverqueue/river"
 )
 
-var accountIndexAddFunc = w3.MustNewFunc("add(address)", "")
+var (
+	accountIndexAddFunc = w3.MustNewFunc("add(address)", "")
+)
 
 type (
 	RegisterUserArgs struct {
@@ -21,6 +23,7 @@ type (
 
 	RegisterUserWorker struct {
 		river.WorkerDefaults[RegisterUserArgs]
+
 		wc *WorkerContainer
 	}
 )

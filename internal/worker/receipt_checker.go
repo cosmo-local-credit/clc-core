@@ -22,6 +22,7 @@ type (
 
 	ReceiptCheckerWorker struct {
 		river.WorkerDefaults[ReceiptCheckerArgs]
+
 		wc *WorkerContainer
 	}
 )
@@ -74,7 +75,7 @@ func (w *ReceiptCheckerWorker) Work(ctx context.Context, job *river.Job[ReceiptC
 	}
 
 	if w.wc.pub != nil {
-		w.wc.pub.Send(ctx, event.Event{
+		_ = w.wc.pub.Send(ctx, event.Event{
 			TrackingID: job.Args.TrackingID,
 			Status:     status,
 		})

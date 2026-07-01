@@ -14,7 +14,9 @@ import (
 	"github.com/knadh/koanf/v2"
 )
 
-const defaultJWTExpiry = 365 * 24 * time.Hour
+const (
+	defaultJWTExpiry = 365 * 24 * time.Hour
+)
 
 var (
 	build = "dev"
@@ -64,9 +66,9 @@ func main() {
 		lo.Error("could not sign token", "error", err)
 	}
 
-	tokenVerifier, err := jwt.ParseWithClaims(t, &api.JWTCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+	tokenVerifier, err := jwt.ParseWithClaims(t, &api.JWTCustomClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return pub, nil
 	})

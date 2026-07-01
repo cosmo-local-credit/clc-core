@@ -24,19 +24,39 @@ const (
 	challengeBytes = 32
 )
 
-type challengeEntry struct {
-	createdAt time.Time
-}
+type (
+	challengeEntry struct {
+		createdAt time.Time
+	}
 
-// challengeStore holds short-lived WebAuthn challenges. One-time use:
-// VerifyAssertion deletes the entry whether or not verification succeeds.
-//
-// This is an in-process store, fine for a single-instance deployment. Swap
-// for Redis when horizontal scaling is needed.
-type challengeStore struct {
-	mu sync.Mutex
-	m  map[string]challengeEntry
-}
+	// challengeStore holds short-lived WebAuthn challenges. One-time use:
+	// VerifyAssertion deletes the entry whether or not verification succeeds.
+	//
+	// This is an in-process store, fine for a single-instance deployment. Swap
+	// for Redis when horizontal scaling is needed.
+	challengeStore struct {
+		mu sync.Mutex
+		m  map[string]challengeEntry
+	}
+
+	// VerifyAssertionArgs collects everything VerifyAssertion needs. PublicKeyX
+	// and PublicKeyY are decimal-string-encoded P-256 coordinates as stored on
+	// the credential record.
+	VerifyAssertionArgs struct {
+		AuthenticatorData string // base64url
+		ClientDataJSON    string // base64url
+		Signature         string // base64url, DER-encoded ECDSA
+		PublicKeyX        string // decimal string
+		PublicKeyY        string // decimal string
+	}
+
+	clientData struct {
+		Type        string `json:"type"`
+		Challenge   string `json:"challenge"`
+		Origin      string `json:"origin"`
+		CrossOrigin bool   `json:"crossOrigin"`
+	}
+)
 
 func newChallengeStore() *challengeStore {
 	return &challengeStore{m: make(map[string]challengeEntry)}
@@ -82,24 +102,6 @@ func (r *Relayer) IssueChallenge(ctx context.Context) (string, error) {
 	encoded := base64.RawURLEncoding.EncodeToString(buf)
 	r.challenges.put(encoded)
 	return encoded, nil
-}
-
-// VerifyAssertionArgs collects everything VerifyAssertion needs. PublicKeyX
-// and PublicKeyY are decimal-string-encoded P-256 coordinates as stored on
-// the credential record.
-type VerifyAssertionArgs struct {
-	AuthenticatorData string // base64url
-	ClientDataJSON    string // base64url
-	Signature         string // base64url, DER-encoded ECDSA
-	PublicKeyX        string // decimal string
-	PublicKeyY        string // decimal string
-}
-
-type clientData struct {
-	Type        string `json:"type"`
-	Challenge   string `json:"challenge"`
-	Origin      string `json:"origin"`
-	CrossOrigin bool   `json:"crossOrigin"`
 }
 
 // VerifyAssertion runs the WebAuthn assertion checks needed to recover a

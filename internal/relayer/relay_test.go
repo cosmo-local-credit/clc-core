@@ -26,7 +26,9 @@ const (
 	testUser    = "0x1234567890123456789012345678901234567890"
 )
 
-type stubOracle struct{}
+type (
+	stubOracle struct{}
+)
 
 func (stubOracle) GetSettings() (*gas.GasSettings, error) {
 	return &gas.GasSettings{GasFeeCap: big.NewInt(50_000_000_000), GasTipCap: big.NewInt(1_000_000_000)}, nil

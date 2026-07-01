@@ -23,17 +23,21 @@ type (
 	}
 )
 
-const pushStream = "CUSTODIAL"
+const (
+	pushStream = "CUSTODIAL"
+)
 
-var pushStreamSubjects = []string{
-	"CUSTODIAL.*",
-}
+var (
+	pushStreamSubjects = []string{
+		"CUSTODIAL.*",
+	}
+)
 
 func NewPub(o PubOpts) *Pub {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	o.JS.CreateStream(ctx, jetstream.StreamConfig{
+	_, _ = o.JS.CreateStream(ctx, jetstream.StreamConfig{
 		Name:       pushStream,
 		Subjects:   pushStreamSubjects,
 		MaxAge:     o.PersistDuration,

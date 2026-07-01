@@ -19,7 +19,9 @@ import (
 	"github.com/riverqueue/river"
 )
 
-var funcDeployDeterministicAndCall = w3.MustNewFunc("deployDeterministicAndCall(address,address,bytes32,bytes)", "address")
+var (
+	funcDeployDeterministicAndCall = w3.MustNewFunc("deployDeterministicAndCall(address,address,bytes32,bytes)", "address")
+)
 
 func nilIfEmpty(s string) *string {
 	if s == "" {
@@ -53,6 +55,7 @@ type (
 
 	DeployTokenWorker struct {
 		river.WorkerDefaults[DeployTokenArgs]
+
 		wc *WorkerContainer
 	}
 

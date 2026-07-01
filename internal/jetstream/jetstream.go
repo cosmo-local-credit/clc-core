@@ -8,9 +8,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-type JetStreamOpts struct {
-	Endpoints []string
-}
+type (
+	JetStreamOpts struct {
+		Endpoints []string
+	}
+)
 
 func NewJetStream(o JetStreamOpts) (*nats.Conn, jetstream.JetStream, error) {
 	natsConn, err := nats.Connect(

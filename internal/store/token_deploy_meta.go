@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type TokenDeployMeta struct {
+type (
+	TokenDeployMeta struct {
 	ID                 uint64    `db:"id"                   json:"id"`
 	OTXID              uint64    `db:"otx_id"               json:"otxId"`
 	PlatformContractID uint64    `db:"platform_contract_id" json:"platformContractId"`
@@ -27,6 +28,7 @@ type TokenDeployMeta struct {
 	CreatedAt          time.Time `db:"created_at"           json:"createdAt"`
 	UpdatedAt          time.Time `db:"updated_at"           json:"updatedAt"`
 }
+)
 
 func (pg *Pg) InsertTokenDeployMeta(ctx context.Context, tx pgx.Tx, meta TokenDeployMeta) error {
 	_, err := tx.Exec(

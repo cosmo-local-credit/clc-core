@@ -186,11 +186,12 @@ func (a *API) accountOTXHandler(c *echo.Context) error {
 	var otxs []*store.OTX
 	var queryErr error
 
-	if p.FirstPage {
+	switch {
+	case p.FirstPage:
 		otxs, queryErr = a.store.GetOTXByAccount(ctx, tx, req.Address, p.PerPage)
-	} else if p.Next {
+	case p.Next:
 		otxs, queryErr = a.store.GetOTXByAccountNext(ctx, tx, req.Address, p.Cursor, p.PerPage)
-	} else {
+	default:
 		otxs, queryErr = a.store.GetOTXByAccountPrevious(ctx, tx, req.Address, p.Cursor, p.PerPage)
 	}
 	if queryErr != nil {
@@ -280,10 +281,13 @@ func (a *API) accountStatusHandler(c *echo.Context) error {
 	})
 }
 
-type paginationParams struct {
-	apiresp.CursorPaginationRequest
-	FirstPage bool
-}
+type (
+	paginationParams struct {
+		apiresp.CursorPaginationRequest
+
+		FirstPage bool
+	}
+)
 
 func normalizePagination(q apiresp.CursorPaginationRequest) paginationParams {
 	if q.PerPage == 0 || q.PerPage > 100 {

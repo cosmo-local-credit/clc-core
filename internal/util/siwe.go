@@ -35,9 +35,9 @@ func ParseSIWEAddress(message string) (string, error) {
 func ParseSIWENonce(message string) (string, error) {
 	const prefix = "Nonce: "
 
-	for _, line := range strings.Split(message, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			nonce := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	for line := range strings.SplitSeq(message, "\n") {
+		if after, ok := strings.CutPrefix(line, prefix); ok {
+			nonce := strings.TrimSpace(after)
 			if nonce == "" {
 				return "", fmt.Errorf("siwe: nonce field is empty")
 			}

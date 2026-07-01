@@ -24,7 +24,9 @@ type (
 	}
 )
 
-const rpcUpdateInterval = 30 * time.Second
+const (
+	rpcUpdateInterval = 30 * time.Second
+)
 
 func NewRPCGasOracle(o RPCGasOracleOpts) (*RPCGasOracle, error) {
 	rpcGasOracle := &RPCGasOracle{

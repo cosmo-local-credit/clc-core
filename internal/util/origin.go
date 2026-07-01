@@ -1,6 +1,8 @@
 package util
 
-import "strings"
+import (
+	"strings"
+)
 
 // OriginAllowed reports whether origin matches any allowed origin pattern.
 // Patterns may be exact origins or contain a single '*' that matches exactly
@@ -22,12 +24,10 @@ func OriginAllowed(origin string, allowed []string) bool {
 // suffix anchor like ".clc-app.pages.dev" cannot be bypassed by sibling
 // domains.
 func WildcardOriginMatch(pattern, origin string) bool {
-	star := strings.IndexByte(pattern, '*')
-	if star < 0 {
+	prefix, suffix, found := strings.Cut(pattern, "*")
+	if !found {
 		return false
 	}
-	prefix := pattern[:star]
-	suffix := pattern[star+1:]
 	if !strings.HasPrefix(origin, prefix) || !strings.HasSuffix(origin, suffix) {
 		return false
 	}

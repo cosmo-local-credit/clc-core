@@ -112,9 +112,9 @@ func (s *Sub) Process() {
 		s.logg.Debug("Processing nats message", "subject", msg.Subject())
 		if err := s.processEvent(context.Background(), msg.Subject(), msg.Data()); err != nil {
 			s.logg.Error("Jetstream: router: error processing nats message", "error", err)
-			msg.Nak()
+			_ = msg.Nak()
 		} else {
-			msg.Ack()
+			_ = msg.Ack()
 		}
 	}
 }

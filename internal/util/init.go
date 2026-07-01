@@ -50,7 +50,7 @@ func InitConfig(lo *slog.Logger, confFilePath string) *koanf.Koanf {
 		}
 	}
 
-	if err := ko.Load(env.ProviderWithValue("CORE_", ".", func(key string, value string) (string, interface{}) {
+	if err := ko.Load(env.ProviderWithValue("CORE_", ".", func(key string, value string) (string, any) {
 		mappedKey := strings.ReplaceAll(strings.ToLower(
 			strings.TrimPrefix(key, "CORE_")), "__", ".")
 		// Convert escaped newlines so multiline values (e.g. PEM signing keys) can
