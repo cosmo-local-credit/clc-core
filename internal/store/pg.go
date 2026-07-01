@@ -143,9 +143,9 @@ func (s *Pg) Bootstrap() error {
 	}
 	defer func() {
 		if err != nil {
-			tx.Rollback(ctx)
+			_ = tx.Rollback(ctx)
 		} else {
-			tx.Commit(ctx)
+			_ = tx.Commit(ctx)
 		}
 	}()
 
@@ -165,7 +165,7 @@ func loadQueries(queriesPath string) (*Queries, error) {
 	loadedQueries := &Queries{}
 
 	if err := goyesql.ScanToStruct(loadedQueries, parsedQueries, nil); err != nil {
-		return nil, fmt.Errorf("failed to scan queries %v", err)
+		return nil, fmt.Errorf("failed to scan queries: %w", err)
 	}
 
 	return loadedQueries, nil

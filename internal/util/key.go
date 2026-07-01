@@ -13,5 +13,7 @@ func LoadSigningKey(privateKeyPem string) (crypto.PrivateKey, crypto.PublicKey, 
 		return nil, nil, err
 	}
 
-	return priv.(ed25519.PrivateKey), priv.(ed25519.PrivateKey).Public().(ed25519.PublicKey), nil
+	pk, _ := priv.(ed25519.PrivateKey)
+	pubKey, _ := pk.Public().(ed25519.PublicKey)
+	return pk, pubKey, nil
 }

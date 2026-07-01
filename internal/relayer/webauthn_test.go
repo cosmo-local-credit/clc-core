@@ -1,6 +1,8 @@
 package relayer
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestOriginAllowed(t *testing.T) {
 	allowed := []string{

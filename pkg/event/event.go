@@ -1,6 +1,8 @@
 package event
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 type (
 	Event struct {

@@ -15,6 +15,7 @@ type (
 
 	ApproveLegacyUserWorker struct {
 		river.WorkerDefaults[ApproveLegacyUserArgs]
+
 		wc *WorkerContainer
 	}
 )

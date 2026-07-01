@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type OTX struct {
+type (
+	OTX struct {
 	ID             uint64    `db:"id"         json:"id"`
 	TrackingID     string    `db:"tracking_id" json:"trackingId"`
 	OTXType        string    `db:"otx_type"   json:"otxType"`
@@ -21,19 +22,21 @@ type OTX struct {
 	UpdatedAt      time.Time `db:"updated_at" json:"updatedAt"`
 	DispatchStatus string    `db:"status"     json:"status"`
 }
+)
 
-const TOKEN_PROXY_DEPLOY = "TOKEN_PROXY_DEPLOY"
-
-const POOL_TOKEN_INDEX_DEPLOY = "POOL_TOKEN_INDEX_DEPLOY"
-const POOL_LIMITER_DEPLOY = "POOL_LIMITER_DEPLOY"
-const POOL_FEE_POLICY_DEPLOY = "POOL_FEE_POLICY_DEPLOY"
-const POOL_ORACLE_QUOTER_DEPLOY = "POOL_ORACLE_QUOTER_DEPLOY"
-const POOL_RELATIVE_QUOTER_DEPLOY = "POOL_RELATIVE_QUOTER_DEPLOY"
-const POOL_PROXY_DEPLOY = "POOL_PROXY_DEPLOY"
-const PROXY_UPGRADE = "PROXY_UPGRADE"
-
-// Relayer OTX types (EIP-7702 / Calibur).
 const (
+	TOKEN_PROXY_DEPLOY = "TOKEN_PROXY_DEPLOY"
+
+	POOL_TOKEN_INDEX_DEPLOY = "POOL_TOKEN_INDEX_DEPLOY"
+	POOL_LIMITER_DEPLOY     = "POOL_LIMITER_DEPLOY"
+	POOL_FEE_POLICY_DEPLOY  = "POOL_FEE_POLICY_DEPLOY"
+	POOL_ORACLE_QUOTER_DEPLOY = "POOL_ORACLE_QUOTER_DEPLOY"
+	POOL_RELATIVE_QUOTER_DEPLOY = "POOL_RELATIVE_QUOTER_DEPLOY"
+	POOL_PROXY_DEPLOY       = "POOL_PROXY_DEPLOY"
+	PROXY_UPGRADE           = "PROXY_UPGRADE"
+
+	// RELAY_DELEGATE, RELAY_EXEC, RELAY_DELEGATE_EXEC, ACCOUNT_REGISTER are
+	// Relayer OTX types (EIP-7702 / Calibur).
 	RELAY_DELEGATE      = "RELAY_DELEGATE"      // Bare SetCodeTx delegating an EOA to Calibur.
 	RELAY_EXEC          = "RELAY_EXEC"          // DynamicFeeTx executing a signed batch on an already-delegated user.
 	RELAY_DELEGATE_EXEC = "RELAY_DELEGATE_EXEC" // SetCodeTx that delegates *and* executes in a single tx (first relay).

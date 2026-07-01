@@ -9,10 +9,12 @@ import (
 
 // SIWENonceStore is a thread-safe in-memory store for SIWE challenge nonces.
 // Each nonce has a 5-minute TTL after which it is considered expired.
-type SIWENonceStore struct {
+type (
+	SIWENonceStore struct {
 	mu     sync.Mutex
 	nonces map[string]time.Time
 }
+)
 
 // NewSIWENonceStore creates a new, empty SIWENonceStore.
 func NewSIWENonceStore() *SIWENonceStore {

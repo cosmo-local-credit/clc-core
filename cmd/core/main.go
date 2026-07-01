@@ -15,7 +15,9 @@ import (
 	"github.com/knadh/koanf/v2"
 )
 
-const defaultGracefulShutdownPeriod = time.Second * 20
+const (
+	defaultGracefulShutdownPeriod = time.Second * 20
+)
 
 var (
 	build = "dev"
@@ -57,43 +59,33 @@ func main() {
 
 	lo.Info("starting clc-core", "build", build)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		gasOracleInst.Start()
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := workerComponent.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			lo.Error("worker queue exited unexpectedly", "err", fmt.Sprintf("%T: %v", err, err))
 			os.Exit(1)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := apiComponent.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			lo.Error("API server exited unexpectedly", "err", fmt.Sprintf("%T: %v", err, err))
 			os.Exit(1)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		subComponent.Process()
-	}()
+	})
 
 	<-ctx.Done()
 	lo.Info("shutdown signal received")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultGracefulShutdownPeriod)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := subComponent.Close(shutdownCtx); err != nil {
 			lo.Error("failed to drain jetstream subscriber", "err", err)
 		}
@@ -110,7 +102,7 @@ func main() {
 			federationStore.Close()
 			lo.Info("federation DB pool closed")
 		}
-	}()
+	})
 
 	go func() {
 		wg.Wait()

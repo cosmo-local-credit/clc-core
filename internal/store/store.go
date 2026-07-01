@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Store interface {
+type (
+	Store interface {
 	Pool() *pgxpool.Pool
 	Bootstrap() error
 	InsertKeyPair(context.Context, pgx.Tx, keypair.Key) error
@@ -82,3 +83,4 @@ type Store interface {
 	GetWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
 	SetNonceIfHigher(context.Context, pgx.Tx, string, uint64) error
 }
+)

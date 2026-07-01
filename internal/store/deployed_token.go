@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type DeployedToken struct {
+type (
+	DeployedToken struct {
 	ID                 uint64    `db:"id"                   json:"id"`
 	OTXID              uint64    `db:"otx_id"               json:"otxId"`
 	PlatformContractID uint64    `db:"platform_contract_id" json:"platformContractId"`
@@ -30,6 +31,7 @@ type DeployedToken struct {
 	CreatedAt          time.Time `db:"created_at"           json:"createdAt"`
 	UpdatedAt          time.Time `db:"updated_at"           json:"updatedAt"`
 }
+)
 
 func (pg *Pg) InsertDeployedToken(ctx context.Context, tx pgx.Tx, dt DeployedToken) (uint64, error) {
 	var id uint64

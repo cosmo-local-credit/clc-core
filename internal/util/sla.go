@@ -1,5 +1,9 @@
 package util
 
-import "time"
+import (
+	"time"
+)
 
-const SLATimeout = time.Second * 15
+const (
+	SLATimeout = time.Second * 15
+)

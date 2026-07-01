@@ -16,13 +16,15 @@ import (
 	"github.com/lmittmann/w3/module/eth"
 )
 
-// BuildRelayResult is what BuildAndSignRelay returns so the caller knows
-// which OTX type to record against the transaction.
-type BuildRelayResult struct {
+type (
+	// BuildRelayResult is what BuildAndSignRelay returns so the caller knows
+	// which OTX type to record against the transaction.
+	BuildRelayResult struct {
 	Tx          *types.Transaction
 	OTXType     string // store.RELAY_EXEC or store.RELAY_DELEGATE_EXEC
 	IsDelegated bool
 }
+)
 
 // IsDelegated checks whether userAddr currently delegates to the configured
 // Calibur implementation (EIP-7702 prefix + matching target).

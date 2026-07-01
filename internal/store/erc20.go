@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type PlatformContracts struct {
+type (
+	PlatformContracts struct {
 	ID                    uint64    `db:"id"`
 	ChainID               int64     `db:"chain_id"`
 	ContractType          string    `db:"contract_type"`
@@ -18,6 +19,7 @@ type PlatformContracts struct {
 	CreatedAt             time.Time `db:"created_at"`
 	UpdatedAt             time.Time `db:"updated_at"`
 }
+)
 
 func (pg *Pg) GetPlatformContracts(ctx context.Context, tx pgx.Tx, chainID int64, contractType string) (PlatformContracts, error) {
 	var pc PlatformContracts

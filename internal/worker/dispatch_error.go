@@ -17,10 +17,12 @@ var (
 	ErrNetwork                  = errors.New("eth-custodial: network related error")
 )
 
-type DispatchError struct {
+type (
+	DispatchError struct {
 	Err         error
 	OriginalErr error
 }
+)
 
 func (e *DispatchError) Error() string {
 	return fmt.Sprintf("%v (original rpc error: %v)", e.Err, e.OriginalErr)

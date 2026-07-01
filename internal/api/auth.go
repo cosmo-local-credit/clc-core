@@ -18,20 +18,24 @@ const (
 	userCookieDuration    = 30 * 24 * time.Hour
 )
 
-// JWTCustomClaims holds claims for EdDSA service tokens.
-type JWTCustomClaims struct {
-	PublicKey string `json:"publicKey"`
-	Service   bool   `json:"service"`
-	jwt.RegisteredClaims
-}
+type (
+	// JWTCustomClaims holds claims for EdDSA service tokens.
+	JWTCustomClaims struct {
+		jwt.RegisteredClaims
 
-// UserJWTClaims holds claims for user-facing EdDSA JWTs delivered via cookie.
-type UserJWTClaims struct {
-	UserID          uint64 `json:"userId"`
-	EthereumAddress string `json:"ethereumAddress"`
-	Role            string `json:"role"`
-	jwt.RegisteredClaims
-}
+		PublicKey string `json:"publicKey"`
+		Service   bool   `json:"service"`
+	}
+
+	// UserJWTClaims holds claims for user-facing EdDSA JWTs delivered via cookie.
+	UserJWTClaims struct {
+		jwt.RegisteredClaims
+
+		UserID          uint64 `json:"userId"`
+		EthereumAddress string `json:"ethereumAddress"`
+		Role            string `json:"role"`
+	}
+)
 
 // generateUserToken creates a signed EdDSA JWT for a user session valid for 30 days.
 func (a *API) generateUserToken(user store.User) (string, error) {
@@ -134,7 +138,7 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 
 				// 2b. Fall back to service JWT.
 				token, parseErr := jwt.ParseWithClaims(tokenStr, &JWTCustomClaims{},
-					func(t *jwt.Token) (interface{}, error) {
+					func(t *jwt.Token) (any, error) {
 						if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
 							return nil, errors.New("unexpected signing method")
 						}
@@ -186,7 +190,7 @@ func (a *API) requireSuperAdmin() echo.MiddlewareFunc {
 // parseUserJWT validates a user JWT cookie value using the API's EdDSA public key.
 func (a *API) parseUserJWT(tokenStr string) (*UserJWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &UserJWTClaims{},
-		func(t *jwt.Token) (interface{}, error) {
+		func(t *jwt.Token) (any, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
 				return nil, errors.New("unexpected signing method")
 			}

@@ -20,41 +20,42 @@ import (
 	gocalibur "github.com/grassrootseconomics/go-calibur"
 )
 
-type Opts struct {
-	Logg           *slog.Logger
-	ChainProvider  *ethutils.Provider
-	GasOracle      gas.GasOracle
-	Store          store.Store
-	ChainID        int64
-	RPCEndpoint    string
-	CaliburAddress string
-	// Gas model for relayed batches. The limit is computed as
-	// BaseExecGas + PerCallGas*len(calls) (+ DelegationOverheadGas on the
-	// first relay, which also delegates) with a +10% safety bump, clamped to
-	// MaxRelayGas. We cannot eth_estimateGas the first relay because the
-	// delegation is not yet live, so we budget from known per-action averages.
-	PerCallGas            uint64
-	BaseExecGas           uint64
-	DelegationOverheadGas uint64
-	MaxRelayGas           uint64
-	// WebAuthnVerifyGas is added when the batch is signed by a WebAuthn/P256
-	// passkey: verifying a P-256 signature on chain costs far more than an
-	// secp256k1 ecrecover (no cheap precompile on every chain).
-	WebAuthnVerifyGas uint64
-	// DelegateGas is the limit for a bare delegation (no calldata).
-	DelegateGas    uint64
-	RelyingPartyID string
-	AllowedOrigins []string
-}
+type (
+	Opts struct {
+		Logg           *slog.Logger
+		ChainProvider  *ethutils.Provider
+		GasOracle      gas.GasOracle
+		Store          store.Store
+		ChainID        int64
+		RPCEndpoint    string
+		CaliburAddress string
+		// Gas model for relayed batches. The limit is computed as
+		// BaseExecGas + PerCallGas*len(calls) (+ DelegationOverheadGas on the
+		// first relay, which also delegates) with a +10% safety bump, clamped to
+		// MaxRelayGas. We cannot eth_estimateGas the first relay because the
+		// delegation is not yet live, so we budget from known per-action averages.
+		PerCallGas            uint64
+		BaseExecGas           uint64
+		DelegationOverheadGas uint64
+		MaxRelayGas           uint64
+		// WebAuthnVerifyGas is added when the batch is signed by a WebAuthn/P256
+		// passkey: verifying a P-256 signature on chain costs far more than an
+		// secp256k1 ecrecover (no cheap precompile on every chain).
+		WebAuthnVerifyGas uint64
+		// DelegateGas is the limit for a bare delegation (no calldata).
+		DelegateGas    uint64
+		RelyingPartyID string
+		AllowedOrigins []string
+	}
 
-// Relayer holds the chain-read facilities and EIP-7702 / Calibur
-// configuration shared by the relay river workers and the read-only relayer
-// API handlers.
-//
-// It deliberately does NOT hold the master signing key: every signature is
-// produced inside a river worker's Work method, which loads the key from the
-// store within its own transaction (see internal/worker/relayer.go).
-type Relayer struct {
+	// Relayer holds the chain-read facilities and EIP-7702 / Calibur
+	// configuration shared by the relay river workers and the read-only relayer
+	// API handlers.
+	//
+	// It deliberately does NOT hold the master signing key: every signature is
+	// produced inside a river worker's Work method, which loads the key from the
+	// store within its own transaction (see internal/worker/relayer.go).
+	Relayer struct {
 	logg            *slog.Logger
 	chainProvider   *ethutils.Provider
 	gasOracle       gas.GasOracle
@@ -76,6 +77,7 @@ type Relayer struct {
 	relyingPartyID string
 	allowedOrigins []string
 }
+)
 
 func New(o Opts) (*Relayer, error) {
 	if o.CaliburAddress == "" {

@@ -7,10 +7,12 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-type Key struct {
-	Public  string `db:"public_key" json:"publicKey"`
-	Private string `db:"private_key" json:"privateKey"`
-}
+type (
+	Key struct {
+		Public  string `db:"public_key" json:"publicKey"`
+		Private string `db:"private_key" json:"privateKey"`
+	}
+)
 
 func GenerateKeyPair() (Key, error) {
 	privateKey, err := crypto.GenerateKey()
@@ -20,7 +22,7 @@ func GenerateKeyPair() (Key, error) {
 	privateKeyBytes := crypto.FromECDSA(privateKey)
 
 	publicKey := privateKey.Public()
-	publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
+	publicKeyECDSA, _ := publicKey.(*ecdsa.PublicKey)
 
 	return Key{
 		Public:  crypto.PubkeyToAddress(*publicKeyECDSA).Hex(),

@@ -23,6 +23,7 @@ type (
 
 	RelayDelegateWorker struct {
 		river.WorkerDefaults[RelayDelegateArgs]
+
 		wc *WorkerContainer
 	}
 
@@ -40,6 +41,7 @@ type (
 
 	RelayWorker struct {
 		river.WorkerDefaults[RelayArgs]
+
 		wc *WorkerContainer
 	}
 )

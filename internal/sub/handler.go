@@ -52,7 +52,7 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				s.logg.Warn("Sub: token deploy meta missing for confirmed OTX, skipping finalization", "otxId", otx.ID)
-				s.pub.Send(ctx, custodialEvent.Event{TrackingID: otx.TrackingID, Status: updateDispatchStatus.Status})
+				_ = s.pub.Send(ctx, custodialEvent.Event{TrackingID: otx.TrackingID, Status: updateDispatchStatus.Status})
 				return tx.Commit(ctx)
 			}
 			return err
@@ -95,7 +95,7 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				s.logg.Warn("Sub: pool deploy meta missing for confirmed OTX, skipping finalization", "otxId", otx.ID)
-				s.pub.Send(ctx, custodialEvent.Event{TrackingID: otx.TrackingID, Status: updateDispatchStatus.Status})
+				_ = s.pub.Send(ctx, custodialEvent.Event{TrackingID: otx.TrackingID, Status: updateDispatchStatus.Status})
 				return tx.Commit(ctx)
 			}
 			return err
@@ -137,7 +137,7 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		}
 	}
 
-	s.pub.Send(ctx, custodialEvent.Event{
+	_ = s.pub.Send(ctx, custodialEvent.Event{
 		TrackingID: otx.TrackingID,
 		Status:     updateDispatchStatus.Status,
 	})

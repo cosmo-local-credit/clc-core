@@ -90,7 +90,7 @@ func loadFederationQueries(queriesPath string) (*FederationQueries, error) {
 
 	loaded := &FederationQueries{}
 	if err := goyesql.ScanToStruct(loaded, parsedQueries, nil); err != nil {
-		return nil, fmt.Errorf("failed to scan federation queries: %v", err)
+		return nil, fmt.Errorf("failed to scan federation queries: %w", err)
 	}
 	return loaded, nil
 }

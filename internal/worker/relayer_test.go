@@ -11,7 +11,7 @@ func TestRelayDelegateArgsUniqueByEphemeralAddress(t *testing.T) {
 		t.Fatal("RelayDelegateArgs must be unique by args")
 	}
 
-	field, ok := reflect.TypeOf(RelayDelegateArgs{}).FieldByName("EphemeralAddress")
+	field, ok := reflect.TypeFor[RelayDelegateArgs]().FieldByName("EphemeralAddress")
 	if !ok {
 		t.Fatal("RelayDelegateArgs.EphemeralAddress field missing")
 	}

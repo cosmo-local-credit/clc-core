@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type User struct {
+type (
+	User struct {
 	ID              uint64    `db:"id"               json:"id"`
 	EthereumAddress string    `db:"ethereum_address" json:"ethereumAddress"`
 	Name            string    `db:"name"             json:"name"`
@@ -22,6 +23,7 @@ type User struct {
 	CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
 	UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
 }
+)
 
 func (pg *Pg) InsertUser(ctx context.Context, tx pgx.Tx, u User) (User, error) {
 	var inserted User

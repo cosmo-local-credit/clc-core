@@ -52,6 +52,7 @@ type (
 
 	DeployPoolWorker struct {
 		river.WorkerDefaults[DeployPoolArgs]
+
 		wc *WorkerContainer
 	}
 )
@@ -133,7 +134,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 
 	// Acquire consecutive nonces for all deployments.
 	signerNonces := make([]uint64, totalDeployments)
-	for i := 0; i < totalDeployments; i++ {
+	for i := range totalDeployments {
 		nonce, err := w.wc.store.AcquireNonce(ctx, dbTx, signerAddress.Hex())
 		if err != nil {
 			return err

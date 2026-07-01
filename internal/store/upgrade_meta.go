@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type UpgradeMeta struct {
+type (
+	UpgradeMeta struct {
 	ID               uint64    `db:"id"                json:"id"`
 	OTXID            uint64    `db:"otx_id"            json:"otxId"`
 	ProxyAddress     string    `db:"proxy_address"     json:"proxyAddress"`
@@ -17,6 +18,7 @@ type UpgradeMeta struct {
 	Version          string    `db:"version"           json:"version"`
 	CreatedAt        time.Time `db:"created_at"        json:"createdAt"`
 }
+)
 
 func (pg *Pg) InsertUpgradeMeta(ctx context.Context, tx pgx.Tx, meta UpgradeMeta) error {
 	_, err := tx.Exec(

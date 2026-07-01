@@ -17,14 +17,14 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 )
 
-const migrationTimeout = 15 * time.Second
-
-// infoHandler suppresses debug logs from River without touching the global logger.
-type infoHandler struct{ slog.Handler }
-
-func (h infoHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= slog.LevelInfo }
+const (
+	migrationTimeout = 15 * time.Second
+)
 
 type (
+	// infoHandler suppresses debug logs from River without touching the global logger.
+	infoHandler struct{ slog.Handler }
+
 	WorkerOpts struct {
 		MaxWorkers           int
 		GasOracle            gas.GasOracle
@@ -50,6 +50,8 @@ type (
 		accountIndexAddress common.Address
 	}
 )
+
+func (h infoHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= slog.LevelInfo }
 
 func New(o WorkerOpts) *WorkerContainer {
 	return &WorkerContainer{

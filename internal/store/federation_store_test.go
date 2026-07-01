@@ -1,6 +1,8 @@
 package store
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestFederationStoreInterfaceCompile(t *testing.T) {
 	var _ FederationStore = (*FederationPg)(nil)
