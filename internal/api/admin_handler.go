@@ -65,7 +65,7 @@ func (a *API) adminSetUserStatus(c *echo.Context, status string) error {
 		})
 	}
 
-	address := strings.ToLower(param.Address)
+	address := common.HexToAddress(param.Address).Hex()
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -113,7 +113,7 @@ func (a *API) adminUpdateUserLimitsHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
-	address := strings.ToLower(param.Address)
+	address := common.HexToAddress(param.Address).Hex()
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)

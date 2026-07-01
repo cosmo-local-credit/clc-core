@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -44,7 +46,7 @@ func (a *API) signupHandler(c *echo.Context) error {
 
 	// 2. Confirm the address embedded in the message matches the recovered signer.
 	msgAddr, err := util.ParseSIWEAddress(req.Message)
-	if err != nil || signerAddr != msgAddr {
+	if err != nil || !strings.EqualFold(signerAddr, msgAddr) {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeValidationFailed,
@@ -88,7 +90,7 @@ func (a *API) signupHandler(c *echo.Context) error {
 		Name:            req.Name,
 		Email:           strings.ToLower(req.Email),
 		Role:            "USER",
-		Status:          "PENDING",
+		Status:          "APPROVED",
 		MaxPools:        10,
 		MaxTokens:       20,
 	})
@@ -99,6 +101,14 @@ func (a *API) signupHandler(c *echo.Context) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+
+	// Sign-up auto-approves, so issue the session cookie immediately — a new
+	// user is authenticated without a separate sign-in round-trip.
+	tokenStr, err := a.generateUserToken(user)
+	if err != nil {
+		return err
+	}
+	a.setUserAuthCookie(c, tokenStr)
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
@@ -132,7 +142,7 @@ func (a *API) signinHandler(c *echo.Context) error {
 
 	// 2. Address consistency check.
 	msgAddr, err := util.ParseSIWEAddress(req.Message)
-	if err != nil || signerAddr != msgAddr {
+	if err != nil || !strings.EqualFold(signerAddr, msgAddr) {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeValidationFailed,
@@ -208,11 +218,125 @@ func (a *API) signinHandler(c *echo.Context) error {
 }
 
 func (a *API) logoutHandler(c *echo.Context) error {
-	clearUserAuthCookie(c)
+	a.clearUserAuthCookie(c)
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "Signed out successfully",
 		Result:      map[string]any{},
+	})
+}
+
+// webAuthnSigninHandler verifies a WebAuthn assertion against a stored
+// credential and, for a registered + approved user, issues the session cookie.
+//
+// This is the passkey analogue of signinHandler. A passkey assertion is itself
+// an authentication (device-bound credential + user verification), so — unlike
+// a raw private key / paper wallet, which anyone can load and therefore must
+// prove control of via a SIWE signature — no SIWE message is required. The
+// challenge is issued by the relayer WebAuthn challenge endpoint and consumed
+// by VerifyAssertion (shared relayer challenge store).
+func (a *API) webAuthnSigninHandler(c *echo.Context) error {
+	var req apiresp.WebAuthnRecoverRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Resolve the credential -> wallet address + P-256 public key.
+	cred, err := a.store.GetWebAuthnCredential(ctx, tx, req.CredentialID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrNoRecordFound,
+				Description: "credential not found",
+			})
+		}
+		return err
+	}
+
+	// 2. Verify the WebAuthn assertion — the authentication step, equivalent to
+	//    SIWE ecrecover for EOAs.
+	if err := a.relayer.VerifyAssertion(ctx, relayer.VerifyAssertionArgs{
+		AuthenticatorData: req.AuthenticatorData,
+		ClientDataJSON:    req.ClientDataJSON,
+		Signature:         req.Signature,
+		PublicKeyX:        cred.PublicKeyX,
+		PublicKeyY:        cred.PublicKeyY,
+	}); err != nil {
+		a.logg.Warn("webauthn signin verification failed",
+			"credentialId", req.CredentialID,
+			"err", err,
+		)
+		return c.JSON(http.StatusUnauthorized, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeWebAuthnVerificationFailed,
+			Description: "WebAuthn verification failed",
+		})
+	}
+
+	// 3. Look up the registered user behind the recovered address. cred.Address
+	//    is the checksummed canonical form; GetUserByAddress matches
+	//    case-insensitively, so it resolves regardless of stored casing.
+	user, err := a.store.GetUserByAddress(ctx, tx, cred.Address)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeNotFound,
+				Description: "address not registered, please sign up first",
+			})
+		}
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// 4. Gate on approval status (mirrors signinHandler).
+	switch user.Status {
+	case "PENDING":
+		return c.JSON(http.StatusForbidden, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeForbidden,
+			Description: "account is pending approval by a superadmin",
+		})
+	case "REJECTED":
+		return c.JSON(http.StatusForbidden, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeForbidden,
+			Description: "account has been rejected",
+		})
+	}
+
+	// 5. Issue JWT and set the session cookie.
+	tokenStr, err := a.generateUserToken(user)
+	if err != nil {
+		return err
+	}
+	a.setUserAuthCookie(c, tokenStr)
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Signed in successfully",
+		Result: map[string]any{
+			"userId":     user.ID,
+			"role":       user.Role,
+			"address":    cred.Address,
+			"keyHash":    cred.KeyHash,
+			"publicKeyX": cred.PublicKeyX,
+			"publicKeyY": cred.PublicKeyY,
+		},
 	})
 }
 
@@ -230,7 +354,9 @@ func (a *API) sessionHandler(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"address": token.EthereumAddress,
+		// Always emit the EIP-55 checksummed form, even for legacy lowercase
+		// tokens, so clients receive a consistent canonical address.
+		"address": common.HexToAddress(token.EthereumAddress).Hex(),
 		"chainId": a.chainID,
 	})
 }

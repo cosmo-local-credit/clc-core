@@ -14,40 +14,51 @@ import (
 
 type (
 	Queries struct {
-		InsertKeyPair             string `query:"insert-keypair"`
-		ActivateKeyPair           string `query:"activate-keypair"`
-		LoadMasterKey             string `query:"load-master-key"`
-		BootstrapMasterKey        string `query:"bootstrap-master-key"`
-		AcquireNonce              string `query:"acquire-nonce"`
-		InsertOTX                 string `query:"insert-otx"`
-		GetOTXByTxHash            string `query:"get-otx-by-tx-hash"`
-		InsertDispatchTx          string `query:"insert-dispatch-tx"`
-		UpdateDispatchTxStatus    string `query:"update-dispatch-tx-status"`
-		GetPlatformContracts      string `query:"get-platform-contracts"`
-		InsertDeployedToken       string `query:"insert-deployed-token"`
-		GetDeployedTokenByAddress string `query:"get-deployed-token-by-address"`
-		InsertTokenDeployMeta     string `query:"insert-token-deploy-meta"`
-		GetTokenDeployMetaByOTXID string `query:"get-token-deploy-meta-by-otx-id"`
-		GetPoolAddress            string `query:"get-pool-address"`
-		SetPoolAddress            string `query:"set-pool-address"`
-		InsertDeployedPool        string `query:"insert-deployed-pool"`
-		GetDeployedPoolByAddress  string `query:"get-deployed-pool-by-address"`
-		InsertPoolDeployMeta      string `query:"insert-pool-deploy-meta"`
-		GetPoolDeployMetaByOTXID  string `query:"get-pool-deploy-meta-by-otx-id"`
-		GetOracleFeedByName       string `query:"get-oracle-feed-by-name"`
-		ListOracleFeeds           string `query:"list-oracle-feeds"`
-		GetOTXByTrackingID        string `query:"get-otx-by-tracking-id"`
-		GetOTXByAccount           string `query:"get-otx-by-account"`
-		GetOTXByAccountNext       string `query:"get-otx-by-account-next"`
-		GetOTXByAccountPrev       string `query:"get-otx-by-account-prev"`
-		PeekNonce                 string `query:"peek-nonce"`
-		CheckKeypair              string `query:"check-keypair"`
+		InsertKeyPair                string `query:"insert-keypair"`
+		ActivateKeyPair              string `query:"activate-keypair"`
+		LoadMasterKey                string `query:"load-master-key"`
+		BootstrapMasterKey           string `query:"bootstrap-master-key"`
+		AcquireNonce                 string `query:"acquire-nonce"`
+		InsertOTX                    string `query:"insert-otx"`
+		GetOTXByTxHash               string `query:"get-otx-by-tx-hash"`
+		InsertDispatchTx             string `query:"insert-dispatch-tx"`
+		UpdateDispatchTxStatus       string `query:"update-dispatch-tx-status"`
+		GetPlatformContracts         string `query:"get-platform-contracts"`
+		InsertDeployedToken          string `query:"insert-deployed-token"`
+		InsertDeployedTokenTag       string `query:"insert-deployed-token-tag"`
+		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
+		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
+		InsertTokenDeployMeta        string `query:"insert-token-deploy-meta"`
+		InsertTokenDeployMetaTag     string `query:"insert-token-deploy-meta-tag"`
+		GetTokenDeployMetaByOTXID    string `query:"get-token-deploy-meta-by-otx-id"`
+		GetTokenDeployMetaTags       string `query:"get-token-deploy-meta-tags"`
+		ListTokenTags                string `query:"list-token-tags"`
+		GetPoolAddress               string `query:"get-pool-address"`
+		SetPoolAddress               string `query:"set-pool-address"`
+		InsertDeployedPool           string `query:"insert-deployed-pool"`
+		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
+		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
+		InsertPoolDeployMeta         string `query:"insert-pool-deploy-meta"`
+		InsertPoolDeployMetaTag      string `query:"insert-pool-deploy-meta-tag"`
+		GetPoolDeployMetaByOTXID     string `query:"get-pool-deploy-meta-by-otx-id"`
+		GetPoolDeployMetaTags        string `query:"get-pool-deploy-meta-tags"`
+		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
+		GetOracleFeedByName          string `query:"get-oracle-feed-by-name"`
+		ListOracleFeeds              string `query:"list-oracle-feeds"`
+		GetOTXByTrackingID           string `query:"get-otx-by-tracking-id"`
+		GetOTXByAccount              string `query:"get-otx-by-account"`
+		GetOTXByAccountNext          string `query:"get-otx-by-account-next"`
+		GetOTXByAccountPrev          string `query:"get-otx-by-account-prev"`
+		PeekNonce                    string `query:"peek-nonce"`
+		CheckKeypair                 string `query:"check-keypair"`
 
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
 		GetUserByID                   string `query:"get-user-by-id"`
 		UpdateUserStatus              string `query:"update-user-status"`
+		ApprovePendingUserByAddress   string `query:"approve-pending-user-by-address"`
 		UpdateUserLimits              string `query:"update-user-limits"`
+		UpdateUserProfile             string `query:"update-user-profile"`
 		ListUsers                     string `query:"list-users"`
 		ListUsersByStatus             string `query:"list-users-by-status"`
 		CountUserTokens               string `query:"count-user-tokens"`
@@ -57,7 +68,11 @@ type (
 		GetUserDeploymentByTrackingID string `query:"get-user-deployment-by-tracking-id"`
 		ListAllDeployments            string `query:"list-all-deployments"`
 		ListTokensByUser              string `query:"list-tokens-by-user"`
+		ListTokensByUserNext          string `query:"list-tokens-by-user-next"`
+		ListTokensByUserPrev          string `query:"list-tokens-by-user-prev"`
 		ListPoolsByUser               string `query:"list-pools-by-user"`
+		ListPoolsByUserNext           string `query:"list-pools-by-user-next"`
+		ListPoolsByUserPrev           string `query:"list-pools-by-user-prev"`
 		ListAllTokens                 string `query:"list-all-tokens"`
 		ListAllPools                  string `query:"list-all-pools"`
 
@@ -65,6 +80,10 @@ type (
 		ListPlatformContracts string `query:"list-platform-contracts"`
 		InsertUpgradeMeta     string `query:"insert-upgrade-meta"`
 		GetUpgradeMetaByOTXID string `query:"get-upgrade-meta-by-otx-id"`
+
+		UpsertWebAuthnCredential string `query:"upsert-webauthn-credential"`
+		GetWebAuthnCredential    string `query:"get-webauthn-credential"`
+		SetNonceIfHigher         string `query:"set-nonce-if-higher"`
 	}
 
 	PgOpts struct {
@@ -112,6 +131,11 @@ func NewPgStore(o PgOpts) (Store, error) {
 func (s *Pg) Bootstrap() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	if err := s.db.Ping(ctx); err != nil {
+		s.db.Close()
+		return err
+	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMigration002Exists(t *testing.T) {
+func TestBaselineMigrationExists(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 
@@ -78,8 +78,24 @@ func TestBaselineMigrationContainsCurrentSchema(t *testing.T) {
 	assert.Contains(t, s, "('KES',  '0x85d4Ec34339478F73c153710B19f2D5C402dce6F')")
 	assert.Contains(t, s, "ON CONFLICT (name) DO UPDATE SET")
 	assert.Contains(t, s, "updated_at = CURRENT_TIMESTAMP")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS upgrade_meta")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS token_tag")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS token_deploy_meta_tags")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS deployed_token_tags")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS pool_deploy_meta_tags")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS deployed_pool_tags")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS webauthn_credentials")
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS users")
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS user_deployments")
+	assert.Contains(t, s, "CONSTRAINT keystore_public_key_key UNIQUE (public_key)")
+	assert.Contains(t, s, "RELAY_DELEGATE")
+	assert.Contains(t, s, "RELAY_EXEC")
+	assert.Contains(t, s, "RELAY_DELEGATE_EXEC")
+	assert.Contains(t, s, "ACCOUNT_REGISTER")
+	assert.Contains(t, s, "blockchain_address")
+	assert.Contains(t, s, "CONSTRAINT users_email_unique UNIQUE (email)")
+	assert.Contains(t, s, "CONSTRAINT users_phone_unique UNIQUE (phone)")
+	assert.Contains(t, s, "CONSTRAINT users_at_least_one_contact CHECK (email IS NOT NULL OR phone IS NOT NULL)")
 	assert.Contains(t, s, "user_role")
 	assert.Contains(t, s, "user_status")
 	assert.Contains(t, s, "SUPERADMIN")

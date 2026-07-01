@@ -7,7 +7,9 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
+	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -24,33 +26,42 @@ func (h infoHandler) Enabled(_ context.Context, l slog.Level) bool { return l >=
 
 type (
 	WorkerOpts struct {
-		MaxWorkers    int
-		GasOracle     gas.GasOracle
-		Store         store.Store
-		Logg          *slog.Logger
-		ChainProvider *ethutils.Provider
-		Pub           *pub.Pub
+		MaxWorkers           int
+		GasOracle            gas.GasOracle
+		Store                store.Store
+		FederationStore      store.FederationStore
+		Logg                 *slog.Logger
+		ChainProvider        *ethutils.Provider
+		Pub                  *pub.Pub
+		Relayer              *relayer.Relayer
+		AccountIndexAddress  common.Address
 	}
 
 	WorkerContainer struct {
-		queueClient   *river.Client[pgx.Tx]
-		maxWorkers    int
-		gasOracle     gas.GasOracle
-		store         store.Store
-		logg          *slog.Logger
-		chainProvider *ethutils.Provider
-		pub           *pub.Pub
+		queueClient         *river.Client[pgx.Tx]
+		maxWorkers          int
+		gasOracle           gas.GasOracle
+		store               store.Store
+		federationStore     store.FederationStore
+		logg                *slog.Logger
+		chainProvider       *ethutils.Provider
+		pub                 *pub.Pub
+		relayer             *relayer.Relayer
+		accountIndexAddress common.Address
 	}
 )
 
 func New(o WorkerOpts) *WorkerContainer {
 	return &WorkerContainer{
-		maxWorkers:    o.MaxWorkers,
-		gasOracle:     o.GasOracle,
-		store:         o.Store,
-		logg:          o.Logg,
-		chainProvider: o.ChainProvider,
-		pub:           o.Pub,
+		maxWorkers:          o.MaxWorkers,
+		gasOracle:           o.GasOracle,
+		store:               o.Store,
+		federationStore:     o.FederationStore,
+		logg:                o.Logg,
+		chainProvider:       o.ChainProvider,
+		pub:                 o.Pub,
+		relayer:             o.Relayer,
+		accountIndexAddress: o.AccountIndexAddress,
 	}
 }
 
@@ -117,7 +128,31 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 		return nil, err
 	}
 
+	if err := river.AddWorkerSafely(workers, &RetrierWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &ReceiptCheckerWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
 	if err := river.AddWorkerSafely(workers, &UpgradeProxyWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &RelayDelegateWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &RelayWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &ApproveLegacyUserWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &RegisterUserWorker{wc: wc}); err != nil {
 		return nil, err
 	}
 

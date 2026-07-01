@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: clc_core
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d clc_core"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clc-core:
+    image: docker.io/kamikazechaser/clc-core:latest
+    restart: unless-stopped
+    ports:
+      - "5003:5003"
+    volumes:
+      - ./config.toml:/service/config.toml:ro
+    environment:
+      CUSTODIAL_POSTGRES__DSN: postgres://postgres:postgres@postgres:5432/clc_core
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

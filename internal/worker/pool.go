@@ -22,24 +22,32 @@ import (
 
 type (
 	DeployPoolArgs struct {
-		TrackingID                 string `json:"trackingId"`
-		PoolName                   string `json:"poolName"`
-		PoolSymbol                 string `json:"poolSymbol"`
-		PoolDecimals               string `json:"poolDecimals"`
-		Owner                      string `json:"owner"`
-		QuoterType                 string `json:"quoterType"`
-		FeesDecoupled              bool   `json:"feesDecoupled"`
-		FeePolicyDefaultFee        string `json:"feePolicyDefaultFee"`
-		BaseCurrency               string `json:"baseCurrency"`
-		FactoryAddress             string `json:"factoryAddress"`
-		SwapPoolImplAddress        string `json:"swapPoolImplAddress"`
-		TokenIndexImplAddress      string `json:"tokenIndexImplAddress"`
-		LimiterImplAddress         string `json:"limiterImplAddress"`
-		FeePolicyImplAddress       string `json:"feePolicyImplAddress"`
-		QuoterImplAddress          string `json:"quoterImplAddress"`
-		DecimalQuoterAddress       string `json:"decimalQuoterAddress"`
-		ProtocolFeeController      string `json:"protocolFeeController"`
-		SwapPoolPlatformContractID uint64 `json:"swapPoolPlatformContractId"`
+		TrackingID                 string   `json:"trackingId"`
+		PoolName                   string   `json:"poolName"`
+		PoolSymbol                 string   `json:"poolSymbol"`
+		PoolDecimals               string   `json:"poolDecimals"`
+		Owner                      string   `json:"owner"`
+		QuoterType                 string   `json:"quoterType"`
+		FeesDecoupled              bool     `json:"feesDecoupled"`
+		FeePolicyDefaultFee        string   `json:"feePolicyDefaultFee"`
+		BaseCurrency               string   `json:"baseCurrency"`
+		FactoryAddress             string   `json:"factoryAddress"`
+		SwapPoolImplAddress        string   `json:"swapPoolImplAddress"`
+		TokenIndexImplAddress      string   `json:"tokenIndexImplAddress"`
+		LimiterImplAddress         string   `json:"limiterImplAddress"`
+		FeePolicyImplAddress       string   `json:"feePolicyImplAddress"`
+		QuoterImplAddress          string   `json:"quoterImplAddress"`
+		DecimalQuoterAddress       string   `json:"decimalQuoterAddress"`
+		ProtocolFeeController      string   `json:"protocolFeeController"`
+		SwapPoolPlatformContractID uint64   `json:"swapPoolPlatformContractId"`
+		Description                string   `json:"description"`
+		Website                    string   `json:"website"`
+		Email                      string   `json:"email"`
+		Phone                      string   `json:"phone"`
+		LocationName               string   `json:"locationName"`
+		GeoLat                     *float64 `json:"geoLat"`
+		GeoLng                     *float64 `json:"geoLng"`
+		Tags                       []string `json:"tags"`
 	}
 
 	DeployPoolWorker struct {
@@ -165,7 +173,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	tokenIndexPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[0], tokenIndexSignedTx)
+	tokenIndexPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_TOKEN_INDEX_DEPLOY, signerAddress.Hex(), signerNonces[0], tokenIndexSignedTx)
 	if err != nil {
 		return err
 	}
@@ -200,19 +208,17 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	limiterPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[1], limiterSignedTx)
+	limiterPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_LIMITER_DEPLOY, signerAddress.Hex(), signerNonces[1], limiterSignedTx)
 	if err != nil {
 		return err
 	}
 
 	// 3. FeePolicy
-	var feePolicyDefaultFee uint64
-	if args.FeePolicyDefaultFee != "" {
-		feePolicyDefaultFee, err = strconv.ParseUint(args.FeePolicyDefaultFee, 10, 64)
-		if err != nil {
-			return err
-		}
+	feePolicyPercent, err := strconv.ParseFloat(args.FeePolicyDefaultFee, 64)
+	if err != nil {
+		return err
 	}
+	feePolicyDefaultFee := uint64(feePolicyPercent * 10_000)
 
 	feePolicyInit, err := feepolicy.EncodeInit(feepolicy.InitArgs{
 		Owner:      ownerAddress,
@@ -244,7 +250,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	feePolicyPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[2], feePolicySignedTx)
+	feePolicyPrepared, err := w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_FEE_POLICY_DEPLOY, signerAddress.Hex(), signerNonces[2], feePolicySignedTx)
 	if err != nil {
 		return err
 	}
@@ -253,6 +259,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	var quoterPrepared *preparedTx
 	if needsQuoterProxy {
 		var quoterInit []byte
+		var quoterOTXType string
 
 		switch args.QuoterType {
 		case "oracle":
@@ -260,10 +267,12 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 				Owner:        ownerAddress,
 				BaseCurrency: common.HexToAddress(args.BaseCurrency),
 			})
+			quoterOTXType = store.POOL_ORACLE_QUOTER_DEPLOY
 		case "relative":
 			quoterInit, err = relativequoter.EncodeInit(relativequoter.InitArgs{
 				Owner: ownerAddress,
 			})
+			quoterOTXType = store.POOL_RELATIVE_QUOTER_DEPLOY
 		}
 		if err != nil {
 			return err
@@ -291,7 +300,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 			return err
 		}
 
-		quoterPrepared, err = w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, store.POOL_DEPLOY_STEP, signerAddress.Hex(), signerNonces[3], quoterSignedTx)
+		quoterPrepared, err = w.wc.insertTrackedTx(ctx, dbTx, args.TrackingID, quoterOTXType, signerAddress.Hex(), signerNonces[3], quoterSignedTx)
 		if err != nil {
 			return err
 		}
@@ -357,8 +366,21 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		ProtocolFeeControllerAddress: args.ProtocolFeeController,
 		FeesDecoupled:                args.FeesDecoupled,
 		Admin:                        ownerAddress.Hex(),
+		Description:                  nilIfEmpty(args.Description),
+		Website:                      nilIfEmpty(args.Website),
+		Email:                        nilIfEmpty(args.Email),
+		Phone:                        nilIfEmpty(args.Phone),
+		LocationName:                 nilIfEmpty(args.LocationName),
+		GeoLat:                       args.GeoLat,
+		GeoLng:                       args.GeoLng,
 	}); err != nil {
 		return err
+	}
+
+	for _, tag := range args.Tags {
+		if err := w.wc.store.InsertPoolDeployMetaTag(ctx, dbTx, swapPoolPrepared.OTXID, tag); err != nil {
+			return err
+		}
 	}
 
 	dispatchParams := []river.InsertManyParams{
@@ -367,6 +389,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 				TrackingID: args.TrackingID,
 				OTXID:      tokenIndexPrepared.OTXID,
 				RawTx:      tokenIndexPrepared.RawHex,
+				TxHash:     tokenIndexPrepared.Hash,
 			},
 			InsertOpts: &river.InsertOpts{Priority: 2},
 		},
@@ -375,6 +398,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 				TrackingID: args.TrackingID,
 				OTXID:      limiterPrepared.OTXID,
 				RawTx:      limiterPrepared.RawHex,
+				TxHash:     limiterPrepared.Hash,
 			},
 			InsertOpts: &river.InsertOpts{Priority: 2},
 		},
@@ -383,6 +407,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 				TrackingID: args.TrackingID,
 				OTXID:      feePolicyPrepared.OTXID,
 				RawTx:      feePolicyPrepared.RawHex,
+				TxHash:     feePolicyPrepared.Hash,
 			},
 			InsertOpts: &river.InsertOpts{Priority: 2},
 		},
@@ -393,6 +418,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 				TrackingID: args.TrackingID,
 				OTXID:      quoterPrepared.OTXID,
 				RawTx:      quoterPrepared.RawHex,
+				TxHash:     quoterPrepared.Hash,
 			},
 			InsertOpts: &river.InsertOpts{Priority: 2},
 		})
@@ -402,6 +428,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 			TrackingID: args.TrackingID,
 			OTXID:      swapPoolPrepared.OTXID,
 			RawTx:      swapPoolPrepared.RawHex,
+			TxHash:     swapPoolPrepared.Hash,
 		},
 		InsertOpts: &river.InsertOpts{Priority: 1},
 	})

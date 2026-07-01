@@ -2,12 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"crypto"
-
+	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/go-playground/validator/v10"
@@ -20,32 +20,36 @@ import (
 
 type (
 	APIOpts struct {
-		ListenAddress string
-		Build         string
-		Prod          bool
-		CORS          []string
-		VerifyingKey  crypto.PublicKey
-		SigningKey    crypto.PrivateKey
-		Store         store.Store
-		Logg          *slog.Logger
-		ChainProvider *ethutils.Provider
-		QueueClient   *river.Client[pgx.Tx]
-		ChainID       int64
+		ListenAddress   string
+		Build           string
+		Prod            bool
+		CORS            []string
+		VerifyingKey    crypto.PublicKey
+		SigningKey      crypto.PrivateKey
+		Store           store.Store
+		FederationStore store.FederationStore
+		Logg            *slog.Logger
+		ChainProvider   *ethutils.Provider
+		QueueClient     *river.Client[pgx.Tx]
+		ChainID         int64
+		Relayer         *relayer.Relayer
 	}
 
 	API struct {
-		listenAddress string
-		build         string
-		prod          bool
-		signingKey    crypto.PrivateKey
-		verifyingKey  crypto.PublicKey
-		siweNonces    *util.SIWENonceStore
-		store         store.Store
-		logg          *slog.Logger
-		chainProvider *ethutils.Provider
-		server        *http.Server
-		queueClient   *river.Client[pgx.Tx]
-		chainID       int64
+		listenAddress   string
+		build           string
+		prod            bool
+		signingKey      crypto.PrivateKey
+		verifyingKey    crypto.PublicKey
+		siweNonces      *util.SIWENonceStore
+		store           store.Store
+		federationStore store.FederationStore
+		logg            *slog.Logger
+		chainProvider   *ethutils.Provider
+		server          *http.Server
+		queueClient     *river.Client[pgx.Tx]
+		chainID         int64
+		relayer         *relayer.Relayer
 	}
 )
 
@@ -59,17 +63,19 @@ func New(o APIOpts) *API {
 	siweNonces.StartCleanup(time.Minute)
 
 	a := &API{
-		prod:          o.Prod,
-		build:         o.Build,
-		signingKey:    o.SigningKey,
-		verifyingKey:  o.VerifyingKey,
-		siweNonces:    siweNonces,
-		listenAddress: o.ListenAddress,
-		logg:          o.Logg,
-		store:         o.Store,
-		chainProvider: o.ChainProvider,
-		queueClient:   o.QueueClient,
-		chainID:       o.ChainID,
+		prod:            o.Prod,
+		build:           o.Build,
+		signingKey:      o.SigningKey,
+		verifyingKey:    o.VerifyingKey,
+		siweNonces:      siweNonces,
+		listenAddress:   o.ListenAddress,
+		logg:            o.Logg,
+		store:           o.Store,
+		federationStore: o.FederationStore,
+		chainProvider:   o.ChainProvider,
+		queueClient:     o.QueueClient,
+		chainID:         o.ChainID,
+		relayer:         o.Relayer,
 	}
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
@@ -79,12 +85,7 @@ func New(o APIOpts) *API {
 	}
 	router.HTTPErrorHandler = a.customHTTPErrorHandler
 
-	corsConfig := middleware.CORSConfig{
-		AllowOrigins:     o.CORS,
-		AllowCredentials: true,
-		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
-		MaxAge:           86400,
-	}
+	corsConfig := newCORSConfig(o.CORS)
 
 	router.Use(middleware.Recover())
 	router.Use(middleware.BodyLimit(maxBodySize))
@@ -129,7 +130,18 @@ func New(o APIOpts) *API {
 	authGroup.POST("/signup", a.signupHandler)
 	authGroup.POST("/signin", a.signinHandler)
 	authGroup.POST("/logout", a.logoutHandler)
+	authGroup.POST("/webauthn/verify", a.webAuthnSigninHandler)
 	authGroup.GET("/session", a.sessionHandler)
+
+	// SIWE unified verify (public — returns JWT for approved users)
+	siweGroup := router.Group("/auth/siwe")
+	siweGroup.POST("/nonce", a.nonceHandler)
+	siweGroup.POST("/verify", a.siweVerifyHandler)
+
+	// Authenticated profile routes
+	profileAuthGroup := router.Group("/auth", a.flexibleAuthMiddleware(), a.requireUserAuth())
+	profileAuthGroup.GET("/profile", a.profileGetHandler)
+	profileAuthGroup.POST("/profile", a.profileUpdateHandler)
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
@@ -141,8 +153,10 @@ func New(o APIOpts) *API {
 	apiGroup.POST("/contracts/upgrade/token", a.upgradeTokenHandler)
 	apiGroup.POST("/contracts/upgrade/pool", a.upgradePoolHandler)
 
+	apiGroup.GET("/token-tags", a.tokenTagsHandler)
 	apiGroup.GET("/system", a.systemHandler)
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)
+	apiGroup.GET("/otx/track/:trackingId/contract", a.trackContractHandler)
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
@@ -150,7 +164,9 @@ func New(o APIOpts) *API {
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
+	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)
+	userGroup.GET("/me/pools/:address", a.userPoolByAddressHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
 
 	// Superadmin-only routes
@@ -163,10 +179,39 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 
+	// Federation data routes — only if federation store is available
+	if a.federationStore != nil {
+		fedGroup := apiGroup.Group("/federation")
+		fedGroup.GET("/system", a.federationSystemHandler)
+	}
+
+	// Relayer (EIP-7702 / Calibur) routes. Mounted on a fresh group outside
+	// flexibleAuthMiddleware because first-time WebAuthn registration
+	// happens pre-JWT.
+	relayerGroup := router.Group(apiVersion + "/relayer")
+	relayerGroup.GET("/health", a.relayerHealthHandler)
+	relayerGroup.GET("/nonce/:address", a.relayerEOANonceHandler)
+	relayerGroup.GET("/calibur-nonce/:address", a.caliburNonceHandler)
+	relayerGroup.GET("/calibur-nonce/:address/:keyHash", a.caliburNonceHandler)
+	relayerGroup.GET("/track/:trackingId", a.trackRelayerOTXHandler)
+	relayerGroup.POST("/delegate", a.delegateHandler)
+	relayerGroup.POST("/relay", a.relayHandler)
+	relayerGroup.POST("/relay/preview", a.relayPreviewHandler)
+	relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
+	relayerGroup.POST("/webauthn/recover", a.webAuthnRecoverHandler)
+
 	a.server = &http.Server{
 		Addr:    o.ListenAddress,
 		Handler: router,
 	}
+
+	// Log all registered routes for diagnostics
+	routes := router.Router().Routes()
+	a.logg.Debug("API routes registered", "count", len(routes))
+	for _, r := range routes {
+		a.logg.Debug("  route", "method", r.Method, "path", r.Path, "name", r.Name)
+	}
+
 	a.logg.Debug("API initialized", "listen_address", a.listenAddress)
 	return a
 }

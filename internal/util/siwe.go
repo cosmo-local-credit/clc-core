@@ -12,7 +12,7 @@ import (
 
 // ParseSIWEAddress parses the signer address from an EIP-4361 message.
 // Per the spec, line 1 is the domain preamble and line 2 is the raw Ethereum address.
-// Returns the address as a lowercase hex string.
+// Returns the EIP-55 checksummed address — the canonical form stored in the DB.
 func ParseSIWEAddress(message string) (string, error) {
 	lines := strings.Split(message, "\n")
 	if len(lines) < 2 {
@@ -24,9 +24,10 @@ func ParseSIWEAddress(message string) (string, error) {
 		return "", fmt.Errorf("siwe: invalid ethereum address on line 2: %q", raw)
 	}
 
-	// Use common.HexToAddress to normalise (handles EIP-55 checksum variants),
-	// then return as lowercase.
-	return strings.ToLower(common.HexToAddress(raw).Hex()), nil
+	// common.HexToAddress normalises any input casing; .Hex() returns the
+	// EIP-55 checksummed form. Callers compare with strings.EqualFold and
+	// lookups are case-insensitive, so casing never affects correctness.
+	return common.HexToAddress(raw).Hex(), nil
 }
 
 // ParseSIWENonce scans an EIP-4361 message for the "Nonce: " field and returns
@@ -77,5 +78,7 @@ func VerifySIWESignature(message, signature string) (string, error) {
 	}
 
 	addr := crypto.PubkeyToAddress(*pubKey)
-	return strings.ToLower(addr.Hex()), nil
+	// Return the EIP-55 checksummed address (the canonical DB form). Callers
+	// compare with strings.EqualFold and lookups are case-insensitive.
+	return addr.Hex(), nil
 }

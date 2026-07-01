@@ -1,19 +1,7 @@
-[service]
-# In "standalone" mode, the service will run all the components in a single process.
-# In "worker" mode, the service will run only the tasker and its dependencies.
-# In "api" mode, the service will run only the API and its dependencies.
-# In "sub" mode, the service will run only the JetStream subscriber and its dependencies.
-
-# If not running in "standalone" mode, all other mods must still be started independently and connect with each other.
-mode = "standalone"
-metrics = true
-
 [api]
 prod = false
 address = ":5003"
-docs = true
-jrpc = true
-cors = ["https://sarafu.network"]
+cors = ["https://sarafu.network", "http://localhost:3000", "http://localhost:3001", "http://192.168.1.20:3000"]
 # These are sample keys, replace them with your own in production.
 # openssl genpkey -algorithm ED25519 -out private.pem
 # openssl pkey -in private.pem -pubout -out public.pem
@@ -27,28 +15,53 @@ MC4CAQAwBQYDK2VwBCIEIMJ3D6UBk/inMyoPWNPYybNIA0TEinMrWiMEMvoCodXE
 -----END PRIVATE KEY-----"""
 
 [postgres]
-dsn = "postgres://postgres:postgres@127.0.0.1:5432/eth_custodial"
+dsn = "postgres://postgres:postgres@127.0.0.1:5432/clc_core"
+
+[federation]
+dsn = "postgres://postgres:postgres@127.0.0.1:5433/federation"
 
 [workers]
 max = 0
-prod = false
-
-[gas]
-oracle_type = "static"
 
 [chain]
-id = 1337
-rpc_endpoint = "http://localhost:8545"
-ge_registry = "0xEA7a52e565C43598011cC5f509b8252Eb3e8dbE5"
-# Certain chains implement the gas token as an ERC20 token as well. We block any transfer related to it at the API level.
-banned_tokens = ["0x471EcE3750Da237f93B8E339c536989b8978a438"]
+id = 42220
+rpc_endpoint = "https://r4-celo.grassecon.org"
 divvi_consumer = "0x5523058cdFfe5F3c1EaDADD5015E55C6E00fb439"
+# CICRegistry pointer contract — resolves well-known contract addresses
+# (AccountIndex, CustodialRegistrationProxy, etc.) via addressOf(bytes32).
+# Used to register users onchain when a Calibur wallet is activated.
+ge_registry = "0xEA7a52e565C43598011cC5f509b8252Eb3e8dbE5"
 
 [jetstream]
-endpoint = "nats://127.0.0.1:4222"
-id = "eth-custodial-1"
+endpoints = ["nats://127.0.0.1:4222"]
+id = "clc-core-dev"
 persist_duration_hrs = 48
+# Dev-only: drop the durable consumer on startup so we skip the backlog and
+# Leave false in production.
+skip_backlog = false
 
-[ens]
-endpoint = "http://localhost:5015"
-api_key = ""
+[relayer]
+# The relayer uses the master signing key stored in the DB (bootstrapped by
+# the store on first run). No separate private_key config is needed here.
+# Calibur implementation address on the target chain.
+# Celo mainnet: 0x1289fE793392fb1a905f78Ea23f632EDD3d15b85
+calibur_address = "0x1289fE793392fb1a905f78Ea23f632EDD3d15b85"
+# Relayed-batch gas budget. The first relay also delegates, and the Calibur
+# code is not live at the EOA until that tx executes, so eth_estimateGas would
+# revert — we budget from known per-action averages instead. The limit is
+# (base_exec_gas + per_call_gas*len(calls) [+ delegation_overhead_gas on the
+# first relay]) with a +10% safety bump, clamped to max_relay_gas.
+# per_call_gas should be the measured average gas of a single action.
+per_call_gas = 80000
+base_exec_gas = 50000
+delegation_overhead_gas = 150000
+max_relay_gas = 3000000
+# Extra gas added when the batch is signed by a WebAuthn/P256 passkey:
+# verifying a P-256 signature on chain costs far more than secp256k1 ecrecover
+# (no cheap precompile on every chain).
+webauthn_verify_gas = 400000
+# Gas limit for a bare delegation (no calldata).
+delegate_gas_limit = 200000
+# WebAuthn recovery verification.
+relying_party_id = "192.168.1.20"
+allowed_origins = ["http://localhost:3000", "http://192.168.1.20:3000"]
