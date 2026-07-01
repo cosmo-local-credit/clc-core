@@ -23,6 +23,13 @@ type (
 		ProtocolFeeControllerAddress string    `db:"protocol_fee_controller_address" json:"protocolFeeControllerAddress"`
 		FeesDecoupled                bool      `db:"fees_decoupled"                  json:"feesDecoupled"`
 		Admin                        string    `db:"admin"                           json:"admin"`
+		Description                  *string   `db:"description"                     json:"description"`
+		Website                      *string   `db:"website"                         json:"website"`
+		Email                        *string   `db:"email"                           json:"email"`
+		Phone                        *string   `db:"phone"                           json:"phone"`
+		LocationName                 *string   `db:"location_name"                   json:"locationName"`
+		GeoLat                       *float64  `db:"geo_lat"                         json:"geoLat"`
+		GeoLng                       *float64  `db:"geo_lng"                         json:"geoLng"`
 		CreatedAt                    time.Time `db:"created_at"                      json:"createdAt"`
 		UpdatedAt                    time.Time `db:"updated_at"                      json:"updatedAt"`
 	}
@@ -41,6 +48,15 @@ type (
 		ProtocolFeeControllerAddress string    `db:"protocol_fee_controller_address" json:"protocolFeeControllerAddress"`
 		FeesDecoupled                bool      `db:"fees_decoupled"                  json:"feesDecoupled"`
 		Admin                        string    `db:"admin"                           json:"admin"`
+		Description                  *string   `db:"description"                     json:"description"`
+		Website                      *string   `db:"website"                         json:"website"`
+		Email                        *string   `db:"email"                           json:"email"`
+		Phone                        *string   `db:"phone"                           json:"phone"`
+		LocationName                 *string   `db:"location_name"                   json:"locationName"`
+		GeoLat                       *float64  `db:"geo_lat"                         json:"geoLat"`
+		GeoLng                       *float64  `db:"geo_lng"                         json:"geoLng"`
+		Tags                         []string  `db:"tags"                            json:"tags"`
+		TrackingID                   string    `db:"tracking_id"                     json:"trackingId"`
 		CreatedAt                    time.Time `db:"created_at"                      json:"createdAt"`
 		UpdatedAt                    time.Time `db:"updated_at"                      json:"updatedAt"`
 	}
@@ -62,6 +78,13 @@ func (pg *Pg) InsertPoolDeployMeta(ctx context.Context, tx pgx.Tx, meta PoolDepl
 		meta.ProtocolFeeControllerAddress,
 		meta.FeesDecoupled,
 		meta.Admin,
+		meta.Description,
+		meta.Website,
+		meta.Email,
+		meta.Phone,
+		meta.LocationName,
+		meta.GeoLat,
+		meta.GeoLng,
 	)
 	return err
 }
@@ -99,6 +122,13 @@ func (pg *Pg) InsertDeployedPool(ctx context.Context, tx pgx.Tx, dp DeployedPool
 		dp.ProtocolFeeControllerAddress,
 		dp.FeesDecoupled,
 		dp.Admin,
+		dp.Description,
+		dp.Website,
+		dp.Email,
+		dp.Phone,
+		dp.LocationName,
+		dp.GeoLat,
+		dp.GeoLng,
 	).Scan(&id); err != nil {
 		return id, err
 	}
@@ -119,4 +149,47 @@ func (pg *Pg) GetDeployedPoolByAddress(ctx context.Context, tx pgx.Tx, address s
 	}
 
 	return dp, nil
+}
+
+func (pg *Pg) GetDeployedPoolByTrackingID(ctx context.Context, tx pgx.Tx, trackingID string) (DeployedPool, error) {
+	var dp DeployedPool
+
+	row, err := tx.Query(ctx, pg.queries.GetDeployedPoolByTrackingID, trackingID)
+	if err != nil {
+		return dp, err
+	}
+
+	if err := pgxscan.ScanOne(&dp, row); err != nil {
+		return dp, err
+	}
+
+	return dp, nil
+}
+
+func (pg *Pg) InsertPoolDeployMetaTag(ctx context.Context, tx pgx.Tx, otxID uint64, tag string) error {
+	_, err := tx.Exec(ctx, pg.queries.InsertPoolDeployMetaTag, otxID, tag)
+	return err
+}
+
+func (pg *Pg) GetPoolDeployMetaTags(ctx context.Context, tx pgx.Tx, otxID uint64) ([]string, error) {
+	rows, err := tx.Query(ctx, pg.queries.GetPoolDeployMetaTags, otxID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, rows.Err()
+}
+
+func (pg *Pg) InsertDeployedPoolTag(ctx context.Context, tx pgx.Tx, deployedPoolID uint64, tag string) error {
+	_, err := tx.Exec(ctx, pg.queries.InsertDeployedPoolTag, deployedPoolID, tag)
+	return err
 }

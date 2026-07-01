@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -26,7 +27,7 @@ type JWTCustomClaims struct {
 
 // UserJWTClaims holds claims for user-facing EdDSA JWTs delivered via cookie.
 type UserJWTClaims struct {
-	UserID          string `json:"userId"`
+	UserID          uint64 `json:"userId"`
 	EthereumAddress string `json:"ethereumAddress"`
 	Role            string `json:"role"`
 	jwt.RegisteredClaims
@@ -47,6 +48,21 @@ func (a *API) generateUserToken(user store.User) (string, error) {
 	return token.SignedString(a.signingKey)
 }
 
+// authCookieSameSite picks the SameSite policy for the session cookie.
+//
+// In production the web app and API are served from different sites (e.g.
+// *.pages.dev previews, or app.cosmolocal.credit calling the API on
+// cosmolocal.credit), so the cookie must be SameSite=None to be sent on
+// cross-site XHR; None requires Secure, which prod already sets. Locally
+// (non-prod HTTP, same-origin) we use Lax so the cookie still works without
+// Secure.
+func (a *API) authCookieSameSite() http.SameSite {
+	if a.prod {
+		return http.SameSiteNoneMode
+	}
+	return http.SameSiteLaxMode
+}
+
 // setUserAuthCookie writes an HttpOnly cookie carrying the user JWT.
 // Secure is only set in production mode so local HTTP dev still works.
 func (a *API) setUserAuthCookie(c *echo.Context, tokenStr string) {
@@ -57,20 +73,22 @@ func (a *API) setUserAuthCookie(c *echo.Context, tokenStr string) {
 		HttpOnly: true,
 		Secure:   a.prod,
 		Path:     "/",
-		SameSite: http.SameSiteStrictMode,
+		SameSite: a.authCookieSameSite(),
 	})
 }
 
-// clearUserAuthCookie immediately expires the auth cookie.
-func clearUserAuthCookie(c *echo.Context) {
+// clearUserAuthCookie immediately expires the auth cookie. Attributes must
+// match setUserAuthCookie so the browser overwrites the existing cookie.
+func (a *API) clearUserAuthCookie(c *echo.Context) {
 	c.SetCookie(&http.Cookie{
 		Name:     userAuthCookieName,
 		Value:    "",
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   a.prod,
 		Path:     "/",
-		SameSite: http.SameSiteStrictMode,
+		SameSite: a.authCookieSameSite(),
 	})
 }
 
@@ -79,7 +97,7 @@ func clearUserAuthCookie(c *echo.Context) {
 // context keys for downstream handlers:
 //
 //	"callerType"    → "user" or "service"
-//	"callerUserID"  → UUID string (user callers only)
+//	"callerUserID"  → uint64 user id (user callers only)
 //	"callerAddress" → lowercase Ethereum address
 //	"callerRole"    → "USER", "SUPERADMIN", or "SERVICE"
 func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
@@ -90,13 +108,13 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 				if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil {
 					c.Set("callerType", "user")
 					c.Set("callerUserID", claims.UserID)
-					c.Set("callerAddress", claims.EthereumAddress)
+					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
 					c.Set("callerRole", claims.Role)
 					return next(c)
 				}
 			}
 
-			// 2. Fall back to service JWT (Authorization header or legacy cookie).
+			// 2. Extract token from Authorization header or legacy cookie.
 			tokenStr := ""
 			if authHeader := c.Request().Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
 				tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
@@ -105,6 +123,16 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 			}
 
 			if tokenStr != "" {
+				// 2a. Try user JWT first — allows clients to send Bearer <user-jwt>.
+				if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
+					c.Set("callerType", "user")
+					c.Set("callerUserID", claims.UserID)
+					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
+					c.Set("callerRole", claims.Role)
+					return next(c)
+				}
+
+				// 2b. Fall back to service JWT.
 				token, parseErr := jwt.ParseWithClaims(tokenStr, &JWTCustomClaims{},
 					func(t *jwt.Token) (interface{}, error) {
 						if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
@@ -176,9 +204,9 @@ func (a *API) parseUserJWT(tokenStr string) (*UserJWTClaims, error) {
 }
 
 // getUserClaims extracts the caller's identity from context.
-// Returns empty strings for service-token callers.
-func getUserClaims(c *echo.Context) (userID, address, role string) {
-	userID, _ = c.Get("callerUserID").(string)
+// Returns zero values for service-token callers.
+func getUserClaims(c *echo.Context) (userID uint64, address, role string) {
+	userID, _ = c.Get("callerUserID").(uint64)
 	address, _ = c.Get("callerAddress").(string)
 	role, _ = c.Get("callerRole").(string)
 	return

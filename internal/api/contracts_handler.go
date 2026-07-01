@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
@@ -53,8 +54,17 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		}
 	}
 
+	feePercent, feeParseErr := strconv.ParseFloat(req.FeePolicyDefault, 64)
+	if feeParseErr != nil || feePercent < 0 || feePercent > 100 {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "feePolicyDefault must be a number between 0 and 100",
+		})
+	}
+
 	callerType, _ := c.Get("callerType").(string)
-	callerUserID, _ := c.Get("callerUserID").(string)
+	callerUserID, _ := c.Get("callerUserID").(uint64)
 
 	ctx := c.Request().Context()
 
@@ -63,6 +73,26 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	if len(req.Tags) > 0 {
+		validTags, err := a.store.ListTokenTags(ctx, tx)
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		validTagSet := make(map[string]struct{}, len(validTags))
+		for _, t := range validTags {
+			validTagSet[t] = struct{}{}
+		}
+		for _, tag := range req.Tags {
+			if _, ok := validTagSet[tag]; !ok {
+				return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+					Ok:          false,
+					ErrCode:     apiresp.ErrCodeValidationFailed,
+					Description: fmt.Sprintf("invalid tag: %q", tag),
+				})
+			}
+		}
+	}
 
 	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
 	if callerType == "user" {
@@ -136,6 +166,14 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		DecimalQuoterAddress:       decimalQuoterAddr,
 		ProtocolFeeController:      protocolFeeController,
 		SwapPoolPlatformContractID: swapPoolPC.ID,
+		Description:                req.Description,
+		Website:                    req.Website,
+		Email:                      req.Email,
+		Phone:                      req.Phone,
+		LocationName:               req.LocationName,
+		GeoLat:                     req.GeoLat,
+		GeoLng:                     req.GeoLng,
+		Tags:                       req.Tags,
 	}
 
 	switch req.QuoterType {
@@ -194,7 +232,7 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 
 	callerType, _ := c.Get("callerType").(string)
-	callerUserID, _ := c.Get("callerUserID").(string)
+	callerUserID, _ := c.Get("callerUserID").(uint64)
 
 	ctx := c.Request().Context()
 
@@ -203,6 +241,26 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	if len(req.Tags) > 0 {
+		validTags, err := a.store.ListTokenTags(ctx, tx)
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		validTagSet := make(map[string]struct{}, len(validTags))
+		for _, t := range validTags {
+			validTagSet[t] = struct{}{}
+		}
+		for _, tag := range req.Tags {
+			if _, ok := validTagSet[tag]; !ok {
+				return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+					Ok:          false,
+					ErrCode:     apiresp.ErrCodeValidationFailed,
+					Description: fmt.Sprintf("invalid tag: %q", tag),
+				})
+			}
+		}
+	}
 
 	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
 	if callerType == "user" {
@@ -243,6 +301,16 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		FactoryAddress:        pc.FactoryAddress,
 		ImplementationAddress: pc.ImplementationAddress,
 		PlatformContractID:    pc.ID,
+		Description:           req.Description,
+		Website:               req.Website,
+		Email:                 req.Email,
+		Phone:                 req.Phone,
+		VoucherUoa:            req.VoucherUoa,
+		VoucherValue:          req.VoucherValue,
+		LocationName:          req.LocationName,
+		GeoLat:                req.GeoLat,
+		GeoLng:                req.GeoLng,
+		Tags:                  req.Tags,
 	}, &river.InsertOpts{MaxAttempts: 1})
 	if err != nil {
 		return handlePostgresError(c, err)
@@ -268,6 +336,33 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		Description: "Token deploy request accepted",
 		Result: map[string]any{
 			"trackingId": trackingID,
+		},
+	})
+}
+
+func (a *API) tokenTagsHandler(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tags, err := a.store.ListTokenTags(ctx, tx)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Available token tags",
+		Result: map[string]any{
+			"tags": tags,
 		},
 	})
 }

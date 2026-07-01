@@ -9,10 +9,12 @@ import (
 )
 
 type User struct {
-	ID              string    `db:"id"               json:"id"`
+	ID              uint64    `db:"id"               json:"id"`
 	EthereumAddress string    `db:"ethereum_address" json:"ethereumAddress"`
 	Name            string    `db:"name"             json:"name"`
 	Email           string    `db:"email"            json:"email"`
+	Phone           string    `db:"phone"            json:"phone"`
+	Country         string    `db:"country"          json:"country"`
 	Role            string    `db:"role"             json:"role"`
 	Status          string    `db:"status"           json:"status"`
 	MaxPools        int       `db:"max_pools"        json:"maxPools"`
@@ -61,7 +63,7 @@ func (pg *Pg) GetUserByAddress(ctx context.Context, tx pgx.Tx, address string) (
 	return u, nil
 }
 
-func (pg *Pg) GetUserByID(ctx context.Context, tx pgx.Tx, id string) (User, error) {
+func (pg *Pg) GetUserByID(ctx context.Context, tx pgx.Tx, id uint64) (User, error) {
 	var u User
 
 	row, err := tx.Query(ctx, pg.queries.GetUserByID, id)
@@ -91,10 +93,40 @@ func (pg *Pg) UpdateUserStatus(ctx context.Context, tx pgx.Tx, address string, s
 	return u, nil
 }
 
+func (pg *Pg) ApprovePendingUserByAddress(ctx context.Context, tx pgx.Tx, address string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.ApprovePendingUserByAddress, address)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
 func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, maxPools int, maxTokens int) (User, error) {
 	var u User
 
 	row, err := tx.Query(ctx, pg.queries.UpdateUserLimits, address, maxPools, maxTokens)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
+func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, email, phone, country string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.UpdateUserProfile, address, name, email, phone, country)
 	if err != nil {
 		return u, err
 	}

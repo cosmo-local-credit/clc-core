@@ -1,13 +1,4 @@
 services:
-  # devnet:
-  #   image: ghcr.io/paradigmxyz/reth:latest
-  #   restart: unless-stopped
-  #   command: "node --datadir /root/devnet-chaindata --dev --dev.block-time 1s --http --http.addr 0.0.0.0 --ws --ws.addr 0.0.0.0"
-  #   ports:
-  #     - "127.0.0.1:8545:8545"
-  #     - "127.0.0.1:8546:8546"
-  #   volumes:
-  #     - devnet-chaindata:/root/devnet-chaindata   
   custodial-pg-store:
     image: postgres:18-alpine
     restart: unless-stopped
@@ -17,7 +8,7 @@ services:
       - POSTGRES_USER=postgres
     volumes:
       - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
-      - custodial-pg:/var/lib/postgresql/data
+      - pg-data:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
@@ -31,13 +22,14 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@custodial-pg-store:5432/clc_core
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:18080:8080"
     depends_on:
       custodial-pg-store:
-        condition: service_healthy  
+        condition: service_healthy
 
 volumes:
-  custodial-pg:
+  pg-data:
+    name: clc-core-pg-data
     driver: local
   devnet-chaindata:
     driver: local

@@ -19,6 +19,7 @@ type (
 		TrackingID string `json:"trackingId"`
 		OTXID      uint64 `json:"otxId"`
 		RawTx      string `json:"rawTx"`
+		TxHash     string `json:"txHash"`
 	}
 
 	RetrierArgs struct {
@@ -27,6 +28,11 @@ type (
 
 	DisptachWorker struct {
 		river.WorkerDefaults[DispatchArgs]
+		wc *WorkerContainer
+	}
+
+	RetrierWorker struct {
+		river.WorkerDefaults[RetrierArgs]
 		wc *WorkerContainer
 	}
 )
@@ -66,8 +72,11 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 						Status:     updateTxStatus.Status,
 					})
 				}
-
-				// Network errors are transient, so we can keep retrying up to the limit
+				// Commit the status update before returning — River may retry this
+				// job (if MaxAttempts > 1), and the status must be persisted regardless.
+				if err := tx.Commit(ctx); err != nil {
+					return err
+				}
 				return dispatchErr
 			}
 
@@ -93,25 +102,27 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 				})
 			}
 
-			_, err := w.wc.queueClient.Insert(ctx, RetrierArgs{
+			// RETRIER is inserted inside the same transaction so the ops
+			// notification job is only queued if the status update commits.
+			if _, err := w.wc.queueClient.InsertTx(ctx, tx, RetrierArgs{
 				TrackingID: job.Args.TrackingID,
-			}, &river.InsertOpts{
-				// TODO: Prevent cascading failures
-				MaxAttempts: 1,
-			})
-			if err != nil {
+			}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
 				return err
 			}
 
-			// Retry attempt has been deffered to retrier, permanantly cancel this job
+			// Commit before cancelling — JobCancel skips River's retry logic
+			// so the deferred Rollback must not undo the status update.
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
 			return river.JobCancel(dispatchErr)
 		}
 
 		w.wc.logg.Error("Unknown dispatch error", "error", err)
 		return err
 	}
-	updateTxStatus.Status = store.IN_NETWORK
 
+	updateTxStatus.Status = store.IN_NETWORK
 	if err := w.wc.store.UpdateDispatchTxStatus(ctx, tx, updateTxStatus); err != nil {
 		return err
 	}
@@ -120,6 +131,16 @@ func (w *DisptachWorker) Work(ctx context.Context, job *river.Job[DispatchArgs])
 			TrackingID: job.Args.TrackingID,
 			Status:     updateTxStatus.Status,
 		})
+	}
+
+	// Schedule a receipt poller — inserted atomically so it only runs if the
+	// IN_NETWORK status update commits successfully.
+	if _, err := w.wc.queueClient.InsertTx(ctx, tx, ReceiptCheckerArgs{
+		TrackingID: job.Args.TrackingID,
+		OTXID:      job.Args.OTXID,
+		TxHash:     job.Args.TxHash,
+	}, &river.InsertOpts{MaxAttempts: 30}); err != nil {
+		return err
 	}
 
 	return tx.Commit(ctx)
@@ -148,3 +169,14 @@ func (w *DisptachWorker) sendRawTx(ctx context.Context, rawTx []byte) error {
 }
 
 func (RetrierArgs) Kind() string { return "RETRIER" }
+
+// Work handles a deferred notification after a terminal chain-level dispatch
+// failure. The DispatchWorker has already committed the terminal status
+// (NO_GAS, LOW_NONCE, etc.) before inserting this job, so the only
+// responsibility here is to surface a clear operator-facing log entry.
+func (w *RetrierWorker) Work(ctx context.Context, job *river.Job[RetrierArgs]) error {
+	w.wc.logg.Error("dispatch permanently failed — operator action required",
+		"trackingId", job.Args.TrackingID,
+	)
+	return nil
+}

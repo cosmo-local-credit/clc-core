@@ -21,15 +21,24 @@ type Store interface {
 	UpdateDispatchTxStatus(context.Context, pgx.Tx, DispatchTx) error
 	GetPlatformContracts(context.Context, pgx.Tx, int64, string) (PlatformContracts, error)
 	InsertDeployedToken(context.Context, pgx.Tx, DeployedToken) (uint64, error)
+	InsertDeployedTokenTag(context.Context, pgx.Tx, uint64, string) error
 	GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
+	GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 	InsertTokenDeployMeta(context.Context, pgx.Tx, TokenDeployMeta) error
+	InsertTokenDeployMetaTag(context.Context, pgx.Tx, uint64, string) error
 	GetTokenDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (TokenDeployMeta, error)
+	GetTokenDeployMetaTags(context.Context, pgx.Tx, uint64) ([]string, error)
+	ListTokenTags(context.Context, pgx.Tx) ([]string, error)
 	GetPoolAddress(context.Context, pgx.Tx, string) (string, error)
 	SetPoolAddress(context.Context, pgx.Tx, string, string) error
 	InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
 	GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
+	GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 	InsertPoolDeployMeta(context.Context, pgx.Tx, PoolDeployMeta) error
+	InsertPoolDeployMetaTag(context.Context, pgx.Tx, uint64, string) error
 	GetPoolDeployMetaByOTXID(context.Context, pgx.Tx, uint64) (PoolDeployMeta, error)
+	GetPoolDeployMetaTags(context.Context, pgx.Tx, uint64) ([]string, error)
+	InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
 	GetOracleFeedByName(context.Context, pgx.Tx, string) (OracleFeed, error)
 	ListOracleFeeds(context.Context, pgx.Tx) ([]OracleFeed, error)
 	GetOTXByTrackingID(context.Context, pgx.Tx, string) ([]*OTX, error)
@@ -41,20 +50,26 @@ type Store interface {
 
 	InsertUser(context.Context, pgx.Tx, User) (User, error)
 	GetUserByAddress(context.Context, pgx.Tx, string) (User, error)
-	GetUserByID(context.Context, pgx.Tx, string) (User, error)
+	GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 	UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
+	ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 	UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
+	UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string) (User, error)
 	ListUsers(context.Context, pgx.Tx) ([]User, error)
 	ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
 
 	InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
-	CountUserTokens(context.Context, pgx.Tx, string) (int, error)
-	CountUserPools(context.Context, pgx.Tx, string) (int, error)
-	ListUserDeployments(context.Context, pgx.Tx, string) ([]UserDeployment, error)
-	GetUserDeploymentByTrackingID(context.Context, pgx.Tx, string, string) (UserDeployment, error)
+	CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)
+	CountUserPools(context.Context, pgx.Tx, uint64) (int, error)
+	ListUserDeployments(context.Context, pgx.Tx, uint64) ([]UserDeployment, error)
+	GetUserDeploymentByTrackingID(context.Context, pgx.Tx, string, uint64) (UserDeployment, error)
 	ListAllDeployments(context.Context, pgx.Tx) ([]UserDeploymentWithUser, error)
-	ListTokensByUser(context.Context, pgx.Tx, string) ([]DeployedToken, error)
-	ListPoolsByUser(context.Context, pgx.Tx, string) ([]DeployedPool, error)
+	ListTokensByUser(context.Context, pgx.Tx, uint64, uint64) ([]DeployedToken, error)
+	ListTokensByUserNext(context.Context, pgx.Tx, uint64, uint64, uint64) ([]DeployedToken, error)
+	ListTokensByUserPrevious(context.Context, pgx.Tx, uint64, uint64, uint64) ([]DeployedToken, error)
+	ListPoolsByUser(context.Context, pgx.Tx, uint64, uint64) ([]DeployedPool, error)
+	ListPoolsByUserNext(context.Context, pgx.Tx, uint64, uint64, uint64) ([]DeployedPool, error)
+	ListPoolsByUserPrevious(context.Context, pgx.Tx, uint64, uint64, uint64) ([]DeployedPool, error)
 	ListAllTokens(context.Context, pgx.Tx) ([]DeployedToken, error)
 	ListAllPools(context.Context, pgx.Tx) ([]DeployedPool, error)
 
@@ -62,4 +77,8 @@ type Store interface {
 	ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)
 	InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error
 	GetUpgradeMetaByOTXID(context.Context, pgx.Tx, uint64) (UpgradeMeta, error)
+
+	UpsertWebAuthnCredential(context.Context, pgx.Tx, WebAuthnCredential) error
+	GetWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
+	SetNonceIfHigher(context.Context, pgx.Tx, string, uint64) error
 }

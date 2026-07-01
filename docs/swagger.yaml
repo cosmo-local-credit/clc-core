@@ -81,6 +81,8 @@ components:
         decimals:
           type: string
         feePolicyDefault:
+          description: Default swap fee as a percentage (0–100). Converted to PPM internally.
+          example: "0.5"
           type: string
         feesDecoupled:
           type: boolean
@@ -94,6 +96,7 @@ components:
           type: string
       required:
       - decimals
+      - feePolicyDefault
       - name
       - owner
       - quoterType

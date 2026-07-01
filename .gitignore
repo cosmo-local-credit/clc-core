@@ -2,3 +2,13 @@
 .idx
 **/*.env
 build
+**/*node_modules
+**/*dist
+**/*.tanstack
+*.mcp.json
+clccore
+config.toml
+brand.html
+**/node_modules
+static
+e2e

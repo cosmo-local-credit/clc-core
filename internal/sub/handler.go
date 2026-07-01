@@ -50,28 +50,58 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	if chainEvent.Success && otx.OTXType == store.TOKEN_PROXY_DEPLOY {
 		meta, err := s.store.GetTokenDeployMetaByOTXID(ctx, tx, otx.ID)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				s.logg.Warn("Sub: token deploy meta missing for confirmed OTX, skipping finalization", "otxId", otx.ID)
+				s.pub.Send(ctx, custodialEvent.Event{TrackingID: otx.TrackingID, Status: updateDispatchStatus.Status})
+				return tx.Commit(ctx)
+			}
 			return err
 		}
 
-		if _, err := s.store.InsertDeployedToken(ctx, tx, store.DeployedToken{
+		deployedID, err := s.store.InsertDeployedToken(ctx, tx, store.DeployedToken{
 			OTXID:              otx.ID,
 			PlatformContractID: meta.PlatformContractID,
 			Address:            chainEvent.ContractAddress,
 			Symbol:             meta.TokenSymbol,
 			Name:               meta.TokenName,
 			Admin:              meta.Admin,
-		}); err != nil {
+			Description:        meta.Description,
+			Website:            meta.Website,
+			Email:              meta.Email,
+			Phone:              meta.Phone,
+			VoucherUoa:         meta.VoucherUoa,
+			VoucherValue:       meta.VoucherValue,
+			LocationName:       meta.LocationName,
+			GeoLat:             meta.GeoLat,
+			GeoLng:             meta.GeoLng,
+		})
+		if err != nil {
 			return err
+		}
+
+		tags, err := s.store.GetTokenDeployMetaTags(ctx, tx, otx.ID)
+		if err != nil {
+			return err
+		}
+		for _, tag := range tags {
+			if err := s.store.InsertDeployedTokenTag(ctx, tx, deployedID, tag); err != nil {
+				return err
+			}
 		}
 	}
 
 	if chainEvent.Success && otx.OTXType == store.POOL_PROXY_DEPLOY {
 		meta, err := s.store.GetPoolDeployMetaByOTXID(ctx, tx, otx.ID)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				s.logg.Warn("Sub: pool deploy meta missing for confirmed OTX, skipping finalization", "otxId", otx.ID)
+				s.pub.Send(ctx, custodialEvent.Event{TrackingID: otx.TrackingID, Status: updateDispatchStatus.Status})
+				return tx.Commit(ctx)
+			}
 			return err
 		}
 
-		if _, err := s.store.InsertDeployedPool(ctx, tx, store.DeployedPool{
+		deployedPoolID, err := s.store.InsertDeployedPool(ctx, tx, store.DeployedPool{
 			OTXID:                        otx.ID,
 			PlatformContractID:           meta.PlatformContractID,
 			Address:                      chainEvent.ContractAddress,
@@ -84,8 +114,26 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 			ProtocolFeeControllerAddress: meta.ProtocolFeeControllerAddress,
 			FeesDecoupled:                meta.FeesDecoupled,
 			Admin:                        meta.Admin,
-		}); err != nil {
+			Description:                  meta.Description,
+			Website:                      meta.Website,
+			Email:                        meta.Email,
+			Phone:                        meta.Phone,
+			LocationName:                 meta.LocationName,
+			GeoLat:                       meta.GeoLat,
+			GeoLng:                       meta.GeoLng,
+		})
+		if err != nil {
 			return err
+		}
+
+		poolTags, err := s.store.GetPoolDeployMetaTags(ctx, tx, otx.ID)
+		if err != nil {
+			return err
+		}
+		for _, tag := range poolTags {
+			if err := s.store.InsertDeployedPoolTag(ctx, tx, deployedPoolID, tag); err != nil {
+				return err
+			}
 		}
 	}
 

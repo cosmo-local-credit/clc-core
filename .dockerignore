@@ -1,10 +1,13 @@
 /**
+# Go source + module files
+!/go.*
 !/cmd
-!/migrations
-!/docs
 !/internal
 !/pkg
-!/LICENSE
-!/config.toml
-!/queries.sql
-!/go.*
+!/migrations
+!/core_queries.sql
+!/federated_queries.sql
+# UI source — node_modules and build output are excluded
+!/ui
+ui/**/node_modules
+ui/**/dist
