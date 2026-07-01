@@ -81,6 +81,12 @@ func main() {
 		subComponent.Process()
 	})
 
+	if federationStore != nil {
+		wg.Go(func() {
+			federationStore.StartMaintenance(ctx)
+		})
+	}
+
 	<-ctx.Done()
 	lo.Info("shutdown signal received")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultGracefulShutdownPeriod)
