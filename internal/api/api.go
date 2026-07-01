@@ -160,6 +160,14 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
+	// Federation account data (balances + transfers). Mounted on the authed
+	// apiGroup so the SIWE user JWT cookie (or service token) is required.
+	if a.federationStore != nil {
+		apiGroup.GET("/accounts/:address/tokens/latest", a.accountLatestTokensHandler)
+		apiGroup.GET("/accounts/:address/tokens", a.accountTokensHandler)
+		apiGroup.GET("/accounts/:address/transfers", a.accountTransfersHandler)
+	}
+
 	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
