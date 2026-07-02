@@ -61,16 +61,9 @@ func loadFederationStore() store.FederationStore {
 		return nil
 	}
 
-	// Create/upgrade the materialized views backing the balance + transfer
-	// endpoints. A failure is non-fatal: the legacy-user-approval path does
-	// not depend on the views, so the store stays usable. The balance and
-	// transfer endpoints will surface 500s until the views exist.
-	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	if err := fedStore.Bootstrap(bootstrapCtx); err != nil {
-		lo.Warn("federation materialized view bootstrap failed; balance/transfer endpoints may error", "error", err)
-	}
-
+	// Account balance and transfer endpoints read live from the federation
+	// source tables (see federated_queries.sql); there is no view to bootstrap
+	// or maintain.
 	return fedStore
 }
 
