@@ -10,19 +10,19 @@ import (
 
 type (
 	User struct {
-	ID              uint64    `db:"id"               json:"id"`
-	EthereumAddress string    `db:"ethereum_address" json:"ethereumAddress"`
-	Name            string    `db:"name"             json:"name"`
-	Email           string    `db:"email"            json:"email"`
-	Phone           string    `db:"phone"            json:"phone"`
-	Country         string    `db:"country"          json:"country"`
-	Role            string    `db:"role"             json:"role"`
-	Status          string    `db:"status"           json:"status"`
-	MaxPools        int       `db:"max_pools"        json:"maxPools"`
-	MaxTokens       int       `db:"max_tokens"       json:"maxTokens"`
-	CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
-	UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
-}
+		ID              uint64    `db:"id"               json:"id"`
+		EthereumAddress string    `db:"ethereum_address" json:"ethereumAddress"`
+		Name            string    `db:"name"             json:"name"`
+		Email           string    `db:"email"            json:"email"`
+		Phone           string    `db:"phone"            json:"phone"`
+		Country         string    `db:"country"          json:"country"`
+		Role            string    `db:"role"             json:"role"`
+		Status          string    `db:"status"           json:"status"`
+		MaxPools        int       `db:"max_pools"        json:"maxPools"`
+		MaxTokens       int       `db:"max_tokens"       json:"maxTokens"`
+		CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
+		UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
+	}
 )
 
 func (pg *Pg) InsertUser(ctx context.Context, tx pgx.Tx, u User) (User, error) {
@@ -54,6 +54,21 @@ func (pg *Pg) GetUserByAddress(ctx context.Context, tx pgx.Tx, address string) (
 	var u User
 
 	row, err := tx.Query(ctx, pg.queries.GetUserByAddress, address)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
+func (pg *Pg) GetUserByEmail(ctx context.Context, tx pgx.Tx, email string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.GetUserByEmail, email)
 	if err != nil {
 		return u, err
 	}

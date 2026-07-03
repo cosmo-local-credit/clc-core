@@ -225,4 +225,5 @@ const (
 	ErrCodeAuthorizationRequired      = "E13"
 	ErrCodeRelayerExecutorMismatch    = "E14"
 	ErrCodeWebAuthnVerificationFailed = "E15"
+	ErrCodeConflict                   = "E16"
 )

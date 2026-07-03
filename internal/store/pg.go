@@ -54,6 +54,7 @@ type (
 
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
+		GetUserByEmail                string `query:"get-user-by-email"`
 		GetUserByID                   string `query:"get-user-by-id"`
 		UpdateUserStatus              string `query:"update-user-status"`
 		ApprovePendingUserByAddress   string `query:"approve-pending-user-by-address"`

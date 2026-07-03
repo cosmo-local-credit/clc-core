@@ -11,8 +11,14 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/labstack/echo/v5"
 )
+
+// PostgreSQL unique_violation error code, returned when an INSERT or UPDATE
+// hits a UNIQUE constraint (e.g. users_email_unique). We translate these into
+// HTTP 409 Conflict responses instead of leaking a raw 500.
+const pgUniqueViolation = "23505"
 
 func (a *API) nonceHandler(c *echo.Context) error {
 	nonce := a.siweNonces.Generate()
@@ -72,19 +78,33 @@ func (a *API) signupHandler(c *echo.Context) error {
 	defer tx.Rollback(ctx)
 
 	// 4. Guard against duplicate registrations.
-	_, lookupErr := a.store.GetUserByAddress(ctx, tx, signerAddr)
-	if lookupErr == nil {
+	if _, lookupErr := a.store.GetUserByAddress(ctx, tx, signerAddr); lookupErr == nil {
 		return c.JSON(http.StatusConflict, apiresp.ErrResponse{
 			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "address already registered",
+			ErrCode:     apiresp.ErrCodeConflict,
+			Description: "address already linked to an existing account",
 		})
-	}
-	if !errors.Is(lookupErr, pgx.ErrNoRows) {
+	} else if !errors.Is(lookupErr, pgx.ErrNoRows) {
 		return lookupErr
 	}
 
-	// 5. Persist the new user.
+	// 5. Email is optional per the data model but the request validator marks
+	//    it required, so it is always present here. Treat an email already
+	//    bound to another wallet as a duplicate-identity conflict.
+	if _, lookupErr := a.store.GetUserByEmail(ctx, tx, strings.ToLower(req.Email)); lookupErr == nil {
+		return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeConflict,
+			Description: "email already linked to another account",
+		})
+	} else if !errors.Is(lookupErr, pgx.ErrNoRows) {
+		return lookupErr
+	}
+
+	// 6. Persist the new user. Either unique constraint (blockchain_address
+	//    or email) can still trip from a concurrent registration raced
+	//    between the lookup above and this insert — translate that into a
+	//    409 rather than surfacing a generic 500.
 	user, err := a.store.InsertUser(ctx, tx, store.User{
 		EthereumAddress: signerAddr,
 		Name:            req.Name,
@@ -95,6 +115,14 @@ func (a *API) signupHandler(c *echo.Context) error {
 		MaxTokens:       20,
 	})
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeConflict,
+				Description: "identity already linked to another account",
+			})
+		}
 		return err
 	}
 

@@ -267,6 +267,11 @@ SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS 
 FROM users
 WHERE id = $1;
 
+--name: get-user-by-email
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+FROM users
+WHERE email = $1;
+
 --name: update-user-status
 UPDATE users
 SET status = $2::user_status
