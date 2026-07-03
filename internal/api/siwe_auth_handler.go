@@ -15,10 +15,14 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// PostgreSQL unique_violation error code, returned when an INSERT or UPDATE
-// hits a UNIQUE constraint (e.g. users_email_unique). We translate these into
-// HTTP 409 Conflict responses instead of leaking a raw 500.
-const pgUniqueViolation = "23505"
+const (
+	// pgUniqueViolation is the PostgreSQL error code for a UNIQUE constraint
+	// violation. INSERTs that hit users_blockchain_address_unique or
+	// users_email_unique race through the duplicate-identity pre-checks
+	// above; we translate the violation into a 409 conflict rather than
+	// surfacing a generic 500 E01.
+	pgUniqueViolation = "23505"
+)
 
 func (a *API) nonceHandler(c *echo.Context) error {
 	nonce := a.siweNonces.Generate()
