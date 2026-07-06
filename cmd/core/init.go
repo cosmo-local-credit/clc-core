@@ -11,6 +11,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/api"
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
 	internaljs "github.com/cosmo-local-credit/clc-core/internal/jetstream"
+	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -211,7 +212,17 @@ func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracl
 	return r
 }
 
-func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer, relayerInst *relayer.Relayer) *api.API {
+func loadPretium() *pretium.PretiumClient {
+	baseURL := ko.String("pretium.base_url")
+	if baseURL == "" {
+		lo.Warn("pretium integration disabled: pretium.base_url is empty")
+		return nil
+	}
+
+	return pretium.New(baseURL)
+}
+
+func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer, relayerInst *relayer.Relayer, pretiumClient *pretium.PretiumClient) *api.API {
 	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
 	if err != nil {
 		lo.Error("could not load signing key", "error", err)
@@ -232,5 +243,6 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		ChainID:         ko.MustInt64("chain.id"),
 		QueueClient:     workerContainer.Client(),
 		Relayer:         relayerInst,
+		Pretium:         pretiumClient,
 	})
 }

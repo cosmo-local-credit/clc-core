@@ -31,6 +31,7 @@
    - [GET /api/v2/account/status/:address](#54-get-apiv2accountstatusaddress)
    - [POST /api/v2/contracts/token](#55-post-apiv2contractstoken)
    - [POST /api/v2/contracts/pool](#56-post-apiv2contractspool)
+   - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#57-pretium-backend-endpoints-apiv2pretium)
 6. [User-Only Endpoints (`/api/v2/users/*`)](#6-user-only-endpoints-apiv2users)
    - [GET /api/v2/users/me](#61-get-apiv2usersme)
    - [GET /api/v2/users/me/tokens](#62-get-apiv2usersmetokens)
@@ -132,6 +133,9 @@ Pass the token with every request:
 ```/dev/null/http.txt#L1-1
 Authorization: Bearer <token>
 ```
+
+Service tokens are intended for backend-only flows such as `/api/v2/pretium/*`
+proxy calls and contract upgrade/version registration.
 
 ---
 
@@ -678,6 +682,43 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 |---|---|---|
 | `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter) |
 | `403` | `E11` | User has reached their `maxPools` quota |
+
+---
+
+### 5.7 `Pretium Backend Endpoints (/api/v2/pretium/*)`
+
+These routes proxy the configured Pretium Ramp service for backend
+consumers.
+
+**Auth:** service JWT only
+
+**Mount condition:** the route group is only registered when
+`pretium.base_url` is configured.
+
+**Config:**
+
+```toml
+[pretium]
+base_url = "https://pretium.example.com/api/v1"
+```
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v2/pretium/trigger-onramp` | Initiate fiat-to-crypto onramp |
+| `POST` | `/api/v2/pretium/link` | Link a wallet address to a phone number |
+| `GET` | `/api/v2/pretium/link/:phoneNumber` | Fetch wallet links for a phone number |
+| `GET` | `/api/v2/pretium/transactions/:phoneNumber` | Fetch transactions for a phone number |
+| `GET` | `/api/v2/pretium/transactions-by-address/:address` | Fetch transactions for an address |
+| `GET` | `/api/v2/pretium/transactions-recent` | Fetch recent transactions |
+| `GET` | `/api/v2/pretium/rates` | Fetch current Pretium rates |
+
+**Behaviour:**
+- Success responses are passed through from the upstream Pretium service.
+- Upstream `5xx` responses are surfaced as `502 Bad Gateway`.
+- Local validation failures still use this API's standard error envelope.
+
+See [PRETIUM.md](./PRETIUM.md) for request bodies, auth expectations, and
+integration notes.
 
 ---
 

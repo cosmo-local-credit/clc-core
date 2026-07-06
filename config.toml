@@ -40,6 +40,9 @@ persist_duration_hrs = 48
 # Leave false in production.
 skip_backlog = false
 
+[pretium]
+base_url = "http://127.0.0.1:5004/api/v1"
+
 [relayer]
 # The relayer uses the master signing key stored in the DB (bootstrapped by
 # the store on first run). No separate private_key config is needed here.
