@@ -3,6 +3,7 @@ package pretium
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -80,8 +81,8 @@ func TestGetRatesReturnsAPIError(t *testing.T) {
 		t.Fatal("GetRates() error = nil, want error")
 	}
 
-	apiErr, ok := err.(*APIError)
-	if !ok {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
 		t.Fatalf("error = %T, want *APIError", err)
 	}
 	if statusCode != http.StatusBadRequest {

@@ -13,7 +13,9 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 )
 
-const contentType = "application/json"
+const (
+	contentType = "application/json"
+)
 
 type (
 	PretiumClient struct {
@@ -126,8 +128,8 @@ func (pc *PretiumClient) requestJSON(ctx context.Context, method, path string, p
 	return &okResp, statusCode, nil
 }
 
-func parseResponse(resp *http.Response, target interface{}) error {
-	defer resp.Body.Close()
+func parseResponse(resp *http.Response, target any) error {
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		b, err := io.ReadAll(resp.Body)

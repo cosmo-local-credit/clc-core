@@ -127,16 +127,11 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 			}
 
 			if tokenStr != "" {
-				// 2a. Try user JWT first — allows clients to send Bearer <user-jwt>.
-				if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
-					c.Set("callerType", "user")
-					c.Set("callerUserID", claims.UserID)
-					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
-					c.Set("callerRole", claims.Role)
-					return next(c)
-				}
-
-				// 2b. Fall back to service JWT.
+				// 2a. Try service JWT first. A genuine service token also
+				// unmarshals successfully as a UserJWTClaims (same signing
+				// key, unknown fields ignored by json.Unmarshal), so service
+				// tokens must be checked — and gated on claims.Service — before
+				// falling back to the permissive user-JWT parse below.
 				token, parseErr := jwt.ParseWithClaims(tokenStr, &JWTCustomClaims{},
 					func(t *jwt.Token) (any, error) {
 						if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
@@ -146,7 +141,7 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 					},
 				)
 				if parseErr == nil && token.Valid {
-					if claims, ok := token.Claims.(*JWTCustomClaims); ok {
+					if claims, ok := token.Claims.(*JWTCustomClaims); ok && claims.Service {
 						c.Set("callerType", "service")
 						c.Set("callerAddress", strings.ToLower(claims.PublicKey))
 						c.Set("callerRole", "SERVICE")
@@ -154,6 +149,15 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 						c.Set("service", claims.Service)
 						return next(c)
 					}
+				}
+
+				// 2b. Fall back to user JWT — allows clients to send Bearer <user-jwt>.
+				if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
+					c.Set("callerType", "user")
+					c.Set("callerUserID", claims.UserID)
+					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
+					c.Set("callerRole", claims.Role)
+					return next(c)
 				}
 			}
 
