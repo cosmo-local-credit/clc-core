@@ -85,6 +85,22 @@ type (
 		Address string `param:"address" validate:"required,eth_addr_checksum"`
 	}
 
+	PretiumTriggerOnrampRequest struct {
+		Address     string  `json:"address" validate:"required,eth_addr_checksum"`
+		PhoneNumber string  `json:"phoneNumber,omitempty"`
+		Asset       string  `json:"asset" validate:"required,oneof=USDT USDC cUSD"`
+		Amount      float64 `json:"amount" validate:"required,gte=20,lte=250000"`
+	}
+
+	PretiumLinkRequest struct {
+		PublicKey   string `json:"publicKey" validate:"required,eth_addr_checksum"`
+		PhoneNumber string `json:"phoneNumber" validate:"required"`
+	}
+
+	PhoneNumberParam struct {
+		PhoneNumber string `param:"phoneNumber" validate:"required"`
+	}
+
 	// Auth request/response types
 
 	SignupRequest struct {

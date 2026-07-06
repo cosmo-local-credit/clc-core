@@ -187,6 +187,19 @@ func (a *API) requireSuperAdmin() echo.MiddlewareFunc {
 	}
 }
 
+// requireServiceAuth rejects callers that are not authenticated with a
+// service token.
+func (a *API) requireServiceAuth() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if service, _ := c.Get("service").(bool); !service {
+				return handleForbiddenError(c, "service token required")
+			}
+			return next(c)
+		}
+	}
+}
+
 // parseUserJWT validates a user JWT cookie value using the API's EdDSA public key.
 func (a *API) parseUserJWT(tokenStr string) (*UserJWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &UserJWTClaims{},

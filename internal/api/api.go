@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
@@ -33,6 +34,7 @@ type (
 		QueueClient     *river.Client[pgx.Tx]
 		ChainID         int64
 		Relayer         *relayer.Relayer
+		Pretium         *pretium.PretiumClient
 	}
 
 	API struct {
@@ -50,6 +52,7 @@ type (
 		queueClient     *river.Client[pgx.Tx]
 		chainID         int64
 		relayer         *relayer.Relayer
+		pretium         *pretium.PretiumClient
 	}
 )
 
@@ -76,6 +79,7 @@ func New(o APIOpts) *API {
 		queueClient:     o.QueueClient,
 		chainID:         o.ChainID,
 		relayer:         o.Relayer,
+		pretium:         o.Pretium,
 	}
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
@@ -159,6 +163,17 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/otx/track/:trackingId/contract", a.trackContractHandler)
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
+
+	if a.pretium != nil {
+		pretiumGroup := apiGroup.Group("/pretium", a.requireServiceAuth())
+		pretiumGroup.POST("/trigger-onramp", a.pretiumTriggerOnrampHandler)
+		pretiumGroup.POST("/link", a.pretiumLinkHandler)
+		pretiumGroup.GET("/link/:phoneNumber", a.pretiumPhoneLinksHandler)
+		pretiumGroup.GET("/transactions/:phoneNumber", a.pretiumTransactionsHandler)
+		pretiumGroup.GET("/transactions-by-address/:address", a.pretiumTransactionsByAddressHandler)
+		pretiumGroup.GET("/transactions-recent", a.pretiumRecentTransactionsHandler)
+		pretiumGroup.GET("/rates", a.pretiumRatesHandler)
+	}
 
 	// Federation account data (balances + transfers). Mounted on the authed
 	// apiGroup so the SIWE user JWT cookie (or service token) is required.
