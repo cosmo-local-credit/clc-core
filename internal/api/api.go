@@ -165,7 +165,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
 	if a.pretium != nil {
-		pretiumGroup := apiGroup.Group("/pretium", a.requireServiceAuth())
+		pretiumGroup := apiGroup.Group("/pretium")
 		pretiumGroup.POST("/trigger-onramp", a.pretiumTriggerOnrampHandler)
 		pretiumGroup.POST("/link", a.pretiumLinkHandler)
 		pretiumGroup.GET("/link/:phoneNumber", a.pretiumPhoneLinksHandler)

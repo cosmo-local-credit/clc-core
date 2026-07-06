@@ -134,8 +134,9 @@ Pass the token with every request:
 Authorization: Bearer <token>
 ```
 
-Service tokens are intended for backend-only flows such as `/api/v2/pretium/*`
-proxy calls and contract upgrade/version registration.
+Service tokens are intended for backend-to-backend flows such as contract
+upgrade/version registration. `/api/v2/pretium/*` also accepts service tokens
+for service callers, but browser clients may use normal user authentication.
 
 ---
 
@@ -687,10 +688,9 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 ### 5.7 `Pretium Backend Endpoints (/api/v2/pretium/*)`
 
-These routes proxy the configured Pretium Ramp service for backend
-consumers.
+These routes proxy the configured Pretium Ramp service for cash in/out flows.
 
-**Auth:** service JWT only
+**Auth:** user JWT cookie or service JWT
 
 **Mount condition:** the route group is only registered when
 `pretium.base_url` is configured.
@@ -717,8 +717,7 @@ base_url = "https://pretium.example.com/api/v1"
 - Upstream `5xx` responses are surfaced as `502 Bad Gateway`.
 - Local validation failures still use this API's standard error envelope.
 
-See [PRETIUM.md](./PRETIUM.md) for request bodies, auth expectations, and
-integration notes.
+See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
 
 ---
 
