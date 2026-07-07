@@ -169,6 +169,7 @@ func New(o APIOpts) *API {
 		pretiumGroup.POST("/trigger-onramp", a.pretiumTriggerOnrampHandler)
 		pretiumGroup.POST("/link", a.pretiumLinkHandler)
 		pretiumGroup.GET("/link/:phoneNumber", a.pretiumPhoneLinksHandler)
+		pretiumGroup.GET("/link-by-address/:address", a.pretiumLinkByAddressHandler)
 		pretiumGroup.GET("/transactions/:phoneNumber", a.pretiumTransactionsHandler)
 		pretiumGroup.GET("/transactions-by-address/:address", a.pretiumTransactionsByAddressHandler)
 		pretiumGroup.GET("/transactions-recent", a.pretiumRecentTransactionsHandler)

@@ -61,6 +61,23 @@ func (a *API) pretiumPhoneLinksHandler(c *echo.Context) error {
 	return c.JSON(statusCode, resp)
 }
 
+func (a *API) pretiumLinkByAddressHandler(c *echo.Context) error {
+	req := pretiumapi.AccountAddressParam{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	resp, statusCode, err := a.pretium.GetLinkByAddress(c.Request().Context(), url.PathEscape(req.Address))
+	if err != nil {
+		return handlePretiumError(c, err)
+	}
+
+	return c.JSON(statusCode, resp)
+}
+
 func (a *API) pretiumTransactionsHandler(c *echo.Context) error {
 	req := pretiumapi.PhoneNumberParam{}
 	if err := c.Bind(&req); err != nil {

@@ -68,6 +68,10 @@ func (pc *PretiumClient) GetLinks(ctx context.Context, phoneNumber string) (*OKR
 	return pc.requestJSON(ctx, http.MethodGet, fmt.Sprintf("link/%s", phoneNumber), nil)
 }
 
+func (pc *PretiumClient) GetLinkByAddress(ctx context.Context, address string) (*OKResponse, int, error) {
+	return pc.requestJSON(ctx, http.MethodGet, fmt.Sprintf("link-by-address/%s", address), nil)
+}
+
 func (pc *PretiumClient) GetTransactions(ctx context.Context, phoneNumber string) (*OKResponse, int, error) {
 	return pc.requestJSON(ctx, http.MethodGet, fmt.Sprintf("transactions/%s", phoneNumber), nil)
 }

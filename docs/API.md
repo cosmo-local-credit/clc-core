@@ -705,8 +705,9 @@ base_url = "https://pretium.example.com/api/v1"
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v2/pretium/trigger-onramp` | Initiate fiat-to-crypto onramp |
-| `POST` | `/api/v2/pretium/link` | Link a wallet address to a phone number |
+| `POST` | `/api/v2/pretium/link` | Link a wallet address to a phone number (re-links on phone change) |
 | `GET` | `/api/v2/pretium/link/:phoneNumber` | Fetch wallet links for a phone number |
+| `GET` | `/api/v2/pretium/link-by-address/:address` | Fetch the active link (phone) for a wallet address |
 | `GET` | `/api/v2/pretium/transactions/:phoneNumber` | Fetch transactions for a phone number |
 | `GET` | `/api/v2/pretium/transactions-by-address/:address` | Fetch transactions for an address |
 | `GET` | `/api/v2/pretium/transactions-recent` | Fetch recent transactions |
