@@ -121,6 +121,8 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 			LocationName:                 meta.LocationName,
 			GeoLat:                       meta.GeoLat,
 			GeoLng:                       meta.GeoLng,
+			ImageURL:                     meta.ImageURL,
+			BannerURL:                    meta.BannerURL,
 		})
 		if err != nil {
 			return err

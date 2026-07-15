@@ -47,6 +47,8 @@ type (
 		LocationName               string   `json:"locationName"`
 		GeoLat                     *float64 `json:"geoLat"`
 		GeoLng                     *float64 `json:"geoLng"`
+		ImageURL                   string   `json:"imageUrl"`
+		BannerURL                  string   `json:"bannerUrl"`
 		Tags                       []string `json:"tags"`
 	}
 
@@ -374,6 +376,8 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		LocationName:                 nilIfEmpty(args.LocationName),
 		GeoLat:                       args.GeoLat,
 		GeoLng:                       args.GeoLng,
+		ImageURL:                     nilIfEmpty(args.ImageURL),
+		BannerURL:                    nilIfEmpty(args.BannerURL),
 	}); err != nil {
 		return err
 	}

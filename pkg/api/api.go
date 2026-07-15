@@ -29,6 +29,8 @@ type (
 		LocationName     string   `json:"locationName,omitempty"`
 		GeoLat           *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
 		GeoLng           *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
+		ImageURL         string   `json:"imageUrl,omitempty" validate:"omitempty,url"`
+		BannerURL        string   `json:"bannerUrl,omitempty" validate:"omitempty,url"`
 		Tags             []string `json:"tags,omitempty"`
 	}
 

@@ -656,6 +656,8 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 | `feesDecoupled` | `bool` | No | If `true`, fee policy executes independently of swaps (default: `false`) |
 | `feePolicyDefault` | `string` | No | Default fee policy identifier |
 | `baseCurrency` | `string` | Conditional | Checksummed non-zero token address; **required** when `quoterType` is `"oracle"` |
+| `imageUrl` | `string` | No | Optional pool image URL |
+| `bannerUrl` | `string` | No | Optional pool banner image URL |
 
 **`quoterType` values:**
 

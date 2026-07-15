@@ -86,6 +86,12 @@ components:
           type: string
         feesDecoupled:
           type: boolean
+        imageUrl:
+          type: string
+          format: uri
+        bannerUrl:
+          type: string
+          format: uri
         name:
           type: string
         owner:

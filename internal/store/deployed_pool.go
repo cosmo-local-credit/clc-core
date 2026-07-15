@@ -30,6 +30,8 @@ type (
 		LocationName                 *string   `db:"location_name"                   json:"locationName"`
 		GeoLat                       *float64  `db:"geo_lat"                         json:"geoLat"`
 		GeoLng                       *float64  `db:"geo_lng"                         json:"geoLng"`
+		ImageURL                     *string   `db:"image_url"                       json:"imageUrl"`
+		BannerURL                    *string   `db:"banner_url"                      json:"bannerUrl"`
 		CreatedAt                    time.Time `db:"created_at"                      json:"createdAt"`
 		UpdatedAt                    time.Time `db:"updated_at"                      json:"updatedAt"`
 	}
@@ -55,6 +57,8 @@ type (
 		LocationName                 *string   `db:"location_name"                   json:"locationName"`
 		GeoLat                       *float64  `db:"geo_lat"                         json:"geoLat"`
 		GeoLng                       *float64  `db:"geo_lng"                         json:"geoLng"`
+		ImageURL                     *string   `db:"image_url"                       json:"imageUrl"`
+		BannerURL                    *string   `db:"banner_url"                      json:"bannerUrl"`
 		Tags                         []string  `db:"tags"                            json:"tags"`
 		TrackingID                   string    `db:"tracking_id"                     json:"trackingId"`
 		CreatedAt                    time.Time `db:"created_at"                      json:"createdAt"`
@@ -85,6 +89,8 @@ func (pg *Pg) InsertPoolDeployMeta(ctx context.Context, tx pgx.Tx, meta PoolDepl
 		meta.LocationName,
 		meta.GeoLat,
 		meta.GeoLng,
+		meta.ImageURL,
+		meta.BannerURL,
 	)
 	return err
 }
@@ -129,6 +135,8 @@ func (pg *Pg) InsertDeployedPool(ctx context.Context, tx pgx.Tx, dp DeployedPool
 		dp.LocationName,
 		dp.GeoLat,
 		dp.GeoLng,
+		dp.ImageURL,
+		dp.BannerURL,
 	).Scan(&id); err != nil {
 		return id, err
 	}

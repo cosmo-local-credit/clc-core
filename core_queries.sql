@@ -129,8 +129,8 @@ INSERT INTO pool_deploy_meta (
     otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
     protocol_fee_controller_address, fees_decoupled, admin,
-    description, website, email, phone, location_name, geo_lat, geo_lng
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+    description, website, email, phone, location_name, geo_lat, geo_lng, image_url, banner_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING id;
 
 --name: get-pool-deploy-meta-by-otx-id
@@ -138,7 +138,7 @@ SELECT id, otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
     protocol_fee_controller_address, fees_decoupled, admin,
     description, website, email, phone, location_name, geo_lat, geo_lng,
-    created_at, updated_at
+    image_url, banner_url, created_at, updated_at
 FROM pool_deploy_meta
 WHERE otx_id = $1;
 
@@ -168,8 +168,8 @@ INSERT INTO deployed_pools (
     otx_id, platform_contract_id, address, name, symbol,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
     protocol_fee_controller_address, fees_decoupled, admin,
-    description, website, email, phone, location_name, geo_lat, geo_lng
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+    description, website, email, phone, location_name, geo_lat, geo_lng, image_url, banner_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING id;
 
 --name: get-deployed-pool-by-address
@@ -177,7 +177,7 @@ SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
     dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
-    dp.created_at, dp.updated_at, o.tracking_id,
+    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
     COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
@@ -190,7 +190,7 @@ SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
     dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
-    dp.created_at, dp.updated_at, o.tracking_id,
+    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
     COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
@@ -372,7 +372,7 @@ ORDER BY dt.id DESC
 LIMIT $3;
 
 --name: list-pools-by-user
-SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
@@ -384,7 +384,7 @@ LIMIT $2;
 -- Keyset window is fetched ascending (the rows immediately after the cursor)
 -- then re-sorted descending in SQL so the API never reorders rows in memory.
 SELECT * FROM (
-    SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+    SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
     FROM deployed_pools dp
     INNER JOIN otx o ON dp.otx_id = o.id
     INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
@@ -395,7 +395,7 @@ SELECT * FROM (
 ORDER BY page.id DESC;
 
 --name: list-pools-by-user-prev
-SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.created_at, dp.updated_at, o.tracking_id
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
@@ -411,7 +411,7 @@ ORDER BY created_at DESC;
 --name: list-all-pools
 SELECT id, otx_id, platform_contract_id, address, name, symbol,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
-    protocol_fee_controller_address, fees_decoupled, admin, created_at, updated_at
+    protocol_fee_controller_address, fees_decoupled, admin, image_url, banner_url, created_at, updated_at
 FROM deployed_pools
 ORDER BY created_at DESC;
 

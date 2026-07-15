@@ -173,6 +173,8 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		LocationName:               req.LocationName,
 		GeoLat:                     req.GeoLat,
 		GeoLng:                     req.GeoLng,
+		ImageURL:                   req.ImageURL,
+		BannerURL:                  req.BannerURL,
 		Tags:                       req.Tags,
 	}
 

@@ -310,6 +310,8 @@ CREATE TABLE IF NOT EXISTS pool_deploy_meta (
     location_name                   TEXT,
     geo_lat                         FLOAT8,
     geo_lng                         FLOAT8,
+    image_url                       TEXT,
+    banner_url                      TEXT,
     created_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -340,6 +342,8 @@ CREATE TABLE IF NOT EXISTS deployed_pools (
     location_name                   TEXT,
     geo_lat                         FLOAT8,
     geo_lng                         FLOAT8,
+    image_url                       TEXT,
+    banner_url                      TEXT,
     created_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -347,6 +351,13 @@ CREATE TABLE IF NOT EXISTS deployed_pools (
 CREATE TRIGGER update_deployed_pools_timestamp
     BEFORE UPDATE ON deployed_pools
     FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
+
+-- Keep the squashed baseline safe for databases initialized before pool image
+-- metadata was introduced.
+ALTER TABLE pool_deploy_meta ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE pool_deploy_meta ADD COLUMN IF NOT EXISTS banner_url TEXT;
+ALTER TABLE deployed_pools ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE deployed_pools ADD COLUMN IF NOT EXISTS banner_url TEXT;
 
 CREATE TABLE IF NOT EXISTS pool_deploy_meta_tags (
     otx_id    INT  REFERENCES pool_deploy_meta(otx_id) ON DELETE CASCADE NOT NULL,
