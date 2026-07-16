@@ -188,6 +188,51 @@ func (pg *Pg) ListPoolsByUserPrevious(ctx context.Context, tx pgx.Tx, userID uin
 	return pools, nil
 }
 
+func (pg *Pg) ListConfirmedPools(ctx context.Context, tx pgx.Tx, limit uint64) ([]DeployedPool, error) {
+	var pools []DeployedPool
+
+	rows, err := tx.Query(ctx, pg.queries.ListConfirmedPools, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&pools, rows); err != nil {
+		return nil, err
+	}
+
+	return pools, nil
+}
+
+func (pg *Pg) ListConfirmedPoolsNext(ctx context.Context, tx pgx.Tx, cursor uint64, limit uint64) ([]DeployedPool, error) {
+	var pools []DeployedPool
+
+	rows, err := tx.Query(ctx, pg.queries.ListConfirmedPoolsNext, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&pools, rows); err != nil {
+		return nil, err
+	}
+
+	return pools, nil
+}
+
+func (pg *Pg) ListConfirmedPoolsPrevious(ctx context.Context, tx pgx.Tx, cursor uint64, limit uint64) ([]DeployedPool, error) {
+	var pools []DeployedPool
+
+	rows, err := tx.Query(ctx, pg.queries.ListConfirmedPoolsPrev, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&pools, rows); err != nil {
+		return nil, err
+	}
+
+	return pools, nil
+}
+
 func (pg *Pg) ListAllTokens(ctx context.Context, tx pgx.Tx) ([]DeployedToken, error) {
 	var tokens []DeployedToken
 

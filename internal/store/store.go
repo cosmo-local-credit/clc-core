@@ -68,6 +68,9 @@ type (
 		ListPoolsByUser(context.Context, pgx.Tx, uint64, uint64) ([]DeployedPool, error)
 		ListPoolsByUserNext(context.Context, pgx.Tx, uint64, uint64, uint64) ([]DeployedPool, error)
 		ListPoolsByUserPrevious(context.Context, pgx.Tx, uint64, uint64, uint64) ([]DeployedPool, error)
+		ListConfirmedPools(context.Context, pgx.Tx, uint64) ([]DeployedPool, error)
+		ListConfirmedPoolsNext(context.Context, pgx.Tx, uint64, uint64) ([]DeployedPool, error)
+		ListConfirmedPoolsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]DeployedPool, error)
 		ListAllTokens(context.Context, pgx.Tx) ([]DeployedToken, error)
 		ListAllPools(context.Context, pgx.Tx) ([]DeployedPool, error)
 

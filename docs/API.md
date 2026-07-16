@@ -32,6 +32,8 @@
    - [POST /api/v2/contracts/token](#55-post-apiv2contractstoken)
    - [POST /api/v2/contracts/pool](#56-post-apiv2contractspool)
    - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#57-pretium-backend-endpoints-apiv2pretium)
+   - [GET /api/v2/pools](#58-get-apiv2pools)
+   - [GET /api/v2/pools/:address](#59-get-apiv2poolsaddress)
 6. [User-Only Endpoints (`/api/v2/users/*`)](#6-user-only-endpoints-apiv2users)
    - [GET /api/v2/users/me](#61-get-apiv2usersme)
    - [GET /api/v2/users/me/tokens](#62-get-apiv2usersmetokens)
@@ -722,6 +724,102 @@ base_url = "https://pretium.example.com/api/v1"
 - Local validation failures still use this API's standard error envelope.
 
 See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
+
+---
+
+### 5.8 `GET /api/v2/pools`
+
+Returns **all confirmed** (on-chain) SwapPool contracts across all users — the global pools catalog for the app. Cursor pagination matches activity and `/users/me/pools`.
+
+**Auth:** user JWT cookie or service JWT
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | `int` | `100` | Results per page (max `100`) |
+| `next` | `bool` | `false` | When `true`, page toward older records from `cursor` (load more) |
+| `cursor` | `int` | — | Use `last` with `next=true` for the next older page, or `first` without `next` to move back toward newer records |
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Confirmed pools",
+  "result": {
+    "pools": [
+      {
+        "id": 51,
+        "address": "0xAbCd5678...",
+        "name": "My Pool",
+        "symbol": "MYP",
+        "description": "...",
+        "tags": ["Market"],
+        "imageUrl": null,
+        "tokenRegistryAddress": "0x...",
+        "feePolicyAddress": "0x...",
+        "quoterAddress": "0x...",
+        "feesDecoupled": false,
+        "locationName": null,
+        "createdAt": "2024-01-15T10:30:00Z",
+        "updatedAt": "2024-01-15T10:30:00Z"
+      }
+    ],
+    "first": 51,
+    "last": 44
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `pools` | `array` | Current page of confirmed pools (`[]` when empty) |
+| `first` | `int` | Highest record ID in the current page |
+| `last` | `int` | Lowest record ID in the current page — use as `cursor` with `next=true` |
+
+**Note:** Prefer this endpoint for the Pools tab browse list. `GET /api/v2/users/me/pools` remains the authenticated user's own deployed pools only.
+
+---
+
+### 5.9 `GET /api/v2/pools/:address`
+
+Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any authenticated client may load any confirmed pool.
+
+**Auth:** user JWT cookie or service JWT
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `address` | `string` | Pool contract address |
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Pool at address 0xAbCd5678...",
+  "result": {
+    "pool": {
+      "id": 51,
+      "address": "0xAbCd5678...",
+      "name": "My Pool",
+      "symbol": "MYP",
+      "description": "...",
+      "tags": ["Market"],
+      "imageUrl": null,
+      "tokenRegistryAddress": "0x...",
+      "feePolicyAddress": "0x...",
+      "quoterAddress": "0x...",
+      "feesDecoupled": false,
+      "locationName": null,
+      "createdAt": "2024-01-15T10:30:00Z",
+      "updatedAt": "2024-01-15T10:30:00Z"
+    }
+  }
+}
+```
 
 ---
 

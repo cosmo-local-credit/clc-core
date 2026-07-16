@@ -422,6 +422,57 @@ FROM deployed_pools
 WHERE status = 'CONFIRMED'
 ORDER BY created_at DESC;
 
+-- Global confirmed pools (any user). Full metadata + tags for the app pools tab.
+--name: list-confirmed-pools
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
+    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
+WHERE dp.status = 'CONFIRMED'
+GROUP BY dp.id, o.tracking_id
+ORDER BY dp.id DESC
+LIMIT $1;
+
+--name: list-confirmed-pools-next
+-- Next pages are older records (id < cursor).
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
+    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
+WHERE dp.status = 'CONFIRMED' AND dp.id < $1
+GROUP BY dp.id, o.tracking_id
+ORDER BY dp.id DESC
+LIMIT $2;
+
+--name: list-confirmed-pools-prev
+-- Previous pages move toward newer records (id > cursor).
+SELECT * FROM (
+    SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
+        dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+        dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+        dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+        dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
+        COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+    FROM deployed_pools dp
+    INNER JOIN otx o ON dp.otx_id = o.id
+    LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
+    WHERE dp.status = 'CONFIRMED' AND dp.id > $1
+    GROUP BY dp.id, o.tracking_id
+    ORDER BY dp.id ASC
+    LIMIT $2
+) page
+ORDER BY page.id DESC;
+
 -- Set platform contracts implementation and version
 --name: set-platform-contracts
 UPDATE platform_contracts

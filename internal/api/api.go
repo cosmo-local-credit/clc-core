@@ -164,6 +164,11 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
+	// Global pool catalog (all confirmed pools). Distinct from /users/me/pools
+	// which is membership/ownership for the authenticated user only.
+	apiGroup.GET("/pools", a.poolsListHandler)
+	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
+
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")
 		pretiumGroup.POST("/trigger-onramp", a.pretiumTriggerOnrampHandler)

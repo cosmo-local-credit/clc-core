@@ -70,6 +70,9 @@ type (
 		ListPoolsByUser               string `query:"list-pools-by-user"`
 		ListPoolsByUserNext           string `query:"list-pools-by-user-next"`
 		ListPoolsByUserPrev           string `query:"list-pools-by-user-prev"`
+		ListConfirmedPools            string `query:"list-confirmed-pools"`
+		ListConfirmedPoolsNext        string `query:"list-confirmed-pools-next"`
+		ListConfirmedPoolsPrev        string `query:"list-confirmed-pools-prev"`
 		ListAllTokens                 string `query:"list-all-tokens"`
 		ListAllPools                  string `query:"list-all-pools"`
 
