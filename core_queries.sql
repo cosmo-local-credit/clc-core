@@ -66,51 +66,49 @@ FROM platform_contracts
 WHERE chain_id = $1 AND contract_type = $2::contract_type;
 
 --name: insert-deployed-token
-INSERT INTO deployed_tokens (otx_id, platform_contract_id, address, symbol, name, admin, description, website, email, phone, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO deployed_tokens (
+    otx_id, platform_contract_id, status, symbol, name, decimals, admin,
+    description, website, email, phone, voucher_uoa, voucher_value,
+    location_name, geo_lat, geo_lng
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING id;
+
+--name: confirm-deployed-token
+UPDATE deployed_tokens
+SET address = $2, status = 'CONFIRMED'
+WHERE otx_id = $1 AND status = 'PENDING'
+RETURNING id;
+
+--name: fail-deployed-token
+UPDATE deployed_tokens
+SET status = 'FAILED'
+WHERE otx_id = $1 AND status = 'PENDING';
 
 --name: insert-deployed-token-tag
 INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
 
 --name: get-deployed-token-by-address
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin,
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.voucher_uoa, dt.voucher_value,
        dt.location_name, dt.geo_lat, dt.geo_lng, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 LEFT JOIN deployed_token_tags dtt ON dtt.deployed_token_id = dt.id
-WHERE dt.address = $1
+WHERE dt.address = $1 AND dt.status = 'CONFIRMED'
 GROUP BY dt.id, o.tracking_id;
 
 --name: get-deployed-token-by-tracking-id
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin,
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.voucher_uoa, dt.voucher_value,
        dt.location_name, dt.geo_lat, dt.geo_lng, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 LEFT JOIN deployed_token_tags dtt ON dtt.deployed_token_id = dt.id
-WHERE o.tracking_id = $1::uuid
+WHERE o.tracking_id = $1::uuid AND dt.status = 'CONFIRMED'
 GROUP BY dt.id, o.tracking_id
 LIMIT 1;
-
---name: insert-token-deploy-meta
-INSERT INTO token_deploy_meta (otx_id, platform_contract_id, token_name, token_symbol, admin, description, website, email, phone, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id;
-
---name: insert-token-deploy-meta-tag
-INSERT INTO token_deploy_meta_tags (otx_id, tag_value) VALUES ($1, $2);
-
---name: get-token-deploy-meta-by-otx-id
-SELECT id, otx_id, platform_contract_id, token_name, token_symbol, admin, description, website, email, phone, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng, created_at, updated_at
-FROM token_deploy_meta
-WHERE otx_id = $1;
-
---name: get-token-deploy-meta-tags
-SELECT tag_value FROM token_deploy_meta_tags WHERE otx_id = $1 ORDER BY tag_value;
 
 --name: list-token-tags
 SELECT value FROM token_tag ORDER BY value;
@@ -123,33 +121,56 @@ SELECT address FROM pool_addresses WHERE key = $1;
 INSERT INTO pool_addresses (key, address) VALUES ($1, $2)
 ON CONFLICT (key) DO UPDATE SET address = EXCLUDED.address, updated_at = CURRENT_TIMESTAMP;
 
--- Pool deploy meta
---name: insert-pool-deploy-meta
-INSERT INTO pool_deploy_meta (
-    otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
+-- Deployed pools
+--name: insert-deployed-pool
+INSERT INTO deployed_pools (
+    otx_id, platform_contract_id, status, name, symbol, decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
     protocol_fee_controller_address, fees_decoupled, admin,
     description, website, email, phone, location_name, geo_lat, geo_lng, image_url, banner_url
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING id;
 
---name: get-pool-deploy-meta-by-otx-id
-SELECT id, otx_id, platform_contract_id, pool_name, pool_symbol, pool_decimals,
-    token_registry_address, limiter_address, fee_policy_address, quoter_address,
-    protocol_fee_controller_address, fees_decoupled, admin,
-    description, website, email, phone, location_name, geo_lat, geo_lng,
-    image_url, banner_url, created_at, updated_at
-FROM pool_deploy_meta
-WHERE otx_id = $1;
+--name: confirm-deployed-pool
+UPDATE deployed_pools
+SET address = $2, status = 'CONFIRMED'
+WHERE otx_id = $1 AND status = 'PENDING'
+RETURNING id;
 
---name: insert-pool-deploy-meta-tag
-INSERT INTO pool_deploy_meta_tags (otx_id, tag_value) VALUES ($1, $2);
-
---name: get-pool-deploy-meta-tags
-SELECT tag_value FROM pool_deploy_meta_tags WHERE otx_id = $1 ORDER BY tag_value;
+--name: fail-deployed-pool
+UPDATE deployed_pools
+SET status = 'FAILED'
+WHERE otx_id = $1 AND status = 'PENDING';
 
 --name: insert-deployed-pool-tag
 INSERT INTO deployed_pool_tags (deployed_pool_id, tag_value) VALUES ($1, $2);
+
+--name: get-deployed-pool-by-address
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
+    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
+WHERE dp.address = $1 AND dp.status = 'CONFIRMED'
+GROUP BY dp.id, o.tracking_id;
+
+--name: get-deployed-pool-by-tracking-id
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
+    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
+WHERE o.tracking_id = $1::uuid AND dp.status = 'CONFIRMED'
+GROUP BY dp.id, o.tracking_id
+LIMIT 1;
 
 -- Oracle feeds
 --name: get-oracle-feed-by-name
@@ -161,43 +182,6 @@ WHERE name = $1;
 SELECT id, name, address, created_at, updated_at
 FROM oracle_feeds
 ORDER BY name;
-
--- Deployed pools
---name: insert-deployed-pool
-INSERT INTO deployed_pools (
-    otx_id, platform_contract_id, address, name, symbol,
-    token_registry_address, limiter_address, fee_policy_address, quoter_address,
-    protocol_fee_controller_address, fees_decoupled, admin,
-    description, website, email, phone, location_name, geo_lat, geo_lng, image_url, banner_url
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-RETURNING id;
-
---name: get-deployed-pool-by-address
-SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol,
-    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
-    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
-    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
-    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
-    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
-FROM deployed_pools dp
-INNER JOIN otx o ON dp.otx_id = o.id
-LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
-WHERE dp.address = $1
-GROUP BY dp.id, o.tracking_id;
-
---name: get-deployed-pool-by-tracking-id
-SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol,
-    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
-    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
-    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
-    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
-    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
-FROM deployed_pools dp
-INNER JOIN otx o ON dp.otx_id = o.id
-LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
-WHERE o.tracking_id = $1::uuid
-GROUP BY dp.id, o.tracking_id
-LIMIT 1;
 
 --name: get-otx-by-tracking-id
 SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.raw_tx, otx.tx_hash,
@@ -340,11 +324,11 @@ JOIN users u ON u.id = ud.user_id
 ORDER BY ud.created_at DESC;
 
 --name: list-tokens-by-user
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN'
+WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.status = 'CONFIRMED'
 ORDER BY dt.id DESC
 LIMIT $2;
 
@@ -352,31 +336,31 @@ LIMIT $2;
 -- Keyset window is fetched ascending (the rows immediately after the cursor)
 -- then re-sorted descending in SQL so the API never reorders rows in memory.
 SELECT * FROM (
-    SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+    SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
     FROM deployed_tokens dt
     INNER JOIN otx o ON dt.otx_id = o.id
     INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-    WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.id > $2
+    WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.status = 'CONFIRMED' AND dt.id > $2
     ORDER BY dt.id ASC
     LIMIT $3
 ) page
 ORDER BY page.id DESC;
 
 --name: list-tokens-by-user-prev
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.address, dt.symbol, dt.name, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.id < $2
+WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.status = 'CONFIRMED' AND dt.id < $2
 ORDER BY dt.id DESC
 LIMIT $3;
 
 --name: list-pools-by-user
-SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1 AND ud.resource_type = 'POOL'
+WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.status = 'CONFIRMED'
 ORDER BY dp.id DESC
 LIMIT $2;
 
@@ -384,35 +368,37 @@ LIMIT $2;
 -- Keyset window is fetched ascending (the rows immediately after the cursor)
 -- then re-sorted descending in SQL so the API never reorders rows in memory.
 SELECT * FROM (
-    SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
+    SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
     FROM deployed_pools dp
     INNER JOIN otx o ON dp.otx_id = o.id
     INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-    WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.id > $2
+    WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.status = 'CONFIRMED' AND dp.id > $2
     ORDER BY dp.id ASC
     LIMIT $3
 ) page
 ORDER BY page.id DESC;
 
 --name: list-pools-by-user-prev
-SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.address, dp.name, dp.symbol, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.id < $2
+WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.status = 'CONFIRMED' AND dp.id < $2
 ORDER BY dp.id DESC
 LIMIT $3;
 
 --name: list-all-tokens
-SELECT id, otx_id, platform_contract_id, address, symbol, name, admin, created_at, updated_at
+SELECT id, otx_id, platform_contract_id, status, address, symbol, name, decimals, admin, created_at, updated_at
 FROM deployed_tokens
+WHERE status = 'CONFIRMED'
 ORDER BY created_at DESC;
 
 --name: list-all-pools
-SELECT id, otx_id, platform_contract_id, address, name, symbol,
+SELECT id, otx_id, platform_contract_id, status, address, name, symbol, decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address,
     protocol_fee_controller_address, fees_decoupled, admin, image_url, banner_url, created_at, updated_at
 FROM deployed_pools
+WHERE status = 'CONFIRMED'
 ORDER BY created_at DESC;
 
 -- Set platform contracts implementation and version

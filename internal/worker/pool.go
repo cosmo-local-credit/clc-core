@@ -355,13 +355,12 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 
-	// Insert pool deploy meta linked to the SwapPool OTX
-	if err := w.wc.store.InsertPoolDeployMeta(ctx, dbTx, store.PoolDeployMeta{
+	deployedPoolID, err := w.wc.store.InsertDeployedPool(ctx, dbTx, store.DeployedPool{
 		OTXID:                        swapPoolPrepared.OTXID,
 		PlatformContractID:           args.SwapPoolPlatformContractID,
-		PoolName:                     args.PoolName,
-		PoolSymbol:                   args.PoolSymbol,
-		PoolDecimals:                 uint8(poolDecimals),
+		Name:                         args.PoolName,
+		Symbol:                       args.PoolSymbol,
+		Decimals:                     uint8(poolDecimals),
 		TokenRegistryAddress:         tokenIndexAddr.Hex(),
 		LimiterAddress:               limiterAddr.Hex(),
 		FeePolicyAddress:             feePolicyAddr.Hex(),
@@ -378,12 +377,13 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		GeoLng:                       args.GeoLng,
 		ImageURL:                     nilIfEmpty(args.ImageURL),
 		BannerURL:                    nilIfEmpty(args.BannerURL),
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
 	for _, tag := range args.Tags {
-		if err := w.wc.store.InsertPoolDeployMetaTag(ctx, dbTx, swapPoolPrepared.OTXID, tag); err != nil {
+		if err := w.wc.store.InsertDeployedPoolTag(ctx, dbTx, deployedPoolID, tag); err != nil {
 			return err
 		}
 	}

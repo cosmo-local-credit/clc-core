@@ -139,11 +139,12 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 	}
 	defer metaTx.Rollback(ctx)
 
-	if err := w.wc.store.InsertTokenDeployMeta(ctx, metaTx, store.TokenDeployMeta{
+	deployedID, err := w.wc.store.InsertDeployedToken(ctx, metaTx, store.DeployedToken{
 		OTXID:              proxyTx.OTXID,
 		PlatformContractID: args.PlatformContractID,
-		TokenName:          args.Name,
-		TokenSymbol:        args.Symbol,
+		Symbol:             args.Symbol,
+		Name:               args.Name,
+		Decimals:           uint8(decimals),
 		Admin:              args.Owner,
 		Description:        nilIfEmpty(args.Description),
 		Website:            nilIfEmpty(args.Website),
@@ -154,12 +155,13 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		LocationName:       nilIfEmpty(args.LocationName),
 		GeoLat:             args.GeoLat,
 		GeoLng:             args.GeoLng,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
 	for _, tag := range args.Tags {
-		if err := w.wc.store.InsertTokenDeployMetaTag(ctx, metaTx, proxyTx.OTXID, tag); err != nil {
+		if err := w.wc.store.InsertDeployedTokenTag(ctx, metaTx, deployedID, tag); err != nil {
 			return err
 		}
 	}

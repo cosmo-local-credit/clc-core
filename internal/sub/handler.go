@@ -47,93 +47,32 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		return err
 	}
 
-	if chainEvent.Success && otx.OTXType == store.TOKEN_PROXY_DEPLOY {
-		meta, err := s.store.GetTokenDeployMetaByOTXID(ctx, tx, otx.ID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				s.logg.Warn("Sub: token deploy meta missing for confirmed OTX, skipping finalization", "otxId", otx.ID)
-				_ = s.pub.Send(ctx, custodialEvent.Event{TrackingID: otx.TrackingID, Status: updateDispatchStatus.Status})
-				return tx.Commit(ctx)
+	switch otx.OTXType {
+	case store.TOKEN_PROXY_DEPLOY:
+		if chainEvent.Success {
+			if _, err := s.store.ConfirmDeployedToken(ctx, tx, otx.ID, chainEvent.ContractAddress); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					s.logg.Warn("Sub: pending token row missing for confirmed OTX, skipping finalization", "otxId", otx.ID)
+				} else {
+					return err
+				}
 			}
-			return err
-		}
-
-		deployedID, err := s.store.InsertDeployedToken(ctx, tx, store.DeployedToken{
-			OTXID:              otx.ID,
-			PlatformContractID: meta.PlatformContractID,
-			Address:            chainEvent.ContractAddress,
-			Symbol:             meta.TokenSymbol,
-			Name:               meta.TokenName,
-			Admin:              meta.Admin,
-			Description:        meta.Description,
-			Website:            meta.Website,
-			Email:              meta.Email,
-			Phone:              meta.Phone,
-			VoucherUoa:         meta.VoucherUoa,
-			VoucherValue:       meta.VoucherValue,
-			LocationName:       meta.LocationName,
-			GeoLat:             meta.GeoLat,
-			GeoLng:             meta.GeoLng,
-		})
-		if err != nil {
-			return err
-		}
-
-		tags, err := s.store.GetTokenDeployMetaTags(ctx, tx, otx.ID)
-		if err != nil {
-			return err
-		}
-		for _, tag := range tags {
-			if err := s.store.InsertDeployedTokenTag(ctx, tx, deployedID, tag); err != nil {
+		} else {
+			if err := s.store.FailDeployedToken(ctx, tx, otx.ID); err != nil {
 				return err
 			}
 		}
-	}
-
-	if chainEvent.Success && otx.OTXType == store.POOL_PROXY_DEPLOY {
-		meta, err := s.store.GetPoolDeployMetaByOTXID(ctx, tx, otx.ID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				s.logg.Warn("Sub: pool deploy meta missing for confirmed OTX, skipping finalization", "otxId", otx.ID)
-				_ = s.pub.Send(ctx, custodialEvent.Event{TrackingID: otx.TrackingID, Status: updateDispatchStatus.Status})
-				return tx.Commit(ctx)
+	case store.POOL_PROXY_DEPLOY:
+		if chainEvent.Success {
+			if _, err := s.store.ConfirmDeployedPool(ctx, tx, otx.ID, chainEvent.ContractAddress); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					s.logg.Warn("Sub: pending pool row missing for confirmed OTX, skipping finalization", "otxId", otx.ID)
+				} else {
+					return err
+				}
 			}
-			return err
-		}
-
-		deployedPoolID, err := s.store.InsertDeployedPool(ctx, tx, store.DeployedPool{
-			OTXID:                        otx.ID,
-			PlatformContractID:           meta.PlatformContractID,
-			Address:                      chainEvent.ContractAddress,
-			Name:                         meta.PoolName,
-			Symbol:                       meta.PoolSymbol,
-			TokenRegistryAddress:         meta.TokenRegistryAddress,
-			LimiterAddress:               meta.LimiterAddress,
-			FeePolicyAddress:             meta.FeePolicyAddress,
-			QuoterAddress:                meta.QuoterAddress,
-			ProtocolFeeControllerAddress: meta.ProtocolFeeControllerAddress,
-			FeesDecoupled:                meta.FeesDecoupled,
-			Admin:                        meta.Admin,
-			Description:                  meta.Description,
-			Website:                      meta.Website,
-			Email:                        meta.Email,
-			Phone:                        meta.Phone,
-			LocationName:                 meta.LocationName,
-			GeoLat:                       meta.GeoLat,
-			GeoLng:                       meta.GeoLng,
-			ImageURL:                     meta.ImageURL,
-			BannerURL:                    meta.BannerURL,
-		})
-		if err != nil {
-			return err
-		}
-
-		poolTags, err := s.store.GetPoolDeployMetaTags(ctx, tx, otx.ID)
-		if err != nil {
-			return err
-		}
-		for _, tag := range poolTags {
-			if err := s.store.InsertDeployedPoolTag(ctx, tx, deployedPoolID, tag); err != nil {
+		} else {
+			if err := s.store.FailDeployedPool(ctx, tx, otx.ID); err != nil {
 				return err
 			}
 		}

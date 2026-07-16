@@ -25,23 +25,19 @@ type (
 		UpdateDispatchTxStatus       string `query:"update-dispatch-tx-status"`
 		GetPlatformContracts         string `query:"get-platform-contracts"`
 		InsertDeployedToken          string `query:"insert-deployed-token"`
+		ConfirmDeployedToken         string `query:"confirm-deployed-token"`
+		FailDeployedToken            string `query:"fail-deployed-token"`
 		InsertDeployedTokenTag       string `query:"insert-deployed-token-tag"`
 		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
-		InsertTokenDeployMeta        string `query:"insert-token-deploy-meta"`
-		InsertTokenDeployMetaTag     string `query:"insert-token-deploy-meta-tag"`
-		GetTokenDeployMetaByOTXID    string `query:"get-token-deploy-meta-by-otx-id"`
-		GetTokenDeployMetaTags       string `query:"get-token-deploy-meta-tags"`
 		ListTokenTags                string `query:"list-token-tags"`
 		GetPoolAddress               string `query:"get-pool-address"`
 		SetPoolAddress               string `query:"set-pool-address"`
 		InsertDeployedPool           string `query:"insert-deployed-pool"`
+		ConfirmDeployedPool          string `query:"confirm-deployed-pool"`
+		FailDeployedPool             string `query:"fail-deployed-pool"`
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
-		InsertPoolDeployMeta         string `query:"insert-pool-deploy-meta"`
-		InsertPoolDeployMetaTag      string `query:"insert-pool-deploy-meta-tag"`
-		GetPoolDeployMetaByOTXID     string `query:"get-pool-deploy-meta-by-otx-id"`
-		GetPoolDeployMetaTags        string `query:"get-pool-deploy-meta-tags"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
 		GetOracleFeedByName          string `query:"get-oracle-feed-by-name"`
 		ListOracleFeeds              string `query:"list-oracle-feeds"`

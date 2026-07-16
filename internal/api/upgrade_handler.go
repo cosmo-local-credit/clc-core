@@ -219,7 +219,7 @@ func (a *API) upgradePoolHandler(c *echo.Context) error {
 	if pc, ok := pcMap["SWAPPOOL"]; ok {
 		tasks = append(tasks, upgradeTask{
 			ContractType:   "SWAPPOOL",
-			ProxyAddress:   pool.Address,
+			ProxyAddress:   req.Address,
 			NewImplAddress: pc.ImplAddress,
 			FactoryAddress: pc.FactoryAddress,
 			Version:        pc.Version,

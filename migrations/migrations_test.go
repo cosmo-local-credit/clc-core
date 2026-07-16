@@ -23,18 +23,28 @@ func TestBaselineMigrationExists(t *testing.T) {
 	assert.True(t, found, "expected a 001_init.sql baseline migration in migrations/")
 }
 
-func TestOnlyBaselineMigrationExists(t *testing.T) {
+func TestMigrationFiles(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 
+	var sqlFiles []string
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".sql") {
-			assert.Equal(t, "001_init.sql", e.Name(), "expected the squashed baseline migration to be the only SQL migration file")
+			sqlFiles = append(sqlFiles, e.Name())
 		}
+	}
+
+	assert.Contains(t, sqlFiles, "001_init.sql")
+	assert.Contains(t, sqlFiles, "002_unify_deploy_registry.sql")
+	for _, name := range sqlFiles {
+		assert.True(t,
+			name == "001_init.sql" || name == "002_unify_deploy_registry.sql",
+			"unexpected migration file %s", name,
+		)
 	}
 }
 
-func TestBaselineMigrationContainsCurrentSchema(t *testing.T) {
+func TestBaselineMigrationContainsLegacySchema(t *testing.T) {
 	content, err := os.ReadFile("001_init.sql")
 	require.NoError(t, err)
 
@@ -100,4 +110,25 @@ func TestBaselineMigrationContainsCurrentSchema(t *testing.T) {
 	assert.Contains(t, s, "user_status")
 	assert.Contains(t, s, "SUPERADMIN")
 	assert.Contains(t, s, "0x33a573149db22e759fb9a38bcc461c12855c2645")
+}
+
+func TestUnifyDeployRegistryMigration(t *testing.T) {
+	content, err := os.ReadFile("002_unify_deploy_registry.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS deploy_status_type")
+	assert.Contains(t, s, "('PENDING')")
+	assert.Contains(t, s, "('CONFIRMED')")
+	assert.Contains(t, s, "('FAILED')")
+	assert.Contains(t, s, "SET status = 'CONFIRMED'")
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS decimals")
+	assert.Contains(t, s, "ALTER COLUMN address DROP NOT NULL")
+	assert.Contains(t, s, "FROM token_deploy_meta m")
+	assert.Contains(t, s, "FROM pool_deploy_meta m")
+	assert.Contains(t, s, "INSERT INTO deployed_token_tags")
+	assert.Contains(t, s, "INSERT INTO deployed_pool_tags")
+	assert.Contains(t, s, "DROP TABLE IF EXISTS token_deploy_meta")
+	assert.Contains(t, s, "DROP TABLE IF EXISTS pool_deploy_meta")
+	assert.Contains(t, s, "m.pool_decimals")
 }
