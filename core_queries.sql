@@ -155,7 +155,7 @@ SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
-WHERE dp.address = $1 AND dp.status = 'CONFIRMED'
+WHERE lower(dp.address) = lower($1) AND dp.status = 'CONFIRMED'
 GROUP BY dp.id, o.tracking_id;
 
 --name: get-deployed-pool-by-tracking-id
@@ -356,36 +356,57 @@ ORDER BY dt.id DESC
 LIMIT $3;
 
 --name: list-pools-by-user
-SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
+    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp
 INNER JOIN otx o ON dp.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
 WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.status = 'CONFIRMED'
+GROUP BY dp.id, o.tracking_id
 ORDER BY dp.id DESC
 LIMIT $2;
 
 --name: list-pools-by-user-next
--- Keyset window is fetched ascending (the rows immediately after the cursor)
--- then re-sorted descending in SQL so the API never reorders rows in memory.
+-- Same keyset direction as transfer history: next pages are older (id < cursor).
+SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
+    COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+FROM deployed_pools dp
+INNER JOIN otx o ON dp.otx_id = o.id
+INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
+WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.status = 'CONFIRMED' AND dp.id < $2
+GROUP BY dp.id, o.tracking_id
+ORDER BY dp.id DESC
+LIMIT $3;
+
+--name: list-pools-by-user-prev
+-- Previous pages move toward newer records (id > cursor).
 SELECT * FROM (
-    SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
+    SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
+        dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+        dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+        dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
+        dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
+        COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
     FROM deployed_pools dp
     INNER JOIN otx o ON dp.otx_id = o.id
     INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+    LEFT JOIN deployed_pool_tags dpt ON dpt.deployed_pool_id = dp.id
     WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.status = 'CONFIRMED' AND dp.id > $2
+    GROUP BY dp.id, o.tracking_id
     ORDER BY dp.id ASC
     LIMIT $3
 ) page
 ORDER BY page.id DESC;
-
---name: list-pools-by-user-prev
-SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals, dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin, dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id
-FROM deployed_pools dp
-INNER JOIN otx o ON dp.otx_id = o.id
-INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
-WHERE ud.user_id = $1 AND ud.resource_type = 'POOL' AND dp.status = 'CONFIRMED' AND dp.id < $2
-ORDER BY dp.id DESC
-LIMIT $3;
 
 --name: list-all-tokens
 SELECT id, otx_id, platform_contract_id, status, address, symbol, name, decimals, admin, created_at, updated_at

@@ -62,6 +62,10 @@ func cursorPaginatedList[T any](
 		return handlePostgresError(c, queryErr)
 	}
 
+	if items == nil {
+		items = []T{}
+	}
+
 	var first, last uint64
 	if len(items) > 0 {
 		first = getID(items[0])

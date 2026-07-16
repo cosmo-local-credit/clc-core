@@ -36,7 +36,8 @@
    - [GET /api/v2/users/me](#61-get-apiv2usersme)
    - [GET /api/v2/users/me/tokens](#62-get-apiv2usersmetokens)
    - [GET /api/v2/users/me/pools](#63-get-apiv2usersmepools)
-   - [GET /api/v2/users/me/deployments](#64-get-apiv2usersmedeployments)
+   - [GET /api/v2/users/me/pools/:address](#64-get-apiv2usersmepoolsaddress)
+   - [GET /api/v2/users/me/deployments](#65-get-apiv2usersmedeployments)
 7. [Superadmin Endpoints (`/api/v2/admin/*`)](#7-superadmin-endpoints-apiv2admin)
    - [GET /api/v2/admin/users](#71-get-apiv2adminusers)
    - [PUT /api/v2/admin/users/:address/approve](#72-put-apiv2adminusersaddressapprove)
@@ -820,8 +821,8 @@ Returns **confirmed** (on-chain) SwapPool contracts deployed by the authenticate
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `perPage` | `int` | `100` | Results per page (max `100`) |
-| `next` | `bool` | `false` | When `true`, page toward newer records from `cursor` |
-| `cursor` | `int` | — | Use `last` to fetch older records or `first` with `next=true` to move back toward newer records |
+| `next` | `bool` | `false` | When `true`, page toward older records from `cursor` (load more) |
+| `cursor` | `int` | — | Use `last` with `next=true` for the next older page, or `first` without `next` to move back toward newer records |
 
 **Response `200`:**
 
@@ -848,13 +849,52 @@ Returns **confirmed** (on-chain) SwapPool contracts deployed by the authenticate
 
 | Field | Type | Description |
 |---|---|---|
-| `pools` | `array` | Current page of deployed pools |
+| `pools` | `array` | Current page of deployed pools (`[]` when empty) |
 | `first` | `int` | Highest record ID in the current page |
-| `last` | `int` | Lowest record ID in the current page |
+| `last` | `int` | Lowest record ID in the current page — use as `cursor` with `next=true` |
 
 ---
 
-### 6.4 `GET /api/v2/users/me/deployments`
+### 6.4 `GET /api/v2/users/me/pools/:address`
+
+Returns a single confirmed SwapPool by contract address. Address match is case-insensitive.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `address` | `string` | Pool contract address |
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Pool at address 0xAbCd5678...",
+  "result": {
+    "pool": {
+      "id": 51,
+      "address": "0xAbCd5678...",
+      "name": "My Pool",
+      "symbol": "MYP",
+      "description": "...",
+      "tags": ["Market"],
+      "imageUrl": null,
+      "tokenRegistryAddress": "0x...",
+      "feePolicyAddress": "0x...",
+      "quoterAddress": "0x...",
+      "feesDecoupled": false,
+      "locationName": null,
+      "createdAt": "2024-01-15T10:30:00Z",
+      "updatedAt": "2024-01-15T10:30:00Z"
+    }
+  }
+}
+```
+
+---
+
+### 6.5 `GET /api/v2/users/me/deployments`
 
 Returns the complete deployment history for the authenticated user, covering both tokens and pools in reverse-chronological order.
 
