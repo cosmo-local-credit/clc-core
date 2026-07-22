@@ -37,18 +37,14 @@ Table "schema_version" {
 
 Table "keystore" {
   "id" int4 [pk, not null, increment]
-  "public_key" text [unique, not null]
+  "public_key" text [unique, not null, check: `public_key ~ '^0x[0-9a-fA-F]{40}$'::text`]
   "private_key" text [not null]
   "active" bool [default: false]
   "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
 
-  Checks {
-    `public_key ~ '^0x[0-9a-fA-F]{40}$'` [name: 'keystore_public_key_format']
-  }
-
   Indexes {
-    `lower(public_key)` [type: btree, unique, name: "keystore_public_key_lower_key"]
+    (`lower(public_key)`) [type: btree, unique, name: "keystore_public_key_lower_key"]
   }
 }
 
@@ -58,18 +54,14 @@ Table "master_key" {
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
 
   Indexes {
-    `(true)` [type: btree, unique, name: "master_key_singleton_idx"]
+    (`true`) [type: btree, unique, name: "master_key_singleton_idx"]
   }
 }
 
 Table "noncestore" {
   "keystore_id" int4 [pk, not null]
-  "next_nonce" int8 [not null, default: 0]
+  "next_nonce" int8 [not null, check: `next_nonce >= 0`, default: 0]
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
-
-  Checks {
-    `next_nonce >= 0` [name: 'noncestore_next_nonce_nonneg']
-  }
 }
 
 Table "otx_tx_type" {
@@ -87,14 +79,10 @@ Table "otx" {
   "signer_account" int4 [not null]
   "raw_tx" text [not null]
   "tx_hash" text [not null]
-  "nonce" int8 [not null]
+  "nonce" int8 [not null, check: `nonce >= 0`]
   "replaced" bool [default: false]
   "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
-
-  Checks {
-    `nonce >= 0` [name: 'otx_nonce_nonneg']
-  }
 }
 
 Table "dispatch" {
@@ -115,7 +103,7 @@ Table "upgrade_meta" {
   "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
 
   Checks {
-    `proxy_address ~ '^0x[0-9a-fA-F]{40}$' AND new_implementation ~ '^0x[0-9a-fA-F]{40}$'` [name: 'upgrade_meta_address_format']
+    `(proxy_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (new_implementation ~ '^0x[0-9a-fA-F]{40}$'::text)` [name: 'upgrade_meta_address_format']
   }
 }
 
@@ -130,7 +118,7 @@ Table "platform_contracts" {
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
 
   Checks {
-    `factory_address ~ '^0x[0-9a-fA-F]{40}$' AND implementation_address ~ '^0x[0-9a-fA-F]{40}$'` [name: 'platform_contracts_address_format']
+    `(factory_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (implementation_address ~ '^0x[0-9a-fA-F]{40}$'::text)` [name: 'platform_contracts_address_format']
   }
 
   Indexes {
@@ -158,17 +146,16 @@ Table "deployed_tokens" {
   "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
   "status" text [not null, default: 'PENDING']
-  "decimals" int4 [not null]
+  "decimals" int4 [not null, check: `(decimals >= 0) AND (decimals <= 255)`]
 
   Checks {
-    `address ~ '^0x[0-9a-fA-F]{40}$' AND admin ~ '^0x[0-9a-fA-F]{40}$'` [name: 'deployed_tokens_address_format']
-    `((geo_lat IS NULL) = (geo_lng IS NULL)) AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90) AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)` [name: 'deployed_tokens_geo_valid']
-    `decimals BETWEEN 0 AND 255` [name: 'deployed_tokens_decimals_range']
-    `status <> 'CONFIRMED' OR address IS NOT NULL` [name: 'deployed_tokens_confirmed_has_address']
+    `(address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (admin ~ '^0x[0-9a-fA-F]{40}$'::text)` [name: 'deployed_tokens_address_format']
+    `((geo_lat IS NULL) = (geo_lng IS NULL)) AND ((geo_lat IS NULL) OR ((geo_lat >= ('-90'::integer)::double precision) AND (geo_lat <= (90)::double precision))) AND ((geo_lng IS NULL) OR ((geo_lng >= ('-180'::integer)::double precision) AND (geo_lng <= (180)::double precision)))` [name: 'deployed_tokens_geo_valid']
+    `(status <> 'CONFIRMED'::text) OR (address IS NOT NULL)` [name: 'deployed_tokens_confirmed_has_address']
   }
 
   Indexes {
-    `lower(address)` [type: btree, unique, name: "deployed_tokens_address_lower_key"]
+    (`lower(address)`) [type: btree, unique, name: "deployed_tokens_address_lower_key"]
   }
 }
 
@@ -188,13 +175,9 @@ Table "deployed_token_tags" {
 Table "pool_addresses" {
   "id" int4 [pk, not null, increment]
   "key" text [unique, not null]
-  "address" text [not null]
+  "address" text [not null, check: `address ~ '^0x[0-9a-fA-F]{40}$'::text`]
   "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
-
-  Checks {
-    `address ~ '^0x[0-9a-fA-F]{40}$'` [name: 'pool_addresses_address_format']
-  }
 }
 
 Table "deployed_pools" {
@@ -223,17 +206,16 @@ Table "deployed_pools" {
   "image_url" text
   "banner_url" text
   "status" text [not null, default: 'PENDING']
-  "decimals" int4 [not null]
+  "decimals" int4 [not null, check: `(decimals >= 0) AND (decimals <= 255)`]
 
   Checks {
-    `address ~ '^0x[0-9a-fA-F]{40}$' AND admin ~ '^0x[0-9a-fA-F]{40}$' AND token_registry_address ~ '^0x[0-9a-fA-F]{40}$' AND limiter_address ~ '^0x[0-9a-fA-F]{40}$' AND fee_policy_address ~ '^0x[0-9a-fA-F]{40}$' AND quoter_address ~ '^0x[0-9a-fA-F]{40}$' AND protocol_fee_controller_address ~ '^0x[0-9a-fA-F]{40}$'` [name: 'deployed_pools_address_format']
-    `((geo_lat IS NULL) = (geo_lng IS NULL)) AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90) AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)` [name: 'deployed_pools_geo_valid']
-    `decimals BETWEEN 0 AND 255` [name: 'deployed_pools_decimals_range']
-    `status <> 'CONFIRMED' OR address IS NOT NULL` [name: 'deployed_pools_confirmed_has_address']
+    `(address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (admin ~ '^0x[0-9a-fA-F]{40}$'::text) AND (token_registry_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (limiter_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (fee_policy_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (quoter_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (protocol_fee_controller_address ~ '^0x[0-9a-fA-F]{40}$'::text)` [name: 'deployed_pools_address_format']
+    `((geo_lat IS NULL) = (geo_lng IS NULL)) AND ((geo_lat IS NULL) OR ((geo_lat >= ('-90'::integer)::double precision) AND (geo_lat <= (90)::double precision))) AND ((geo_lng IS NULL) OR ((geo_lng >= ('-180'::integer)::double precision) AND (geo_lng <= (180)::double precision)))` [name: 'deployed_pools_geo_valid']
+    `(status <> 'CONFIRMED'::text) OR (address IS NOT NULL)` [name: 'deployed_pools_confirmed_has_address']
   }
 
   Indexes {
-    `lower(address)` [type: btree, unique, name: "deployed_pools_address_lower_key"]
+    (`lower(address)`) [type: btree, unique, name: "deployed_pools_address_lower_key"]
   }
 }
 
@@ -249,18 +231,14 @@ Table "deployed_pool_tags" {
 Table "oracle_feeds" {
   "id" int4 [pk, not null, increment]
   "name" text [unique, not null]
-  "address" text [not null]
+  "address" text [not null, check: `address ~ '^0x[0-9a-fA-F]{40}$'::text`]
   "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
-
-  Checks {
-    `address ~ '^0x[0-9a-fA-F]{40}$'` [name: 'oracle_feeds_address_format']
-  }
 }
 
 Table "users" {
   "id" int4 [pk, not null, increment]
-  "blockchain_address" text [unique, not null]
+  "blockchain_address" text [unique, not null, check: `blockchain_address ~ '^0x[0-9a-fA-F]{40}$'::text`]
   "name" text [not null]
   "email" text [unique]
   "phone" text [unique]
@@ -274,12 +252,11 @@ Table "users" {
 
   Checks {
     `(email IS NOT NULL) OR (phone IS NOT NULL)` [name: 'users_at_least_one_contact']
-    `blockchain_address ~ '^0x[0-9a-fA-F]{40}$'` [name: 'users_blockchain_address_format']
-    `max_pools >= 0 AND max_tokens >= 0` [name: 'users_quotas_nonneg']
+    `(max_pools >= 0) AND (max_tokens >= 0)` [name: 'users_quotas_nonneg']
   }
 
   Indexes {
-    `lower(blockchain_address)` [type: btree, unique, name: "users_blockchain_address_lower_key"]
+    (`lower(blockchain_address)`) [type: btree, unique, name: "users_blockchain_address_lower_key"]
     status [type: btree, name: "users_status_idx"]
   }
 }
@@ -298,19 +275,19 @@ Table "user_deployments" {
 
 Table "webauthn_credentials" {
   "credential_id" text [pk, not null]
-  "address" text [not null]
+  "address" text [not null, check: `address ~ '^0x[0-9a-fA-F]{40}$'::text`]
   "key_hash" text [not null]
   "public_key_x" numeric [not null]
   "public_key_y" numeric [not null]
   "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
 
-  Checks {
-    `address ~ '^0x[0-9a-fA-F]{40}$'` [name: 'webauthn_address_format']
-  }
-
   Indexes {
     address [type: btree, name: "webauthn_credentials_address_idx"]
   }
+}
+
+Table "deploy_status_type" {
+  "value" text [pk, not null]
 }
 
 Table "river_job" {
@@ -392,10 +369,6 @@ Table "river_client_queue" {
   Indexes {
     (river_client_id, name) [pk, type: btree, name: "river_client_queue_pkey"]
   }
-}
-
-Table "deploy_status_type" {
-  "value" text [pk, not null]
 }
 
 Ref "deployed_pool_tags_deployed_pool_id_fkey":"deployed_pools"."id" < "deployed_pool_tags"."deployed_pool_id" [delete: cascade]
