@@ -21,11 +21,12 @@ CREATE TABLE IF NOT EXISTS keystore (
     public_key  TEXT NOT NULL,
     private_key TEXT NOT NULL,
     active      BOOLEAN DEFAULT false,
-    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT keystore_public_key_key UNIQUE (public_key)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT keystore_public_key_key UNIQUE (public_key),
+    CONSTRAINT keystore_public_key_format CHECK (public_key ~ '^0x[0-9a-fA-F]{40}$')
 );
-CREATE INDEX IF NOT EXISTS public_key_idx ON keystore(public_key);
+CREATE UNIQUE INDEX IF NOT EXISTS keystore_public_key_lower_key ON keystore (lower(public_key));
 
 CREATE TRIGGER insert_starting_nonce
     AFTER INSERT ON keystore
@@ -38,9 +39,11 @@ CREATE TRIGGER update_keystore_timestamp
 -- Master key
 CREATE TABLE IF NOT EXISTS master_key (
     id         INT PRIMARY KEY,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT master_key_id_fkey FOREIGN KEY (id) REFERENCES keystore(id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS master_key_singleton_idx ON master_key ((true));
 
 CREATE TRIGGER update_master_key_timestamp
     BEFORE UPDATE ON master_key
@@ -49,8 +52,9 @@ CREATE TRIGGER update_master_key_timestamp
 -- Noncestore
 CREATE TABLE IF NOT EXISTS noncestore (
     keystore_id INT PRIMARY KEY REFERENCES keystore(id),
-    next_nonce  INT DEFAULT 0,
-    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    next_nonce  BIGINT NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT noncestore_next_nonce_nonneg CHECK (next_nonce >= 0)
 );
 
 CREATE TRIGGER update_nonce_timestamp
@@ -102,19 +106,21 @@ CREATE TABLE IF NOT EXISTS otx (
     signer_account INT REFERENCES keystore(id) NOT NULL,
     raw_tx         TEXT NOT NULL,
     tx_hash        TEXT NOT NULL,
-    nonce          INT NOT NULL,
+    nonce          BIGINT NOT NULL,
     replaced       BOOLEAN DEFAULT false,
-    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT otx_nonce_nonneg CHECK (nonce >= 0)
 );
 
 -- Dispatch
 CREATE TABLE IF NOT EXISTS dispatch (
     id         INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    otx_id     INT REFERENCES otx(id),
+    otx_id     INT NOT NULL REFERENCES otx(id),
     status     TEXT REFERENCES dispatch_status_type(value) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT dispatch_otx_id_unique UNIQUE (otx_id)
 );
 
 CREATE TRIGGER update_dispatch_timestamp
@@ -142,7 +148,10 @@ CREATE TABLE IF NOT EXISTS upgrade_meta (
     contract_type      contract_type NOT NULL,
     new_implementation TEXT NOT NULL,
     version            TEXT NOT NULL,
-    created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT upgrade_meta_address_format
+        CHECK (proxy_address      ~ '^0x[0-9a-fA-F]{40}$'
+           AND new_implementation ~ '^0x[0-9a-fA-F]{40}$')
 );
 
 -- Platform contracts
@@ -153,9 +162,12 @@ CREATE TABLE IF NOT EXISTS platform_contracts (
     factory_address         TEXT NOT NULL,
     implementation_address  TEXT NOT NULL,
     version                 TEXT NOT NULL DEFAULT '',
-    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (chain_id, contract_type)
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (chain_id, contract_type),
+    CONSTRAINT platform_contracts_address_format
+        CHECK (factory_address        ~ '^0x[0-9a-fA-F]{40}$'
+           AND implementation_address ~ '^0x[0-9a-fA-F]{40}$')
 );
 
 -- Seed platform contracts (Celo mainnet, chain 42220)
@@ -191,11 +203,21 @@ CREATE TABLE IF NOT EXISTS deployed_tokens (
     location_name         TEXT,
     geo_lat               FLOAT8,
     geo_lng               FLOAT8,
-    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (otx_id),
-    UNIQUE (address)
+    UNIQUE (address),
+    CONSTRAINT deployed_tokens_address_format
+        CHECK (address ~ '^0x[0-9a-fA-F]{40}$'
+           AND admin   ~ '^0x[0-9a-fA-F]{40}$'),
+    CONSTRAINT deployed_tokens_geo_valid
+        CHECK (
+            ((geo_lat IS NULL) = (geo_lng IS NULL))
+            AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90)
+            AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)
+        )
 );
+CREATE UNIQUE INDEX IF NOT EXISTS deployed_tokens_address_lower_key ON deployed_tokens (lower(address));
 
 CREATE TRIGGER update_deployed_tokens_timestamp
     BEFORE UPDATE ON deployed_tokens
@@ -272,8 +294,9 @@ CREATE TABLE IF NOT EXISTS pool_addresses (
     id         INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     key        TEXT NOT NULL UNIQUE,
     address    TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pool_addresses_address_format CHECK (address ~ '^0x[0-9a-fA-F]{40}$')
 );
 
 CREATE TRIGGER update_pool_addresses_timestamp
@@ -342,11 +365,26 @@ CREATE TABLE IF NOT EXISTS deployed_pools (
     location_name                   TEXT,
     geo_lat                         FLOAT8,
     geo_lng                         FLOAT8,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     image_url                       TEXT,
     banner_url                      TEXT,
-    created_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at                      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    CONSTRAINT deployed_pools_address_format
+        CHECK (address                         ~ '^0x[0-9a-fA-F]{40}$'
+           AND admin                           ~ '^0x[0-9a-fA-F]{40}$'
+           AND token_registry_address          ~ '^0x[0-9a-fA-F]{40}$'
+           AND limiter_address                 ~ '^0x[0-9a-fA-F]{40}$'
+           AND fee_policy_address              ~ '^0x[0-9a-fA-F]{40}$'
+           AND quoter_address                  ~ '^0x[0-9a-fA-F]{40}$'
+           AND protocol_fee_controller_address ~ '^0x[0-9a-fA-F]{40}$'),
+    CONSTRAINT deployed_pools_geo_valid
+        CHECK (
+            ((geo_lat IS NULL) = (geo_lng IS NULL))
+            AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90)
+            AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)
+        )
 );
+CREATE UNIQUE INDEX IF NOT EXISTS deployed_pools_address_lower_key ON deployed_pools (lower(address));
 
 CREATE TRIGGER update_deployed_pools_timestamp
     BEFORE UPDATE ON deployed_pools
@@ -376,8 +414,9 @@ CREATE TABLE IF NOT EXISTS oracle_feeds (
     id         INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name       TEXT NOT NULL UNIQUE,
     address    TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT oracle_feeds_address_format CHECK (address ~ '^0x[0-9a-fA-F]{40}$')
 );
 
 CREATE TRIGGER update_oracle_feeds_timestamp
@@ -423,10 +462,12 @@ CREATE TABLE IF NOT EXISTS users (
     CONSTRAINT users_blockchain_address_unique UNIQUE (blockchain_address),
     CONSTRAINT users_email_unique UNIQUE (email),
     CONSTRAINT users_phone_unique UNIQUE (phone),
-    CONSTRAINT users_at_least_one_contact CHECK (email IS NOT NULL OR phone IS NOT NULL)
+    CONSTRAINT users_at_least_one_contact CHECK (email IS NOT NULL OR phone IS NOT NULL),
+    CONSTRAINT users_blockchain_address_format CHECK (blockchain_address ~ '^0x[0-9a-fA-F]{40}$'),
+    CONSTRAINT users_quotas_nonneg CHECK (max_pools >= 0 AND max_tokens >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS users_blockchain_address_idx ON users(blockchain_address);
+CREATE UNIQUE INDEX IF NOT EXISTS users_blockchain_address_lower_key ON users (lower(blockchain_address));
 CREATE INDEX IF NOT EXISTS users_status_idx ON users(status);
 
 CREATE TRIGGER update_users_timestamp
@@ -443,23 +484,24 @@ CREATE TABLE IF NOT EXISTS user_deployments (
 );
 
 CREATE INDEX IF NOT EXISTS user_deployments_user_id_idx ON user_deployments(user_id);
-CREATE INDEX IF NOT EXISTS user_deployments_tracking_id_idx ON user_deployments(tracking_id);
 
 -- WebAuthn credentials registered through the relayer during initial
 -- ephemeral-key registration. Looked up by credential_id during recovery
 -- to map a passkey back to its Calibur-delegated wallet.
 CREATE TABLE IF NOT EXISTS webauthn_credentials (
-    credential_id TEXT      PRIMARY KEY,
-    address       TEXT      NOT NULL,
-    key_hash      TEXT      NOT NULL,
-    public_key_x  NUMERIC   NOT NULL,
-    public_key_y  NUMERIC   NOT NULL,
-    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    credential_id TEXT        PRIMARY KEY,
+    address       TEXT        NOT NULL,
+    key_hash      TEXT        NOT NULL,
+    public_key_x  NUMERIC     NOT NULL,
+    public_key_y  NUMERIC     NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT webauthn_address_format CHECK (address ~ '^0x[0-9a-fA-F]{40}$')
 );
 CREATE INDEX IF NOT EXISTS webauthn_credentials_address_idx
     ON webauthn_credentials (address);
 
--- Seed superadmin accounts
+-- Seed superadmin accounts (blockchain_address is EIP-55 checksummed — the
+-- canonical stored form for all addresses)
 INSERT INTO users (blockchain_address, name, email, role, status) VALUES
-    ('0x33a573149db22e759fb9a38bcc461c12855c2645', 'Superadmin', 'devops@grassecon.org', 'SUPERADMIN', 'APPROVED')
+    ('0x33a573149db22e759fB9A38Bcc461C12855c2645', 'Superadmin', 'devops@grassecon.org', 'SUPERADMIN', 'APPROVED')
 ON CONFLICT (blockchain_address) DO NOTHING;
