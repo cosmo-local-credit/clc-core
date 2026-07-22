@@ -23,7 +23,7 @@ jobs:
         uses: docker/setup-qemu-action@v2
 
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@v2
 
       - name: Check out repo
         uses: actions/checkout@v3
