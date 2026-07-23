@@ -28,8 +28,8 @@ type (
 		GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 		ListTokenTags(context.Context, pgx.Tx) ([]string, error)
-		GetPoolAddress(context.Context, pgx.Tx, string) (string, error)
-		SetPoolAddress(context.Context, pgx.Tx, string, string) error
+		GetProtocolAddress(context.Context, pgx.Tx, string) (string, error)
+		SetProtocolAddress(context.Context, pgx.Tx, string, string) error
 		InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
 		ConfirmDeployedPool(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedPool(context.Context, pgx.Tx, uint64) error

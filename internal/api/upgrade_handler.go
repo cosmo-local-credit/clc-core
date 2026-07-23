@@ -200,7 +200,7 @@ func (a *API) upgradePoolHandler(c *echo.Context) error {
 	}
 
 	// Resolve the decimal_quoter address to detect non-proxy quoters.
-	decimalQuoterAddr, err := a.store.GetPoolAddress(ctx, tx, "decimal_quoter")
+	decimalQuoterAddr, err := a.store.GetProtocolAddress(ctx, tx, "decimal_quoter")
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return handlePostgresError(c, err)
 	}

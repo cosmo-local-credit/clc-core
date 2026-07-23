@@ -113,12 +113,11 @@ LIMIT 1;
 --name: list-token-tags
 SELECT value FROM token_tag ORDER BY value;
 
--- Pool addresses (shared singleton addresses)
---name: get-pool-address
-SELECT address FROM pool_addresses WHERE key = $1;
+--name: get-protocol-address
+SELECT address FROM protocol_addresses WHERE key = $1;
 
---name: set-pool-address
-INSERT INTO pool_addresses (key, address) VALUES ($1, $2)
+--name: set-protocol-address
+INSERT INTO protocol_addresses (key, address) VALUES ($1, $2)
 ON CONFLICT (key) DO UPDATE SET address = EXCLUDED.address, updated_at = CURRENT_TIMESTAMP;
 
 -- Deployed pools

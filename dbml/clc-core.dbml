@@ -147,6 +147,7 @@ Table "deployed_tokens" {
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
   "status" text [not null, default: 'PENDING']
   "decimals" int4 [not null, check: `(decimals >= 0) AND (decimals <= 255)`]
+  "voucher_id" int4 [unique]
 
   Checks {
     `(address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (admin ~ '^0x[0-9a-fA-F]{40}$'::text)` [name: 'deployed_tokens_address_format']
@@ -172,7 +173,7 @@ Table "deployed_token_tags" {
   }
 }
 
-Table "pool_addresses" {
+Table "protocol_addresses" {
   "id" int4 [pk, not null, increment]
   "key" text [unique, not null]
   "address" text [not null, check: `address ~ '^0x[0-9a-fA-F]{40}$'::text`]
@@ -207,6 +208,7 @@ Table "deployed_pools" {
   "banner_url" text
   "status" text [not null, default: 'PENDING']
   "decimals" int4 [not null, check: `(decimals >= 0) AND (decimals <= 255)`]
+  "pool_id" int4 [unique]
 
   Checks {
     `(address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (admin ~ '^0x[0-9a-fA-F]{40}$'::text) AND (token_registry_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (limiter_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (fee_policy_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (quoter_address ~ '^0x[0-9a-fA-F]{40}$'::text) AND (protocol_fee_controller_address ~ '^0x[0-9a-fA-F]{40}$'::text)` [name: 'deployed_pools_address_format']
@@ -249,6 +251,7 @@ Table "users" {
   "max_tokens" int4 [not null, default: 20]
   "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
   "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "default_voucher_id" int4
 
   Checks {
     `(email IS NOT NULL) OR (phone IS NOT NULL)` [name: 'users_at_least_one_contact']
@@ -288,6 +291,267 @@ Table "webauthn_credentials" {
 
 Table "deploy_status_type" {
   "value" text [pk, not null]
+}
+
+Table "voucher_type" {
+  "value" text [pk, not null]
+}
+
+Table "vouchers" {
+  "id" int4 [pk, not null, increment]
+  "chain_id" int4 [not null]
+  "address" text [not null]
+  "name" text
+  "symbol" text
+  "decimals" int4
+  "owner_address" text
+  "voucher_type" text
+  "sink_address" text
+  "redemption_address" text
+  "description" text
+  "voucher_uoa" text
+  "voucher_value" numeric
+  "location_name" text
+  "geo_lat" float8
+  "geo_lng" float8
+  "email" text
+  "website" text
+  "phone" text
+  "icon_url" text
+  "banner_url" text
+  "terms" text
+  "contract_version" text
+  "active" bool [not null, default: true]
+  "internal" bool [not null, default: false]
+  "platform_contract_id" int4
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'vouchers_address_format']
+    `owner_address IS NULL OR owner_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'vouchers_owner_format']
+    `sink_address IS NULL OR sink_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'vouchers_sink_format']
+    `redemption_address IS NULL OR redemption_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'vouchers_redemption_format']
+    `decimals IS NULL OR decimals BETWEEN 0 AND 255` [name: 'vouchers_decimals_range']
+    `voucher_value IS NULL OR voucher_value >= 0` [name: 'vouchers_value_nonneg']
+    `((geo_lat IS NULL) = (geo_lng IS NULL)) AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90) AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)` [name: 'vouchers_geo_valid']
+  }
+
+  Indexes {
+    (chain_id, address) [type: btree, unique, name: "vouchers_chain_id_address_key"]
+    (chain_id, `lower(address)`) [type: btree, unique, name: "vouchers_chain_address_lower_key"]
+  }
+}
+
+Table "voucher_tags" {
+  "voucher_id" int4 [not null]
+  "tag_value" text [not null]
+
+  Indexes {
+    (voucher_id, tag_value) [pk, type: btree, name: "voucher_tags_pkey"]
+  }
+}
+
+Table "pools" {
+  "id" int4 [pk, not null, increment]
+  "chain_id" int4 [not null]
+  "address" text [not null]
+  "name" text
+  "symbol" text
+  "owner_address" text
+  "fee_ppm" numeric
+  "fee_address" text
+  "token_registry_address" text
+  "limiter_address" text
+  "quoter_address" text
+  "fee_policy_address" text
+  "protocol_fee_controller_address" text
+  "fees_decoupled" bool
+  "decimals" int4
+  "description" text
+  "unit_of_account" text
+  "location_name" text
+  "geo_lat" float8
+  "geo_lng" float8
+  "email" text
+  "website" text
+  "phone" text
+  "image_url" text
+  "banner_url" text
+  "terms" text
+  "default_voucher_id" int4
+  "platform_contract_id" int4
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'pools_address_format']
+    `owner_address IS NULL OR owner_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'pools_owner_format']
+    `fee_address IS NULL OR fee_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'pools_fee_address_format']
+    `token_registry_address IS NULL OR token_registry_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'pools_token_registry_format']
+    `limiter_address IS NULL OR limiter_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'pools_limiter_format']
+    `quoter_address IS NULL OR quoter_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'pools_quoter_format']
+    `fee_policy_address IS NULL OR fee_policy_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'pools_fee_policy_format']
+    `protocol_fee_controller_address IS NULL OR protocol_fee_controller_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'pools_protocol_fee_controller_format']
+    `fee_ppm IS NULL OR fee_ppm BETWEEN 0 AND 1000000` [name: 'pools_fee_ppm_range']
+    `decimals IS NULL OR decimals BETWEEN 0 AND 255` [name: 'pools_decimals_range']
+    `((geo_lat IS NULL) = (geo_lng IS NULL)) AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90) AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)` [name: 'pools_geo_valid']
+  }
+
+  Indexes {
+    (chain_id, address) [type: btree, unique, name: "pools_chain_id_address_key"]
+    (chain_id, `lower(address)`) [type: btree, unique, name: "pools_chain_address_lower_key"]
+  }
+}
+
+Table "pool_tags" {
+  "pool_id" int4 [not null]
+  "tag_value" text [not null]
+
+  Indexes {
+    (pool_id, tag_value) [pk, type: btree, name: "pool_tags_pkey"]
+  }
+}
+
+Table "pool_tokens" {
+  "pool_id" int4 [not null]
+  "voucher_id" int4 [not null]
+  "is_allowed" bool [not null, default: true]
+  "exchange_rate" numeric
+  "token_limit" numeric
+  "synced_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `exchange_rate IS NULL OR exchange_rate >= 0` [name: 'pool_tokens_rate_nonneg']
+    `token_limit IS NULL OR token_limit >= 0` [name: 'pool_tokens_limit_nonneg']
+  }
+
+  Indexes {
+    (pool_id, voucher_id) [pk, type: btree, name: "pool_tokens_pkey"]
+    voucher_id [type: btree, name: "pool_tokens_voucher_id_idx"]
+  }
+}
+
+Table "report_status_type" {
+  "value" text [pk, not null]
+}
+
+Table "reports" {
+  "id" int4 [pk, not null, increment]
+  "source_id" int4 [unique]
+  "title" text [not null]
+  "body" jsonb [not null]
+  "description" text [not null, default: '']
+  "image_url" text
+  "location_name" text
+  "geo_lat" float8
+  "geo_lng" float8
+  "period_from" timestamptz
+  "period_to" timestamptz
+  "author_address" text [not null]
+  "modifier_address" text
+  "status" text [not null, default: 'DRAFT']
+  "rejection_reason" text
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `author_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'reports_author_format']
+    `modifier_address IS NULL OR modifier_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'reports_modifier_format']
+    `((geo_lat IS NULL) = (geo_lng IS NULL)) AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90) AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)` [name: 'reports_geo_valid']
+    `period_from IS NULL OR period_to IS NULL OR period_from <= period_to` [name: 'reports_period_valid']
+    `status <> 'REJECTED' OR (rejection_reason IS NOT NULL AND btrim(rejection_reason) <> '')` [name: 'reports_rejection_when_rejected']
+    `status = 'REJECTED' OR rejection_reason IS NULL` [name: 'reports_rejection_only_if_rejected']
+  }
+
+  Indexes {
+    (status, created_at, id) [type: btree, name: "reports_status_created_idx"]
+    (author_address, created_at, id) [type: btree, name: "reports_author_created_idx"]
+  }
+}
+
+Table "report_vouchers" {
+  "report_id" int4 [not null]
+  "voucher_id" int4 [not null]
+
+  Indexes {
+    (report_id, voucher_id) [pk, type: btree, name: "report_vouchers_pkey"]
+    voucher_id [type: btree, name: "report_vouchers_voucher_id_idx"]
+  }
+}
+
+Table "report_tags" {
+  "report_id" int4 [not null]
+  "tag_value" text [not null]
+
+  Indexes {
+    (report_id, tag_value) [pk, type: btree, name: "report_tags_pkey"]
+  }
+}
+
+Table "report_verifiers" {
+  "report_id" int4 [not null]
+  "verifier_address" text [not null]
+
+  Checks {
+    `verifier_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'report_verifiers_address_format']
+  }
+
+  Indexes {
+    (report_id, verifier_address) [pk, type: btree, name: "report_verifiers_pkey"]
+  }
+}
+
+Table "commodity_type" {
+  "value" text [pk, not null]
+}
+
+Table "offering_frequency" {
+  "value" text [pk, not null]
+}
+
+Table "offerings" {
+  "id" int4 [pk, not null, increment]
+  "source_id" int4 [unique]
+  "voucher_id" int4 [not null]
+  "seller_address" text [not null]
+  "commodity_name" text [not null]
+  "commodity_type" text [not null]
+  "description" text [not null, default: '']
+  "quantity" numeric [not null]
+  "unit" text
+  "frequency" text
+  "price" numeric
+  "available" bool [not null, default: true]
+  "location_name" text
+  "geo_lat" float8
+  "geo_lng" float8
+  "image_url" text
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `seller_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'offerings_seller_format']
+    `price IS NULL OR price >= 0` [name: 'offerings_price_nonneg']
+    `quantity >= 0` [name: 'offerings_quantity_nonneg']
+    `((geo_lat IS NULL) = (geo_lng IS NULL)) AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90) AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)` [name: 'offerings_geo_valid']
+  }
+
+  Indexes {
+    voucher_id [type: btree, name: "offerings_voucher_id_idx"]
+    (seller_address, created_at, id) [type: btree, name: "offerings_seller_created_idx"]
+    (available, created_at, id) [type: btree, name: "offerings_available_created_idx"]
+    (commodity_type, available, created_at, id) [type: btree, name: "offerings_type_available_idx"]
+  }
+}
+
+Table "offering_tags" {
+  "offering_id" int4 [not null]
+  "tag_value" text [not null]
+
+  Indexes {
+    (offering_id, tag_value) [pk, type: btree, name: "offering_tags_pkey"]
+  }
 }
 
 Table "river_job" {
@@ -379,6 +643,8 @@ Ref "deployed_pools_otx_id_fkey":"otx"."id" < "deployed_pools"."otx_id"
 
 Ref "deployed_pools_platform_contract_id_fkey":"platform_contracts"."id" < "deployed_pools"."platform_contract_id"
 
+Ref "deployed_pools_pool_id_fkey":"pools"."id" < "deployed_pools"."pool_id"
+
 Ref "deployed_pools_status_fkey":"deploy_status_type"."value" < "deployed_pools"."status"
 
 Ref "deployed_token_tags_deployed_token_id_fkey":"deployed_tokens"."id" < "deployed_token_tags"."deployed_token_id" [delete: cascade]
@@ -391,6 +657,8 @@ Ref "deployed_tokens_platform_contract_id_fkey":"platform_contracts"."id" < "dep
 
 Ref "deployed_tokens_status_fkey":"deploy_status_type"."value" < "deployed_tokens"."status"
 
+Ref "deployed_tokens_voucher_id_fkey":"vouchers"."id" < "deployed_tokens"."voucher_id"
+
 Ref "dispatch_otx_id_fkey":"otx"."id" < "dispatch"."otx_id"
 
 Ref "dispatch_status_fkey":"dispatch_status_type"."value" < "dispatch"."status"
@@ -399,12 +667,56 @@ Ref "master_key_id_fkey":"keystore"."id" < "master_key"."id"
 
 Ref "noncestore_keystore_id_fkey":"keystore"."id" < "noncestore"."keystore_id"
 
+Ref "offering_tags_offering_id_fkey":"offerings"."id" < "offering_tags"."offering_id" [delete: cascade]
+
+Ref "offering_tags_tag_value_fkey":"token_tag"."value" < "offering_tags"."tag_value"
+
+Ref "offerings_commodity_type_fkey":"commodity_type"."value" < "offerings"."commodity_type"
+
+Ref "offerings_frequency_fkey":"offering_frequency"."value" < "offerings"."frequency"
+
+Ref "offerings_voucher_id_fkey":"vouchers"."id" < "offerings"."voucher_id"
+
 Ref "otx_otx_type_fkey":"otx_tx_type"."value" < "otx"."otx_type"
 
 Ref "otx_signer_account_fkey":"keystore"."id" < "otx"."signer_account"
+
+Ref "pool_tags_pool_id_fkey":"pools"."id" < "pool_tags"."pool_id" [delete: cascade]
+
+Ref "pool_tags_tag_value_fkey":"token_tag"."value" < "pool_tags"."tag_value"
+
+Ref "pool_tokens_pool_id_fkey":"pools"."id" < "pool_tokens"."pool_id" [delete: cascade]
+
+Ref "pool_tokens_voucher_id_fkey":"vouchers"."id" < "pool_tokens"."voucher_id"
+
+Ref "pools_default_voucher_id_fkey":"vouchers"."id" < "pools"."default_voucher_id"
+
+Ref "pools_platform_contract_id_fkey":"platform_contracts"."id" < "pools"."platform_contract_id"
+
+Ref "report_tags_report_id_fkey":"reports"."id" < "report_tags"."report_id" [delete: cascade]
+
+Ref "report_tags_tag_value_fkey":"token_tag"."value" < "report_tags"."tag_value"
+
+Ref "report_verifiers_report_id_fkey":"reports"."id" < "report_verifiers"."report_id" [delete: cascade]
+
+Ref "report_vouchers_report_id_fkey":"reports"."id" < "report_vouchers"."report_id" [delete: cascade]
+
+Ref "report_vouchers_voucher_id_fkey":"vouchers"."id" < "report_vouchers"."voucher_id"
+
+Ref "reports_status_fkey":"report_status_type"."value" < "reports"."status"
 
 Ref "river_client_queue_river_client_id_fkey":"river_client"."id" < "river_client_queue"."river_client_id" [delete: cascade]
 
 Ref "upgrade_meta_otx_id_fkey":"otx"."id" < "upgrade_meta"."otx_id"
 
 Ref "user_deployments_user_id_fkey":"users"."id" < "user_deployments"."user_id" [delete: cascade]
+
+Ref "users_default_voucher_id_fkey":"vouchers"."id" < "users"."default_voucher_id"
+
+Ref "voucher_tags_tag_value_fkey":"token_tag"."value" < "voucher_tags"."tag_value"
+
+Ref "voucher_tags_voucher_id_fkey":"vouchers"."id" < "voucher_tags"."voucher_id" [delete: cascade]
+
+Ref "vouchers_platform_contract_id_fkey":"platform_contracts"."id" < "vouchers"."platform_contract_id"
+
+Ref "vouchers_voucher_type_fkey":"voucher_type"."value" < "vouchers"."voucher_type"

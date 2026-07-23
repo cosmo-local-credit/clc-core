@@ -295,13 +295,25 @@ END $$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (
+    IF to_regclass('public.pool_addresses') IS NOT NULL
+       AND NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conrelid = 'pool_addresses'::regclass
+        WHERE conrelid = to_regclass('public.pool_addresses')
           AND conname = 'pool_addresses_address_format'
     ) THEN
         ALTER TABLE pool_addresses
             ADD CONSTRAINT pool_addresses_address_format
+            CHECK (address ~ '^0x[0-9a-fA-F]{40}$');
+    END IF;
+
+    IF to_regclass('public.protocol_addresses') IS NOT NULL
+       AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = to_regclass('public.protocol_addresses')
+          AND conname IN ('protocol_addresses_address_format', 'pool_addresses_address_format')
+    ) THEN
+        ALTER TABLE protocol_addresses
+            ADD CONSTRAINT protocol_addresses_address_format
             CHECK (address ~ '^0x[0-9a-fA-F]{40}$');
     END IF;
 END $$;

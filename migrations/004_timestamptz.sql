@@ -38,9 +38,19 @@ ALTER TABLE deployed_tokens
     ALTER COLUMN created_at TYPE TIMESTAMPTZ,
     ALTER COLUMN updated_at TYPE TIMESTAMPTZ;
 
-ALTER TABLE pool_addresses
-    ALTER COLUMN created_at TYPE TIMESTAMPTZ,
-    ALTER COLUMN updated_at TYPE TIMESTAMPTZ;
+DO $$
+BEGIN
+    IF to_regclass('public.pool_addresses') IS NOT NULL THEN
+        ALTER TABLE pool_addresses
+            ALTER COLUMN created_at TYPE TIMESTAMPTZ,
+            ALTER COLUMN updated_at TYPE TIMESTAMPTZ;
+    END IF;
+    IF to_regclass('public.protocol_addresses') IS NOT NULL THEN
+        ALTER TABLE protocol_addresses
+            ALTER COLUMN created_at TYPE TIMESTAMPTZ,
+            ALTER COLUMN updated_at TYPE TIMESTAMPTZ;
+    END IF;
+END $$;
 
 ALTER TABLE deployed_pools
     ALTER COLUMN created_at TYPE TIMESTAMPTZ,

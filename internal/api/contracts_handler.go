@@ -136,12 +136,12 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
-	protocolFeeController, err := a.store.GetPoolAddress(ctx, tx, "protocol_fee_controller")
+	protocolFeeController, err := a.store.GetProtocolAddress(ctx, tx, "protocol_fee_controller")
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
 
-	decimalQuoterAddr, err := a.store.GetPoolAddress(ctx, tx, "decimal_quoter")
+	decimalQuoterAddr, err := a.store.GetProtocolAddress(ctx, tx, "decimal_quoter")
 	if err != nil {
 		return handlePostgresError(c, err)
 	}

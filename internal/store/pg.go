@@ -31,8 +31,8 @@ type (
 		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
 		ListTokenTags                string `query:"list-token-tags"`
-		GetPoolAddress               string `query:"get-pool-address"`
-		SetPoolAddress               string `query:"set-pool-address"`
+		GetProtocolAddress           string `query:"get-protocol-address"`
+		SetProtocolAddress           string `query:"set-protocol-address"`
 		InsertDeployedPool           string `query:"insert-deployed-pool"`
 		ConfirmDeployedPool          string `query:"confirm-deployed-pool"`
 		FailDeployedPool             string `query:"fail-deployed-pool"`

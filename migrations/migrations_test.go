@@ -38,12 +38,16 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "002_unify_deploy_registry.sql")
 	assert.Contains(t, sqlFiles, "003_constraint_hardening.sql")
 	assert.Contains(t, sqlFiles, "004_timestamptz.sql")
+	assert.Contains(t, sqlFiles, "005_rename_protocol_addresses.sql")
+	assert.Contains(t, sqlFiles, "006_network_catalog.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
 				name == "002_unify_deploy_registry.sql" ||
 				name == "003_constraint_hardening.sql" ||
-				name == "004_timestamptz.sql",
+				name == "004_timestamptz.sql" ||
+				name == "005_rename_protocol_addresses.sql" ||
+				name == "006_network_catalog.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -56,7 +60,7 @@ func TestBaselineMigrationContainsLegacySchema(t *testing.T) {
 	s := string(content)
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS deployed_tokens")
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS token_deploy_meta")
-	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS pool_addresses")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS protocol_addresses")
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS pool_deploy_meta")
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS deployed_pools")
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS oracle_feeds")
@@ -186,6 +190,7 @@ func TestConstraintHardeningMigration(t *testing.T) {
 		"upgrade_meta_address_format",
 		"platform_contracts_address_format",
 		"pool_addresses_address_format",
+		"protocol_addresses_address_format",
 		"oracle_feeds_address_format",
 		"webauthn_address_format",
 	} {
@@ -211,11 +216,126 @@ func TestTimestamptzMigration(t *testing.T) {
 	for _, tbl := range []string{
 		"keystore", "master_key", "noncestore", "otx", "dispatch",
 		"upgrade_meta", "platform_contracts", "deployed_tokens",
-		"pool_addresses", "deployed_pools", "oracle_feeds",
+		"protocol_addresses", "deployed_pools", "oracle_feeds",
 		"webauthn_credentials",
 	} {
 		assert.Contains(t, s, "ALTER TABLE "+tbl)
 	}
+	// Upgrade path still mentions the old name until 005 renames.
+	assert.Contains(t, s, "pool_addresses")
+}
+
+func TestRenameProtocolAddressesMigration(t *testing.T) {
+	content, err := os.ReadFile("005_rename_protocol_addresses.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "RENAME TO protocol_addresses")
+	assert.Contains(t, s, "protocol_addresses_address_format")
+	assert.Contains(t, s, "update_protocol_addresses_timestamp")
+}
+
+func TestNetworkCatalogMigration(t *testing.T) {
+	content, err := os.ReadFile("006_network_catalog.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Catalog + content tables (MIGRATION.md §1–§5).
+	for _, tbl := range []string{
+		"voucher_type", "vouchers", "voucher_tags",
+		"pools", "pool_tags", "pool_tokens",
+		"report_status_type", "reports",
+		"report_vouchers", "report_tags", "report_verifiers",
+		"commodity_type", "offering_frequency", "offerings", "offering_tags",
+	} {
+		assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS "+tbl+" (")
+	}
+	// On-chain identity: (chain_id, address) unique + lower() backstop.
+	assert.Contains(t, s, "UNIQUE (chain_id, address)")
+	assert.Contains(t, s, "ON vouchers (chain_id, lower(address))")
+	assert.Contains(t, s, "ON pools (chain_id, lower(address))")
+	// Deploy pipeline links to the catalog; no fake pipeline rows for imports.
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS voucher_id INT UNIQUE REFERENCES vouchers(id)")
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS pool_id INT UNIQUE REFERENCES pools(id)")
+	assert.NotContains(t, s, "otx")
+	// Identity: user default voucher is a column on users (§1 I6).
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS default_voucher_id INT REFERENCES vouchers(id)")
+	// Pool default voucher is a pool fact (§3 P7), hard FK to the catalog.
+	assert.Regexp(t, `default_voucher_id\s+INT REFERENCES vouchers\(id\)`, s)
+	// Composition cache is a labelled snapshot (§3 P9/P13).
+	assert.Contains(t, s, "synced_at")
+	assert.Contains(t, s, "pool_tokens_rate_nonneg")
+	assert.Contains(t, s, "pool_tokens_limit_nonneg")
+	// Shared tag vocabulary + per-entity junctions; no polymorphic taggings.
+	assert.Contains(t, s, "REFERENCES token_tag(value)")
+	assert.Contains(t, s, "('Regenerative Agriculture')")
+	assert.NotContains(t, s, "entity_type")
+	// Lookup seeds.
+	for _, seed := range []string{
+		"('DEMURRAGE')", "('GIFTABLE_EXPIRING')", "('UNKNOWN')",
+		"('DRAFT')", "('SUBMITTED')", "('APPROVED')", "('REJECTED')",
+		"('GOOD')", "('SERVICE')",
+		"('day')", "('week')", "('month')", "('year')",
+	} {
+		assert.Contains(t, s, seed)
+	}
+	// Report constraints (§4.2).
+	assert.Contains(t, s, "body             JSONB NOT NULL")
+	assert.Contains(t, s, "reports_period_valid")
+	assert.Contains(t, s, "reports_rejection_when_rejected")
+	assert.Contains(t, s, "reports_rejection_only_if_rejected")
+	assert.Contains(t, s, "reports_author_format")
+	// Offering constraints (§5.2).
+	assert.Contains(t, s, "offerings_seller_format")
+	assert.Contains(t, s, "offerings_price_nonneg")
+	assert.Contains(t, s, "offerings_quantity_nonneg")
+	// Addresses stay EIP-55 checksummed — never force lowercase storage.
+	assert.NotContains(t, s, "= lower(address)")
+	// No data movement inside tern (importer is a separate command).
+	assert.NotContains(t, s, "FROM pool_router")
+	assert.NotContains(t, s, "FROM sarafu_network")
+}
+
+// The baseline carries the network catalog (same DDL as 006) so fresh
+// databases create it from 001 and 006's guarded DDL no-ops. The registry
+// link columns stay 006-only (002's status/decimals pattern) for identical
+// column order on both paths.
+func TestBaselineCarriesNetworkCatalog(t *testing.T) {
+	content, err := os.ReadFile("001_init.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS voucher_type",
+		"CREATE TABLE IF NOT EXISTS vouchers",
+		"CREATE TABLE IF NOT EXISTS voucher_tags",
+		"CREATE TABLE IF NOT EXISTS pools",
+		"CREATE TABLE IF NOT EXISTS pool_tags",
+		"CREATE TABLE IF NOT EXISTS pool_tokens",
+		"CREATE TABLE IF NOT EXISTS report_status_type",
+		"CREATE TABLE IF NOT EXISTS reports",
+		"CREATE TABLE IF NOT EXISTS report_vouchers",
+		"CREATE TABLE IF NOT EXISTS report_tags",
+		"CREATE TABLE IF NOT EXISTS report_verifiers",
+		"CREATE TABLE IF NOT EXISTS commodity_type",
+		"CREATE TABLE IF NOT EXISTS offering_frequency",
+		"CREATE TABLE IF NOT EXISTS offerings",
+		"CREATE TABLE IF NOT EXISTS offering_tags",
+		"vouchers_chain_address_lower_key",
+		"pools_chain_address_lower_key",
+		"vouchers_geo_valid",
+		"pools_geo_valid",
+		"pools_fee_ppm_range",
+		"reports_rejection_when_rejected",
+		"offerings_price_nonneg",
+		"ADD COLUMN IF NOT EXISTS default_voucher_id INT REFERENCES vouchers(id)",
+		"('Regenerative Agriculture')",
+	} {
+		assert.Contains(t, s, want)
+	}
+	// Registry link columns must not be folded into 001.
+	assert.NotContains(t, s, "voucher_id INT UNIQUE")
+	assert.NotContains(t, s, "pool_id INT UNIQUE")
 }
 
 // The baseline carries the hardened constraints inline (same names as 003)
@@ -241,7 +361,7 @@ func TestBaselineCarriesHardenedConstraints(t *testing.T) {
 		"deployed_pools_geo_valid",
 		"upgrade_meta_address_format",
 		"platform_contracts_address_format",
-		"pool_addresses_address_format",
+		"protocol_addresses_address_format",
 		"oracle_feeds_address_format",
 		"webauthn_address_format",
 		"keystore_public_key_lower_key",
