@@ -84,6 +84,13 @@ type (
 		UpsertWebAuthnCredential string `query:"upsert-webauthn-credential"`
 		GetWebAuthnCredential    string `query:"get-webauthn-credential"`
 		SetNonceIfHigher         string `query:"set-nonce-if-higher"`
+
+		ListVoucherMetadataByAddresses string `query:"list-voucher-metadata-by-addresses"`
+
+		ListPools        string `query:"list-pools"`
+		ListPoolsNext    string `query:"list-pools-next"`
+		ListPoolsPrev    string `query:"list-pools-prev"`
+		GetPoolByAddress string `query:"get-pool-by-address"`
 	}
 
 	PgOpts struct {

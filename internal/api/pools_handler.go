@@ -9,7 +9,10 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// poolsListHandler returns all confirmed pools (global catalog), cursor-paginated.
+// poolsListHandler returns the network pool catalog (imported + clc-core
+// deploys), cursor-paginated. Directory reads come from the pools catalog,
+// not the deploy pipeline (MIGRATION.md §3.5); deploy-status APIs keep
+// reading deployed_pools.
 func (a *API) poolsListHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -26,24 +29,24 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 	defer tx.Rollback(ctx)
 
 	var (
-		pools    []store.DeployedPool
+		pools    []store.Pool
 		queryErr error
 	)
 
 	switch {
 	case pagination.FirstPage:
-		pools, queryErr = a.store.ListConfirmedPools(ctx, tx, pagination.PerPage)
+		pools, queryErr = a.store.ListPools(ctx, tx, pagination.PerPage)
 	case pagination.Next:
-		pools, queryErr = a.store.ListConfirmedPoolsNext(ctx, tx, pagination.Cursor, pagination.PerPage)
+		pools, queryErr = a.store.ListPoolsNext(ctx, tx, pagination.Cursor, pagination.PerPage)
 	default:
-		pools, queryErr = a.store.ListConfirmedPoolsPrevious(ctx, tx, pagination.Cursor, pagination.PerPage)
+		pools, queryErr = a.store.ListPoolsPrevious(ctx, tx, pagination.Cursor, pagination.PerPage)
 	}
 	if queryErr != nil {
 		return handlePostgresError(c, queryErr)
 	}
 
 	if pools == nil {
-		pools = []store.DeployedPool{}
+		pools = []store.Pool{}
 	}
 
 	var first, last uint64
@@ -58,7 +61,7 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: "Confirmed pools",
+		Description: "Pools",
 		Result: map[string]any{
 			"pools": pools,
 			"first": first,
@@ -67,7 +70,8 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 	})
 }
 
-// poolsByAddressHandler returns a single confirmed pool by contract address.
+// poolsByAddressHandler returns a single catalog pool by contract address
+// (case-insensitive lookup; stored addresses are EIP-55).
 func (a *API) poolsByAddressHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 	address := c.Param("address")
@@ -78,7 +82,7 @@ func (a *API) poolsByAddressHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	pool, err := a.store.GetDeployedPoolByAddress(ctx, tx, address)
+	pool, err := a.store.GetPoolByAddress(ctx, tx, address)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}

@@ -164,8 +164,9 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
-	// Global pool catalog (all confirmed pools). Distinct from /users/me/pools
-	// which is membership/ownership for the authenticated user only.
+	// Network pool catalog (imported + clc-core deploys; reads the pools
+	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
+	// membership/ownership for the authenticated user only.
 	apiGroup.GET("/pools", a.poolsListHandler)
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 

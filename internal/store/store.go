@@ -73,6 +73,11 @@ type (
 		ListConfirmedPoolsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]DeployedPool, error)
 		ListAllTokens(context.Context, pgx.Tx) ([]DeployedToken, error)
 		ListAllPools(context.Context, pgx.Tx) ([]DeployedPool, error)
+		ListVoucherMetadataByAddresses(context.Context, pgx.Tx, []string) ([]VoucherMetadata, error)
+		ListPools(context.Context, pgx.Tx, uint64) ([]Pool, error)
+		ListPoolsNext(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
+		ListPoolsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
+		GetPoolByAddress(context.Context, pgx.Tx, string) (Pool, error)
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
 		ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)

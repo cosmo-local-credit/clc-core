@@ -8,17 +8,23 @@ import (
 )
 
 type (
+	// FederationTokenBalance carries chain facts scanned from the federation
+	// DB; the token metadata fields (db:"-") are enriched afterwards from the
+	// local vouchers catalog (MIGRATION.md §2 — the catalog is the metadata
+	// home). JSON shape is unchanged from the pre-cutover responses.
 	FederationTokenBalance struct {
 		ID            uint64    `db:"id"              json:"id"`
 		TokenAddress  string    `db:"token_address"   json:"tokenAddress"`
-		TokenSymbol   string    `db:"token_symbol"    json:"tokenSymbol"`
-		TokenName     string    `db:"token_name"      json:"tokenName"`
-		TokenDecimals uint8     `db:"token_decimals"  json:"tokenDecimals"`
+		TokenSymbol   string    `db:"-"               json:"tokenSymbol"`
+		TokenName     string    `db:"-"               json:"tokenName"`
+		TokenDecimals uint8     `db:"-"               json:"tokenDecimals"`
 		Balance       string    `db:"balance"         json:"balance"`
-		IconURL       *string   `db:"icon_url"        json:"iconUrl,omitempty"`
+		IconURL       *string   `db:"-"               json:"iconUrl,omitempty"`
 		LastDateBlock time.Time `db:"last_date_block" json:"lastDateBlock"`
 	}
 
+	// FederationTransfer: same split as FederationTokenBalance — chain facts
+	// from federation, token metadata enriched from the local catalog.
 	FederationTransfer struct {
 		ID               uint64    `db:"id"                   json:"id"`
 		TxHash           string    `db:"tx_hash"              json:"txHash"`
@@ -28,9 +34,9 @@ type (
 		SenderAddress    string    `db:"sender_address"       json:"senderAddress"`
 		RecipientAddress string    `db:"recipient_address"    json:"recipientAddress"`
 		TokenAddress     string    `db:"contract_address"     json:"tokenAddress"`
-		TokenSymbol      string    `db:"token_symbol"         json:"tokenSymbol"`
-		TokenName        string    `db:"token_name"           json:"tokenName"`
-		TokenDecimals    uint8     `db:"token_decimals"       json:"tokenDecimals"`
+		TokenSymbol      string    `db:"-"                    json:"tokenSymbol"`
+		TokenName        string    `db:"-"                    json:"tokenName"`
+		TokenDecimals    uint8     `db:"-"                    json:"tokenDecimals"`
 		Amount           string    `db:"amount"               json:"amount"`
 		Success          bool      `db:"success"              json:"success"`
 	}

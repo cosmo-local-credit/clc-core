@@ -5,35 +5,31 @@ BUILD_COMMIT := $(shell git rev-parse --short HEAD 2> /dev/null)
 DEBUG := DEV=true
 ENV_FILE := .env
 LOAD_ENV := test ! -f $(ENV_FILE) || . ./$(ENV_FILE)
+CORE_DSN ?= postgres://postgres:postgres@127.0.0.1:5432/clc_core
+FEDERATION_DSN ?= postgres://postgres:postgres@127.0.0.1:5433/federation
 
-.PHONY: build build-clccore run run-clccore clean docs gen-service-token build-frontend test test-integration
+.PHONY: build build-clccore run run-clccore clean docs gen-service-token test test-integration seed seed-generate
 
 test:
 	go test ./...
 
-# Boots anvil (foundry) forking Celo and relays real multi-call batches through
-# the Calibur contract. Requires anvil on PATH; override the fork RPC with
-# CELO_FORK_RPC=<url> (use a non-rate-limited node for reliability).
 test-integration:
 	go test -tags integration -count=1 -timeout 300s ./internal/relayer/
 
 clean:
 	rm ${BIN} ${BOOTSTRAP_BIN}
 
-build-frontend:
-	cd ui/smart-contracts-deployer && pnpm install --frozen-lockfile && pnpm run build
-
-build: build-frontend
+build:
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${BIN} cmd/service/*.go
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/gen-service-token cmd/gen-service-token/*.go
 
-build-clccore: build-frontend
+build-clccore:
 	${BUILD_CONF} go build -ldflags="-X main.build=${BUILD_COMMIT} -s -w" -o build/${CLCCORE_BIN} cmd/core/*.go
 
-run: build-frontend
+run:
 	$(LOAD_ENV) && ${BUILD_CONF} ${DEBUG} go run cmd/core/*.go -queries core_queries.sql -federation-queries federated_queries.sql
 
-run-clccore: build-frontend
+run-clccore:
 	$(LOAD_ENV) && ${BUILD_CONF} ${DEBUG} go run cmd/core/*.go -queries core_queries.sql -federation-queries federated_queries.sql
 
 docs:
@@ -42,3 +38,12 @@ docs:
 
 gen-service-token:
 	$(LOAD_ENV) && ${BUILD_CONF} ${DEBUG} go run cmd/gen-service-token/main.go -service ussd-staging
+
+seed-generate:
+	FEDERATION_DSN="$(FEDERATION_DSN)" ./seed/generate-federation-import.sh
+
+seed/federation-import.sql:
+	FEDERATION_DSN="$(FEDERATION_DSN)" ./seed/generate-federation-import.sh
+
+seed: seed/federation-import.sql
+	psql "$(CORE_DSN)" -f seed/federation-import.sql

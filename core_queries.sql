@@ -517,3 +517,79 @@ UPDATE noncestore
 SET next_nonce = $2
 WHERE keystore_id = (SELECT id FROM keystore WHERE public_key = $1)
   AND next_nonce < $2;
+
+-- Voucher catalog metadata for a set of token addresses (case-insensitive).
+-- Serves the token metadata previously joined from federation tables
+-- (chain_data_v2.tokens / sarafu_network.vouchers) — the local catalog is the
+-- single home for living voucher attributes (MIGRATION.md §2 V2).
+--name: list-voucher-metadata-by-addresses
+SELECT address, symbol, name, decimals, icon_url
+FROM vouchers
+WHERE lower(address) = ANY($1);
+
+-- Pool catalog directory (MIGRATION.md §3.5) — reads come from the pools
+-- catalog, not the deploy pipeline. Cursor-paginated newest-first by id,
+-- tags aggregated from pool_tags.
+--name: list-pools
+SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+    p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
+    p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
+    p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
+    p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+FROM pools p
+LEFT JOIN pool_tags pt ON pt.pool_id = p.id
+GROUP BY p.id
+ORDER BY p.id DESC
+LIMIT $1;
+
+--name: list-pools-next
+-- Next pages are older records (id < cursor).
+SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+    p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
+    p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
+    p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
+    p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+FROM pools p
+LEFT JOIN pool_tags pt ON pt.pool_id = p.id
+WHERE p.id < $1
+GROUP BY p.id
+ORDER BY p.id DESC
+LIMIT $2;
+
+--name: list-pools-prev
+-- Previous pages move toward newer records (id > cursor).
+SELECT * FROM (
+    SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+        p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+        p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
+        p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
+        p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
+        p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+        COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+    FROM pools p
+    LEFT JOIN pool_tags pt ON pt.pool_id = p.id
+    WHERE p.id > $1
+    GROUP BY p.id
+    ORDER BY p.id ASC
+    LIMIT $2
+) page
+ORDER BY id DESC;
+
+-- Single pool catalog row by contract address (case-insensitive; stored
+-- addresses are EIP-55, lookups may arrive in any casing).
+--name: get-pool-by-address
+SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+    p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
+    p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
+    p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
+    p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
+FROM pools p
+LEFT JOIN pool_tags pt ON pt.pool_id = p.id
+WHERE lower(p.address) = lower($1)
+GROUP BY p.id;
