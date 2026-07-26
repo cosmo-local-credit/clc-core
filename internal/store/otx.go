@@ -10,30 +10,30 @@ import (
 
 type (
 	OTX struct {
-	ID             uint64    `db:"id"         json:"id"`
-	TrackingID     string    `db:"tracking_id" json:"trackingId"`
-	OTXType        string    `db:"otx_type"   json:"otxType"`
-	SignerAccount  string    `db:"public_key" json:"signerAccount"`
-	RawTx          string    `db:"raw_tx"     json:"rawTx"`
-	TxHash         string    `db:"tx_hash"    json:"txHash"`
-	Nonce          uint64    `db:"nonce"      json:"nonce"`
-	Replaced       bool      `db:"replaced"   json:"replaced"`
-	CreatedAt      time.Time `db:"created_at" json:"createdAt"`
-	UpdatedAt      time.Time `db:"updated_at" json:"updatedAt"`
-	DispatchStatus string    `db:"status"     json:"status"`
-}
+		ID             uint64    `db:"id"         json:"id"`
+		TrackingID     string    `db:"tracking_id" json:"trackingId"`
+		OTXType        string    `db:"otx_type"   json:"otxType"`
+		SignerAccount  string    `db:"public_key" json:"signerAccount"`
+		RawTx          string    `db:"raw_tx"     json:"rawTx"`
+		TxHash         string    `db:"tx_hash"    json:"txHash"`
+		Nonce          uint64    `db:"nonce"      json:"nonce"`
+		Replaced       bool      `db:"replaced"   json:"replaced"`
+		CreatedAt      time.Time `db:"created_at" json:"createdAt"`
+		UpdatedAt      time.Time `db:"updated_at" json:"updatedAt"`
+		DispatchStatus string    `db:"status"     json:"status"`
+	}
 )
 
 const (
 	TOKEN_PROXY_DEPLOY = "TOKEN_PROXY_DEPLOY"
 
-	POOL_TOKEN_INDEX_DEPLOY = "POOL_TOKEN_INDEX_DEPLOY"
-	POOL_LIMITER_DEPLOY     = "POOL_LIMITER_DEPLOY"
-	POOL_FEE_POLICY_DEPLOY  = "POOL_FEE_POLICY_DEPLOY"
-	POOL_ORACLE_QUOTER_DEPLOY = "POOL_ORACLE_QUOTER_DEPLOY"
+	POOL_TOKEN_INDEX_DEPLOY     = "POOL_TOKEN_INDEX_DEPLOY"
+	POOL_LIMITER_DEPLOY         = "POOL_LIMITER_DEPLOY"
+	POOL_FEE_POLICY_DEPLOY      = "POOL_FEE_POLICY_DEPLOY"
+	POOL_ORACLE_QUOTER_DEPLOY   = "POOL_ORACLE_QUOTER_DEPLOY"
 	POOL_RELATIVE_QUOTER_DEPLOY = "POOL_RELATIVE_QUOTER_DEPLOY"
-	POOL_PROXY_DEPLOY       = "POOL_PROXY_DEPLOY"
-	PROXY_UPGRADE           = "PROXY_UPGRADE"
+	POOL_PROXY_DEPLOY           = "POOL_PROXY_DEPLOY"
+	PROXY_UPGRADE               = "PROXY_UPGRADE"
 
 	// RELAY_DELEGATE, RELAY_EXEC, RELAY_DELEGATE_EXEC, ACCOUNT_REGISTER are
 	// Relayer OTX types (EIP-7702 / Calibur).
