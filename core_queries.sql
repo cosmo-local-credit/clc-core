@@ -785,3 +785,186 @@ SELECT * FROM (
     LIMIT $3
 ) page
 ORDER BY id DESC;
+
+--name: list-market-vouchers
+WITH page AS MATERIALIZED (
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+        v.location_name, v.geo_lat, v.geo_lng
+    FROM vouchers v
+    WHERE v.active AND v.geo_lat IS NOT NULL
+    ORDER BY v.id DESC
+    LIMIT $1
+)
+SELECT page.*,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
+        -- the LEFT JOIN miss (no available offerings), never an unknown type.
+        -- A future third commodity type must extend this CASE, not fall here.
+        ELSE 'voucher'
+    END AS kind
+FROM page
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = page.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+ORDER BY page.id DESC;
+
+--name: list-market-vouchers-next
+WITH page AS MATERIALIZED (
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+        v.location_name, v.geo_lat, v.geo_lng
+    FROM vouchers v
+    WHERE v.active AND v.geo_lat IS NOT NULL AND v.id < $1
+    ORDER BY v.id DESC
+    LIMIT $2
+)
+SELECT page.*,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
+        -- the LEFT JOIN miss (no available offerings), never an unknown type.
+        -- A future third commodity type must extend this CASE, not fall here.
+        ELSE 'voucher'
+    END AS kind
+FROM page
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = page.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+ORDER BY page.id DESC;
+
+--name: list-market-vouchers-prev
+WITH page AS MATERIALIZED (
+    SELECT * FROM (
+        SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+            v.location_name, v.geo_lat, v.geo_lng
+        FROM vouchers v
+        WHERE v.active AND v.geo_lat IS NOT NULL AND v.id > $1
+        ORDER BY v.id ASC
+        LIMIT $2
+    ) window_page
+)
+SELECT page.*,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
+        -- the LEFT JOIN miss (no available offerings), never an unknown type.
+        -- A future third commodity type must extend this CASE, not fall here.
+        ELSE 'voucher'
+    END AS kind
+FROM page
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = page.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+ORDER BY page.id DESC;
+
+--name: list-market-vouchers-bounded
+WITH page AS MATERIALIZED (
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+        v.location_name, v.geo_lat, v.geo_lng
+    FROM vouchers v
+    WHERE v.active AND v.geo_lat IS NOT NULL
+        AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
+    ORDER BY v.id DESC
+    LIMIT $5
+)
+SELECT page.*,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
+        -- the LEFT JOIN miss (no available offerings), never an unknown type.
+        -- A future third commodity type must extend this CASE, not fall here.
+        ELSE 'voucher'
+    END AS kind
+FROM page
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = page.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+ORDER BY page.id DESC;
+
+--name: list-market-vouchers-next-bounded
+WITH page AS MATERIALIZED (
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+        v.location_name, v.geo_lat, v.geo_lng
+    FROM vouchers v
+    WHERE v.active AND v.geo_lat IS NOT NULL
+        AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
+        AND v.id < $5
+    ORDER BY v.id DESC
+    LIMIT $6
+)
+SELECT page.*,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
+        -- the LEFT JOIN miss (no available offerings), never an unknown type.
+        -- A future third commodity type must extend this CASE, not fall here.
+        ELSE 'voucher'
+    END AS kind
+FROM page
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = page.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+ORDER BY page.id DESC;
+
+--name: list-market-vouchers-prev-bounded
+WITH page AS MATERIALIZED (
+    SELECT * FROM (
+        SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+            v.location_name, v.geo_lat, v.geo_lng
+        FROM vouchers v
+        WHERE v.active AND v.geo_lat IS NOT NULL
+            AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
+            AND v.id > $5
+        ORDER BY v.id ASC
+        LIMIT $6
+    ) window_page
+)
+SELECT page.*,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
+        -- the LEFT JOIN miss (no available offerings), never an unknown type.
+        -- A future third commodity type must extend this CASE, not fall here.
+        ELSE 'voucher'
+    END AS kind
+FROM page
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = page.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+ORDER BY page.id DESC;

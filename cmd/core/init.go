@@ -234,6 +234,7 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		Build:           build,
 		ListenAddress:   ko.MustString("api.address"),
 		CORS:            ko.MustStrings("api.cors"),
+		TrustProxy:      ko.Bool("api.trust_proxy"),
 		SigningKey:      privateKey,
 		VerifyingKey:    publicKey,
 		Store:           pgStore,

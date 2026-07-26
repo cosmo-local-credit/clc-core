@@ -100,6 +100,16 @@ type (
 		ListVoucherOfferings     string `query:"list-voucher-offerings"`
 		ListVoucherOfferingsNext string `query:"list-voucher-offerings-next"`
 		ListVoucherOfferingsPrev string `query:"list-voucher-offerings-prev"`
+
+		// Bounded and unbounded market pages are separate statements so the
+		// bbox predicate never hides behind a nullable OR, which would stop
+		// Postgres from reliably choosing the GiST point index.
+		ListMarketVouchers            string `query:"list-market-vouchers"`
+		ListMarketVouchersNext        string `query:"list-market-vouchers-next"`
+		ListMarketVouchersPrev        string `query:"list-market-vouchers-prev"`
+		ListMarketVouchersBounded     string `query:"list-market-vouchers-bounded"`
+		ListMarketVouchersNextBounded string `query:"list-market-vouchers-next-bounded"`
+		ListMarketVouchersPrevBounded string `query:"list-market-vouchers-prev-bounded"`
 	}
 
 	PgOpts struct {

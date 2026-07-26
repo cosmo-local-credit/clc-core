@@ -21,10 +21,14 @@ import (
 
 type (
 	APIOpts struct {
-		ListenAddress   string
-		Build           string
-		Prod            bool
-		CORS            []string
+		ListenAddress string
+		Build         string
+		Prod          bool
+		CORS          []string
+		// TrustProxy enables X-Forwarded-For as the rate-limit key. Set it
+		// only when the service is reachable exclusively through the Caddy
+		// proxy network; otherwise a caller can forge the header.
+		TrustProxy      bool
 		VerifyingKey    crypto.PublicKey
 		SigningKey      crypto.PrivateKey
 		Store           store.Store
@@ -49,10 +53,13 @@ type (
 		logg            *slog.Logger
 		chainProvider   *ethutils.Provider
 		server          *http.Server
+		router          *echo.Echo
 		queueClient     *river.Client[pgx.Tx]
 		chainID         int64
 		relayer         *relayer.Relayer
 		pretium         *pretium.PretiumClient
+		trustProxy      bool
+		marketLimiter   *marketRateLimiter
 	}
 )
 
@@ -80,7 +87,10 @@ func New(o APIOpts) *API {
 		chainID:         o.ChainID,
 		relayer:         o.Relayer,
 		pretium:         o.Pretium,
+		trustProxy:      o.TrustProxy,
+		marketLimiter:   newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
 	}
+	a.marketLimiter.startSweeper()
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
 	router := echo.New()
@@ -146,6 +156,12 @@ func New(o APIOpts) *API {
 	profileAuthGroup := router.Group("/auth", a.flexibleAuthMiddleware(), a.requireUserAuth())
 	profileAuthGroup.GET("/profile", a.profileGetHandler)
 	profileAuthGroup.POST("/profile", a.profileUpdateHandler)
+
+	// Public market catalog. Registered on the root router, NOT on apiGroup:
+	// flexibleAuthMiddleware is mandatory authentication despite its name, and
+	// the Market tab must work for signed-out visitors. It carries its own
+	// per-IP rate limit in place of authentication.
+	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
@@ -233,6 +249,7 @@ func New(o APIOpts) *API {
 	relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
 	relayerGroup.POST("/webauthn/recover", a.webAuthnRecoverHandler)
 
+	a.router = router
 	a.server = &http.Server{
 		Addr:    o.ListenAddress,
 		Handler: router,

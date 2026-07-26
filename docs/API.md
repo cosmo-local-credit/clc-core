@@ -49,6 +49,7 @@
    - [GET /api/v2/admin/pools](#76-get-apiv2adminpools)
    - [GET /api/v2/admin/deployments](#77-get-apiv2admindeployments)
 8. [SIWE Message Construction](#8-siwe-message-construction)
+9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
 
 ---
 
@@ -58,6 +59,7 @@
 |---|---|
 | Base URL | `http(s)://<host>/` |
 | Protected API prefix | `/api/v2` |
+| Only public `/api/v2` route | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers) |
 | Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
 | Default chain | Celo Mainnet (`chainId: 42220`) |
 | Content-Type | `application/json` |
@@ -407,6 +409,11 @@ No body is returned. Use this to redirect the user to a sign-in flow.
 ---
 
 ## 5. Protected Endpoints (`/api/v2/*`)
+
+> `GET /api/v2/vouchers` is the single exception to the `/api/v2` prefix being
+> protected. It is not part of this section — see
+> [section 9](#9-public-market-catalog-get-apiv2vouchers). Every statement
+> below applies unchanged to all other `/api/v2` routes.
 
 All routes in this section require **one** of:
 
@@ -1242,3 +1249,173 @@ await fetch('/auth/signin', {
 > **Note on `credentials: 'include'`:** All `fetch` calls to `/auth/*` and `/api/v2/*` must include `credentials: 'include'` so the browser sends and stores the `__clc_auth` HttpOnly cookie cross-origin.
 
 For a full Reown AppKit (formerly WalletConnect) integration example, including the `siweConfig` adapter and sign-up flow, see [`docs/AUTH.md`](./AUTH.md).
+
+---
+
+## 9. Public Market Catalog (`GET /api/v2/vouchers`)
+
+The **only public route under `/api/v2`**. It backs the Market map, which is
+browsable by signed-out visitors. Sending the `__clc_auth` cookie is harmless
+but changes nothing: a guest and a signed-in user receive byte-identical
+responses.
+
+It returns active, geolocated voucher summaries with a backend-derived marker
+kind. It is deliberately **not** a voucher detail endpoint.
+
+### 9.1 Request
+
+```http
+GET /api/v2/vouchers?perPage=500
+GET /api/v2/vouchers?perPage=500&cursor=2212&next=true
+GET /api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1
+```
+
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| `perPage` | integer | `500` | **Endpoint exception:** default *and* maximum are 500, not the 100 used by every other catalog route. `0` or any value above 500 resolves to 500. |
+| `cursor` | integer | – | A voucher `id` from a previous response's `first` / `last`. |
+| `next` | boolean | `false` | `true` pages forward (`id < cursor`); `false` with a cursor pages backward (`id > cursor`). |
+| `bbox` | string | – | Optional `minLng,minLat,maxLng,maxLat` viewport filter. |
+
+**Pagination** uses descending `id` keyset paging. Requests without a cursor
+return the newest IDs first. Responses always carry `first` and `last` as JSON
+numbers; an empty page returns `"vouchers": []`, `"first": 0`, `"last": 0` —
+never `null` and never omitted.
+
+**`bbox` validation.** All four values must be finite and comma-separated, with
+`-180 <= lng <= 180`, `-90 <= lat <= 90`, `minLng <= maxLng`, and
+`minLat <= maxLat`. A single box therefore **cannot cross the antimeridian**; a
+client whose viewport does must issue two requests (`[-180, east]` and
+`[west, 180]`) and merge them by `id`. Malformed, out-of-range, or inverted
+values return `400` with code `E04` (validation failed).
+
+`bbox` composes with the cursor, but a caller **must keep one bbox fixed while
+traversing its pages** — changing it mid-traversal produces an inconsistent set.
+
+### 9.2 Response
+
+```/dev/null/vouchers.json#L1-20
+{
+  "ok": true,
+  "description": "Market vouchers",
+  "result": {
+    "vouchers": [
+      {
+        "id": 2710,
+        "chainId": 42220,
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Priscilah Malii",
+        "symbol": "VOUCHER",
+        "locationName": "C96, KEN",
+        "geoLat": -1.450979,
+        "geoLng": 38.235115,
+        "kind": "voucher"
+      }
+    ],
+    "first": 2710,
+    "last": 2212
+  }
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | Database ID. Doubles as the pagination cursor and stable map feature identity. |
+| `chainId` | integer | Settlement chain, `42220` for Celo mainnet. |
+| `address` | string | Contract address, preserved in its stored EIP-55 checksummed form. Never lowercased by the API. |
+| `name` | string \| null | |
+| `symbol` | string \| null | |
+| `locationName` | string \| null | Free-text place label from the import. |
+| `geoLat` | number | Never null — rows without complete coordinates are excluded. |
+| `geoLng` | number | Never null. |
+| `kind` | string | `"goods"`, `"services"`, or `"voucher"`. |
+
+**Included rows.** Only vouchers that are `active` **and** have complete
+coordinates. There is no `internal` predicate: `internal` is an import
+artifact, not a visibility or product-policy flag, and it is not exposed in
+this contract. See `MIGRATION.md` §4.7.
+
+**`kind` derivation.** Computed from the voucher's **available** offerings:
+
+| Condition | `kind` |
+|---|---|
+| Dominant available `commodity_type` is `GOOD` | `goods` |
+| Dominant available `commodity_type` is `SERVICE` | `services` |
+| Equal `GOOD` / `SERVICE` counts | `goods` |
+| No available offerings | `voucher` |
+
+Unavailable offerings are ignored entirely. `commodity_type` is FK-constrained
+to `GOOD`/`SERVICE`, so the `voucher` fallback represents "no available
+offerings", never an unrecognised type.
+
+**No distance field.** Distance is relative to optional browser geolocation and
+is presentation state, not catalog state. It is never calculated server-side.
+
+**No `iconUrl`.** Deliberately omitted: the map sprites do not use it and it
+would add roughly 61 KB uncompressed. Adding it later is a backward-compatible
+response expansion.
+
+### 9.3 Caching
+
+```http
+Cache-Control: public, max-age=60, stale-while-revalidate=300
+Vary: Origin
+```
+
+The representation never varies by authorization or cookie, so it is publicly
+cacheable. `Origin` is **merged** into any existing `Vary` rather than
+replacing it; the global CORS policy sets `AllowCredentials: true`, which makes
+origin variance mandatory even though this client sends no credentials. This
+endpoint never emits `no-store`.
+
+### 9.4 Rate limiting
+
+Because the route has no authentication to fall back on, it carries a
+per-client-IP token bucket: **60 requests per minute sustained, burst 15**.
+Exceeding it returns `429 Too Many Requests` with a `Retry-After` header in
+whole seconds, calculated from the next available token.
+
+```/dev/null/rate-limited.json#L1-5
+{
+  "ok": false,
+  "description": "rate limit exceeded, retry later",
+  "code": "E11"
+}
+```
+
+The client key is the **direct peer address**. `X-Forwarded-For` is honoured
+only when `api.trust_proxy` is enabled, which must be set only where the
+service is reachable exclusively through the Caddy proxy network; otherwise any
+caller could forge the header and spend another client's budget. When trusted,
+the **rightmost** entry is used, since that is the address the proxy actually
+observed.
+
+The limiter's client registry is bounded and idle entries are swept
+periodically, so forged source addresses cannot grow it without bound.
+
+> This limit assumes the current single API replica. If the service is scaled
+> horizontally, move the limit to a shared edge or distributed limiter rather
+> than multiplying the allowance per replica.
+
+### 9.5 Examples
+
+First page:
+
+```sh
+curl -s 'https://<host>/api/v2/vouchers?perPage=500'
+```
+
+Next page, using the previous response's `last`:
+
+```sh
+curl -s 'https://<host>/api/v2/vouchers?perPage=500&cursor=2212&next=true'
+```
+
+Bounded to a Nairobi-sized viewport:
+
+```sh
+curl -s 'https://<host>/api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1'
+```
+
+> **Swagger drift.** `docs/swagger.yaml` predates the catalog surface and does
+> not describe this route. Reconciling it is tracked as separate follow-up work.

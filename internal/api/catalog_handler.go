@@ -81,6 +81,43 @@ func (a *API) voucherOfferingsListHandler(c *echo.Context) error {
 	})
 }
 
+// vouchersListHandler serves the public market catalog: active, geolocated
+// voucher summaries with a backend-derived marker kind. It is the only public
+// /api/v2 route, so it carries its own cache policy and per-IP rate limit.
+func (a *API) vouchersListHandler(c *echo.Context) error {
+	req := apiresp.CursorPaginationRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+
+	// Parsed once here; the box only ever selects the bounded prepared
+	// statement and supplies its parameters. No SQL is built from user input.
+	bounds, err := parseMarketBounds(c.Request().URL.Query().Get("bbox"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: err.Error(),
+		})
+	}
+
+	setMarketCacheHeaders(c)
+
+	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.MarketVoucher]{
+		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.MarketVoucher, error) {
+			return a.store.ListMarketVouchers(ctx, tx, bounds, limit)
+		},
+		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.MarketVoucher, error) {
+			return a.store.ListMarketVouchersNext(ctx, tx, bounds, cursor, limit)
+		},
+		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.MarketVoucher, error) {
+			return a.store.ListMarketVouchersPrevious(ctx, tx, bounds, cursor, limit)
+		},
+	}, normalizePaginationWithMax(req, marketMaxPerPage), "vouchers", "Market vouchers", func(v store.MarketVoucher) uint64 {
+		return v.ID
+	})
+}
+
 func bindCatalogPagination(c *echo.Context) (paginationParams, error) {
 	req := apiresp.CursorPaginationRequest{}
 	if err := c.Bind(&req); err != nil {

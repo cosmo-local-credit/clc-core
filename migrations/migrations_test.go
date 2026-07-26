@@ -41,6 +41,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "005_rename_protocol_addresses.sql")
 	assert.Contains(t, sqlFiles, "006_network_catalog.sql")
 	assert.Contains(t, sqlFiles, "007_pool_token_oracle_feeds.sql")
+	assert.Contains(t, sqlFiles, "008_market_voucher_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -49,10 +50,35 @@ func TestMigrationFiles(t *testing.T) {
 				name == "004_timestamptz.sql" ||
 				name == "005_rename_protocol_addresses.sql" ||
 				name == "006_network_catalog.sql" ||
-				name == "007_pool_token_oracle_feeds.sql",
+				name == "007_pool_token_oracle_feeds.sql" ||
+				name == "008_market_voucher_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
+}
+
+func TestMarketVoucherIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("008_market_voucher_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Turns the per-page lateral kind lookup into an index-only scan.
+	assert.Contains(t, s, "offerings_available_voucher_type_idx")
+	assert.Contains(t, s, "ON offerings (voucher_id, commodity_type)")
+	assert.Contains(t, s, "WHERE available")
+	// Core PostgreSQL GiST point_ops — PostGIS is deliberately not required.
+	assert.Contains(t, s, "vouchers_geo_gist_idx")
+	assert.Contains(t, s, "USING gist (point(geo_lng, geo_lat))")
+	assert.Contains(t, s, "WHERE active AND geo_lat IS NOT NULL")
+	// No PostGIS dependency: no extension, no geometry/geography types.
+	assert.NotContains(t, s, "CREATE EXTENSION")
+	assert.NotContains(t, s, "geography(")
+	assert.NotContains(t, s, "geometry(")
+	assert.NotContains(t, s, "gist_geometry_ops")
+	// Re-running the migration must be a no-op.
+	assert.Equal(t, 2, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	// The primary key already drives the unbounded descending page scan.
+	assert.NotContains(t, s, "ON vouchers (id")
 }
 
 func TestBaselineMigrationContainsLegacySchema(t *testing.T) {
