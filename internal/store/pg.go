@@ -87,10 +87,19 @@ type (
 
 		ListVoucherMetadataByAddresses string `query:"list-voucher-metadata-by-addresses"`
 
-		ListPools        string `query:"list-pools"`
-		ListPoolsNext    string `query:"list-pools-next"`
-		ListPoolsPrev    string `query:"list-pools-prev"`
-		GetPoolByAddress string `query:"get-pool-by-address"`
+		ListPools                string `query:"list-pools"`
+		ListPoolsNext            string `query:"list-pools-next"`
+		ListPoolsPrev            string `query:"list-pools-prev"`
+		GetPoolByAddress         string `query:"get-pool-by-address"`
+		ListPoolVouchers         string `query:"list-pool-vouchers"`
+		ListPoolVouchersNext     string `query:"list-pool-vouchers-next"`
+		ListPoolVouchersPrev     string `query:"list-pool-vouchers-prev"`
+		ListOfferings            string `query:"list-offerings"`
+		ListOfferingsNext        string `query:"list-offerings-next"`
+		ListOfferingsPrev        string `query:"list-offerings-prev"`
+		ListVoucherOfferings     string `query:"list-voucher-offerings"`
+		ListVoucherOfferingsNext string `query:"list-voucher-offerings-next"`
+		ListVoucherOfferingsPrev string `query:"list-voucher-offerings-prev"`
 	}
 
 	PgOpts struct {

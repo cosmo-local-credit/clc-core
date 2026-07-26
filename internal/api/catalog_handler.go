@@ -1,0 +1,160 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/jackc/pgx/v5"
+	"github.com/labstack/echo/v5"
+)
+
+type paginatedCatalogListCallbacks[T any] struct {
+	firstPage func(context.Context, pgx.Tx, uint64) ([]T, error)
+	nextPage  func(context.Context, pgx.Tx, uint64, uint64) ([]T, error)
+	prevPage  func(context.Context, pgx.Tx, uint64, uint64) ([]T, error)
+}
+
+func (a *API) poolVouchersListHandler(c *echo.Context) error {
+	poolAddress, pagination, valid, err := bindCatalogAddressPagination(c)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return nil
+	}
+
+	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.PoolVoucher]{
+		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.PoolVoucher, error) {
+			return a.store.ListPoolVouchers(ctx, tx, poolAddress, limit)
+		},
+		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.PoolVoucher, error) {
+			return a.store.ListPoolVouchersNext(ctx, tx, poolAddress, cursor, limit)
+		},
+		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.PoolVoucher, error) {
+			return a.store.ListPoolVouchersPrevious(ctx, tx, poolAddress, cursor, limit)
+		},
+	}, pagination, "vouchers", fmt.Sprintf("Vouchers in pool %s", poolAddress), func(v store.PoolVoucher) uint64 {
+		return v.ID
+	})
+}
+
+func (a *API) offeringsListHandler(c *echo.Context) error {
+	pagination, err := bindCatalogPagination(c)
+	if err != nil {
+		return err
+	}
+
+	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.Offering]{
+		firstPage: a.store.ListOfferings,
+		nextPage:  a.store.ListOfferingsNext,
+		prevPage:  a.store.ListOfferingsPrevious,
+	}, pagination, "offerings", "Offerings", func(o store.Offering) uint64 {
+		return o.ID
+	})
+}
+
+func (a *API) voucherOfferingsListHandler(c *echo.Context) error {
+	voucherAddress, pagination, valid, err := bindCatalogAddressPagination(c)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return nil
+	}
+
+	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.Offering]{
+		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.Offering, error) {
+			return a.store.ListVoucherOfferings(ctx, tx, voucherAddress, limit)
+		},
+		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.Offering, error) {
+			return a.store.ListVoucherOfferingsNext(ctx, tx, voucherAddress, cursor, limit)
+		},
+		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.Offering, error) {
+			return a.store.ListVoucherOfferingsPrevious(ctx, tx, voucherAddress, cursor, limit)
+		},
+	}, pagination, "offerings", fmt.Sprintf("Offerings for voucher %s", voucherAddress), func(o store.Offering) uint64 {
+		return o.ID
+	})
+}
+
+func bindCatalogPagination(c *echo.Context) (paginationParams, error) {
+	req := apiresp.CursorPaginationRequest{}
+	if err := c.Bind(&req); err != nil {
+		return paginationParams{}, handleBindError(c, err)
+	}
+	return normalizePagination(req), nil
+}
+
+func bindCatalogAddressPagination(c *echo.Context) (string, paginationParams, bool, error) {
+	pagination, err := bindCatalogPagination(c)
+	if err != nil {
+		return "", paginationParams{}, false, err
+	}
+
+	address := c.Param("address")
+	if !common.IsHexAddress(address) {
+		err := c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "address must be a valid hex address",
+		})
+		return "", paginationParams{}, false, err
+	}
+	return address, pagination, true, nil
+}
+
+func cursorPaginatedCatalogList[T any](
+	c *echo.Context,
+	a *API,
+	callbacks paginatedCatalogListCallbacks[T],
+	pagination paginationParams,
+	resultKey, description string,
+	getID func(T) uint64,
+) error {
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var items []T
+	switch {
+	case pagination.FirstPage:
+		items, err = callbacks.firstPage(ctx, tx, pagination.PerPage)
+	case pagination.Next:
+		items, err = callbacks.nextPage(ctx, tx, pagination.Cursor, pagination.PerPage)
+	default:
+		items, err = callbacks.prevPage(ctx, tx, pagination.Cursor, pagination.PerPage)
+	}
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if items == nil {
+		items = []T{}
+	}
+
+	var first, last uint64
+	if len(items) > 0 {
+		first = getID(items[0])
+		last = getID(items[len(items)-1])
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: description,
+		Result: map[string]any{
+			resultKey: items,
+			"first":   first,
+			"last":    last,
+		},
+	})
+}

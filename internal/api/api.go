@@ -168,7 +168,10 @@ func New(o APIOpts) *API {
 	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
 	// membership/ownership for the authenticated user only.
 	apiGroup.GET("/pools", a.poolsListHandler)
+	apiGroup.GET("/pools/:address/vouchers", a.poolVouchersListHandler)
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
+	apiGroup.GET("/offerings", a.offeringsListHandler)
+	apiGroup.GET("/vouchers/:address/offerings", a.voucherOfferingsListHandler)
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")

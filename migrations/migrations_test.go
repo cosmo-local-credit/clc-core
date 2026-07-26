@@ -40,6 +40,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "004_timestamptz.sql")
 	assert.Contains(t, sqlFiles, "005_rename_protocol_addresses.sql")
 	assert.Contains(t, sqlFiles, "006_network_catalog.sql")
+	assert.Contains(t, sqlFiles, "007_pool_token_oracle_feeds.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -47,7 +48,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "003_constraint_hardening.sql" ||
 				name == "004_timestamptz.sql" ||
 				name == "005_rename_protocol_addresses.sql" ||
-				name == "006_network_catalog.sql",
+				name == "006_network_catalog.sql" ||
+				name == "007_pool_token_oracle_feeds.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -233,6 +235,18 @@ func TestRenameProtocolAddressesMigration(t *testing.T) {
 	assert.Contains(t, s, "RENAME TO protocol_addresses")
 	assert.Contains(t, s, "protocol_addresses_address_format")
 	assert.Contains(t, s, "update_protocol_addresses_timestamp")
+}
+
+func TestPoolTokenOracleFeedsMigration(t *testing.T) {
+	content, err := os.ReadFile("007_pool_token_oracle_feeds.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "DROP COLUMN IF EXISTS exchange_rate")
+	assert.Contains(t, s, "DROP CONSTRAINT IF EXISTS pool_tokens_rate_nonneg")
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS oracle_feed_id INT")
+	assert.Contains(t, s, "FOREIGN KEY (oracle_feed_id) REFERENCES oracle_feeds(id)")
+	assert.Contains(t, s, "pool_tokens_oracle_feed_id_idx")
 }
 
 func TestNetworkCatalogMigration(t *testing.T) {

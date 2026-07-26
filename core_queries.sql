@@ -537,6 +537,7 @@ SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -552,6 +553,7 @@ SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -569,6 +571,7 @@ SELECT * FROM (
         p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
         p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
         p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+        (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
         COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
     FROM pools p
     LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -588,8 +591,197 @@ SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
 WHERE lower(p.address) = lower($1)
 GROUP BY p.id;
+
+-- Pool voucher composition (MIGRATION.md §3.4). Oracle feeds replace legacy
+-- fixed exchange rates; offering counts are local catalog facts.
+--name: list-pool-vouchers
+SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
+    v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
+    v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
+    v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
+    v.active, v.internal, pt.is_allowed, pt.token_limit::TEXT AS token_limit, pt.synced_at,
+    oracle.id AS oracle_feed_id, oracle.name AS oracle_name, oracle.address AS oracle_address,
+    (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id) AS offer_count,
+    (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id AND o.available) AS available_offer_count,
+    COALESCE((
+        SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
+        FROM voucher_tags vt
+        WHERE vt.voucher_id = v.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    v.created_at, v.updated_at
+FROM pool_tokens pt
+INNER JOIN pools p ON p.id = pt.pool_id
+INNER JOIN vouchers v ON v.id = pt.voucher_id
+LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
+WHERE lower(p.address) = lower($1) AND pt.is_allowed
+ORDER BY v.id DESC
+LIMIT $2;
+
+--name: list-pool-vouchers-next
+SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
+    v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
+    v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
+    v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
+    v.active, v.internal, pt.is_allowed, pt.token_limit::TEXT AS token_limit, pt.synced_at,
+    oracle.id AS oracle_feed_id, oracle.name AS oracle_name, oracle.address AS oracle_address,
+    (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id) AS offer_count,
+    (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id AND o.available) AS available_offer_count,
+    COALESCE((
+        SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
+        FROM voucher_tags vt
+        WHERE vt.voucher_id = v.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    v.created_at, v.updated_at
+FROM pool_tokens pt
+INNER JOIN pools p ON p.id = pt.pool_id
+INNER JOIN vouchers v ON v.id = pt.voucher_id
+LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
+WHERE lower(p.address) = lower($1) AND pt.is_allowed AND v.id < $2
+ORDER BY v.id DESC
+LIMIT $3;
+
+--name: list-pool-vouchers-prev
+SELECT * FROM (
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
+        v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
+        v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
+        v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
+        v.active, v.internal, pt.is_allowed, pt.token_limit::TEXT AS token_limit, pt.synced_at,
+        oracle.id AS oracle_feed_id, oracle.name AS oracle_name, oracle.address AS oracle_address,
+        (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id) AS offer_count,
+        (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id AND o.available) AS available_offer_count,
+        COALESCE((
+            SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
+            FROM voucher_tags vt
+            WHERE vt.voucher_id = v.id
+        ), ARRAY[]::TEXT[]) AS tags,
+        v.created_at, v.updated_at
+    FROM pool_tokens pt
+    INNER JOIN pools p ON p.id = pt.pool_id
+    INNER JOIN vouchers v ON v.id = pt.voucher_id
+    LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
+    WHERE lower(p.address) = lower($1) AND pt.is_allowed AND v.id > $2
+    ORDER BY v.id ASC
+    LIMIT $3
+) page
+ORDER BY id DESC;
+
+-- Marketplace offerings, enriched with voucher identity and shared tags.
+--name: list-offerings
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+    o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE((
+        SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+        FROM offering_tags ot
+        WHERE ot.offering_id = o.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+ORDER BY o.id DESC
+LIMIT $1;
+
+--name: list-offerings-next
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+    o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE((
+        SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+        FROM offering_tags ot
+        WHERE ot.offering_id = o.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+WHERE o.id < $1
+ORDER BY o.id DESC
+LIMIT $2;
+
+--name: list-offerings-prev
+SELECT * FROM (
+    SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+        v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+        o.seller_address, o.commodity_name, o.commodity_type, o.description,
+        o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+        o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+        COALESCE((
+            SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+            FROM offering_tags ot
+            WHERE ot.offering_id = o.id
+        ), ARRAY[]::TEXT[]) AS tags,
+        o.created_at, o.updated_at
+    FROM offerings o
+    INNER JOIN vouchers v ON v.id = o.voucher_id
+    WHERE o.id > $1
+    ORDER BY o.id ASC
+    LIMIT $2
+) page
+ORDER BY id DESC;
+
+--name: list-voucher-offerings
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+    o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE((
+        SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+        FROM offering_tags ot
+        WHERE ot.offering_id = o.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+WHERE lower(v.address) = lower($1)
+ORDER BY o.id DESC
+LIMIT $2;
+
+--name: list-voucher-offerings-next
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+    o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE((
+        SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+        FROM offering_tags ot
+        WHERE ot.offering_id = o.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+WHERE lower(v.address) = lower($1) AND o.id < $2
+ORDER BY o.id DESC
+LIMIT $3;
+
+--name: list-voucher-offerings-prev
+SELECT * FROM (
+    SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+        v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+        o.seller_address, o.commodity_name, o.commodity_type, o.description,
+        o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+        o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+        COALESCE((
+            SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+            FROM offering_tags ot
+            WHERE ot.offering_id = o.id
+        ), ARRAY[]::TEXT[]) AS tags,
+        o.created_at, o.updated_at
+    FROM offerings o
+    INNER JOIN vouchers v ON v.id = o.voucher_id
+    WHERE lower(v.address) = lower($1) AND o.id > $2
+    ORDER BY o.id ASC
+    LIMIT $3
+) page
+ORDER BY id DESC;

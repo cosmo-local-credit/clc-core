@@ -42,6 +42,7 @@ type (
 		Terms                        *string   `db:"terms"                           json:"terms"`
 		DefaultVoucherID             *uint64   `db:"default_voucher_id"              json:"defaultVoucherId"`
 		PlatformContractID           *uint64   `db:"platform_contract_id"            json:"platformContractId"`
+		VoucherCount                 uint64    `db:"voucher_count"                   json:"voucherCount"`
 		Tags                         []string  `db:"tags"                            json:"tags"`
 		CreatedAt                    time.Time `db:"created_at"                      json:"createdAt"`
 		UpdatedAt                    time.Time `db:"updated_at"                      json:"updatedAt"`
