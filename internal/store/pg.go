@@ -110,6 +110,8 @@ type (
 		ListMarketVouchersBounded     string `query:"list-market-vouchers-bounded"`
 		ListMarketVouchersNextBounded string `query:"list-market-vouchers-next-bounded"`
 		ListMarketVouchersPrevBounded string `query:"list-market-vouchers-prev-bounded"`
+
+		GetMarketVoucherByAddress string `query:"get-market-voucher-by-address"`
 	}
 
 	PgOpts struct {

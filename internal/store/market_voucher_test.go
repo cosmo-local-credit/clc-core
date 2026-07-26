@@ -79,6 +79,41 @@ func TestLoadMarketVoucherQueries(t *testing.T) {
 	}
 }
 
+func TestLoadMarketVoucherDetailQuery(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatalf("load core queries: %v", err)
+	}
+
+	query := queries.GetMarketVoucherByAddress
+	if query == "" {
+		t.Fatal("expected get-market-voucher-by-address query to be loaded")
+	}
+	if !strings.Contains(query, "lower(v.address) = lower($1)") {
+		t.Error("detail lookup must be case-insensitive; a pasted link may be lowercased")
+	}
+	if !strings.Contains(query, "v.active") {
+		t.Error("detail must apply the same visibility rule as the list")
+	}
+	// Unlike the list, coordinates are optional: a voucher without them still
+	// has a readable page, it simply renders no map.
+	if strings.Contains(query, "v.geo_lat IS NOT NULL") {
+		t.Error("detail must not require coordinates")
+	}
+	// NUMERIC would arrive as a float and lose precision; the client formats text.
+	if !strings.Contains(query, "v.voucher_value::TEXT") {
+		t.Error("voucher_value must cross the wire as text, not a float")
+	}
+	if strings.Contains(query, "internal") {
+		t.Error("detail must not read the internal import artifact")
+	}
+	for _, column := range []string{"v.icon_url", "v.banner_url", "v.email", "v.owner_address", "v.voucher_uoa"} {
+		if !strings.Contains(query, column) {
+			t.Errorf("detail must select %s, which the card or page renders", column)
+		}
+	}
+}
+
 func TestMarketVoucherBoundsValidate(t *testing.T) {
 	nairobi := MarketVoucherBounds{MinLng: 36.6, MinLat: -1.5, MaxLng: 37.1, MaxLat: -1.1}
 	if err := nairobi.Validate(); err != nil {
@@ -152,5 +187,91 @@ func TestMarketVoucherJSONContract(t *testing.T) {
 	// Distance is presentation state relative to optional browser geolocation.
 	if strings.Contains(payload, "distance") {
 		t.Errorf("market voucher must not carry a server-calculated distance: %s", payload)
+	}
+}
+
+func TestMarketVoucherDetailJSONContract(t *testing.T) {
+	text := func(value string) *string { return &value }
+	decimals := 6
+	lat, lng := -1.450979, 38.235115
+
+	encoded, err := json.Marshal(MarketVoucherDetail{
+		ID:           2710,
+		ChainID:      42220,
+		Address:      "0xAbC0000000000000000000000000000000000123",
+		Name:         text("Priscilah Malii"),
+		Symbol:       text("MALII"),
+		Decimals:     &decimals,
+		OwnerAddress: text("0xDeF0000000000000000000000000000000000456"),
+		Description:  text("Community voucher"),
+		VoucherUOA:   text("KSH"),
+		VoucherValue: text("10"),
+		LocationName: text("C96, KEN"),
+		GeoLat:       &lat,
+		GeoLng:       &lng,
+		Email:        text("issuer@example.org"),
+		Website:      text("https://example.org"),
+		Phone:        text("+254700000000"),
+		IconURL:      text("https://content.example/icon.jpg"),
+		BannerURL:    text("https://content.example/banner.jpg"),
+		Kind:         "goods",
+	})
+	if err != nil {
+		t.Fatalf("marshal voucher detail: %v", err)
+	}
+
+	payload := string(encoded)
+	// Exactly the keys the card and the voucher page read.
+	for _, field := range []string{
+		`"id":2710`, `"chainId":42220`, `"name":"Priscilah Malii"`, `"symbol":"MALII"`,
+		`"decimals":6`, `"ownerAddress":"0xDeF0000000000000000000000000000000000456"`,
+		`"voucherUoa":"KSH"`, `"voucherValue":"10"`, `"locationName":"C96, KEN"`,
+		`"geoLat":-1.450979`, `"geoLng":38.235115`, `"email":"issuer@example.org"`,
+		`"website":"https://example.org"`, `"phone":"+254700000000"`,
+		`"iconUrl":"https://content.example/icon.jpg"`,
+		`"bannerUrl":"https://content.example/banner.jpg"`, `"kind":"goods"`,
+	} {
+		if !strings.Contains(payload, field) {
+			t.Errorf("expected voucher detail JSON to contain %s, got %s", field, payload)
+		}
+	}
+	if !strings.Contains(payload, `"address":"0xAbC0000000000000000000000000000000000123"`) {
+		t.Errorf("expected checksummed address to be preserved, got %s", payload)
+	}
+	// voucherValue is text so a NUMERIC like 10.50 keeps its scale.
+	if strings.Contains(payload, `"voucherValue":10`) {
+		t.Errorf("voucherValue must serialize as a string, got %s", payload)
+	}
+	if strings.Contains(payload, "internal") {
+		t.Errorf("voucher detail must not expose the internal import artifact: %s", payload)
+	}
+}
+
+// A voucher with no images, no contact details, and no coordinates is the
+// common case — roughly two thirds of the imported catalog has no icon. Those
+// fields must arrive as explicit nulls the client can branch on, never as
+// empty strings or zeroed coordinates off the Gulf of Guinea.
+func TestMarketVoucherDetailSerializesMissingFieldsAsNull(t *testing.T) {
+	encoded, err := json.Marshal(MarketVoucherDetail{
+		ID:      2710,
+		ChainID: 42220,
+		Address: "0xAbC0000000000000000000000000000000000123",
+		Kind:    "voucher",
+	})
+	if err != nil {
+		t.Fatalf("marshal voucher detail: %v", err)
+	}
+
+	payload := string(encoded)
+	for _, field := range []string{
+		`"iconUrl":null`, `"bannerUrl":null`, `"email":null`, `"ownerAddress":null`,
+		`"voucherUoa":null`, `"voucherValue":null`, `"geoLat":null`, `"geoLng":null`,
+	} {
+		if !strings.Contains(payload, field) {
+			t.Errorf("expected %s, got %s", field, payload)
+		}
+	}
+	if strings.Contains(payload, `"geoLat":0`) {
+		t.Errorf("an absent coordinate must not serialize as 0: %s", payload)
 	}
 }

@@ -90,6 +90,7 @@ type (
 		ListMarketVouchers(context.Context, pgx.Tx, *MarketVoucherBounds, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersNext(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersPrevious(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
+		GetMarketVoucherByAddress(context.Context, pgx.Tx, string) (MarketVoucherDetail, error)
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
 		ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)

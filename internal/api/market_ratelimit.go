@@ -15,12 +15,16 @@ import (
 )
 
 const (
-	// 60 sustained requests per minute with a burst of 15, keyed by client IP.
-	// One API replica serves this route today; if it is ever scaled
-	// horizontally this must move to a shared edge limiter rather than being
-	// multiplied per replica.
+	// 60 sustained requests per minute, keyed by client IP. One API replica
+	// serves this route today; if it is ever scaled horizontally this must move
+	// to a shared edge limiter rather than being multiplied per replica.
+	//
+	// The burst is sized from how the Market tab actually opens: five catalog
+	// pages, a bounded viewport bootstrap, then one detail request per marker
+	// the user taps. Tapping *is* how the map is read, so the burst has to
+	// cover a run of taps immediately after load, not just the load itself.
 	marketRateLimit = rate.Limit(1) // one token per second == 60/min
-	marketRateBurst = 15
+	marketRateBurst = 40
 
 	// The registry is bounded and swept so forged source addresses cannot grow
 	// it without bound.

@@ -162,6 +162,7 @@ func New(o APIOpts) *API {
 	// the Market tab must work for signed-out visitors. It carries its own
 	// per-IP rate limit in place of authentication.
 	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)

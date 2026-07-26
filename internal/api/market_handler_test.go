@@ -138,6 +138,33 @@ func TestVouchersRouteIsPublic(t *testing.T) {
 	}
 }
 
+func TestVoucherDetailRouteIsPublic(t *testing.T) {
+	a := newTestRouter(t)
+
+	// A deliberately invalid address proves the request reached the handler:
+	// 400 means validation ran, 401 would mean auth middleware intercepted.
+	// It also stops short of the store, so no database is needed here.
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers/not-an-address", nil)
+	req.RemoteAddr = "198.51.100.50:1234"
+	res := httptest.NewRecorder()
+	a.router.ServeHTTP(res, req)
+
+	if res.Code == http.StatusUnauthorized {
+		t.Fatal("a shared voucher link must open without a JWT")
+	}
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusBadRequest)
+	}
+
+	var body apiresp.ErrResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected a JSON error response: %v", err)
+	}
+	if body.ErrCode != apiresp.ErrCodeValidationFailed {
+		t.Fatalf("code = %q, want %q", body.ErrCode, apiresp.ErrCodeValidationFailed)
+	}
+}
+
 func TestVouchersRouteRateLimitsPerClient(t *testing.T) {
 	a := newTestRouter(t)
 
@@ -178,6 +205,45 @@ func TestVouchersRouteRateLimitsPerClient(t *testing.T) {
 	// A different client keeps its own budget.
 	if res := send("198.51.100.31:1234"); res.Code == http.StatusTooManyRequests {
 		t.Fatal("a second client must not inherit the first client's limit")
+	}
+}
+
+// The Market tab spends its whole budget in one burst: every catalog page, a
+// bounded viewport bootstrap, then one detail request per marker the user taps.
+// Tapping is how the map is read, so a burst that runs out mid-exploration
+// would 429 a first-time visitor for using the feature normally.
+func TestMarketBurstCoversACatalogLoadThenMarkerTaps(t *testing.T) {
+	const (
+		client = "198.51.100.51:1234"
+		// 2,181 geolocated vouchers at the 500-row cap.
+		catalogPages = 5
+		// One request per box; a viewport crossing the antimeridian splits.
+		viewportBootstrap = 2
+		markerTaps        = 20
+	)
+
+	a := newTestRouter(t)
+
+	send := func(target string) int {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.RemoteAddr = client
+		res := httptest.NewRecorder()
+		a.router.ServeHTTP(res, req)
+		return res.Code
+	}
+
+	for i := range catalogPages + viewportBootstrap {
+		// Invalid bbox: the limiter runs before the handler, and a 400 keeps
+		// this test off the database.
+		if code := send("/api/v2/vouchers?bbox=not-a-box"); code == http.StatusTooManyRequests {
+			t.Fatalf("catalog request %d of %d was rate limited", i+1, catalogPages+viewportBootstrap)
+		}
+	}
+
+	for i := range markerTaps {
+		if code := send("/api/v2/vouchers/not-an-address"); code == http.StatusTooManyRequests {
+			t.Fatalf("marker tap %d of %d was rate limited after a catalog load", i+1, markerTaps)
+		}
 	}
 }
 

@@ -50,6 +50,7 @@
    - [GET /api/v2/admin/deployments](#77-get-apiv2admindeployments)
 8. [SIWE Message Construction](#8-siwe-message-construction)
 9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
+   - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
 
 ---
 
@@ -59,7 +60,7 @@
 |---|---|
 | Base URL | `http(s)://<host>/` |
 | Protected API prefix | `/api/v2` |
-| Only public `/api/v2` route | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers) |
+| Only public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress) |
 | Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
 | Default chain | Celo Mainnet (`chainId: 42220`) |
 | Content-Type | `application/json` |
@@ -410,8 +411,9 @@ No body is returned. Use this to redirect the user to a sign-in flow.
 
 ## 5. Protected Endpoints (`/api/v2/*`)
 
-> `GET /api/v2/vouchers` is the single exception to the `/api/v2` prefix being
-> protected. It is not part of this section — see
+> `GET /api/v2/vouchers` and `GET /api/v2/vouchers/:address` are the only
+> exceptions to the `/api/v2` prefix being protected. They are not part of this
+> section — see
 > [section 9](#9-public-market-catalog-get-apiv2vouchers). Every statement
 > below applies unchanged to all other `/api/v2` routes.
 
@@ -1259,8 +1261,10 @@ browsable by signed-out visitors. Sending the `__clc_auth` cookie is harmless
 but changes nothing: a guest and a signed-in user receive byte-identical
 responses.
 
-It returns active, geolocated voucher summaries with a backend-derived marker
-kind. It is deliberately **not** a voucher detail endpoint.
+The list route returns active, geolocated voucher summaries with a
+backend-derived marker kind. Per-voucher detail — contact details, images, and
+unit of account — lives on the sibling route in
+[section 9.6](#96-voucher-detail-get-apiv2vouchersaddress).
 
 ### 9.1 Request
 
@@ -1351,9 +1355,11 @@ offerings", never an unrecognised type.
 **No distance field.** Distance is relative to optional browser geolocation and
 is presentation state, not catalog state. It is never calculated server-side.
 
-**No `iconUrl`.** Deliberately omitted: the map sprites do not use it and it
-would add roughly 61 KB uncompressed. Adding it later is a backward-compatible
-response expansion.
+**No `iconUrl` on list rows.** Deliberately omitted. The map sprites do not use
+it, and at ~75 characters per URL across 2,181 rows it would add roughly 170 KB
+uncompressed to display at most one image at a time. Clients that need it fetch
+[voucher detail](#96-voucher-detail-get-apiv2vouchersaddress) for the one
+voucher the user selected.
 
 ### 9.3 Caching
 
@@ -1371,9 +1377,15 @@ endpoint never emits `no-store`.
 ### 9.4 Rate limiting
 
 Because the route has no authentication to fall back on, it carries a
-per-client-IP token bucket: **60 requests per minute sustained, burst 15**.
-Exceeding it returns `429 Too Many Requests` with a `Retry-After` header in
-whole seconds, calculated from the next available token.
+per-client-IP token bucket shared by both public routes: **60 requests per
+minute sustained, burst 40**. Exceeding it returns `429 Too Many Requests` with
+a `Retry-After` header in whole seconds, calculated from the next available
+token.
+
+The burst is sized from how the Market tab actually opens: five catalog pages, a
+bounded viewport bootstrap, then one detail request per marker the user taps.
+Tapping markers *is* how the map is read, so the burst has to cover a run of
+taps immediately after load, not just the load itself.
 
 ```/dev/null/rate-limited.json#L1-5
 {
@@ -1416,6 +1428,71 @@ Bounded to a Nairobi-sized viewport:
 ```sh
 curl -s 'https://<host>/api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1'
 ```
+
+### 9.6 Voucher detail (`GET /api/v2/vouchers/:address`)
+
+Public for the same reason as the list: a shared voucher link must open for a
+signed-out visitor. It backs both the map's selection card and the voucher page.
+
+```http
+GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7
+```
+
+`:address` must be a valid hex address; anything else returns `400` with code
+`E04` before the database is touched. Lookup is **case-insensitive**, so a
+lowercased pasted link resolves, but the response echoes the stored EIP-55
+checksummed form.
+
+```/dev/null/voucher.json#L1-27
+{
+  "ok": true,
+  "description": "Market voucher",
+  "result": {
+    "voucher": {
+      "id": 2710,
+      "chainId": 42220,
+      "address": "0x0001423EC38205B125e7340aa37F4D19276e3aB7",
+      "name": "Priscilah Malii",
+      "symbol": "MALII",
+      "decimals": 6,
+      "ownerAddress": "0xDeF0000000000000000000000000000000000456",
+      "description": "Community voucher",
+      "voucherUoa": "KSH",
+      "voucherValue": "10",
+      "locationName": "C96, KEN",
+      "geoLat": -1.450979,
+      "geoLng": 38.235115,
+      "email": "issuer@example.org",
+      "website": "https://example.org",
+      "phone": "+254700000000",
+      "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
+      "bannerUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
+      "kind": "goods"
+    }
+  }
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `id`, `chainId`, `address`, `name`, `symbol`, `locationName`, `kind` | — | Identical semantics to the [list contract](#92-response). |
+| `decimals` | integer \| null | ERC-20 decimals. |
+| `ownerAddress` | string \| null | Issuer's wallet, stored casing preserved. |
+| `description` | string \| null | |
+| `voucherUoa` | string \| null | Unit of account, **free text entered by the issuer** — `KSH`, `Ksh`, `KES`, `usd`, and `Hour` all occur. Never normalised server-side; render verbatim. |
+| `voucherValue` | string \| null | What one voucher is worth in `voucherUoa`, so `symbol` + `voucherValue` + `voucherUoa` reads "1 MALII = 10 KSH". Serialized as a **string**: the column is `NUMERIC` and a float would lose scale. |
+| `geoLat`, `geoLng` | number \| null | **Nullable here, unlike the list.** Coordinates are not required — a voucher without them still has a readable page, it simply renders no map. Absent coordinates are `null`, never `0`. |
+| `email`, `website`, `phone` | string \| null | Issuer contact, as imported. |
+| `iconUrl` | string \| null | Profile image. Absent for roughly two thirds of the imported catalog, so clients need a real fallback. |
+| `bannerUrl` | string \| null | Wide header image. Absent about as often as `iconUrl`. |
+
+**Visibility.** Only `active` vouchers resolve. A deactivated voucher returns
+`404` with a body **byte-identical** to an address that never existed, so the
+response cannot be used to probe which addresses are in the database. Unlike the
+list, coordinates are not required.
+
+Caching and rate limiting are exactly as in [9.3](#93-caching) and
+[9.4](#94-rate-limiting); the two routes share one per-IP bucket.
 
 > **Swagger drift.** `docs/swagger.yaml` predates the catalog surface and does
 > not describe this route. Reconciling it is tracked as separate follow-up work.

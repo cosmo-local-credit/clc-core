@@ -968,3 +968,30 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) dominant ON TRUE
 ORDER BY page.id DESC;
+
+-- Public voucher detail for one contract address. Backs the map card and the
+-- voucher page, so it carries the contact and image fields the list omits.
+-- Visibility matches the list (`active`), but geolocation is not required: a
+-- voucher without coordinates still has a readable page, just no map.
+--name: get-market-voucher-by-address
+SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
+    v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
+    v.location_name, v.geo_lat, v.geo_lng,
+    v.email, v.website, v.phone, v.icon_url, v.banner_url,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        -- Same derivation as the list statements: ELSE is the LEFT JOIN miss
+        -- (no available offerings), never an unknown commodity type.
+        ELSE 'voucher'
+    END AS kind
+FROM vouchers v
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = v.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+WHERE lower(v.address) = lower($1) AND v.active;
