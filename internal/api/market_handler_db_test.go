@@ -51,6 +51,7 @@ type (
 		Address      string   `json:"address"`
 		Name         *string  `json:"name"`
 		Symbol       *string  `json:"symbol"`
+		IconURL      *string  `json:"iconUrl"`
 		LocationName *string  `json:"locationName"`
 		GeoLat       *float64 `json:"geoLat"`
 		GeoLng       *float64 `json:"geoLng"`

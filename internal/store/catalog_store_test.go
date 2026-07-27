@@ -21,6 +21,9 @@ func TestLoadCatalogQueries(t *testing.T) {
 		"list-voucher-offerings":      queries.ListVoucherOfferings,
 		"list-voucher-offerings-next": queries.ListVoucherOfferingsNext,
 		"list-voucher-offerings-prev": queries.ListVoucherOfferingsPrev,
+		"list-pool-offerings":         queries.ListPoolOfferings,
+		"list-pool-offerings-next":    queries.ListPoolOfferingsNext,
+		"list-pool-offerings-prev":    queries.ListPoolOfferingsPrev,
 	} {
 		if query == "" {
 			t.Errorf("expected %s query to be loaded", name)
@@ -38,5 +41,34 @@ func TestLoadCatalogQueries(t *testing.T) {
 	}
 	if !strings.Contains(queries.ListOfferings, "offering_tags") {
 		t.Fatal("expected offerings to include tags")
+	}
+
+	for name, query := range map[string]string{
+		"list-voucher-offerings":      queries.ListVoucherOfferings,
+		"list-voucher-offerings-next": queries.ListVoucherOfferingsNext,
+		"list-voucher-offerings-prev": queries.ListVoucherOfferingsPrev,
+	} {
+		if !strings.Contains(query, "lower(v.address) = lower($1) AND o.available AND v.active") {
+			t.Errorf("%s must filter by address, offering availability, and voucher activity", name)
+		}
+	}
+
+	// A pool's offerings must answer exactly as the voucher's own page does, so
+	// the availability and activity predicates are the same ones asserted above;
+	// only the membership predicate is added.
+	for name, query := range map[string]string{
+		"list-pool-offerings":      queries.ListPoolOfferings,
+		"list-pool-offerings-next": queries.ListPoolOfferingsNext,
+		"list-pool-offerings-prev": queries.ListPoolOfferingsPrev,
+	} {
+		if !strings.Contains(query, "lower(p.address) = lower($1) AND pt.is_allowed AND o.available AND v.active") {
+			t.Errorf("%s must filter by pool address, allowance, offering availability, and voucher activity", name)
+		}
+		if !strings.Contains(query, "offering_tags") {
+			t.Errorf("%s must include offering tags", name)
+		}
+		if !strings.Contains(query, "v.symbol AS voucher_symbol") {
+			t.Errorf("%s must name the voucher each offering belongs to", name)
+		}
 	}
 }

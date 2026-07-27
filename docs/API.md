@@ -51,6 +51,8 @@
 8. [SIWE Message Construction](#8-siwe-message-construction)
 9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
    - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
+   - [9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)](#97-voucher-offerings-get-apiv2vouchersaddressofferings)
+10. [Pool offerings (`GET /api/v2/pools/:address/offerings`)](#10-pool-offerings-get-apiv2poolsaddressofferings)
 
 ---
 
@@ -60,7 +62,7 @@
 |---|---|
 | Base URL | `http(s)://<host>/` |
 | Protected API prefix | `/api/v2` |
-| Only public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress) |
+| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
 | Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
 | Default chain | Celo Mainnet (`chainId: 42220`) |
 | Content-Type | `application/json` |
@@ -411,9 +413,8 @@ No body is returned. Use this to redirect the user to a sign-in flow.
 
 ## 5. Protected Endpoints (`/api/v2/*`)
 
-> `GET /api/v2/vouchers` and `GET /api/v2/vouchers/:address` are the only
-> exceptions to the `/api/v2` prefix being protected. They are not part of this
-> section — see
+> The three public voucher catalog routes are the only exceptions to the
+> `/api/v2` prefix being protected. They are not part of this section — see
 > [section 9](#9-public-market-catalog-get-apiv2vouchers). Every statement
 > below applies unchanged to all other `/api/v2` routes.
 
@@ -1248,7 +1249,11 @@ await fetch('/auth/signin', {
 });
 ```
 
-> **Note on `credentials: 'include'`:** All `fetch` calls to `/auth/*` and `/api/v2/*` must include `credentials: 'include'` so the browser sends and stores the `__clc_auth` HttpOnly cookie cross-origin.
+> **Note on `credentials: 'include'`:** Calls to `/auth/*` and protected
+> `/api/v2/*` routes must include credentials so the browser sends and stores
+> the `__clc_auth` HttpOnly cookie cross-origin. The public market routes in
+> [section 9](#9-public-market-catalog-get-apiv2vouchers) do not use the cookie
+> and may explicitly send `credentials: 'omit'`.
 
 For a full Reown AppKit (formerly WalletConnect) integration example, including the `siweConfig` adapter and sign-up flow, see [`docs/AUTH.md`](./AUTH.md).
 
@@ -1256,15 +1261,16 @@ For a full Reown AppKit (formerly WalletConnect) integration example, including 
 
 ## 9. Public Market Catalog (`GET /api/v2/vouchers`)
 
-The **only public route under `/api/v2`**. It backs the Market map, which is
-browsable by signed-out visitors. Sending the `__clc_auth` cookie is harmless
-but changes nothing: a guest and a signed-in user receive byte-identical
-responses.
+These are the only public routes under `/api/v2`. They back the Market
+experience, which is browsable by signed-out visitors. Sending the
+`__clc_auth` cookie is harmless but changes nothing: a guest and a signed-in
+user receive byte-identical responses.
 
 The list route returns active, geolocated voucher summaries with a
 backend-derived marker kind. Per-voucher detail — contact details, images, and
-unit of account — lives on the sibling route in
-[section 9.6](#96-voucher-detail-get-apiv2vouchersaddress).
+unit of account — lives in [section 9.6](#96-voucher-detail-get-apiv2vouchersaddress);
+its available offerings live in
+[section 9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
 
 ### 9.1 Request
 
@@ -1310,6 +1316,7 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
         "address": "0x0000000000000000000000000000000000000000",
         "name": "Priscilah Malii",
         "symbol": "VOUCHER",
+        "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
         "locationName": "C96, KEN",
         "geoLat": -1.450979,
         "geoLng": 38.235115,
@@ -1329,6 +1336,7 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
 | `address` | string | Contract address, preserved in its stored EIP-55 checksummed form. Never lowercased by the API. |
 | `name` | string \| null | |
 | `symbol` | string \| null | |
+| `iconUrl` | string \| null | Profile image used by list rows. Clients must provide a fallback. |
 | `locationName` | string \| null | Free-text place label from the import. |
 | `geoLat` | number | Never null — rows without complete coordinates are excluded. |
 | `geoLng` | number | Never null. |
@@ -1355,11 +1363,9 @@ offerings", never an unrecognised type.
 **No distance field.** Distance is relative to optional browser geolocation and
 is presentation state, not catalog state. It is never calculated server-side.
 
-**No `iconUrl` on list rows.** Deliberately omitted. The map sprites do not use
-it, and at ~75 characters per URL across 2,181 rows it would add roughly 170 KB
-uncompressed to display at most one image at a time. Clients that need it fetch
-[voucher detail](#96-voucher-detail-get-apiv2vouchersaddress) for the one
-voucher the user selected.
+`iconUrl` is included because the catalog backs the default list view. Larger
+profile fields remain on
+[voucher detail](#96-voucher-detail-get-apiv2vouchersaddress).
 
 ### 9.3 Caching
 
@@ -1368,24 +1374,24 @@ Cache-Control: public, max-age=60, stale-while-revalidate=300
 Vary: Origin
 ```
 
-The representation never varies by authorization or cookie, so it is publicly
-cacheable. `Origin` is **merged** into any existing `Vary` rather than
+Successful `200` representations never vary by authorization or cookie, so
+they are publicly cacheable. Validation and server errors do not carry this
+cache policy. `Origin` is **merged** into any existing `Vary` rather than
 replacing it; the global CORS policy sets `AllowCredentials: true`, which makes
-origin variance mandatory even though this client sends no credentials. This
-endpoint never emits `no-store`.
+origin variance mandatory even though this client sends no credentials.
 
 ### 9.4 Rate limiting
 
-Because the route has no authentication to fall back on, it carries a
-per-client-IP token bucket shared by both public routes: **60 requests per
+Because the routes have no authentication to fall back on, they carry a
+per-client-IP token bucket shared by all three public routes: **60 requests per
 minute sustained, burst 40**. Exceeding it returns `429 Too Many Requests` with
 a `Retry-After` header in whole seconds, calculated from the next available
 token.
 
-The burst is sized from how the Market tab actually opens: five catalog pages, a
-bounded viewport bootstrap, then one detail request per marker the user taps.
-Tapping markers *is* how the map is read, so the burst has to cover a run of
-taps immediately after load, not just the load itself.
+The burst is sized from how the Market tab actually opens: five catalog pages,
+a bounded viewport bootstrap, then detail and offerings requests for selected
+vouchers. Voucher-only rows skip the offerings request, so 40 still leaves
+headroom for a run of selections immediately after load.
 
 ```/dev/null/rate-limited.json#L1-5
 {
@@ -1492,7 +1498,77 @@ response cannot be used to probe which addresses are in the database. Unlike the
 list, coordinates are not required.
 
 Caching and rate limiting are exactly as in [9.3](#93-caching) and
-[9.4](#94-rate-limiting); the two routes share one per-IP bucket.
+[9.4](#94-rate-limiting); all three routes share one per-IP bucket.
 
 > **Swagger drift.** `docs/swagger.yaml` predates the catalog surface and does
-> not describe this route. Reconciling it is tracked as separate follow-up work.
+> not describe these routes. Reconciling it is tracked as separate follow-up
+> work.
+
+### 9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)
+
+Returns the available offerings for one active voucher. It is public so a
+signed-out visitor can open the default Offerings tab on a shared voucher page.
+The address lookup is case-insensitive and rejects malformed hex addresses with
+`400` and code `E04`.
+
+```http
+GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7/offerings?perPage=20
+GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7/offerings?perPage=20&cursor=42&next=true
+```
+
+The route uses the standard descending-`id` keyset pagination contract:
+`perPage` defaults to 100 and is capped at 100, `next=true` selects IDs below
+the cursor, and a cursor without `next=true` selects IDs above it. Every
+response contains numeric `first` and `last` values. An empty result is
+`"offerings": []`, `"first": 0`, `"last": 0`, never `null`.
+
+Only rows satisfying both `offering.available = true` and
+`voucher.active = true` are returned. This matches the market voucher `kind`
+derivation: a catalog row with `kind: "voucher"` has an empty offerings result.
+The imported catalog observed on 2026-07-27 contains at most 19 offerings for a
+single voucher, so the client page size of 20 normally completes in one request.
+
+Caching and rate limiting are exactly as in [9.3](#93-caching) and
+[9.4](#94-rate-limiting).
+
+---
+
+## 10. Pool offerings (`GET /api/v2/pools/:address/offerings`)
+
+Returns every available offering published against a voucher the pool allows.
+The pool detail screen lists these in its default Offerings tab, instead of
+walking the pool's vouchers one request at a time.
+
+**Authentication required** — this route sits on the authenticated API group
+with the other `/api/v2/pools/*` routes, because the pool screen itself requires
+a session. It is therefore `no-store` and carries no public cache policy, unlike
+the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
+
+```http
+GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20
+GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20&cursor=1354&next=true
+```
+
+The address lookup is case-insensitive and rejects malformed hex addresses with
+`400` and code `E04`. Pagination is the standard descending-`id` keyset
+contract: `perPage` defaults to 100 and is capped at 100, `next=true` selects
+IDs below the cursor, and a cursor without `next=true` selects IDs above it.
+Every response contains numeric `first` and `last`. An empty result is
+`"offerings": []`, `"first": 0`, `"last": 0`, never `null`.
+
+Rows are filtered on three predicates:
+
+| Predicate               | Why                                                              |
+| ----------------------- | ---------------------------------------------------------------- |
+| `pool_tokens.is_allowed` | Matches `GET /api/v2/pools/:address/vouchers`, so the two tabs agree |
+| `offering.available`     | Matches [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
+| `voucher.active`         | Matches [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
+
+The last two are deliberately identical to the voucher-scoped route: an offering
+must read the same whether the user reached it through its voucher or through a
+pool that accepts it.
+
+Each row carries `voucherName`, `voucherSymbol`, and `voucherAddress`, because a
+pool's offerings come from many vouchers and the UI has to say which voucher each
+one belongs to. The response body is otherwise byte-identical in shape to
+[9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).

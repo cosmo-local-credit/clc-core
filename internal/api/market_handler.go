@@ -99,8 +99,8 @@ func (a *API) voucherByAddressHandler(c *echo.Context) error {
 	})
 }
 
-// setMarketCacheHeaders marks the catalog publicly cacheable. The
-// representation is identical for guests and signed-in users, so no
+// setMarketCacheHeaders marks a successful public market response cacheable.
+// The representation is identical for guests and signed-in users, so no
 // authorization or cookie value may change it. Origin is *merged* into Vary
 // rather than overwriting it: AllowCredentials is true in the global CORS
 // policy, which makes origin variance mandatory even though this client

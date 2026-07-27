@@ -20,9 +20,9 @@ const (
 	// to a shared edge limiter rather than being multiplied per replica.
 	//
 	// The burst is sized from how the Market tab actually opens: five catalog
-	// pages, a bounded viewport bootstrap, then one detail request per marker
-	// the user taps. Tapping *is* how the map is read, so the burst has to
-	// cover a run of taps immediately after load, not just the load itself.
+	// pages, a bounded viewport bootstrap, then detail and offerings requests
+	// for selected vouchers. Voucher-only rows skip the offerings request, so
+	// 40 still leaves headroom for a run of selections immediately after load.
 	marketRateLimit = rate.Limit(1) // one token per second == 60/min
 	marketRateBurst = 40
 

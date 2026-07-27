@@ -11,14 +11,16 @@ import (
 
 type (
 	// MarketVoucher is the public map/list summary of an active, geolocated
-	// voucher. It deliberately omits voucher detail data, iconUrl, and the
-	// `internal` import artifact, which carries no market visibility semantics.
+	// voucher. It includes the small icon field used by list rows while omitting
+	// larger voucher detail data and the `internal` import artifact, which carries
+	// no market visibility semantics.
 	MarketVoucher struct {
 		ID           uint64  `db:"id"            json:"id"`
 		ChainID      int64   `db:"chain_id"      json:"chainId"`
 		Address      string  `db:"address"       json:"address"`
 		Name         *string `db:"name"          json:"name"`
 		Symbol       *string `db:"symbol"        json:"symbol"`
+		IconURL      *string `db:"icon_url"      json:"iconUrl"`
 		LocationName *string `db:"location_name" json:"locationName"`
 		// Coordinates are non-nullable because every query filters incomplete rows.
 		GeoLat float64 `db:"geo_lat" json:"geoLat"`
@@ -28,8 +30,8 @@ type (
 
 	// MarketVoucherDetail is the public detail view of one voucher, backing the
 	// map card and the voucher page. It extends the list summary with contact,
-	// image, and unit-of-account fields, which are too large to ship on every row
-	// of a whole-catalog page. `internal` stays off the wire here too.
+	// banner, and unit-of-account fields, which are too large to ship on every
+	// row of a whole-catalog page. `internal` stays off the wire here too.
 	//
 	// Coordinates are nullable: a voucher without them still has a readable page,
 	// it simply renders no map.

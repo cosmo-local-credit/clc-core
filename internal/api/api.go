@@ -163,6 +163,7 @@ func New(o APIOpts) *API {
 	// per-IP rate limit in place of authentication.
 	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
@@ -186,9 +187,9 @@ func New(o APIOpts) *API {
 	// membership/ownership for the authenticated user only.
 	apiGroup.GET("/pools", a.poolsListHandler)
 	apiGroup.GET("/pools/:address/vouchers", a.poolVouchersListHandler)
+	apiGroup.GET("/pools/:address/offerings", a.poolOfferingsListHandler)
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
-	apiGroup.GET("/vouchers/:address/offerings", a.voucherOfferingsListHandler)
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")

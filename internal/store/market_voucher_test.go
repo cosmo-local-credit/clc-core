@@ -59,6 +59,9 @@ func TestLoadMarketVoucherQueries(t *testing.T) {
 		if !strings.Contains(query, "v.geo_lat IS NOT NULL") {
 			t.Errorf("%s must require complete coordinates", name)
 		}
+		if !strings.Contains(query, "v.icon_url") {
+			t.Errorf("%s must select icon_url for the catalog list", name)
+		}
 		// `internal` is an import artifact, not a visibility flag (MIGRATION.md 4.7).
 		if strings.Contains(query, "internal") {
 			t.Errorf("%s must not filter on the internal import artifact", name)
@@ -147,6 +150,7 @@ func TestMarketVoucherBoundsValidate(t *testing.T) {
 func TestMarketVoucherJSONContract(t *testing.T) {
 	name := "Priscilah Malii"
 	symbol := "VOUCHER"
+	iconURL := "https://content.example/icon.jpg"
 	location := "C96, KEN"
 	encoded, err := json.Marshal(MarketVoucher{
 		ID:           2710,
@@ -154,6 +158,7 @@ func TestMarketVoucherJSONContract(t *testing.T) {
 		Address:      "0xAbC0000000000000000000000000000000000123",
 		Name:         &name,
 		Symbol:       &symbol,
+		IconURL:      &iconURL,
 		LocationName: &location,
 		GeoLat:       -1.450979,
 		GeoLng:       38.235115,
@@ -166,7 +171,8 @@ func TestMarketVoucherJSONContract(t *testing.T) {
 	payload := string(encoded)
 	for _, field := range []string{
 		`"id":2710`, `"chainId":42220`, `"name":"Priscilah Malii"`,
-		`"symbol":"VOUCHER"`, `"locationName":"C96, KEN"`,
+		`"symbol":"VOUCHER"`, `"iconUrl":"https://content.example/icon.jpg"`,
+		`"locationName":"C96, KEN"`,
 		`"geoLat":-1.450979`, `"geoLng":38.235115`, `"kind":"voucher"`,
 	} {
 		if !strings.Contains(payload, field) {

@@ -32,6 +32,7 @@ func (a *API) poolVouchersListHandler(c *echo.Context) error { //nolint:dupl // 
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.PoolVoucher, error) {
 			return a.store.ListPoolVouchersPrevious(ctx, tx, address, cursor, limit)
 		},
+		nil,
 	)
 }
 
@@ -47,7 +48,7 @@ func (a *API) offeringsListHandler(c *echo.Context) error {
 		prevPage:  a.store.ListOfferingsPrevious,
 	}, pagination, "offerings", "Offerings", func(o store.Offering) uint64 {
 		return o.ID
-	})
+	}, nil)
 }
 
 func (a *API) voucherOfferingsListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
@@ -62,6 +63,26 @@ func (a *API) voucherOfferingsListHandler(c *echo.Context) error { //nolint:dupl
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Offering, error) {
 			return a.store.ListVoucherOfferingsPrevious(ctx, tx, address, cursor, limit)
 		},
+		setMarketCacheHeaders,
+	)
+}
+
+// poolOfferingsListHandler lists every available offering published against a
+// voucher the pool allows. It sits on the authenticated API group with the
+// other pool routes, because the pool screen itself requires a session.
+func (a *API) poolOfferingsListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
+	return catalogAddressListHandler(c, a, "offerings", "Offerings in pool %s",
+		func(o store.Offering) uint64 { return o.ID },
+		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]store.Offering, error) {
+			return a.store.ListPoolOfferings(ctx, tx, address, limit)
+		},
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Offering, error) {
+			return a.store.ListPoolOfferingsNext(ctx, tx, address, cursor, limit)
+		},
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Offering, error) {
+			return a.store.ListPoolOfferingsPrevious(ctx, tx, address, cursor, limit)
+		},
+		nil,
 	)
 }
 
@@ -75,6 +96,7 @@ func catalogAddressListHandler[T any](
 	firstPage func(context.Context, pgx.Tx, string, uint64) ([]T, error),
 	nextPage func(context.Context, pgx.Tx, string, uint64, uint64) ([]T, error),
 	prevPage func(context.Context, pgx.Tx, string, uint64, uint64) ([]T, error),
+	onSuccess func(*echo.Context),
 ) error {
 	address, pagination, valid, err := bindCatalogAddressPagination(c)
 	if err != nil {
@@ -94,12 +116,12 @@ func catalogAddressListHandler[T any](
 		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]T, error) {
 			return prevPage(ctx, tx, address, cursor, limit)
 		},
-	}, pagination, resultKey, fmt.Sprintf(descriptionFmt, address), getID)
+	}, pagination, resultKey, fmt.Sprintf(descriptionFmt, address), getID, onSuccess)
 }
 
 // vouchersListHandler serves the public market catalog: active, geolocated
-// voucher summaries with a backend-derived marker kind. It is the only public
-// /api/v2 route, so it carries its own cache policy and per-IP rate limit.
+// voucher summaries with a backend-derived marker kind. The public market
+// routes carry a shared cache policy and per-IP rate limit.
 func (a *API) vouchersListHandler(c *echo.Context) error {
 	req := apiresp.CursorPaginationRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -117,8 +139,6 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 		})
 	}
 
-	setMarketCacheHeaders(c)
-
 	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.MarketVoucher]{
 		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.MarketVoucher, error) {
 			return a.store.ListMarketVouchers(ctx, tx, bounds, limit)
@@ -131,7 +151,7 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 		},
 	}, normalizePaginationWithMax(req, marketMaxPerPage), "vouchers", "Market vouchers", func(v store.MarketVoucher) uint64 {
 		return v.ID
-	})
+	}, setMarketCacheHeaders)
 }
 
 func bindCatalogPagination(c *echo.Context) (paginationParams, error) {
@@ -167,6 +187,7 @@ func cursorPaginatedCatalogList[T any](
 	pagination paginationParams,
 	resultKey, description string,
 	getID func(T) uint64,
+	onSuccess func(*echo.Context),
 ) error {
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
@@ -199,6 +220,9 @@ func cursorPaginatedCatalogList[T any](
 
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
+	}
+	if onSuccess != nil {
+		onSuccess(c)
 	}
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{

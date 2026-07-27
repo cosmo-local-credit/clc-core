@@ -743,7 +743,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
     o.created_at, o.updated_at
 FROM offerings o
 INNER JOIN vouchers v ON v.id = o.voucher_id
-WHERE lower(v.address) = lower($1)
+WHERE lower(v.address) = lower($1) AND o.available AND v.active
 ORDER BY o.id DESC
 LIMIT $2;
 
@@ -761,7 +761,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
     o.created_at, o.updated_at
 FROM offerings o
 INNER JOIN vouchers v ON v.id = o.voucher_id
-WHERE lower(v.address) = lower($1) AND o.id < $2
+WHERE lower(v.address) = lower($1) AND o.available AND v.active AND o.id < $2
 ORDER BY o.id DESC
 LIMIT $3;
 
@@ -780,7 +780,77 @@ SELECT * FROM (
         o.created_at, o.updated_at
     FROM offerings o
     INNER JOIN vouchers v ON v.id = o.voucher_id
-    WHERE lower(v.address) = lower($1) AND o.id > $2
+    WHERE lower(v.address) = lower($1) AND o.available AND v.active AND o.id > $2
+    ORDER BY o.id ASC
+    LIMIT $3
+) page
+ORDER BY id DESC;
+
+-- Every available offering backed by a voucher this pool allows. The pool page
+-- lists these instead of walking its vouchers one request at a time.
+-- `pt.is_allowed` matches list-pool-vouchers; `v.active` and `o.available`
+-- match list-voucher-offerings, so a voucher's offerings read the same whether
+-- they are reached through the pool or through the voucher.
+--name: list-pool-offerings
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+    o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE((
+        SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+        FROM offering_tags ot
+        WHERE ot.offering_id = o.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+INNER JOIN pool_tokens pt ON pt.voucher_id = v.id
+INNER JOIN pools p ON p.id = pt.pool_id
+WHERE lower(p.address) = lower($1) AND pt.is_allowed AND o.available AND v.active
+ORDER BY o.id DESC
+LIMIT $2;
+
+--name: list-pool-offerings-next
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+    o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE((
+        SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+        FROM offering_tags ot
+        WHERE ot.offering_id = o.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+INNER JOIN pool_tokens pt ON pt.voucher_id = v.id
+INNER JOIN pools p ON p.id = pt.pool_id
+WHERE lower(p.address) = lower($1) AND pt.is_allowed AND o.available AND v.active
+    AND o.id < $2
+ORDER BY o.id DESC
+LIMIT $3;
+
+--name: list-pool-offerings-prev
+SELECT * FROM (
+    SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+        v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+        o.seller_address, o.commodity_name, o.commodity_type, o.description,
+        o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+        o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+        COALESCE((
+            SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+            FROM offering_tags ot
+            WHERE ot.offering_id = o.id
+        ), ARRAY[]::TEXT[]) AS tags,
+        o.created_at, o.updated_at
+    FROM offerings o
+    INNER JOIN vouchers v ON v.id = o.voucher_id
+    INNER JOIN pool_tokens pt ON pt.voucher_id = v.id
+    INNER JOIN pools p ON p.id = pt.pool_id
+    WHERE lower(p.address) = lower($1) AND pt.is_allowed AND o.available AND v.active
+        AND o.id > $2
     ORDER BY o.id ASC
     LIMIT $3
 ) page
@@ -788,7 +858,7 @@ ORDER BY id DESC;
 
 --name: list-market-vouchers
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -817,7 +887,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-next
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.id < $1
@@ -847,7 +917,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-prev
 WITH page AS MATERIALIZED (
     SELECT * FROM (
-        SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+        SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
             v.location_name, v.geo_lat, v.geo_lng
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL AND v.id > $1
@@ -877,7 +947,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-bounded
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -907,7 +977,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-next-bounded
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -939,7 +1009,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-prev-bounded
 WITH page AS MATERIALIZED (
     SELECT * FROM (
-        SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+        SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
             v.location_name, v.geo_lat, v.geo_lng
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL
