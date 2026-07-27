@@ -12,13 +12,17 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-var errInvalidBbox = errors.New("bbox must be four comma-separated numbers: minLng,minLat,maxLng,maxLat")
+var (
+	errInvalidBbox = errors.New("bbox must be four comma-separated numbers: minLng,minLat,maxLng,maxLat")
+)
 
-// marketMaxPerPage is both the default and the maximum page size for the
-// public market catalog. It is deliberately higher than catalogMaxPerPage:
-// the map client bulk-imports the whole catalog so its cluster counts are
-// correct, and doing that 100 rows at a time would be 22 round trips.
-const marketMaxPerPage = 500
+const (
+	// marketMaxPerPage is both the default and the maximum page size for the
+	// public market catalog. It is deliberately higher than catalogMaxPerPage:
+	// the map client bulk-imports the whole catalog so its cluster counts are
+	// correct, and doing that 100 rows at a time would be 22 round trips.
+	marketMaxPerPage = 500
+)
 
 // parseMarketBounds reads the optional `bbox=minLng,minLat,maxLng,maxLat`
 // query value. An empty value means the caller wants the unbounded catalog.
@@ -106,7 +110,7 @@ func setMarketCacheHeaders(c *echo.Context) {
 	header.Set("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
 
 	for _, existing := range header.Values("Vary") {
-		for _, field := range strings.Split(existing, ",") {
+		for field := range strings.SplitSeq(existing, ",") {
 			if strings.EqualFold(strings.TrimSpace(field), "Origin") {
 				return
 			}

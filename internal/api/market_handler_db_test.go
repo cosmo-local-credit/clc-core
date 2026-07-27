@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +26,7 @@ func newMarketAPIWithStore(t *testing.T) *API {
 		t.Skip("CORE_TEST_DSN not set; skipping live market endpoint tests")
 	}
 
-	logg := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logg := slog.New(slog.DiscardHandler)
 	pgStore, err := store.NewPgStore(store.PgOpts{
 		Logg:                 logg,
 		DSN:                  dsn,
@@ -45,23 +44,25 @@ func newMarketAPIWithStore(t *testing.T) *API {
 	})
 }
 
-type marketVoucherPayload struct {
-	ID           uint64   `json:"id"`
-	ChainID      int64    `json:"chainId"`
-	Address      string   `json:"address"`
-	Name         *string  `json:"name"`
-	Symbol       *string  `json:"symbol"`
-	LocationName *string  `json:"locationName"`
-	GeoLat       *float64 `json:"geoLat"`
-	GeoLng       *float64 `json:"geoLng"`
-	Kind         string   `json:"kind"`
-}
+type (
+	marketVoucherPayload struct {
+		ID           uint64   `json:"id"`
+		ChainID      int64    `json:"chainId"`
+		Address      string   `json:"address"`
+		Name         *string  `json:"name"`
+		Symbol       *string  `json:"symbol"`
+		LocationName *string  `json:"locationName"`
+		GeoLat       *float64 `json:"geoLat"`
+		GeoLng       *float64 `json:"geoLng"`
+		Kind         string   `json:"kind"`
+	}
 
-type marketPageResult struct {
-	Vouchers []marketVoucherPayload `json:"vouchers"`
-	First    *uint64                `json:"first"`
-	Last     *uint64                `json:"last"`
-}
+	marketPageResult struct {
+		Vouchers []marketVoucherPayload `json:"vouchers"`
+		First    *uint64                `json:"first"`
+		Last     *uint64                `json:"last"`
+	}
+)
 
 func getMarketPage(t *testing.T, a *API, target, remoteAddr string) (*httptest.ResponseRecorder, marketPageResult) {
 	t.Helper()

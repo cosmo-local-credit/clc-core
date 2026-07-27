@@ -33,18 +33,20 @@ const (
 	marketRateSweepEvery = time.Minute
 )
 
-type marketRateLimiterEntry struct {
-	limiter  *rate.Limiter
-	lastSeen time.Time
-}
+type (
+	marketRateLimiterEntry struct {
+		limiter  *rate.Limiter
+		lastSeen time.Time
+	}
 
-type marketRateLimiter struct {
-	mu      sync.Mutex
-	clients map[string]*marketRateLimiterEntry
-	limit   rate.Limit
-	burst   int
-	now     func() time.Time
-}
+	marketRateLimiter struct {
+		mu      sync.Mutex
+		clients map[string]*marketRateLimiterEntry
+		limit   rate.Limit
+		burst   int
+		now     func() time.Time
+	}
+)
 
 func newMarketRateLimiter(limit rate.Limit, burst int, now func() time.Time) *marketRateLimiter {
 	return &marketRateLimiter{
@@ -143,10 +145,7 @@ func (a *API) marketRateLimitMiddleware() echo.MiddlewareFunc {
 				return next(c)
 			}
 
-			seconds := int(math.Ceil(retryAfter.Seconds()))
-			if seconds < 1 {
-				seconds = 1
-			}
+			seconds := max(int(math.Ceil(retryAfter.Seconds())), 1)
 			c.Response().Header().Set("Retry-After", strconv.Itoa(seconds))
 			return c.JSON(http.StatusTooManyRequests, apiresp.ErrResponse{
 				Ok:          false,

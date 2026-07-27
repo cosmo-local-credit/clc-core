@@ -13,27 +13,29 @@ import (
 //
 //	CORE_TEST_DSN=postgres://postgres:postgres@127.0.0.1:5432/clc_core go test ./internal/api/
 
-type marketVoucherDetailPayload struct {
-	ID           uint64   `json:"id"`
-	ChainID      int64    `json:"chainId"`
-	Address      string   `json:"address"`
-	Name         *string  `json:"name"`
-	Symbol       *string  `json:"symbol"`
-	Decimals     *int     `json:"decimals"`
-	OwnerAddress *string  `json:"ownerAddress"`
-	Description  *string  `json:"description"`
-	VoucherUoa   *string  `json:"voucherUoa"`
-	VoucherValue *string  `json:"voucherValue"`
-	LocationName *string  `json:"locationName"`
-	GeoLat       *float64 `json:"geoLat"`
-	GeoLng       *float64 `json:"geoLng"`
-	Email        *string  `json:"email"`
-	Website      *string  `json:"website"`
-	Phone        *string  `json:"phone"`
-	IconURL      *string  `json:"iconUrl"`
-	BannerURL    *string  `json:"bannerUrl"`
-	Kind         string   `json:"kind"`
-}
+type (
+	marketVoucherDetailPayload struct {
+		ID           uint64   `json:"id"`
+		ChainID      int64    `json:"chainId"`
+		Address      string   `json:"address"`
+		Name         *string  `json:"name"`
+		Symbol       *string  `json:"symbol"`
+		Decimals     *int     `json:"decimals"`
+		OwnerAddress *string  `json:"ownerAddress"`
+		Description  *string  `json:"description"`
+		VoucherUoa   *string  `json:"voucherUoa"`
+		VoucherValue *string  `json:"voucherValue"`
+		LocationName *string  `json:"locationName"`
+		GeoLat       *float64 `json:"geoLat"`
+		GeoLng       *float64 `json:"geoLng"`
+		Email        *string  `json:"email"`
+		Website      *string  `json:"website"`
+		Phone        *string  `json:"phone"`
+		IconURL      *string  `json:"iconUrl"`
+		BannerURL    *string  `json:"bannerUrl"`
+		Kind         string   `json:"kind"`
+	}
+)
 
 func getMarketVoucherDetail(t *testing.T, a *API, address, remoteAddr string) (*httptest.ResponseRecorder, marketVoucherDetailPayload) {
 	t.Helper()

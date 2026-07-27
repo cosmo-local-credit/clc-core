@@ -8,11 +8,13 @@ import (
 	"time"
 )
 
-// fakeClock lets the limiter tests advance time without sleeping.
-type fakeClock struct {
-	mu  sync.Mutex
-	now time.Time
-}
+type (
+	// fakeClock lets the limiter tests advance time without sleeping.
+	fakeClock struct {
+		mu  sync.Mutex
+		now time.Time
+	}
+)
 
 func newFakeClock() *fakeClock {
 	return &fakeClock{now: time.Date(2026, 7, 26, 8, 0, 0, 0, time.UTC)}

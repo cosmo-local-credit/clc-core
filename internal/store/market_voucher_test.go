@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"strings"
 	"testing"
@@ -48,12 +49,8 @@ func TestLoadMarketVoucherQueries(t *testing.T) {
 	}
 
 	all := map[string]string{}
-	for name, query := range unbounded {
-		all[name] = query
-	}
-	for name, query := range bounded {
-		all[name] = query
-	}
+	maps.Copy(all, unbounded)
+	maps.Copy(all, bounded)
 
 	for name, query := range all {
 		if !strings.Contains(query, "v.active") {

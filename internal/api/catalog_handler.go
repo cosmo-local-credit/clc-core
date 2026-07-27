@@ -12,34 +12,27 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-type paginatedCatalogListCallbacks[T any] struct {
-	firstPage func(context.Context, pgx.Tx, uint64) ([]T, error)
-	nextPage  func(context.Context, pgx.Tx, uint64, uint64) ([]T, error)
-	prevPage  func(context.Context, pgx.Tx, uint64, uint64) ([]T, error)
-}
-
-func (a *API) poolVouchersListHandler(c *echo.Context) error {
-	poolAddress, pagination, valid, err := bindCatalogAddressPagination(c)
-	if err != nil {
-		return err
+type (
+	paginatedCatalogListCallbacks[T any] struct {
+		firstPage func(context.Context, pgx.Tx, uint64) ([]T, error)
+		nextPage  func(context.Context, pgx.Tx, uint64, uint64) ([]T, error)
+		prevPage  func(context.Context, pgx.Tx, uint64, uint64) ([]T, error)
 	}
-	if !valid {
-		return nil
-	}
+)
 
-	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.PoolVoucher]{
-		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.PoolVoucher, error) {
-			return a.store.ListPoolVouchers(ctx, tx, poolAddress, limit)
+func (a *API) poolVouchersListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
+	return catalogAddressListHandler(c, a, "vouchers", "Vouchers in pool %s",
+		func(v store.PoolVoucher) uint64 { return v.ID },
+		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]store.PoolVoucher, error) {
+			return a.store.ListPoolVouchers(ctx, tx, address, limit)
 		},
-		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.PoolVoucher, error) {
-			return a.store.ListPoolVouchersNext(ctx, tx, poolAddress, cursor, limit)
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.PoolVoucher, error) {
+			return a.store.ListPoolVouchersNext(ctx, tx, address, cursor, limit)
 		},
-		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.PoolVoucher, error) {
-			return a.store.ListPoolVouchersPrevious(ctx, tx, poolAddress, cursor, limit)
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.PoolVoucher, error) {
+			return a.store.ListPoolVouchersPrevious(ctx, tx, address, cursor, limit)
 		},
-	}, pagination, "vouchers", fmt.Sprintf("Vouchers in pool %s", poolAddress), func(v store.PoolVoucher) uint64 {
-		return v.ID
-	})
+	)
 }
 
 func (a *API) offeringsListHandler(c *echo.Context) error {
@@ -57,8 +50,33 @@ func (a *API) offeringsListHandler(c *echo.Context) error {
 	})
 }
 
-func (a *API) voucherOfferingsListHandler(c *echo.Context) error {
-	voucherAddress, pagination, valid, err := bindCatalogAddressPagination(c)
+func (a *API) voucherOfferingsListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
+	return catalogAddressListHandler(c, a, "offerings", "Offerings for voucher %s",
+		func(o store.Offering) uint64 { return o.ID },
+		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]store.Offering, error) {
+			return a.store.ListVoucherOfferings(ctx, tx, address, limit)
+		},
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Offering, error) {
+			return a.store.ListVoucherOfferingsNext(ctx, tx, address, cursor, limit)
+		},
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Offering, error) {
+			return a.store.ListVoucherOfferingsPrevious(ctx, tx, address, cursor, limit)
+		},
+	)
+}
+
+// catalogAddressListHandler is the shared implementation behind every
+// paginated catalog endpoint keyed by a path address (pool or voucher).
+func catalogAddressListHandler[T any](
+	c *echo.Context,
+	a *API,
+	resultKey, descriptionFmt string,
+	getID func(T) uint64,
+	firstPage func(context.Context, pgx.Tx, string, uint64) ([]T, error),
+	nextPage func(context.Context, pgx.Tx, string, uint64, uint64) ([]T, error),
+	prevPage func(context.Context, pgx.Tx, string, uint64, uint64) ([]T, error),
+) error {
+	address, pagination, valid, err := bindCatalogAddressPagination(c)
 	if err != nil {
 		return err
 	}
@@ -66,19 +84,17 @@ func (a *API) voucherOfferingsListHandler(c *echo.Context) error {
 		return nil
 	}
 
-	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.Offering]{
-		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.Offering, error) {
-			return a.store.ListVoucherOfferings(ctx, tx, voucherAddress, limit)
+	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[T]{
+		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]T, error) {
+			return firstPage(ctx, tx, address, limit)
 		},
-		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.Offering, error) {
-			return a.store.ListVoucherOfferingsNext(ctx, tx, voucherAddress, cursor, limit)
+		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]T, error) {
+			return nextPage(ctx, tx, address, cursor, limit)
 		},
-		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.Offering, error) {
-			return a.store.ListVoucherOfferingsPrevious(ctx, tx, voucherAddress, cursor, limit)
+		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]T, error) {
+			return prevPage(ctx, tx, address, cursor, limit)
 		},
-	}, pagination, "offerings", fmt.Sprintf("Offerings for voucher %s", voucherAddress), func(o store.Offering) uint64 {
-		return o.ID
-	})
+	}, pagination, resultKey, fmt.Sprintf(descriptionFmt, address), getID)
 }
 
 // vouchersListHandler serves the public market catalog: active, geolocated

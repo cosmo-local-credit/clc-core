@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -107,7 +106,7 @@ func TestParseMarketBoundsRejectsMalformedInput(t *testing.T) {
 func newTestRouter(t *testing.T) *API {
 	t.Helper()
 	return New(APIOpts{
-		Logg: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logg: slog.New(slog.DiscardHandler),
 		CORS: []string{"https://app.example"},
 	})
 }
