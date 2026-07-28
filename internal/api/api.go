@@ -188,6 +188,11 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/pools", a.poolsListHandler)
 	apiGroup.GET("/pools/:address/vouchers", a.poolVouchersListHandler)
 	apiGroup.GET("/pools/:address/offerings", a.poolOfferingsListHandler)
+
+	// Report feed for the Posts tab. Authenticated like the pool routes: Posts
+	// is a private home tab.
+	apiGroup.GET("/reports", a.reportsListHandler)
+	apiGroup.GET("/reports/:id", a.reportByIDHandler)
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
 

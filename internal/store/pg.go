@@ -103,6 +103,9 @@ type (
 		ListPoolOfferings        string `query:"list-pool-offerings"`
 		ListPoolOfferingsNext    string `query:"list-pool-offerings-next"`
 		ListPoolOfferingsPrev    string `query:"list-pool-offerings-prev"`
+		ListReports              string `query:"list-reports"`
+		ListReportsNext          string `query:"list-reports-next"`
+		GetReport                string `query:"get-report"`
 
 		// Bounded and unbounded market pages are separate statements so the
 		// bbox predicate never hides behind a nullable OR, which would stop

@@ -1065,3 +1065,117 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) dominant ON TRUE
 WHERE lower(v.address) = lower($1) AND v.active;
+
+-- Report feed. Ordered by updated_at because that is the timestamp the feed
+-- shows; on the imported catalog it bears almost no relation to id order.
+--
+-- `body` is still not selected here. Since migration 010 it is markdown TEXT
+-- totalling 104 KB across every row, so size is no longer the reason — a feed
+-- row is a summary and `description` already carries what it renders. Only 310
+-- of 4,632 reports have any body prose at all.
+--
+-- image_url is gated on http(s): six approved rows store a base64 `data:` URI
+-- up to 876 KB, and returning one would put it straight into a feed page. The
+-- test reads `left(image_url, 8)` rather than the whole value so a data URI is
+-- rejected from a sliced detoast — matching on the full column costs 1.2 ms on
+-- those rows against 0.19 ms, and the two agree on every row.
+--name: list-reports
+SELECT r.id, r.title, r.description,
+    CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.created_at, r.updated_at,
+    COALESCE((
+        SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
+        FROM report_tags rt
+        WHERE rt.report_id = r.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'address', v.address, 'name', v.name, 'symbol', v.symbol
+        ) ORDER BY v.id)
+        FROM report_vouchers rv
+        INNER JOIN vouchers v ON v.id = rv.voucher_id
+        WHERE rv.report_id = r.id
+    ), '[]'::JSONB) AS vouchers
+FROM reports r
+WHERE r.status = 'APPROVED'
+ORDER BY r.updated_at DESC, r.id DESC
+LIMIT $1;
+
+--name: list-reports-next
+SELECT r.id, r.title, r.description,
+    CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.created_at, r.updated_at,
+    COALESCE((
+        SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
+        FROM report_tags rt
+        WHERE rt.report_id = r.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'address', v.address, 'name', v.name, 'symbol', v.symbol
+        ) ORDER BY v.id)
+        FROM report_vouchers rv
+        INNER JOIN vouchers v ON v.id = rv.voucher_id
+        WHERE rv.report_id = r.id
+    ), '[]'::JSONB) AS vouchers
+FROM reports r
+WHERE r.status = 'APPROVED'
+    AND (r.updated_at, r.id) < ($1, $2)
+ORDER BY r.updated_at DESC, r.id DESC
+LIMIT $3;
+
+-- One report, with everything the detail screen renders.
+--
+-- Since migration 010 nothing is parsed at read time. The images, the
+-- attachments and the field-report form were extracted from the editor
+-- document once, at write time, into `report_images`, `report_attachments` and
+-- three columns on `reports`; `body` is the prose as markdown. The previous
+-- version of this query ran two independent `jsonb_array_elements(r.body)`
+-- passes per request and detoasted up to 3.95 MB to return a few hundred bytes.
+--
+-- Only http(s) media reached those tables (a CHECK enforces it), so the
+-- base64-data-URI exclusion that used to live here is now a storage invariant
+-- rather than a filter every request has to re-apply. image_url is the one
+-- exception: six approved rows still hold a data URI inline, and nulling them
+-- would leave four reports with no image at all, so they are gated here.
+--name: get-report
+SELECT r.id, r.title, r.body, r.description,
+    CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.created_at, r.updated_at,
+    r.host_name, r.participants, r.time_taken,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'url', ri.url,
+            'width', ri.width, 'height', ri.height,
+            'maxWidth', ri.max_width, 'maxHeight', ri.max_height,
+            'byteSize', ri.byte_size, 'caption', ri.caption
+        ) ORDER BY ri.ordinal)
+        FROM report_images ri
+        WHERE ri.report_id = r.id
+    ), '[]'::JSONB) AS images,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'kind', ra.kind, 'url', ra.url,
+            'filename', ra.filename, 'byteSize', ra.byte_size
+        ) ORDER BY ra.ordinal)
+        FROM report_attachments ra
+        WHERE ra.report_id = r.id
+    ), '[]'::JSONB) AS attachments,
+    COALESCE((
+        SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
+        FROM report_tags rt
+        WHERE rt.report_id = r.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'address', v.address, 'name', v.name, 'symbol', v.symbol
+        ) ORDER BY v.id)
+        FROM report_vouchers rv
+        INNER JOIN vouchers v ON v.id = rv.voucher_id
+        WHERE rv.report_id = r.id
+    ), '[]'::JSONB) AS vouchers
+FROM reports r
+WHERE r.id = $1 AND r.status = 'APPROVED';

@@ -111,3 +111,55 @@ func TestPoolOfferingsRouteRequiresAuthenticationAndIsNotPubliclyCached(t *testi
 		t.Fatalf("Cache-Control = %q, want no public caching on an authenticated route", got)
 	}
 }
+
+// The report feed is authenticated: Posts is a private home tab.
+func TestReportRoutesRequireAuthentication(t *testing.T) {
+	a := New(APIOpts{
+		Logg: slog.New(slog.DiscardHandler),
+		CORS: []string{"https://app.example"},
+	})
+
+	// Malformed input would be a 400 from the handler, so a 401 proves the
+	// request never reached it.
+	for _, path := range []string{
+		"/api/v2/reports?perPage=notanumber",
+		"/api/v2/reports/not-a-number",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = "198.51.100.95:1234"
+		res := httptest.NewRecorder()
+		a.router.ServeHTTP(res, req)
+
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: status = %d, want %d", path, res.Code, http.StatusUnauthorized)
+		}
+	}
+}
+
+func TestReportCursorRequiresBothHalves(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		updatedAt string
+		id        string
+		wantOk    bool
+		wantSet   bool
+	}{
+		{name: "neither", wantOk: true, wantSet: false},
+		{name: "only timestamp", updatedAt: "2026-07-20T12:00:00Z", wantOk: false},
+		{name: "only id", id: "42", wantOk: false},
+		{name: "both", updatedAt: "2026-07-20T12:00:00Z", id: "42", wantOk: true, wantSet: true},
+		{name: "unparseable timestamp", updatedAt: "yesterday", id: "42", wantOk: false},
+		{name: "unparseable id", updatedAt: "2026-07-20T12:00:00Z", id: "x", wantOk: false},
+	} {
+		cursor, hasCursor, err := parseReportCursor(testCase.updatedAt, testCase.id)
+		if testCase.wantOk != (err == nil) {
+			t.Fatalf("%s: err = %v, wantOk = %t", testCase.name, err, testCase.wantOk)
+		}
+		if hasCursor != testCase.wantSet {
+			t.Fatalf("%s: hasCursor = %t, want %t", testCase.name, hasCursor, testCase.wantSet)
+		}
+		if testCase.wantSet && cursor.ID != 42 {
+			t.Fatalf("%s: cursor id = %d, want 42", testCase.name, cursor.ID)
+		}
+	}
+}

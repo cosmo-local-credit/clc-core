@@ -53,6 +53,7 @@
    - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
    - [9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)](#97-voucher-offerings-get-apiv2vouchersaddressofferings)
 10. [Pool offerings (`GET /api/v2/pools/:address/offerings`)](#10-pool-offerings-get-apiv2poolsaddressofferings)
+11. [Reports (`GET /api/v2/reports`)](#11-reports-get-apiv2reports)
 
 ---
 
@@ -1572,3 +1573,109 @@ Each row carries `voucherName`, `voucherSymbol`, and `voucherAddress`, because a
 pool's offerings come from many vouchers and the UI has to say which voucher each
 one belongs to. The response body is otherwise byte-identical in shape to
 [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
+
+---
+
+## 11. Reports (`GET /api/v2/reports`)
+
+The Posts feed. **Authentication required** — Posts is a private home tab, so
+these routes sit on the authenticated API group.
+
+Only `APPROVED` reports are returned. `DRAFT`, `SUBMITTED`, and `REJECTED` are
+invisible on both routes, and an unapproved id is a `404` rather than a `403`:
+whether a draft exists is not public information.
+
+### 11.1 Feed (`GET /api/v2/reports`)
+
+```http
+GET /api/v2/reports?perPage=20
+GET /api/v2/reports?perPage=20&cursorUpdatedAt=2026-07-19T08:14:02.311Z&cursorId=3182
+```
+
+`perPage` defaults to 20 and is capped at 100.
+
+**This route does not use the numeric `cursor`/`next` keyset the catalog routes
+use.** The feed is ordered by `updated_at DESC, id DESC`, and on the imported
+catalog that order is unrelated to id order — measured on 3,730 approved rows,
+the two agree on 4 of them and drift by up to 2,606 positions. An id cursor
+would therefore skip and repeat rows. The cursor is the `(updatedAt, id)` pair
+instead:
+
+- `cursorUpdatedAt` is RFC3339 with nanoseconds; `cursorId` is a positive
+  integer. Sending one without the other is a `400`, because accepting one alone
+  would silently return the first page again.
+- The response carries `next` — the pair to send for the following page — or
+  `null` on the last page. A short page ends the feed, so `next` is `null`
+  rather than the client having to guess from emptiness.
+- `(updated_at, id)` row comparison is index-backed by
+  `reports_status_updated_idx` (migration 009). Measured: index-only scan,
+  0 heap fetches, ~0.03 ms for a cursor page.
+
+Each row is a summary: `id`, `title`, `description`, `imageUrl`, `geoLat`,
+`geoLng`, `periodFrom`, `periodTo`, `authorAddress`, `createdAt`, `updatedAt`,
+`tags`, and `vouchers` (each `{address, name, symbol}`).
+
+`body` is not returned on the feed — a row is a summary and `description`
+already carries what it renders. It is available on the detail route.
+
+`locationName` was removed in migration 010: the column was `NULL` on all 4,632
+imported rows, because the source stored geography as a `"lat, lng"` string and
+never a place name. Use `geoLat` / `geoLng`.
+
+### 11.2 Detail (`GET /api/v2/reports/:id`)
+
+```http
+GET /api/v2/reports/3182
+```
+
+Returns one report under `result.report` with every feed field plus `body`,
+`images`, `attachments`, `hostName`, `participants`, and `timeTaken`.
+
+Since migration 010 **none of this is parsed at request time.** The editor
+document used to live in `reports.body` as JSONB and this route re-derived the
+image list and the form from it on every call, with two independent
+`jsonb_array_elements` passes. That work now happens once, at write time:
+
+| Field                                     | Storage                        |
+| ----------------------------------------- | ------------------------------ |
+| `body`                                    | `reports.body`, markdown TEXT  |
+| `images`                                  | `report_images`, by `ordinal`  |
+| `attachments`                             | `report_attachments`           |
+| `hostName`, `participants`, `timeTaken`   | columns on `reports`           |
+
+`body` is **markdown**, not the editor's JSON and not plain text: heading
+levels, lists, tables, emphasis and links are preserved, and 41 hyperlinks
+across 8 reports have their URL only in the document (the visible text is a bare
+commit hash), so plain-text flattening would have lost them. Only 310 of 4,632
+imported reports have any prose at all — the rest keep their content in
+`description` — and the whole corpus is 129 KB, down from 17 MB of JSONB.
+
+`hostName`, `participants`, and `timeTaken` are issuer free text and are never
+normalized — `timeTaken` alone contains `2`, `1 hour`, `2 hours`, `2hrs`, and
+`1 hr`. Seven imported reports carry two form nodes and on two of them the
+second differs, so the stored value is the first form in document order that has
+any value at all; the previous unordered `LIMIT 1` picked arbitrarily.
+
+`images` entries are
+`{url, width, height, maxWidth, maxHeight, byteSize, caption}`. `width` and
+`height` are the editor's display box; `maxWidth` and `maxHeight` are the
+intrinsic size, and the two are **not** a scaled pair (a 267×1000 display box
+against a 747×1600 intrinsic occurs). Any of them may be `null`. `caption` is
+new — it was previously discarded. Reports carry 0 to 37 images; 73% have
+exactly one and 381 have none.
+
+`attachments` entries are `{kind, url, filename, byteSize}`, where `kind` is
+`FILE` for an uploaded document or video and `EMBED` for an external player URL.
+`filename` is set only for uploads. These were previously not served at all.
+
+**Only `http(s)` URLs are stored** in either table — a CHECK constraint enforces
+it, so the exclusion is a storage invariant rather than a filter each request
+re-applies. Legacy `img` nodes embed base64 `data:` URIs up to ~900 KB and 48
+`cloud_image` nodes hold unresolved `#nanoid` upload placeholders; none of them
+reach a response.
+
+One gap remains at the column level: six approved reports store a base64
+`data:` URI directly in `reports.image_url`, up to 876 KB. Both routes return
+`null` for those rather than the URI. They are not nulled in storage because
+four of the six have no other image, so the fix is a CDN re-upload, not a
+delete.
