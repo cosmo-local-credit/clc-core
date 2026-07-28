@@ -42,6 +42,8 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "006_network_catalog.sql")
 	assert.Contains(t, sqlFiles, "007_pool_token_oracle_feeds.sql")
 	assert.Contains(t, sqlFiles, "008_market_voucher_indexes.sql")
+	assert.Contains(t, sqlFiles, "009_report_feed_index.sql")
+	assert.Contains(t, sqlFiles, "010_report_body_normalization.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -51,7 +53,9 @@ func TestMigrationFiles(t *testing.T) {
 				name == "005_rename_protocol_addresses.sql" ||
 				name == "006_network_catalog.sql" ||
 				name == "007_pool_token_oracle_feeds.sql" ||
-				name == "008_market_voucher_indexes.sql",
+				name == "008_market_voucher_indexes.sql" ||
+				name == "009_report_feed_index.sql" ||
+				name == "010_report_body_normalization.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -366,7 +370,6 @@ func TestBaselineCarriesNetworkCatalog(t *testing.T) {
 		"vouchers_geo_valid",
 		"pools_geo_valid",
 		"pools_fee_ppm_range",
-		"reports_rejection_when_rejected",
 		"offerings_price_nonneg",
 		"ADD COLUMN IF NOT EXISTS default_voucher_id INT REFERENCES vouchers(id)",
 		"('Regenerative Agriculture')",
@@ -376,6 +379,81 @@ func TestBaselineCarriesNetworkCatalog(t *testing.T) {
 	// Registry link columns must not be folded into 001.
 	assert.NotContains(t, s, "voucher_id INT UNIQUE")
 	assert.NotContains(t, s, "pool_id INT UNIQUE")
+}
+
+// The baseline carries the post-010 report shape so a fresh database gets the
+// normalized tables from 001 and 010's guarded DDL no-ops. Column order must
+// match what 010 leaves on an upgraded database or the two paths diverge.
+func TestBaselineCarriesNormalizedReports(t *testing.T) {
+	content, err := os.ReadFile("001_init.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS report_media_kind",
+		"CREATE TABLE IF NOT EXISTS report_images",
+		"CREATE TABLE IF NOT EXISTS report_attachments",
+		"body             TEXT NOT NULL DEFAULT ''",
+		"report_images_url_unique UNIQUE (report_id, url)",
+		"report_images_url_http",
+		"report_attachments_url_http",
+		"reports_form_fields_not_blank",
+		"kind      TEXT NOT NULL REFERENCES report_media_kind(value)",
+	} {
+		assert.Contains(t, s, want)
+	}
+	// The dropped columns must be gone from the reports table specifically —
+	// vouchers, pools and offerings keep their own location_name.
+	start := strings.Index(s, "CREATE TABLE IF NOT EXISTS reports (")
+	require.NotEqual(t, -1, start, "reports table not found in baseline")
+	reportsBlock := s[start : start+strings.Index(s[start:], "\n);")]
+	assert.NotContains(t, reportsBlock, "location_name")
+	assert.NotContains(t, reportsBlock, "rejection_reason")
+	assert.NotContains(t, reportsBlock, "JSONB")
+	assert.NotContains(t, s, "reports_rejection_when_rejected")
+	assert.NotContains(t, s, "reports_rejection_only_if_rejected")
+
+	// Form columns are last, matching where ADD COLUMN puts them in 010.
+	assert.Regexp(t,
+		`updated_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n(\s*--[^\n]*\n)*\s*host_name        TEXT,\n\s*participants     TEXT,\n\s*time_taken       TEXT,`,
+		reportsBlock)
+}
+
+func TestReportBodyNormalizationMigration(t *testing.T) {
+	content, err := os.ReadFile("010_report_body_normalization.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// The write-time parser, shared by this migration and the importer.
+	for _, fn := range []string{
+		"report_md_inline", "report_md_list", "report_md_block",
+		"report_body_markdown", "report_body_images",
+		"report_body_attachments", "report_body_form",
+	} {
+		assert.Contains(t, s, "CREATE OR REPLACE FUNCTION "+fn)
+	}
+	// ALTER ... TYPE ... USING keeps `body` in place; add-drop-rename would move
+	// it and break column-order parity with the 001 path.
+	assert.Contains(t, s, "ALTER COLUMN body TYPE TEXT USING report_body_markdown(body)")
+	assert.NotContains(t, s, "RENAME COLUMN")
+	// Data movement is guarded on `body` still being JSONB so the migration is a
+	// no-op on a fresh database, where 001 already created the final shape.
+	assert.Contains(t, s, "AND data_type = 'jsonb'")
+	// Both dropped columns, and rejection's two CHECKs which reference it.
+	assert.Contains(t, s, "DROP COLUMN IF EXISTS location_name")
+	assert.Contains(t, s, "DROP COLUMN IF EXISTS rejection_reason")
+	assert.Contains(t, s, "DROP CONSTRAINT IF EXISTS reports_rejection_when_rejected")
+	assert.Contains(t, s, "DROP CONSTRAINT IF EXISTS reports_rejection_only_if_rejected")
+	// Only http(s) media is ever stored, so no request re-filters data URIs.
+	assert.Contains(t, s, "report_images_url_http")
+	assert.Contains(t, s, "report_attachments_url_http")
+	// Re-running must not double-insert.
+	assert.Contains(t, s, "ON CONFLICT DO NOTHING")
+	// The form backfill must not fire update_reports_timestamp: that BEFORE
+	// UPDATE trigger overrides updated_at, which would stamp every row carrying
+	// a form with the migration's run time — and the feed orders by updated_at.
+	assert.Contains(t, s, "DISABLE TRIGGER update_reports_timestamp")
+	assert.Contains(t, s, "ENABLE TRIGGER update_reports_timestamp")
 }
 
 // The baseline carries the hardened constraints inline (same names as 003)
@@ -415,4 +493,15 @@ func TestBaselineCarriesHardenedConstraints(t *testing.T) {
 	assert.NotContains(t, s, "public_key_idx ON keystore")
 	assert.NotContains(t, s, "users_blockchain_address_idx")
 	assert.NotContains(t, s, "user_deployments_tracking_id_idx")
+}
+
+func TestReportFeedIndexMigration(t *testing.T) {
+	content, err := os.ReadFile("009_report_feed_index.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "reports_status_updated_idx")
+	// Column order must match the feed's keyset predicate so neither the first
+	// page nor a cursor page needs a sort.
+	assert.Contains(t, s, "ON reports (status, updated_at DESC, id DESC)")
 }

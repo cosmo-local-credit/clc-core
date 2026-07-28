@@ -715,14 +715,17 @@ INSERT INTO report_status_type (value) VALUES
     ('REJECTED')
 ON CONFLICT (value) DO NOTHING;
 
+-- `body` is markdown TEXT, not the editor's JSONB document: images,
+-- attachments and the field-report form are separated out at write time by
+-- migration 010, so no request re-parses a document to serve a report.
+-- Column order matches what 010 leaves behind on an upgraded database.
 CREATE TABLE IF NOT EXISTS reports (
     id               INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     source_id        INT UNIQUE,
     title            TEXT NOT NULL,
-    body             JSONB NOT NULL,
+    body             TEXT NOT NULL DEFAULT '',
     description      TEXT NOT NULL DEFAULT '',
     image_url        TEXT,
-    location_name    TEXT,
     geo_lat          FLOAT8,
     geo_lng          FLOAT8,
     period_from      TIMESTAMPTZ,
@@ -732,9 +735,13 @@ CREATE TABLE IF NOT EXISTS reports (
     status           TEXT NOT NULL
                          REFERENCES report_status_type(value)
                          DEFAULT 'DRAFT',
-    rejection_reason TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- The field-report form: single-valued facts about the report, so columns
+    -- rather than a second table (§2.1 V6). Issuer free text, never normalized.
+    host_name        TEXT,
+    participants     TEXT,
+    time_taken       TEXT,
     CONSTRAINT reports_author_format
         CHECK (author_address ~ '^0x[0-9a-fA-F]{40}$'),
     CONSTRAINT reports_modifier_format
@@ -751,13 +758,11 @@ CREATE TABLE IF NOT EXISTS reports (
             OR period_to IS NULL
             OR period_from <= period_to
         ),
-    CONSTRAINT reports_rejection_when_rejected
-        CHECK (
-            status <> 'REJECTED'
-            OR (rejection_reason IS NOT NULL AND btrim(rejection_reason) <> '')
-        ),
-    CONSTRAINT reports_rejection_only_if_rejected
-        CHECK (status = 'REJECTED' OR rejection_reason IS NULL)
+    CONSTRAINT reports_form_fields_not_blank CHECK (
+        (host_name    IS NULL OR btrim(host_name,    E' \t\r\n\f\v') <> '')
+        AND (participants IS NULL OR btrim(participants, E' \t\r\n\f\v') <> '')
+        AND (time_taken   IS NULL OR btrim(time_taken,   E' \t\r\n\f\v') <> '')
+    )
 );
 
 CREATE TRIGGER update_reports_timestamp
@@ -782,6 +787,66 @@ CREATE TABLE IF NOT EXISTS report_verifiers (
     PRIMARY KEY (report_id, verifier_address),
     CONSTRAINT report_verifiers_address_format
         CHECK (verifier_address ~ '^0x[0-9a-fA-F]{40}$')
+);
+
+CREATE TABLE IF NOT EXISTS report_media_kind (
+    value TEXT PRIMARY KEY
+);
+INSERT INTO report_media_kind (value) VALUES
+    ('FILE'),
+    ('EMBED')
+ON CONFLICT (value) DO NOTHING;
+
+-- One row per image occurrence, extracted from the editor document at write
+-- time. Two candidate keys hold: (report_id, ordinal) is document order, and
+-- (report_id, url) is unique on the imported catalog — no report references the
+-- same image twice. Both are declared, so the relation is in BCNF under either.
+CREATE TABLE IF NOT EXISTS report_images (
+    report_id  INT  NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    ordinal    INT  NOT NULL,
+    url        TEXT NOT NULL,
+    -- The editor's display box. NOT the intrinsic size: 267x1000 display
+    -- against 1600x747 intrinsic occurs, so these are not a scaled pair.
+    width      INT,
+    height     INT,
+    max_width  INT,
+    max_height INT,
+    byte_size  BIGINT,
+    caption    TEXT,
+    PRIMARY KEY (report_id, ordinal),
+    CONSTRAINT report_images_url_unique UNIQUE (report_id, url),
+    CONSTRAINT report_images_ordinal_positive CHECK (ordinal > 0),
+    -- Storing a base64 data URI here would defeat the point of the table.
+    CONSTRAINT report_images_url_http CHECK (url ~* '^https?://'),
+    CONSTRAINT report_images_dims_positive CHECK (
+        (width      IS NULL OR width      > 0)
+        AND (height     IS NULL OR height     > 0)
+        AND (max_width  IS NULL OR max_width  > 0)
+        AND (max_height IS NULL OR max_height > 0)
+    ),
+    CONSTRAINT report_images_byte_size_positive
+        CHECK (byte_size IS NULL OR byte_size > 0),
+    CONSTRAINT report_images_caption_not_blank
+        CHECK (caption IS NULL OR btrim(caption, E' \t\r\n\f\v') <> '')
+);
+
+-- Uploaded files (PDF, video) and external embeds (YouTube). Separate from
+-- report_images because the attributes genuinely differ: attachments have a
+-- filename and no dimensions, images the reverse.
+CREATE TABLE IF NOT EXISTS report_attachments (
+    report_id INT  NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    ordinal   INT  NOT NULL,
+    kind      TEXT NOT NULL REFERENCES report_media_kind(value),
+    url       TEXT NOT NULL,
+    filename  TEXT,
+    byte_size BIGINT,
+    PRIMARY KEY (report_id, ordinal),
+    CONSTRAINT report_attachments_ordinal_positive CHECK (ordinal > 0),
+    CONSTRAINT report_attachments_url_http CHECK (url ~* '^https?://'),
+    CONSTRAINT report_attachments_byte_size_positive
+        CHECK (byte_size IS NULL OR byte_size > 0),
+    CONSTRAINT report_attachments_filename_not_blank
+        CHECK (filename IS NULL OR btrim(filename, E' \t\r\n\f\v') <> '')
 );
 
 CREATE INDEX IF NOT EXISTS report_vouchers_voucher_id_idx
