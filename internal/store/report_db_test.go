@@ -62,7 +62,7 @@ func TestReportFeedReturnsOnlyApprovedRowsNewestUpdateFirst(t *testing.T) {
 			t.Fatalf("approved report %d missing from the feed", id)
 		}
 	}
-	if !(seen[newest] < seen[middle] && seen[middle] < seen[oldest]) {
+	if seen[newest] >= seen[middle] || seen[middle] >= seen[oldest] {
 		t.Fatalf("feed is not ordered by updated_at: newest=%d middle=%d oldest=%d",
 			seen[newest], seen[middle], seen[oldest])
 	}

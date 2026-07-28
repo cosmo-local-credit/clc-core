@@ -84,9 +84,9 @@ func (pg *Pg) ListVoucherOfferingsPrevious(ctx context.Context, tx pgx.Tx, vouch
 	return offerings, nil
 }
 
-// Pool-scoped offering lists. A pool page needs every offering its allowed
-// vouchers publish, which the pool-joined queries return in one page rather
-// than one request per voucher.
+// ListPoolOfferings returns every offering the pool's allowed vouchers publish.
+// A pool page needs them all, which the pool-joined queries return in one page
+// rather than one request per voucher.
 func (pg *Pg) ListPoolOfferings(ctx context.Context, tx pgx.Tx, poolAddress string, limit uint64) ([]Offering, error) {
 	var offerings []Offering
 	if err := pgxscan.Select(ctx, tx, &offerings, pg.queries.ListPoolOfferings, poolAddress, limit); err != nil {

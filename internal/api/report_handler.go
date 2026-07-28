@@ -10,10 +10,19 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+type (
+	// reportCursorError is a cursor validation failure, phrased for the client.
+	reportCursorError string
+)
+
 const (
 	// reportsDefaultPerPage matches what the feed renders in one screenful.
 	reportsDefaultPerPage = 20
 	reportsMaxPerPage     = 100
+
+	errReportCursorIncomplete reportCursorError = "cursorUpdatedAt and cursorId must be sent together"
+	errReportCursorTime       reportCursorError = "cursorUpdatedAt must be an RFC3339 timestamp"
+	errReportCursorID         reportCursorError = "cursorId must be a positive integer"
 )
 
 // reportsListHandler serves the approved report feed, newest update first.
@@ -145,15 +154,7 @@ func parseReportCursor(updatedAt, id string) (store.ReportCursor, bool, error) {
 	return store.ReportCursor{UpdatedAt: parsedTime, ID: parsedID}, true, nil
 }
 
-type reportCursorError string
-
 func (e reportCursorError) Error() string { return string(e) }
-
-const (
-	errReportCursorIncomplete reportCursorError = "cursorUpdatedAt and cursorId must be sent together"
-	errReportCursorTime       reportCursorError = "cursorUpdatedAt must be an RFC3339 timestamp"
-	errReportCursorID         reportCursorError = "cursorId must be a positive integer"
-)
 
 func reportValidationError(c *echo.Context, description string) error {
 	return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
