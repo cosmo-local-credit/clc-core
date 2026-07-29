@@ -222,7 +222,13 @@ type (
 		Name    string `json:"name"    validate:"omitempty,max=80"`
 		Email   string `json:"email"   validate:"omitempty,email"`
 		Phone   string `json:"phone"`
+		ENS     string `json:"ens"     validate:"omitempty,max=255"`
 		Country string `json:"country" validate:"omitempty,len=2"`
+	}
+
+	RecipientSearchRequest struct {
+		Kind  string `json:"kind"  validate:"required,oneof=phone email ens"`
+		Query string `json:"query" validate:"required,max=255"`
 	}
 )
 

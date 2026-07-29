@@ -52,9 +52,12 @@ type (
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
-		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string) (User, error)
+		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string, string) (User, error)
 		ListUsers(context.Context, pgx.Tx) ([]User, error)
 		ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
+		SearchUsersByPhonePrefix(context.Context, pgx.Tx, string) ([]RecipientSearchUser, error)
+		SearchUsersByEmailPrefix(context.Context, pgx.Tx, string) ([]RecipientSearchUser, error)
+		SearchUsersByENSPrefix(context.Context, pgx.Tx, string) ([]RecipientSearchUser, error)
 
 		InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
 		CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)

@@ -15,6 +15,7 @@ type (
 		Name            string    `db:"name"             json:"name"`
 		Email           string    `db:"email"            json:"email"`
 		Phone           string    `db:"phone"            json:"phone"`
+		ENS             string    `db:"ens"              json:"ens"`
 		Country         string    `db:"country"          json:"country"`
 		Role            string    `db:"role"             json:"role"`
 		Status          string    `db:"status"           json:"status"`
@@ -22,6 +23,11 @@ type (
 		MaxTokens       int       `db:"max_tokens"       json:"maxTokens"`
 		CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
 		UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
+	}
+
+	RecipientSearchUser struct {
+		Name            string `db:"name"             json:"name"`
+		EthereumAddress string `db:"ethereum_address" json:"address"`
 	}
 )
 
@@ -140,10 +146,10 @@ func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, m
 	return u, nil
 }
 
-func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, email, phone, country string) (User, error) {
+func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, email, phone, ens, country string) (User, error) {
 	var u User
 
-	row, err := tx.Query(ctx, pg.queries.UpdateUserProfile, address, name, email, phone, country)
+	row, err := tx.Query(ctx, pg.queries.UpdateUserProfile, address, name, email, phone, ens, country)
 	if err != nil {
 		return u, err
 	}
@@ -174,6 +180,38 @@ func (pg *Pg) ListUsersByStatus(ctx context.Context, tx pgx.Tx, status string) (
 	var users []User
 
 	rows, err := tx.Query(ctx, pg.queries.ListUsersByStatus, status)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&users, rows); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
+func (pg *Pg) SearchUsersByPhonePrefix(ctx context.Context, tx pgx.Tx, prefix string) ([]RecipientSearchUser, error) {
+	return pg.searchUsersByPrefix(ctx, tx, pg.queries.SearchUsersByPhonePrefix, prefix)
+}
+
+func (pg *Pg) SearchUsersByEmailPrefix(ctx context.Context, tx pgx.Tx, prefix string) ([]RecipientSearchUser, error) {
+	return pg.searchUsersByPrefix(ctx, tx, pg.queries.SearchUsersByEmailPrefix, prefix)
+}
+
+func (pg *Pg) SearchUsersByENSPrefix(ctx context.Context, tx pgx.Tx, prefix string) ([]RecipientSearchUser, error) {
+	return pg.searchUsersByPrefix(ctx, tx, pg.queries.SearchUsersByENSPrefix, prefix)
+}
+
+func (pg *Pg) searchUsersByPrefix(
+	ctx context.Context,
+	tx pgx.Tx,
+	query string,
+	prefix string,
+) ([]RecipientSearchUser, error) {
+	var users []RecipientSearchUser
+
+	rows, err := tx.Query(ctx, query, prefix)
 	if err != nil {
 		return nil, err
 	}

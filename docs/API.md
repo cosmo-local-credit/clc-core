@@ -40,6 +40,7 @@
    - [GET /api/v2/users/me/pools](#63-get-apiv2usersmepools)
    - [GET /api/v2/users/me/pools/:address](#64-get-apiv2usersmepoolsaddress)
    - [GET /api/v2/users/me/deployments](#65-get-apiv2usersmedeployments)
+   - [POST /api/v2/users/search](#66-post-apiv2userssearch)
 7. [Superadmin Endpoints (`/api/v2/admin/*`)](#7-superadmin-endpoints-apiv2admin)
    - [GET /api/v2/admin/users](#71-get-apiv2adminusers)
    - [PUT /api/v2/admin/users/:address/approve](#72-put-apiv2adminusersaddressapprove)
@@ -845,6 +846,9 @@ Returns the full profile of the currently authenticated user.
       "ethereumAddress": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       "name":            "Alice",
       "email":           "alice@example.com",
+      "phone":           "+254711000001",
+      "ens":             "alice.sarafu.eth",
+      "country":         "KE",
       "role":            "USER",
       "status":          "APPROVED",
       "maxPools":        10,
@@ -860,6 +864,9 @@ Returns the full profile of the currently authenticated user.
 | `ethereumAddress` | `string` | Checksummed Ethereum address |
 | `name` | `string` | Display name |
 | `email` | `string` | Email address |
+| `phone` | `string` | E.164 phone number, or an empty string |
+| `ens` | `string` | Normalized `.eth` or `.sarafu.eth` profile name, or an empty string |
+| `country` | `string` | Two-letter country code |
 | `role` | `"USER"` \| `"SUPERADMIN"` | Authorization role |
 | `status` | `"PENDING"` \| `"APPROVED"` \| `"REJECTED"` | Account approval status |
 | `maxPools` | `int` | Maximum number of pools this user may deploy |
@@ -1019,6 +1026,59 @@ Returns the complete deployment history for the authenticated user, covering bot
 | `trackingId` | `string` (UUID) | Use with [`GET /api/v2/otx/track/:trackingId`](#52-get-apiv2otxtracktrackingid) |
 | `resourceType` | `"TOKEN"` \| `"POOL"` | Type of deployed resource |
 | `createdAt` | `string` (ISO 8601) | When the deploy request was submitted |
+
+---
+
+### 6.6 `POST /api/v2/users/search`
+
+Returns selectable Send-to options from approved Core users. The caller chooses
+one identity kind, and Core executes only that kind's fixed parameterized
+prefix query. A complete EVM address does not use this endpoint.
+
+**Auth:** user JWT cookie only; service JWTs are rejected
+
+**Request body:**
+
+```json
+{
+  "kind": "email",
+  "query": "alice@exa"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | `"phone"` \| `"email"` \| `"ens"` | User column to search |
+| `query` | `string` | Normalized prefix with at least three meaningful characters |
+
+Phone prefixes may use spaces, hyphens, and parentheses and must identify an
+international E.164 number. A leading `+` is preserved, `00...` is converted
+to `+...`, and a non-zero country calling code entered without `+` receives
+one. National `0...` input is rejected because its country cannot be inferred
+safely. Email and ENS prefixes are lowercased. Search results are limited to
+`APPROVED` users, ordered by `name, id`, capped at 10, and contain no stored
+phone, email, or ENS value. Internal `pending+...@clc.local` signup emails are
+never returned.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Matching Core users",
+  "result": {
+    "users": [
+      {
+        "name": "Alice",
+        "address": "0xa316408425cF17F1827483dee621c6C3A9B5fad4"
+      }
+    ]
+  }
+}
+```
+
+No match is successful and returns `"users": []`. Invalid, too-short, or
+kind-incompatible input returns `400` with validation error `E04`.
 
 ---
 

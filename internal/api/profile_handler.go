@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -11,9 +12,17 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/labstack/echo/v5"
 	"github.com/riverqueue/river"
 )
+
+var profileENSNamePattern = regexp.MustCompile(`^[a-z0-9-]+\.(eth|sarafu\.eth)$`)
+
+func normalizeProfileENS(value string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return normalized, normalized == "" || profileENSNamePattern.MatchString(normalized)
+}
 
 func newPendingSIWEUser(address string) store.User {
 	return store.User{
@@ -178,6 +187,7 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 			"name":      user.Name,
 			"email":     user.Email,
 			"phone":     user.Phone,
+			"ens":       user.ENS,
 			"country":   user.Country,
 			"createdAt": user.CreatedAt.Format(time.RFC3339),
 		},
@@ -189,6 +199,15 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 	var req apiresp.UpdateProfileRequest
 	if err := c.Bind(&req); err != nil {
 		return handleBindError(c, err)
+	}
+	var validENS bool
+	req.ENS, validENS = normalizeProfileENS(req.ENS)
+	if !validENS {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "ENS must end in .eth or .sarafu.eth",
+		})
 	}
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
@@ -203,13 +222,30 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	user, err := a.store.UpdateUserProfile(ctx, tx, addr, req.Name, req.Email, req.Phone, req.Country)
+	user, err := a.store.UpdateUserProfile(
+		ctx,
+		tx,
+		addr,
+		req.Name,
+		req.Email,
+		req.Phone,
+		req.ENS,
+		req.Country,
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
 				Ok:          false,
 				ErrCode:     apiresp.ErrCodeNotFound,
 				Description: "user not found",
+			})
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeConflict,
+				Description: "email, phone, or ENS already belongs to another user",
 			})
 		}
 		return err
@@ -227,6 +263,7 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 			"name":    user.Name,
 			"email":   user.Email,
 			"phone":   user.Phone,
+			"ens":     user.ENS,
 			"country": user.Country,
 		},
 	})

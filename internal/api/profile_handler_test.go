@@ -4,6 +4,33 @@ import (
 	"testing"
 )
 
+func TestNormalizeProfileENS(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      string
+		wantValid bool
+	}{
+		{name: "empty", input: "", want: "", wantValid: true},
+		{name: "normalizes case and spaces", input: " Alice.Sarafu.ETH ", want: "alice.sarafu.eth", wantValid: true},
+		{name: "accepts eth", input: "alice.eth", want: "alice.eth", wantValid: true},
+		{name: "rejects unsupported suffix", input: "alice.example", want: "alice.example", wantValid: false},
+		{name: "rejects nested arbitrary name", input: "sub.alice.eth", want: "sub.alice.eth", wantValid: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, valid := normalizeProfileENS(tc.input)
+			if got != tc.want {
+				t.Fatalf("normalizeProfileENS() = %q, want %q", got, tc.want)
+			}
+			if valid != tc.wantValid {
+				t.Fatalf("normalizeProfileENS() valid = %t, want %t", valid, tc.wantValid)
+			}
+		})
+	}
+}
+
 func TestNewPendingSIWEUserIsInactive(t *testing.T) {
 	user := newPendingSIWEUser("0xAbC123")
 

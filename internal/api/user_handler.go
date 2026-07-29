@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -11,7 +13,19 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+var (
+	recipientPhonePrefixPattern = regexp.MustCompile(`^\+[1-9][0-9]{2,14}$`)
+	recipientEmailPrefixPattern = regexp.MustCompile(`^[^\s@]+@[^\s@]*$`)
+	recipientENSPrefixPattern   = regexp.MustCompile(`^[a-z0-9-]+(?:\.[a-z0-9-]*)*$`)
+)
+
 type (
+	recipientSearchStore interface {
+		SearchUsersByPhonePrefix(context.Context, pgx.Tx, string) ([]store.RecipientSearchUser, error)
+		SearchUsersByEmailPrefix(context.Context, pgx.Tx, string) ([]store.RecipientSearchUser, error)
+		SearchUsersByENSPrefix(context.Context, pgx.Tx, string) ([]store.RecipientSearchUser, error)
+	}
+
 	// paginatedListCallbacks groups the three pagination query functions for a
 	// given resource type T.
 	paginatedListCallbacks[T any] struct {
@@ -20,6 +34,109 @@ type (
 		prevPage  func(context.Context, pgx.Tx, uint64, uint64, uint64) ([]T, error)
 	}
 )
+
+func searchRecipientUsers(
+	ctx context.Context,
+	tx pgx.Tx,
+	searchStore recipientSearchStore,
+	kind string,
+	prefix string,
+) ([]store.RecipientSearchUser, error) {
+	switch kind {
+	case "phone":
+		return searchStore.SearchUsersByPhonePrefix(ctx, tx, prefix)
+	case "email":
+		return searchStore.SearchUsersByEmailPrefix(ctx, tx, prefix)
+	case "ens":
+		return searchStore.SearchUsersByENSPrefix(ctx, tx, prefix)
+	default:
+		return nil, fmt.Errorf("unsupported recipient search kind")
+	}
+}
+
+func normalizeRecipientSearchQuery(kind, value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+
+	switch kind {
+	case "phone":
+		normalized := strings.NewReplacer(" ", "", "-", "", "(", "", ")", "").Replace(trimmed)
+		switch {
+		case strings.HasPrefix(normalized, "+"):
+		case strings.HasPrefix(normalized, "00"):
+			normalized = "+" + strings.TrimPrefix(normalized, "00")
+		case len(normalized) > 0 && normalized[0] >= '1' && normalized[0] <= '9':
+			normalized = "+" + normalized
+		}
+		if len(strings.TrimPrefix(normalized, "+")) < 3 ||
+			!recipientPhonePrefixPattern.MatchString(normalized) {
+			return "", fmt.Errorf("invalid phone search prefix")
+		}
+		return normalized, nil
+	case "email":
+		normalized := strings.ToLower(trimmed)
+		if len(normalized) < 3 || !recipientEmailPrefixPattern.MatchString(normalized) {
+			return "", fmt.Errorf("invalid email search prefix")
+		}
+		return normalized, nil
+	case "ens":
+		normalized := strings.ToLower(trimmed)
+		if len(normalized) < 3 || !recipientENSPrefixPattern.MatchString(normalized) {
+			return "", fmt.Errorf("invalid ENS search prefix")
+		}
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("unsupported recipient search kind")
+	}
+}
+
+func (a *API) userSearchHandler(c *echo.Context) error {
+	var req apiresp.RecipientSearchRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+
+	req.Kind = strings.ToLower(strings.TrimSpace(req.Kind))
+	req.Query = strings.TrimSpace(req.Query)
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	prefix, err := normalizeRecipientSearchQuery(req.Kind, req.Query)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: err.Error(),
+		})
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	users, err := searchRecipientUsers(ctx, tx, a.store, req.Kind, prefix)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if users == nil {
+		users = []store.RecipientSearchUser{}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Matching Core users",
+		Result: map[string]any{
+			"users": users,
+		},
+	})
+}
 
 // cursorPaginatedList executes a cursor-paginated query and returns a JSON
 // response with the items and first/last cursor values.

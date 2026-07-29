@@ -36,9 +36,12 @@ func TestMigrationFiles(t *testing.T) {
 
 	assert.Contains(t, sqlFiles, "001_init.sql")
 	assert.Contains(t, sqlFiles, "002_unify_deploy_registry.sql")
+	assert.Contains(t, sqlFiles, "003_add_users_ens.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
-			name == "001_init.sql" || name == "002_unify_deploy_registry.sql",
+			name == "001_init.sql" ||
+				name == "002_unify_deploy_registry.sql" ||
+				name == "003_add_users_ens.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -131,4 +134,19 @@ func TestUnifyDeployRegistryMigration(t *testing.T) {
 	assert.Contains(t, s, "DROP TABLE IF EXISTS token_deploy_meta")
 	assert.Contains(t, s, "DROP TABLE IF EXISTS pool_deploy_meta")
 	assert.Contains(t, s, "m.pool_decimals")
+}
+
+func TestAddUsersENSMigration(t *testing.T) {
+	content, err := os.ReadFile("003_add_users_ens.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS ens TEXT")
+	assert.Contains(t, s, "users_ens_lower_unique_idx")
+	assert.Contains(t, s, "LOWER(ens)")
+	assert.Contains(t, s, "users_phone_approved_prefix_idx")
+	assert.Contains(t, s, "users_email_lower_approved_prefix_idx")
+	assert.Contains(t, s, "users_ens_lower_approved_prefix_idx")
+	assert.Contains(t, s, "USING spgist")
+	assert.Contains(t, s, "status = 'APPROVED'")
 }

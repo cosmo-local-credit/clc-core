@@ -191,6 +191,7 @@ func New(o APIOpts) *API {
 
 	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
+	userGroup.POST("/search", a.userSearchHandler)
 	userGroup.GET("/me", a.userMeHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
