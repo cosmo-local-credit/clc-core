@@ -8,9 +8,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type recipientSearchStoreStub struct {
-	calls []string
-}
+type (
+	recipientSearchStoreStub struct {
+		calls []string
+	}
+)
 
 func (s *recipientSearchStoreStub) SearchUsersByPhonePrefix(
 	context.Context,

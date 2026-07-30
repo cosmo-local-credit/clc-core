@@ -17,7 +17,9 @@ import (
 	"github.com/riverqueue/river"
 )
 
-var profileENSNamePattern = regexp.MustCompile(`^[a-z0-9-]+\.(eth|sarafu\.eth)$`)
+var (
+	profileENSNamePattern = regexp.MustCompile(`^[a-z0-9-]+\.(eth|sarafu\.eth)$`)
+)
 
 func normalizeProfileENS(value string) (string, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(value))
