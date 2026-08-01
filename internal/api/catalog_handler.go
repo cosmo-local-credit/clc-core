@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -18,6 +19,23 @@ type (
 		nextPage  func(context.Context, pgx.Tx, uint64, uint64) ([]T, error)
 		prevPage  func(context.Context, pgx.Tx, uint64, uint64) ([]T, error)
 	}
+
+	// catalogListHooks are the optional per-endpoint extensions to the shared
+	// paginated list. All three are nil for endpoints that need none.
+	catalogListHooks struct {
+		// validate runs inside the read transaction before the page query, for
+		// checks that need the database — tag values against the token_tag
+		// vocabulary, for instance. It reports handled=true when it has already
+		// written a response, matching bindCatalogAddressPagination's contract.
+		validate func(pgx.Tx) (handled bool, err error)
+		// extras runs inside the same transaction after the page query and
+		// merges additional keys into the result envelope. It must not
+		// overwrite the page's own keys.
+		extras func(pgx.Tx) (map[string]any, error)
+		// onSuccess runs after a successful commit, before the response is
+		// written — cache headers, for instance.
+		onSuccess func(*echo.Context)
+	}
 )
 
 func (a *API) poolVouchersListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
@@ -32,7 +50,7 @@ func (a *API) poolVouchersListHandler(c *echo.Context) error { //nolint:dupl // 
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.PoolVoucher, error) {
 			return a.store.ListPoolVouchersPrevious(ctx, tx, address, cursor, limit)
 		},
-		nil,
+		catalogListHooks{},
 	)
 }
 
@@ -48,7 +66,7 @@ func (a *API) offeringsListHandler(c *echo.Context) error {
 		prevPage:  a.store.ListOfferingsPrevious,
 	}, pagination, "offerings", "Offerings", func(o store.Offering) uint64 {
 		return o.ID
-	}, nil)
+	}, catalogListHooks{})
 }
 
 func (a *API) voucherOfferingsListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
@@ -63,7 +81,7 @@ func (a *API) voucherOfferingsListHandler(c *echo.Context) error { //nolint:dupl
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Offering, error) {
 			return a.store.ListVoucherOfferingsPrevious(ctx, tx, address, cursor, limit)
 		},
-		setMarketCacheHeaders,
+		catalogListHooks{onSuccess: setMarketCacheHeaders},
 	)
 }
 
@@ -82,7 +100,7 @@ func (a *API) poolOfferingsListHandler(c *echo.Context) error { //nolint:dupl //
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Offering, error) {
 			return a.store.ListPoolOfferingsPrevious(ctx, tx, address, cursor, limit)
 		},
-		nil,
+		catalogListHooks{},
 	)
 }
 
@@ -96,7 +114,7 @@ func catalogAddressListHandler[T any](
 	firstPage func(context.Context, pgx.Tx, string, uint64) ([]T, error),
 	nextPage func(context.Context, pgx.Tx, string, uint64, uint64) ([]T, error),
 	prevPage func(context.Context, pgx.Tx, string, uint64, uint64) ([]T, error),
-	onSuccess func(*echo.Context),
+	hooks catalogListHooks,
 ) error {
 	address, pagination, valid, err := bindCatalogAddressPagination(c)
 	if err != nil {
@@ -116,12 +134,19 @@ func catalogAddressListHandler[T any](
 		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]T, error) {
 			return prevPage(ctx, tx, address, cursor, limit)
 		},
-	}, pagination, resultKey, fmt.Sprintf(descriptionFmt, address), getID, onSuccess)
+	}, pagination, resultKey, fmt.Sprintf(descriptionFmt, address), getID, hooks)
 }
 
 // vouchersListHandler serves the public market catalog: active, geolocated
 // voucher summaries with a backend-derived marker kind. The public market
 // routes carry a shared cache policy and per-IP rate limit.
+//
+// Optional `q`, `tags`, `tagMatch`, and `facets` narrow the page
+// (PG_SEARCH_PLAN.md Slice 1). The response shape is unchanged when they are
+// absent, and gains only the additive `tagFacets` key when `facets=true` is
+// asked for on a first page, so the map client's bulk import is unaffected.
+// Every page direction — first, next, and previous — applies every active
+// predicate; no direction falls through to an unfiltered statement.
 func (a *API) vouchersListHandler(c *echo.Context) error {
 	req := apiresp.CursorPaginationRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -139,19 +164,34 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 		})
 	}
 
+	search, err := parseCatalogSearch(c)
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+
+	pagination := normalizePaginationWithMax(req, marketMaxPerPage)
+
 	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.MarketVoucher]{
 		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.MarketVoucher, error) {
-			return a.store.ListMarketVouchers(ctx, tx, bounds, limit)
+			return a.store.ListMarketVouchersFiltered(ctx, tx, bounds, search.filter, store.CatalogFirstPage, 0, limit)
 		},
 		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.MarketVoucher, error) {
-			return a.store.ListMarketVouchersNext(ctx, tx, bounds, cursor, limit)
+			return a.store.ListMarketVouchersFiltered(ctx, tx, bounds, search.filter, store.CatalogNextPage, cursor, limit)
 		},
 		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.MarketVoucher, error) {
-			return a.store.ListMarketVouchersPrevious(ctx, tx, bounds, cursor, limit)
+			return a.store.ListMarketVouchersFiltered(ctx, tx, bounds, search.filter, store.CatalogPrevPage, cursor, limit)
 		},
-	}, normalizePaginationWithMax(req, marketMaxPerPage), "vouchers", "Market vouchers", func(v store.MarketVoucher) uint64 {
+	}, pagination, "vouchers", "Market vouchers", func(v store.MarketVoucher) uint64 {
 		return v.ID
-	}, setMarketCacheHeaders)
+	}, catalogListHooks{
+		validate: func(tx pgx.Tx) (bool, error) {
+			return a.rejectUnknownTags(c, tx, search.filter.Tags)
+		},
+		extras: catalogTagFacetExtras(search, pagination, func(tx pgx.Tx) ([]store.TagFacet, error) {
+			return a.marketVoucherTagFacets(c, tx, bounds, search.filter)
+		}),
+		onSuccess: setMarketCacheHeaders,
+	})
 }
 
 func bindCatalogPagination(c *echo.Context) (paginationParams, error) {
@@ -187,7 +227,7 @@ func cursorPaginatedCatalogList[T any](
 	pagination paginationParams,
 	resultKey, description string,
 	getID func(T) uint64,
-	onSuccess func(*echo.Context),
+	hooks catalogListHooks,
 ) error {
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
@@ -195,6 +235,20 @@ func cursorPaginatedCatalogList[T any](
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// Bound the read at the database before issuing it, so a pathological plan
+	// cannot hold the connection past the timeout PostgreSQL does not impose by
+	// default.
+	if err := a.store.SetCatalogStatementTimeout(ctx, tx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	if hooks.validate != nil {
+		handled, vErr := hooks.validate(tx)
+		if handled || vErr != nil {
+			return vErr
+		}
+	}
 
 	var items []T
 	switch {
@@ -218,20 +272,29 @@ func cursorPaginatedCatalogList[T any](
 		last = getID(items[len(items)-1])
 	}
 
+	result := map[string]any{
+		resultKey: items,
+		"first":   first,
+		"last":    last,
+	}
+	if hooks.extras != nil {
+		extras, eErr := hooks.extras(tx)
+		if eErr != nil {
+			return handlePostgresError(c, eErr)
+		}
+		maps.Copy(result, extras)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
-	if onSuccess != nil {
-		onSuccess(c)
+	if hooks.onSuccess != nil {
+		hooks.onSuccess(c)
 	}
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: description,
-		Result: map[string]any{
-			resultKey: items,
-			"first":   first,
-			"last":    last,
-		},
+		Result:      result,
 	})
 }

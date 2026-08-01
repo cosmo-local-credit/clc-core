@@ -1179,3 +1179,58 @@ SELECT r.id, r.title, r.body, r.description,
     ), '[]'::JSONB) AS vouchers
 FROM reports r
 WHERE r.id = $1 AND r.status = 'APPROVED';
+
+-- Returns the requested tag values that are not in the token_tag vocabulary, so
+-- a catalog filter can be rejected rather than silently narrowed. unnest keeps
+-- the request as one array parameter, so the statement text does not vary with
+-- how many tags were asked for.
+--name: unknown-token-tags
+SELECT requested.value
+FROM unnest($1::TEXT[]) AS requested(value)
+WHERE NOT EXISTS (
+    SELECT 1 FROM token_tag tt WHERE tt.value = requested.value
+);
+
+-- Caps one catalog read transaction at the database. set_config with
+-- is_local = true is SET LOCAL, which cannot take a bound parameter; this form
+-- can, so the timeout stays a Go constant instead of interpolated SQL.
+--name: set-catalog-statement-timeout
+SELECT set_config('statement_timeout', $1, true);
+
+-- The voucher tag facet vocabulary: every tag that appears on an available
+-- offering of a visible voucher. Deliberately independent of the caller's
+-- search, so the filter list does not collapse as the user types, and of the
+-- selected tags, which the handler unions in — that keeps this statement
+-- parameterless and therefore a straightforward caching candidate if it ever
+-- becomes hot. token_tag's other values are excluded: offering a filter that
+-- can never match is worse than omitting it.
+--
+-- Measured at 5x scale (13,181 active vouchers, 12,975 available offerings,
+-- 6,705 tag rows) this is ~6.2 ms of sequential scans over the junctions, which
+-- is why it is separate from the count query rather than a CTE inside it:
+-- sharing one statement made the planner abandon the trigram index for the
+-- search half.
+--name: list-voucher-tag-vocabulary
+SELECT DISTINCT ot.tag_value
+FROM offering_tags ot
+INNER JOIN offerings o ON o.id = ot.offering_id
+INNER JOIN vouchers v ON v.id = o.voucher_id
+WHERE o.available AND v.active AND v.geo_lat IS NOT NULL
+ORDER BY ot.tag_value;
+
+-- The pool tag facet vocabulary: the pool's own curated tags, which is what the
+-- pool list already returns per row.
+--name: list-pool-tag-vocabulary
+SELECT DISTINCT pt.tag_value
+FROM pool_tags pt
+ORDER BY pt.tag_value;
+
+-- The report tag facet vocabulary: tags carried by reports the feed can actually
+-- return, so a value reachable only through an unapproved report does not offer a
+-- filter that can never match.
+--name: list-report-tag-vocabulary
+SELECT DISTINCT rt.tag_value
+FROM report_tags rt
+INNER JOIN reports r ON r.id = rt.report_id
+WHERE r.status = 'APPROVED'
+ORDER BY rt.tag_value;

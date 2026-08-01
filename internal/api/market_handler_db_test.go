@@ -97,11 +97,18 @@ func getMarketPage(t *testing.T, a *API, target, remoteAddr string) (*httptest.R
 func TestGuestReceivesTheCatalogWithoutCredentials(t *testing.T) {
 	a := newMarketAPIWithStore(t)
 
+	// One visible voucher of its own, so the assertion below holds on a database that has no
+	// imported catalog. Relying on the import passed locally and failed on CI's fresh database.
+	_, clean := seedSearchFixtures(t, a, "GuestCatalogFixture", []searchFixture{
+		{name: "Guest Catalog Fixture", symbol: "GCF"},
+	})
+	defer clean()
+
 	// No cookie, no Authorization header — exactly what the Market tab sends.
 	res, page := getMarketPage(t, a, "/api/v2/vouchers?perPage=25", "198.51.100.40:1234")
 
 	if len(page.Vouchers) == 0 {
-		t.Fatal("expected the seeded catalog to return rows")
+		t.Fatal("expected the catalog to return rows")
 	}
 	if page.First == nil || page.Last == nil {
 		t.Fatal("first and last must always be numbers, never null")

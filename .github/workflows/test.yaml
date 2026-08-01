@@ -1,0 +1,72 @@
+name: test
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+
+    # The catalog search suites are the only place the query *plans* are pinned, and they
+    # skip themselves when CORE_TEST_DSN is unset. Without a database in CI they would go
+    # on passing while proving nothing: a trigram index quietly demoted to a row filter,
+    # a widened visibility predicate, or a facet count that stops matching its own filter
+    # would all land green. The service container is what keeps those guarantees real.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: clc_core
+        ports:
+          - 5432:5432
+        # Without a health gate the first connection races container startup, which fails
+        # as a confusing "connection refused" rather than as a wait.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      # The suites apply migrations themselves against this DSN, so there is no separate
+      # migrate step to keep in sync with the test harness.
+      #
+      # -p 1 for the same reason as the Makefile: every package's DB suite shares one
+      # database, and the api suites commit and then delete their fixtures, so concurrent
+      # packages make store assertions that compare two reads intermittently disagree.
+      - name: go test
+        env:
+          CORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/clc_core
+        run: go test -p 1 ./... -count=1 -timeout 900s
+
+      # A green run with an unset DSN means the plan gates never executed. Asserting the
+      # variable is present makes that failure loud instead of invisible.
+      - name: fail if the database suites were skipped
+        env:
+          CORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/clc_core
+        run: |
+          set -euo pipefail
+          go test ./internal/store/ -run TestVoucherSearchRetainsTrigramIndexUnderGenericPlan \
+            -count=1 -v -timeout 300s | tee /tmp/plan.log
+          if grep -q -- "--- SKIP" /tmp/plan.log; then
+            echo "The plan gate skipped: CORE_TEST_DSN did not reach the test process." >&2
+            exit 1
+          fi

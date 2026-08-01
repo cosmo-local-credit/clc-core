@@ -10,8 +10,17 @@ FEDERATION_DSN ?= postgres://postgres:postgres@127.0.0.1:5433/federation
 
 .PHONY: build build-clccore run run-clccore clean docs gen-service-token test test-integration seed seed-generate
 
+# CORE_TEST_DSN is what makes the catalog search suites run rather than skip. They are the
+# only place the query plans are pinned, so a run without it proves less than it appears to.
+CORE_TEST_DSN ?= $(CORE_DSN)
+
+# -p 1 because every package's DB suite shares one database. The api suites commit their
+# fixtures (they go through the HTTP handlers, which open their own connections) and delete
+# them in cleanup, so a store assertion comparing two reads can straddle that and see rows
+# appear or vanish between them. No DB test calls t.Parallel, so serializing the packages is
+# enough to make the shared database behave like a private one.
 test:
-	go test ./...
+	CORE_TEST_DSN="$(CORE_TEST_DSN)" go test -p 1 ./...
 
 test-integration:
 	go test -tags integration -count=1 -timeout 300s ./internal/relayer/

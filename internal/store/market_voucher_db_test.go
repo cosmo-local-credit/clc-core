@@ -181,6 +181,12 @@ func TestMarketVoucherPagesAreDescendingAndKeysetStable(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
+	// Two full pages of its own. This paged the imported catalog before, which meant it asserted
+	// nothing on a database that has none — the first page came back empty on CI's fresh one.
+	for range 20 {
+		seedMarketVoucher(t, tx, -1.29, 36.82, true)
+	}
+
 	first, err := pg.ListMarketVouchers(ctx, tx, nil, 10)
 	if err != nil {
 		t.Fatalf("first page: %v", err)

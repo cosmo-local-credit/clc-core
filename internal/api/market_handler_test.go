@@ -208,17 +208,28 @@ func TestVouchersRouteRateLimitsPerClient(t *testing.T) {
 }
 
 // The Market tab spends its whole budget in one burst: every catalog page, a
-// bounded viewport bootstrap, then one detail request per marker the user taps.
-// Tapping is how the map is read, so a burst that runs out mid-exploration
-// would 429 a first-time visitor for using the feature normally.
-func TestMarketBurstCoversACatalogLoadThenMarkerTaps(t *testing.T) {
+// bounded viewport bootstrap, the tag vocabulary bootstrap, then searching and one
+// detail request per marker the user taps. Tapping and searching are how the map is
+// read, so a burst that runs out mid-exploration would 429 a first-time visitor for
+// using the feature normally.
+//
+// This test is what pins marketRateBurst. Enumerating the budget in prose alone is
+// how the pre-search figure of 40 came to be 13 short: adding search spent from the
+// same bucket without anything failing to say so.
+func TestMarketBurstCoversACatalogLoadSearchThenMarkerTaps(t *testing.T) {
 	const (
 		client = "198.51.100.51:1234"
 		// 2,181 geolocated vouchers at the 500-row cap.
 		catalogPages = 5
 		// One request per box; a viewport crossing the antimeridian splits.
 		viewportBootstrap = 2
-		markerTaps        = 20
+		// perPage=1&facets=true, once per cold load, to populate the tag chips
+		// before any filter exists.
+		vocabularyBootstrap = 1
+		// A typed term settles a few times through the debounce, then chips are
+		// toggled. Each settled filter is a new cache key and so a new request.
+		filterChanges = 8
+		markerTaps    = 20
 	)
 
 	a := newTestRouter(t)
@@ -231,18 +242,33 @@ func TestMarketBurstCoversACatalogLoadThenMarkerTaps(t *testing.T) {
 		return res.Code
 	}
 
-	for i := range catalogPages + viewportBootstrap {
-		// Invalid bbox: the limiter runs before the handler, and a 400 keeps
-		// this test off the database.
+	// Invalid bbox throughout: the limiter runs before the handler, and a 400 keeps
+	// this test off the database while still spending a token.
+	catalogOpen := catalogPages + viewportBootstrap + vocabularyBootstrap
+	for i := range catalogOpen {
 		if code := send("/api/v2/vouchers?bbox=not-a-box"); code == http.StatusTooManyRequests {
-			t.Fatalf("catalog request %d of %d was rate limited", i+1, catalogPages+viewportBootstrap)
+			t.Fatalf("catalog open request %d of %d was rate limited", i+1, catalogOpen)
+		}
+	}
+
+	for i := range filterChanges {
+		if code := send("/api/v2/vouchers?bbox=not-a-box"); code == http.StatusTooManyRequests {
+			t.Fatalf("filter change %d of %d was rate limited after a catalog load", i+1, filterChanges)
 		}
 	}
 
 	for i := range markerTaps {
 		if code := send("/api/v2/vouchers/not-an-address"); code == http.StatusTooManyRequests {
-			t.Fatalf("marker tap %d of %d was rate limited after a catalog load", i+1, markerTaps)
+			t.Fatalf("marker tap %d of %d was rate limited after a catalog load and a search",
+				i+1, markerTaps)
 		}
+	}
+
+	// The enumerated budget must fit, with the leftover margin the constant claims.
+	spent := catalogOpen + filterChanges + markerTaps
+	if spent > marketRateBurst {
+		t.Fatalf("the enumerated Market budget is %d requests but the burst is %d",
+			spent, marketRateBurst)
 	}
 }
 

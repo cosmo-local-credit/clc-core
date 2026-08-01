@@ -124,6 +124,12 @@ func TestReportRoutesRequireAuthentication(t *testing.T) {
 	for _, path := range []string{
 		"/api/v2/reports?perPage=notanumber",
 		"/api/v2/reports/not-a-number",
+		// The filter parameters are behind the same gate: a 400-worthy filter must still be
+		// rejected as unauthenticated, or search would be a way to probe the feed unauthenticated.
+		"/api/v2/reports?q=a",
+		"/api/v2/reports?tags=NotATag",
+		"/api/v2/reports?tagMatch=sideways",
+		"/api/v2/reports?facets=maybe",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.RemoteAddr = "198.51.100.95:1234"

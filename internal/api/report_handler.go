@@ -32,6 +32,13 @@ const (
 // two orders agree on 4 of 3,730 rows, so an id cursor would silently skip and
 // repeat rows. The cursor is therefore the (updatedAt, id) pair the last row
 // carried, and it is echoed back as `next`.
+//
+// Optional `q`, `tags`, `tagMatch`, and `facets` narrow the feed
+// (SEARCH_FILTER_PLAN.md Slice 4). `q` matches title and description; report body
+// search stays parked. Report tags are the reports' own `report_tags`, which each
+// row already returns, so a filtered row carries the tag that matched it. The
+// response shape is unchanged when the parameters are absent and gains only the
+// additive `tagFacets` key when `facets=true` is asked for on a first page.
 func (a *API) reportsListHandler(c *echo.Context) error {
 	query := c.Request().URL.Query()
 
@@ -51,6 +58,11 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 		return reportValidationError(c, err.Error())
 	}
 
+	search, err := parseCatalogSearch(c)
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
@@ -58,17 +70,35 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	var reports []store.Report
-	if hasCursor {
-		reports, err = a.store.ListReportsNext(ctx, tx, cursor, perPage)
-	} else {
-		reports, err = a.store.ListReports(ctx, tx, perPage)
+	// Bound the read at the database, as the catalog lists do: a pathological plan must not
+	// hold the connection past the timeout PostgreSQL does not impose by default.
+	if err := a.store.SetCatalogStatementTimeout(ctx, tx); err != nil {
+		return handlePostgresError(c, err)
 	}
+
+	// Unknown tags fail the whole request before anything is read. Dropping them silently
+	// would answer a different question than the caller asked and report a facet count for a
+	// filter that was never applied.
+	if handled, vErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || vErr != nil {
+		return vErr
+	}
+
+	reports, err := a.store.ListReportsFiltered(ctx, tx, search.filter, cursor, hasCursor, perPage)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
 	if reports == nil {
 		reports = []store.Report{}
+	}
+
+	// A facet describes the whole filtered set rather than the page, so it is computed for the
+	// first page only and the key is simply absent from cursor pages.
+	var facets []store.TagFacet
+	if search.facets && !hasCursor {
+		facets, err = a.store.ListReportTagFacets(ctx, tx, search.filter)
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -78,6 +108,9 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	// A short page is the end of the feed, so no cursor is offered and the
 	// client has an unambiguous stop signal rather than an emptiness heuristic.
 	result := map[string]any{"reports": reports, "next": nil}
+	if facets != nil {
+		result["tagFacets"] = facets
+	}
 	if uint64(len(reports)) == perPage {
 		last := reports[len(reports)-1]
 		result["next"] = map[string]any{

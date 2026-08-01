@@ -19,12 +19,26 @@ const (
 	// serves this route today; if it is ever scaled horizontally this must move
 	// to a shared edge limiter rather than being multiplied per replica.
 	//
-	// The burst is sized from how the Market tab actually opens: five catalog
-	// pages, a bounded viewport bootstrap, then detail and offerings requests
-	// for selected vouchers. Voucher-only rows skip the offerings request, so
-	// 40 still leaves headroom for a run of selections immediately after load.
+	// The sustained rate is the abuse control. The burst only decides how bursty a
+	// legitimate first minute may be, and it is sized from the requests the Market
+	// tab actually issues, enumerated in
+	// TestMarketBurstCoversACatalogLoadThenMarkerTaps:
+	//
+	//	5   catalog pages
+	//	2   viewport bootstrap boxes (a viewport crossing the antimeridian splits)
+	//	1   tag vocabulary bootstrap
+	//	8   filter changes — a typed term settling a few times, then chip toggles
+	//	20  marker taps
+	//	--
+	//	36
+	//
+	// 40 covered the 27 requests that existed before catalog search, leaving 13 —
+	// not enough for a search session on top of a map session, and a first-time
+	// visitor would have been 429'd for using the feature normally. 60 covers the
+	// enumerated 36 with margin for the exhaustion pages a filtered set over 500
+	// rows adds.
 	marketRateLimit = rate.Limit(1) // one token per second == 60/min
-	marketRateBurst = 40
+	marketRateBurst = 60
 
 	// The registry is bounded and swept so forged source addresses cannot grow
 	// it without bound.

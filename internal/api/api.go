@@ -60,6 +60,7 @@ type (
 		pretium         *pretium.PretiumClient
 		trustProxy      bool
 		marketLimiter   *marketRateLimiter
+		marketFacets    *marketFacetCache
 	}
 )
 
@@ -89,6 +90,7 @@ func New(o APIOpts) *API {
 		pretium:         o.Pretium,
 		trustProxy:      o.TrustProxy,
 		marketLimiter:   newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
+		marketFacets:    newMarketFacetCache(time.Now),
 	}
 	a.marketLimiter.startSweeper()
 

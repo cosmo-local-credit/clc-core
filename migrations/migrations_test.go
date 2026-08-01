@@ -44,6 +44,8 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "008_market_voucher_indexes.sql")
 	assert.Contains(t, sqlFiles, "009_report_feed_index.sql")
 	assert.Contains(t, sqlFiles, "010_report_body_normalization.sql")
+	assert.Contains(t, sqlFiles, "011_catalog_search_indexes.sql")
+	assert.Contains(t, sqlFiles, "012_report_search_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -55,7 +57,9 @@ func TestMigrationFiles(t *testing.T) {
 				name == "007_pool_token_oracle_feeds.sql" ||
 				name == "008_market_voucher_indexes.sql" ||
 				name == "009_report_feed_index.sql" ||
-				name == "010_report_body_normalization.sql",
+				name == "010_report_body_normalization.sql" ||
+				name == "011_catalog_search_indexes.sql" ||
+				name == "012_report_search_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -504,4 +508,94 @@ func TestReportFeedIndexMigration(t *testing.T) {
 	// Column order must match the feed's keyset predicate so neither the first
 	// page nor a cursor page needs a sort.
 	assert.Contains(t, s, "ON reports (status, updated_at DESC, id DESC)")
+}
+
+func TestCatalogSearchIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("011_catalog_search_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+
+	// pg_trgm, not a text_pattern_ops B-tree: pgx may execute these statements
+	// from a cached generic plan, which cannot derive a B-tree range from a
+	// parameterized LIKE.
+	assert.Contains(t, s, "CREATE EXTENSION IF NOT EXISTS pg_trgm")
+	// Exactly one extension, and it is the trusted one a database owner can
+	// install without superuser. Distance is a later slice: earthdistance is not
+	// trusted, and PostGIS would need an image change.
+	assert.Equal(t, 1, strings.Count(s, "CREATE EXTENSION"))
+	assert.NotContains(t, s, "CREATE EXTENSION IF NOT EXISTS earthdistance")
+	assert.NotContains(t, s, "CREATE EXTENSION IF NOT EXISTS cube")
+	assert.NotContains(t, s, "CREATE EXTENSION IF NOT EXISTS postgis")
+	assert.NotContains(t, s, "geography(")
+	assert.NotContains(t, s, "geometry(")
+
+	// Trigram indexes on the lowered expressions the search actually queries.
+	for _, want := range []string{
+		"vouchers_active_name_trgm_idx",
+		"ON vouchers USING gin (lower(name) gin_trgm_ops)",
+		"vouchers_active_symbol_trgm_idx",
+		"ON vouchers USING gin (lower(symbol) gin_trgm_ops)",
+		"pools_name_trgm_idx",
+		"ON pools USING gin (lower(name) gin_trgm_ops)",
+		"pools_symbol_trgm_idx",
+		"ON pools USING gin (lower(symbol) gin_trgm_ops)",
+	} {
+		assert.Contains(t, s, want)
+	}
+	// The voucher indexes are partial on the catalog's visibility predicate, so
+	// they hold only rows a search can return. Pools carry no such flag.
+	assert.Equal(t, 2, strings.Count(s, "WHERE active"))
+
+	// Reverse tag indexes: every junction's primary key is entity-first, which
+	// cannot serve tag-first filtering or facet aggregation.
+	for _, want := range []string{
+		"ON offering_tags (tag_value, offering_id)",
+		"ON voucher_tags (tag_value, voucher_id)",
+		"ON pool_tags (tag_value, pool_id)",
+		"ON report_tags (tag_value, report_id)",
+	} {
+		assert.Contains(t, s, want)
+	}
+
+	// Re-running the migration must be a no-op.
+	assert.Equal(t, 8, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.NotContains(t, s, "CREATE INDEX CONCURRENTLY")
+
+	// Expression-index statistics only exist once the index does, and the
+	// planner needs them to cost lower(name) against a trigram index at all.
+	assert.Contains(t, s, "ANALYZE vouchers")
+	assert.Contains(t, s, "ANALYZE pools")
+
+	// tern wraps each migration in a transaction, which CREATE INDEX
+	// CONCURRENTLY cannot join; the tables are small enough not to need it.
+	assert.NotContains(t, s, "disable-tx")
+}
+
+// The report search indexes are partial on the feed's own visibility predicate, so the index
+// holds only rows a search can return. Title and description are both indexed; the body is
+// deliberately not — it is normalized into a separate structure and needs a different shape.
+func TestReportSearchIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("012_report_search_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+
+	for _, want := range []string{
+		"reports_approved_title_trgm_idx",
+		"reports_approved_description_trgm_idx",
+	} {
+		assert.Contains(t, s, want)
+	}
+
+	// Trigram GIN, not a B-tree: a generic plan cannot derive a B-tree range from
+	// `lower(title) LIKE lower($1) || '%'`.
+	assert.Contains(t, s, "gin (lower(title) gin_trgm_ops)")
+	assert.Contains(t, s, "gin (lower(description) gin_trgm_ops)")
+	// Scoped to what the feed can return.
+	assert.Contains(t, s, "WHERE status = 'APPROVED'")
+	// Expression-index statistics do not exist until ANALYZE has run against the index.
+	assert.Contains(t, s, "ANALYZE reports;")
+	// The reverse junction index already exists from 011; re-creating it here would be noise.
+	assert.NotContains(t, s, "CREATE INDEX IF NOT EXISTS report_tags_tag_report_idx")
 }

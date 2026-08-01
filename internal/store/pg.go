@@ -118,6 +118,20 @@ type (
 		ListMarketVouchersPrevBounded string `query:"list-market-vouchers-prev-bounded"`
 
 		GetMarketVoucherByAddress string `query:"get-market-voucher-by-address"`
+
+		// Catalog search support. The filtered voucher and pool statements are
+		// composed in Go from constant fragments (internal/store/catalog_search.go)
+		// rather than enumerated here: one statement per combination of entity,
+		// page direction, viewport, search, and tag mode would be an
+		// unmaintainable set of near-identical queries.
+		UnknownTokenTags           string `query:"unknown-token-tags"`
+		SetCatalogStatementTimeout string `query:"set-catalog-statement-timeout"`
+
+		// Facet vocabularies are parameterless and request-independent; only
+		// the count half varies with the search, and it is composed.
+		ListVoucherTagVocabulary string `query:"list-voucher-tag-vocabulary"`
+		ListPoolTagVocabulary    string `query:"list-pool-tag-vocabulary"`
+		ListReportTagVocabulary  string `query:"list-report-tag-vocabulary"`
 	}
 
 	PgOpts struct {

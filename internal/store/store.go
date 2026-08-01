@@ -92,11 +92,21 @@ type (
 		ListPoolOfferingsPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]Offering, error)
 		ListReports(context.Context, pgx.Tx, uint64) ([]Report, error)
 		ListReportsNext(context.Context, pgx.Tx, ReportCursor, uint64) ([]Report, error)
+		ListReportsFiltered(context.Context, pgx.Tx, CatalogFilter, ReportCursor, bool, uint64) ([]Report, error)
+		ListReportTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		GetReport(context.Context, pgx.Tx, uint64) (*Report, error)
 		ListMarketVouchers(context.Context, pgx.Tx, *MarketVoucherBounds, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersNext(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersPrevious(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		GetMarketVoucherByAddress(context.Context, pgx.Tx, string) (MarketVoucherDetail, error)
+
+		// Catalog search and tag filtering (PG_SEARCH_PLAN.md Slices 1 and 2).
+		ListMarketVouchersFiltered(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter, CatalogPage, uint64, uint64) ([]MarketVoucher, error)
+		ListMarketVoucherTagFacets(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter) ([]TagFacet, error)
+		ListPoolsFiltered(context.Context, pgx.Tx, CatalogFilter, CatalogPage, uint64, uint64) ([]Pool, error)
+		ListPoolTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
+		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
+		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
 		ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)
