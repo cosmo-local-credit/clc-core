@@ -3,11 +3,13 @@ package api
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -20,7 +22,11 @@ import (
 // parameters, and `tagMatch` selects a compile-time constant fragment.
 
 var (
-	errInvalidFacets = errors.New("facets must be true or false")
+	errInvalidFacets     = errors.New("facets must be true or false")
+	errInvalidVoucherRef = errors.New(
+		"vouchers must contain chainId:address values with a positive chain ID and a valid hex address")
+	errUnknownVoucherRef = errors.New(
+		"vouchers contains a voucher that does not exist in the catalog")
 	// The vocabulary is named as `facets=true` rather than as /api/v2/token-tags
 	// because this endpoint is public and that one is not: a signed-out caller
 	// can filter but cannot read the tag list from there. The facet response is
@@ -41,6 +47,10 @@ type (
 	// list request.
 	catalogSearchRequest struct {
 		filter store.CatalogFilter
+		// voucherRefs remain stable public identities until the handler's read
+		// transaction resolves every one to a database ID.
+		voucherRefs  []store.VoucherRef
+		voucherMatch store.TagMatch
 		// facets asks for the tag facet alongside the page. It is honoured on
 		// the first page only: a facet describes the whole filtered set rather
 		// than the page, so recomputing it per cursor page would return the
@@ -92,6 +102,70 @@ func parseCatalogSearch(c *echo.Context) (catalogSearchRequest, error) {
 	}
 
 	return catalogSearchRequest{filter: filter, facets: facets}, nil
+}
+
+// parseCatalogRelationshipSearch extends the shared text/tag parser for entity
+// lists that can be related to vouchers. The market voucher catalog keeps using
+// parseCatalogSearch because asking a voucher list to contain a voucher has no
+// defined meaning.
+func parseCatalogRelationshipSearch(c *echo.Context) (catalogSearchRequest, error) {
+	search, err := parseCatalogSearch(c)
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
+
+	query := c.Request().URL.Query()
+	seen := make(map[string]struct{})
+	for _, raw := range query["vouchers"] {
+		for value := range strings.SplitSeq(raw, ",") {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+
+			chain, address, ok := strings.Cut(value, ":")
+			chainID, parseErr := strconv.ParseInt(strings.TrimSpace(chain), 10, 64)
+			address = strings.TrimSpace(address)
+			if !ok || parseErr != nil || chainID <= 0 || !common.IsHexAddress(address) {
+				return catalogSearchRequest{}, errInvalidVoucherRef
+			}
+
+			canonical := common.HexToAddress(address).Hex()
+			key := strconv.FormatInt(chainID, 10) + ":" + strings.ToLower(canonical)
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			search.voucherRefs = append(search.voucherRefs, store.VoucherRef{
+				ChainID: chainID,
+				Address: canonical,
+			})
+		}
+	}
+
+	if len(search.voucherRefs) > store.CatalogMaxVouchers {
+		return catalogSearchRequest{}, store.ErrCatalogTooManyVouchers
+	}
+	slices.SortFunc(search.voucherRefs, func(left, right store.VoucherRef) int {
+		if left.ChainID < right.ChainID {
+			return -1
+		}
+		if left.ChainID > right.ChainID {
+			return 1
+		}
+		return strings.Compare(strings.ToLower(left.Address), strings.ToLower(right.Address))
+	})
+
+	switch strings.ToLower(strings.TrimSpace(query.Get("voucherMatch"))) {
+	case "", "any":
+		search.voucherMatch = store.TagMatchAny
+	case "all":
+		search.voucherMatch = store.TagMatchAll
+	default:
+		return catalogSearchRequest{}, store.ErrCatalogUnknownVoucherMatch
+	}
+
+	return search, nil
 }
 
 // respondCatalogSearchError maps a filter validation failure to 400. The
@@ -147,6 +221,34 @@ func (a *API) rejectUnknownTags(c *echo.Context, tx pgx.Tx, tags []string) (bool
 	}
 	if len(unknown) > 0 {
 		return true, respondCatalogSearchError(c, errUnknownTagValue)
+	}
+	return false, nil
+}
+
+// resolveVoucherFilter converts the request's stable voucher identities to
+// internal junction keys. A single missing reference fails the whole request;
+// silently dropping it would broaden an any-match filter and make an all-match
+// filter mean something different from what the caller selected.
+func (a *API) resolveVoucherFilter(
+	c *echo.Context,
+	tx pgx.Tx,
+	search *catalogSearchRequest,
+) (bool, error) {
+	if len(search.voucherRefs) == 0 {
+		return false, nil
+	}
+
+	ids, err := a.store.ResolveVoucherRefs(c.Request().Context(), tx, search.voucherRefs)
+	if err != nil {
+		return true, handlePostgresError(c, err)
+	}
+	if len(ids) != len(search.voucherRefs) {
+		return true, respondCatalogSearchError(c, errUnknownVoucherRef)
+	}
+
+	search.filter, err = search.filter.WithVoucherIDs(ids, search.voucherMatch)
+	if err != nil {
+		return true, respondCatalogSearchError(c, err)
 	}
 	return false, nil
 }

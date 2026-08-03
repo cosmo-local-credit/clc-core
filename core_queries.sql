@@ -1091,7 +1091,8 @@ SELECT r.id, r.title, r.description,
     ), ARRAY[]::TEXT[]) AS tags,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
-            'address', v.address, 'name', v.name, 'symbol', v.symbol
+            'id', v.id, 'chainId', v.chain_id, 'address', v.address,
+            'name', v.name, 'symbol', v.symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -1114,7 +1115,8 @@ SELECT r.id, r.title, r.description,
     ), ARRAY[]::TEXT[]) AS tags,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
-            'address', v.address, 'name', v.name, 'symbol', v.symbol
+            'id', v.id, 'chainId', v.chain_id, 'address', v.address,
+            'name', v.name, 'symbol', v.symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -1171,7 +1173,8 @@ SELECT r.id, r.title, r.body, r.description,
     ), ARRAY[]::TEXT[]) AS tags,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
-            'address', v.address, 'name', v.name, 'symbol', v.symbol
+            'id', v.id, 'chainId', v.chain_id, 'address', v.address,
+            'name', v.name, 'symbol', v.symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -1196,6 +1199,21 @@ WHERE NOT EXISTS (
 -- can, so the timeout stays a Go constant instead of interpolated SQL.
 --name: set-catalog-statement-timeout
 SELECT set_config('statement_timeout', $1, true);
+
+-- Resolve stable public voucher identities to the numeric keys used by the
+-- relationship junctions. The caller compares the result count with the
+-- deduplicated request and rejects the whole filter if any reference is absent.
+--name: resolve-voucher-refs
+WITH requested AS (
+    SELECT *
+    FROM unnest($1::BIGINT[], $2::TEXT[]) AS ref(chain_id, address)
+)
+SELECT v.id
+FROM requested ref
+INNER JOIN vouchers v
+    ON v.chain_id = ref.chain_id
+    AND lower(v.address) = lower(ref.address)
+ORDER BY v.id;
 
 -- The voucher tag facet vocabulary: every tag that appears on an available
 -- offering of a visible voucher. Deliberately independent of the caller's

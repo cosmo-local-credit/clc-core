@@ -40,12 +40,26 @@ type (
 		Count uint64 `json:"count"`
 	}
 
+	reportVoucherFacetPayload struct {
+		ID      uint64 `json:"id"`
+		ChainID int64  `json:"chainId"`
+		Address string `json:"address"`
+		Name    string `json:"name"`
+		Symbol  string `json:"symbol"`
+		Count   uint64 `json:"count"`
+	}
+
 	reportPagePayload struct {
 		Reports []struct {
 			ID          uint64   `json:"id"`
 			Title       string   `json:"title"`
 			Description string   `json:"description"`
 			Tags        []string `json:"tags"`
+			Vouchers    []struct {
+				ID      uint64 `json:"id"`
+				ChainID int64  `json:"chainId"`
+				Address string `json:"address"`
+			} `json:"vouchers"`
 		} `json:"reports"`
 		Next *struct {
 			UpdatedAt string `json:"updatedAt"`
@@ -53,6 +67,8 @@ type (
 		} `json:"next"`
 		// A pointer so an absent key is distinguishable from an empty facet.
 		TagFacets *[]reportTagFacetPayload `json:"tagFacets"`
+		// Voucher facets share the same first-page-only contract.
+		VoucherFacets *[]reportVoucherFacetPayload `json:"voucherFacets"`
 	}
 )
 
@@ -106,6 +122,55 @@ func newReportSearchAPI(t *testing.T) (*API, string) {
 	}
 
 	return a, token
+}
+
+func seedReportVoucher(t *testing.T, a *API, name, symbol string) (uint64, string, func()) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin voucher seed: %v", err)
+	}
+
+	var id uint64
+	var address string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, active)
+		VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'), $1, $2, 6, TRUE)
+		RETURNING id, address`, name, symbol).Scan(&id, &address); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("seed report voucher: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit voucher seed: %v", err)
+	}
+
+	return id, address, func() {
+		cleanupTx, cleanupErr := a.store.Pool().Begin(context.Background())
+		if cleanupErr != nil {
+			return
+		}
+		_, _ = cleanupTx.Exec(context.Background(), `DELETE FROM vouchers WHERE id = $1`, id)
+		_ = cleanupTx.Commit(context.Background())
+	}
+}
+
+func linkReportVoucher(t *testing.T, a *API, reportID, voucherID uint64) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin report-voucher link: %v", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO report_vouchers (report_id, voucher_id) VALUES ($1, $2)`,
+		reportID, voucherID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("link report voucher: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit report-voucher link: %v", err)
+	}
 }
 
 // seedApprovedReport commits one approved report and its direct tags, returning its id and a
@@ -268,6 +333,78 @@ func TestReportsEndpointReturnsTheTagsThatMatched(t *testing.T) {
 	}
 }
 
+func TestReportsEndpointFiltersAndFacetsByVoucher(t *testing.T) {
+	a, token := newReportSearchAPI(t)
+	marker := reportSearchToken + "Vouchers"
+
+	firstVoucher, firstAddress, cleanFirstVoucher := seedReportVoucher(t, a, marker+" First", "RFV1")
+	defer cleanFirstVoucher()
+	secondVoucher, secondAddress, cleanSecondVoucher := seedReportVoucher(t, a, marker+" Second", "RFV2")
+	defer cleanSecondVoucher()
+
+	firstReport, cleanFirstReport := seedApprovedReport(t, a, marker+" First", "x")
+	defer cleanFirstReport()
+	bothReport, cleanBothReport := seedApprovedReport(t, a, marker+" Both", "x")
+	defer cleanBothReport()
+	secondReport, cleanSecondReport := seedApprovedReport(t, a, marker+" Second", "x")
+	defer cleanSecondReport()
+	linkReportVoucher(t, a, firstReport, firstVoucher)
+	linkReportVoucher(t, a, bothReport, firstVoucher)
+	linkReportVoucher(t, a, bothReport, secondVoucher)
+	linkReportVoucher(t, a, secondReport, secondVoucher)
+
+	ref := func(address string) string { return "42220:" + address }
+	listIDs := func(vouchers, match string, facets bool) (reportPagePayload, []uint64) {
+		t.Helper()
+		params := map[string][]string{
+			"perPage":  {"100"},
+			"q":        {marker},
+			"vouchers": {vouchers},
+		}
+		if match != "" {
+			params["voucherMatch"] = []string{match}
+		}
+		if facets {
+			params["facets"] = []string{"true"}
+		}
+		res, page := getReportPage(t, a, token, params)
+		if res.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+		}
+		ids := make([]uint64, 0, len(page.Reports))
+		for _, report := range page.Reports {
+			ids = append(ids, report.ID)
+		}
+		slices.Sort(ids)
+		return page, ids
+	}
+
+	_, anyIDs := listIDs(ref(firstAddress)+","+ref(secondAddress), "", false)
+	wantAny := []uint64{firstReport, bothReport, secondReport}
+	slices.Sort(wantAny)
+	if !slices.Equal(anyIDs, wantAny) {
+		t.Errorf("any voucher IDs = %v, want %v", anyIDs, wantAny)
+	}
+	page, allIDs := listIDs(ref(firstAddress)+","+ref(secondAddress), "all", true)
+	if !slices.Equal(allIDs, []uint64{bothReport}) {
+		t.Errorf("all voucher IDs = %v, want [%d]", allIDs, bothReport)
+	}
+	if len(page.Reports) != 1 || len(page.Reports[0].Vouchers) != 2 ||
+		page.Reports[0].Vouchers[0].ChainID != 42220 {
+		t.Errorf("filtered report did not retain voucher identities: %+v", page.Reports)
+	}
+	if page.VoucherFacets == nil {
+		t.Fatal("facets=true on the first page must return voucherFacets")
+	}
+	counts := make(map[uint64]uint64, len(*page.VoucherFacets))
+	for _, facet := range *page.VoucherFacets {
+		counts[facet.ID] = facet.Count
+	}
+	if counts[firstVoucher] != 2 || counts[secondVoucher] != 2 {
+		t.Errorf("voucher facet counts = %v, want both at 2", counts)
+	}
+}
+
 func TestReportsEndpointReturnsTagFacetsOnTheFirstPageOnly(t *testing.T) {
 	a, token := newReportSearchAPI(t)
 	marker := reportSearchToken + "Facets"
@@ -339,11 +476,14 @@ func TestReportsEndpointRejectsInvalidFilters(t *testing.T) {
 	a, token := newReportSearchAPI(t)
 
 	for name, params := range map[string]map[string][]string{
-		"unknown tag":   {"tags": {"NotARealTag"}},
-		"one-char term": {"q": {"a"}},
-		"bad tagMatch":  {"tagMatch": {"sideways"}},
-		"bad facets":    {"facets": {"maybe"}},
-		"too many tags": {"tags": {"a,b,c,d,e,f,g,h,i,j,k,l,m"}},
+		"unknown tag":      {"tags": {"NotARealTag"}},
+		"one-char term":    {"q": {"a"}},
+		"bad tagMatch":     {"tagMatch": {"sideways"}},
+		"bad facets":       {"facets": {"maybe"}},
+		"bad voucher":      {"vouchers": {"42220:not-an-address"}},
+		"bad voucherMatch": {"voucherMatch": {"sideways"}},
+		"unknown voucher":  {"vouchers": {"42220:0x9999999999999999999999999999999999999999"}},
+		"too many tags":    {"tags": {"a,b,c,d,e,f,g,h,i,j,k,l,m"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			res, _ := getReportPage(t, a, token, params)

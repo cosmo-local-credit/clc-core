@@ -58,6 +58,7 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 			"    FROM pools p" +
 			whereClause(
 				poolTagPredicate(args, filter),
+				poolVoucherPredicate(args, filter),
 				cursorPredicate(args, "p.id", page, cursor),
 			) +
 			"\n    ORDER BY p.id " + pageOrder(page) +
@@ -72,6 +73,7 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 		whereClause(
 			searchPredicate(args, filter, "p"),
 			poolTagPredicate(args, filter),
+			poolVoucherPredicate(args, filter),
 		) +
 		"\n),\npage AS MATERIALIZED (\n" +
 		"    SELECT m.id\n" +
@@ -93,13 +95,68 @@ func composePoolTagCounts(filter CatalogFilter) composed {
 	sql := `WITH candidates AS MATERIALIZED (
     SELECT p.id
     FROM pools p` +
-		whereClause(searchPredicate(args, filter, "p")) + `
+		whereClause(
+			searchPredicate(args, filter, "p"),
+			poolVoucherPredicate(args, filter),
+		) + `
 )
 SELECT pt.tag_value AS tag_value,
     COUNT(*) AS match_count
 FROM candidates c
 INNER JOIN pool_tags pt ON pt.pool_id = c.id
 GROUP BY pt.tag_value;`
+
+	return composed{sql: sql, args: args.values}
+}
+
+// poolVoucherPredicate filters on allowed composition rows, matching both the
+// voucher_count projection and GET /pools/:address/vouchers. A disallowed
+// historical row therefore never makes a pool appear to contain a voucher.
+func poolVoucherPredicate(args *sqlArgs, filter CatalogFilter) string {
+	if len(filter.VoucherIDs) == 0 {
+		return ""
+	}
+
+	placeholder := args.bind(voucherIDsParam(filter.VoucherIDs))
+	if filter.VoucherMatch == TagMatchAll {
+		return `(
+            SELECT COUNT(*)
+            FROM pool_tokens pv
+            WHERE pv.pool_id = p.id
+                AND pv.is_allowed
+                AND pv.voucher_id = ANY(` + placeholder + `::BIGINT[])
+        ) = cardinality(` + args.reuse() + `::BIGINT[])`
+	}
+	return `EXISTS (
+            SELECT 1
+            FROM pool_tokens pv
+            WHERE pv.pool_id = p.id
+                AND pv.is_allowed
+                AND pv.voucher_id = ANY(` + placeholder + `::BIGINT[])
+        )`
+}
+
+// composePoolVoucherCounts returns the allowed member vouchers under the
+// current pool search and tag filters, while deliberately omitting the selected
+// voucher reducer for disjunctive counts.
+func composePoolVoucherCounts(filter CatalogFilter) composed {
+	args := &sqlArgs{}
+
+	sql := `WITH candidates AS MATERIALIZED (
+    SELECT p.id
+    FROM pools p` +
+		whereClause(
+			searchPredicate(args, filter, "p"),
+			poolTagPredicate(args, filter),
+		) + `
+)
+SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+    COUNT(*) AS match_count
+FROM candidates c
+INNER JOIN pool_tokens pv ON pv.pool_id = c.id AND pv.is_allowed
+INNER JOIN vouchers v ON v.id = pv.voucher_id
+GROUP BY v.id, v.chain_id, v.address, v.name, v.symbol
+ORDER BY lower(v.name), v.id;`
 
 	return composed{sql: sql, args: args.values}
 }
@@ -143,4 +200,19 @@ func (pg *Pg) ListPoolTagFacets(ctx context.Context, tx pgx.Tx, filter CatalogFi
 		filter.Active(),
 		filter.Tags,
 	)
+}
+
+// ListPoolVoucherFacets returns allowed member-voucher choices for the current
+// pool search and tag filters.
+func (pg *Pg) ListPoolVoucherFacets(
+	ctx context.Context,
+	tx pgx.Tx,
+	filter CatalogFilter,
+) ([]VoucherFacet, error) {
+	query := composePoolVoucherCounts(filter)
+	var facets []VoucherFacet
+	if err := pgxscan.Select(ctx, tx, &facets, query.sql, query.args...); err != nil {
+		return nil, err
+	}
+	return facets, nil
 }

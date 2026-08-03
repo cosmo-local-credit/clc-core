@@ -1070,6 +1070,156 @@ func seedSearchReport(t *testing.T, tx pgx.Tx, title, description string, tags .
 	return id
 }
 
+func TestVoucherRelationshipFiltersForReportsAndPools(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	marker := searchToken + " Relationships"
+
+	firstVoucher := seedSearchVoucher(t, tx, marker+" First Voucher", "RV1")
+	secondVoucher := seedSearchVoucher(t, tx, marker+" Second Voucher", "RV2")
+
+	var firstAddress, secondAddress string
+	if err := tx.QueryRow(ctx, `SELECT address FROM vouchers WHERE id = $1`, firstVoucher).Scan(&firstAddress); err != nil {
+		t.Fatalf("read first voucher address: %v", err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT address FROM vouchers WHERE id = $1`, secondVoucher).Scan(&secondAddress); err != nil {
+		t.Fatalf("read second voucher address: %v", err)
+	}
+	resolved, err := pg.ResolveVoucherRefs(ctx, tx, []VoucherRef{
+		{ChainID: 42220, Address: secondAddress},
+		{ChainID: 42220, Address: firstAddress},
+	})
+	if err != nil {
+		t.Fatalf("resolve voucher refs: %v", err)
+	}
+	wantResolved := []uint64{firstVoucher, secondVoucher}
+	slices.Sort(wantResolved)
+	if !slices.Equal(resolved, wantResolved) {
+		t.Fatalf("resolved IDs = %v, want %v", resolved, wantResolved)
+	}
+
+	firstReport := seedSearchReport(t, tx, marker+" First Report", "x")
+	bothReport := seedSearchReport(t, tx, marker+" Both Report", "x")
+	secondReport := seedSearchReport(t, tx, marker+" Second Report", "x")
+	for _, relation := range [][2]uint64{
+		{firstReport, firstVoucher},
+		{bothReport, firstVoucher},
+		{bothReport, secondVoucher},
+		{secondReport, secondVoucher},
+	} {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO report_vouchers (report_id, voucher_id) VALUES ($1, $2)`,
+			relation[0], relation[1]); err != nil {
+			t.Fatalf("seed report voucher: %v", err)
+		}
+	}
+
+	base := mustFilter(t, marker, nil, TagMatchAny)
+	listReportIDs := func(ids []uint64, match TagMatch) []uint64 {
+		t.Helper()
+		filter, filterErr := base.WithVoucherIDs(ids, match)
+		if filterErr != nil {
+			t.Fatalf("report voucher filter: %v", filterErr)
+		}
+		reports, listErr := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 100)
+		if listErr != nil {
+			t.Fatalf("list reports: %v", listErr)
+		}
+		got := make([]uint64, 0, len(reports))
+		for _, report := range reports {
+			got = append(got, report.ID)
+		}
+		slices.Sort(got)
+		return got
+	}
+	if got, want := listReportIDs([]uint64{firstVoucher, secondVoucher}, TagMatchAny),
+		[]uint64{firstReport, bothReport, secondReport}; !slices.Equal(got, want) {
+		t.Errorf("report any IDs = %v, want %v", got, want)
+	}
+	if got := listReportIDs([]uint64{firstVoucher, secondVoucher}, TagMatchAll); !slices.Equal(got, []uint64{bothReport}) {
+		t.Errorf("report all IDs = %v, want [%d]", got, bothReport)
+	}
+
+	reportFacets, err := pg.ListReportVoucherFacets(ctx, tx, base)
+	if err != nil {
+		t.Fatalf("report voucher facets: %v", err)
+	}
+	reportCounts := make(map[uint64]uint64, len(reportFacets))
+	for _, facet := range reportFacets {
+		reportCounts[facet.ID] = facet.Count
+	}
+	if reportCounts[firstVoucher] != 2 || reportCounts[secondVoucher] != 2 {
+		t.Errorf("report voucher counts = %v, want both vouchers at 2", reportCounts)
+	}
+
+	seedPool := func(name string) uint64 {
+		t.Helper()
+		var id uint64
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO pools (chain_id, address, name, symbol, decimals)
+			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'), $1, 'RLP', 6)
+			RETURNING id`, name).Scan(&id); err != nil {
+			t.Fatalf("seed relationship pool: %v", err)
+		}
+		return id
+	}
+	firstPool := seedPool(marker + " First Pool")
+	bothPool := seedPool(marker + " Both Pool")
+	disallowedPool := seedPool(marker + " Disallowed Pool")
+	for _, relation := range []struct {
+		poolID, voucherID uint64
+		allowed           bool
+	}{
+		{firstPool, firstVoucher, true},
+		{bothPool, firstVoucher, true},
+		{bothPool, secondVoucher, true},
+		{disallowedPool, secondVoucher, false},
+	} {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed)
+			VALUES ($1, $2, $3)`, relation.poolID, relation.voucherID, relation.allowed); err != nil {
+			t.Fatalf("seed pool voucher: %v", err)
+		}
+	}
+
+	listPoolIDs := func(ids []uint64, match TagMatch) []uint64 {
+		t.Helper()
+		filter, filterErr := base.WithVoucherIDs(ids, match)
+		if filterErr != nil {
+			t.Fatalf("pool voucher filter: %v", filterErr)
+		}
+		pools, listErr := pg.ListPoolsFiltered(ctx, tx, filter, CatalogFirstPage, 0, 100)
+		if listErr != nil {
+			t.Fatalf("list pools: %v", listErr)
+		}
+		got := make([]uint64, 0, len(pools))
+		for _, pool := range pools {
+			got = append(got, pool.ID)
+		}
+		slices.Sort(got)
+		return got
+	}
+	if got := listPoolIDs([]uint64{secondVoucher}, TagMatchAny); !slices.Equal(got, []uint64{bothPool}) {
+		t.Errorf("pool second-voucher IDs = %v, want allowed pool [%d]", got, bothPool)
+	}
+	if got := listPoolIDs([]uint64{firstVoucher, secondVoucher}, TagMatchAll); !slices.Equal(got, []uint64{bothPool}) {
+		t.Errorf("pool all IDs = %v, want [%d]", got, bothPool)
+	}
+
+	poolFacets, err := pg.ListPoolVoucherFacets(ctx, tx, base)
+	if err != nil {
+		t.Fatalf("pool voucher facets: %v", err)
+	}
+	poolCounts := make(map[uint64]uint64, len(poolFacets))
+	for _, facet := range poolFacets {
+		poolCounts[facet.ID] = facet.Count
+	}
+	if poolCounts[firstVoucher] != 2 || poolCounts[secondVoucher] != 1 {
+		t.Errorf("pool voucher counts = %v, want first=2 second=1", poolCounts)
+	}
+}
+
 // Report search matches title and description, and nothing else. The body is deliberately not
 // searched: it is normalized into a separate structure and needs a different index shape.
 func TestReportSearchMatchesTitleAndDescription(t *testing.T) {

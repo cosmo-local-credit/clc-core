@@ -33,12 +33,13 @@ const (
 // repeat rows. The cursor is therefore the (updatedAt, id) pair the last row
 // carried, and it is echoed back as `next`.
 //
-// Optional `q`, `tags`, `tagMatch`, and `facets` narrow the feed
+// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, and `facets` narrow the feed
 // (SEARCH_FILTER_PLAN.md Slice 4). `q` matches title and description; report body
 // search stays parked. Report tags are the reports' own `report_tags`, which each
 // row already returns, so a filtered row carries the tag that matched it. The
-// response shape is unchanged when the parameters are absent and gains only the
-// additive `tagFacets` key when `facets=true` is asked for on a first page.
+// response shape is unchanged when the parameters are absent and gains the
+// additive `tagFacets` and `voucherFacets` keys when `facets=true` is asked for
+// on a first page.
 func (a *API) reportsListHandler(c *echo.Context) error {
 	query := c.Request().URL.Query()
 
@@ -58,7 +59,7 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 		return reportValidationError(c, err.Error())
 	}
 
-	search, err := parseCatalogSearch(c)
+	search, err := parseCatalogRelationshipSearch(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
@@ -82,6 +83,9 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	if handled, vErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || vErr != nil {
 		return vErr
 	}
+	if handled, vErr := a.resolveVoucherFilter(c, tx, &search); handled || vErr != nil {
+		return vErr
+	}
 
 	reports, err := a.store.ListReportsFiltered(ctx, tx, search.filter, cursor, hasCursor, perPage)
 	if err != nil {
@@ -94,8 +98,13 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	// A facet describes the whole filtered set rather than the page, so it is computed for the
 	// first page only and the key is simply absent from cursor pages.
 	var facets []store.TagFacet
+	var voucherFacets []store.VoucherFacet
 	if search.facets && !hasCursor {
 		facets, err = a.store.ListReportTagFacets(ctx, tx, search.filter)
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		voucherFacets, err = a.store.ListReportVoucherFacets(ctx, tx, search.filter)
 		if err != nil {
 			return handlePostgresError(c, err)
 		}
@@ -110,6 +119,9 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	result := map[string]any{"reports": reports, "next": nil}
 	if facets != nil {
 		result["tagFacets"] = facets
+	}
+	if voucherFacets != nil {
+		result["voucherFacets"] = voucherFacets
 	}
 	if uint64(len(reports)) == perPage {
 		last := reports[len(reports)-1]

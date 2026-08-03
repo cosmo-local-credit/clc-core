@@ -46,6 +46,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "010_report_body_normalization.sql")
 	assert.Contains(t, sqlFiles, "011_catalog_search_indexes.sql")
 	assert.Contains(t, sqlFiles, "012_report_search_indexes.sql")
+	assert.Contains(t, sqlFiles, "013_voucher_relationship_filter_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -59,7 +60,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "009_report_feed_index.sql" ||
 				name == "010_report_body_normalization.sql" ||
 				name == "011_catalog_search_indexes.sql" ||
-				name == "012_report_search_indexes.sql",
+				name == "012_report_search_indexes.sql" ||
+				name == "013_voucher_relationship_filter_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -598,4 +600,18 @@ func TestReportSearchIndexesMigration(t *testing.T) {
 	assert.Contains(t, s, "ANALYZE reports;")
 	// The reverse junction index already exists from 011; re-creating it here would be noise.
 	assert.NotContains(t, s, "CREATE INDEX IF NOT EXISTS report_tags_tag_report_idx")
+}
+
+func TestVoucherRelationshipFilterIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("013_voucher_relationship_filter_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ON report_vouchers (voucher_id, report_id)")
+	assert.Contains(t, s, "ON pool_tokens (voucher_id, pool_id)")
+	assert.Contains(t, s, "WHERE is_allowed")
+	assert.Equal(t, 2, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.NotContains(t, s, "CREATE INDEX CONCURRENTLY")
+	assert.Contains(t, s, "ANALYZE report_vouchers")
+	assert.Contains(t, s, "ANALYZE pool_tokens")
 }

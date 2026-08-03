@@ -200,6 +200,45 @@ func TestParseCatalogSearchWithoutParametersIsInactive(t *testing.T) {
 	}
 }
 
+func TestParseCatalogRelationshipSearchNormalizesVouchers(t *testing.T) {
+	const (
+		first  = "0x1111111111111111111111111111111111111111"
+		second = "0x2222222222222222222222222222222222222222"
+	)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v2/reports?vouchers=42220:"+second+",42220:"+first+"&vouchers=42220:"+first+"&voucherMatch=ALL", nil)
+	c := echo.New().NewContext(req, httptest.NewRecorder())
+
+	got, err := parseCatalogRelationshipSearch(c)
+	if err != nil {
+		t.Fatalf("parseCatalogRelationshipSearch() error = %v", err)
+	}
+	if len(got.voucherRefs) != 2 {
+		t.Fatalf("voucherRefs = %v, want two unique refs", got.voucherRefs)
+	}
+	if got.voucherRefs[0].Address != first || got.voucherRefs[1].Address != second {
+		t.Errorf("voucherRefs = %v, want canonical sorted refs", got.voucherRefs)
+	}
+	if got.voucherMatch != store.TagMatchAll {
+		t.Errorf("voucherMatch = %v, want all", got.voucherMatch)
+	}
+}
+
+func TestParseCatalogRelationshipSearchRejectsInvalidVouchers(t *testing.T) {
+	for name, query := range map[string]string{
+		"missing chain":   "vouchers=0x1111111111111111111111111111111111111111",
+		"zero chain":      "vouchers=0:0x1111111111111111111111111111111111111111",
+		"invalid address": "vouchers=42220:not-an-address",
+		"unknown match":   "voucherMatch=sideways",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/reports?"+query, nil)
+		c := echo.New().NewContext(req, httptest.NewRecorder())
+		if _, err := parseCatalogRelationshipSearch(c); err == nil {
+			t.Errorf("%s: expected validation error", name)
+		}
+	}
+}
+
 // The facet is a property of the whole filtered set, so it is computed for the
 // first page only and simply absent from cursor pages.
 func TestCatalogTagFacetExtrasOnlyRunsOnTheFirstPage(t *testing.T) {

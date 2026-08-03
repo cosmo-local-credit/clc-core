@@ -126,6 +126,7 @@ type (
 		// unmaintainable set of near-identical queries.
 		UnknownTokenTags           string `query:"unknown-token-tags"`
 		SetCatalogStatementTimeout string `query:"set-catalog-statement-timeout"`
+		ResolveVoucherRefs         string `query:"resolve-voucher-refs"`
 
 		// Facet vocabularies are parameterless and request-independent; only
 		// the count half varies with the search, and it is composed.

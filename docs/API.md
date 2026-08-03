@@ -751,6 +751,18 @@ Returns **all confirmed** (on-chain) SwapPool contracts across all users — the
 | `perPage` | `int` | `100` | Results per page (max `100`) |
 | `next` | `bool` | `false` | When `true`, page toward older records from `cursor` (load more) |
 | `cursor` | `int` | — | Use `last` with `next=true` for the next older page, or `first` without `next` to move back toward newer records |
+| `q` | `string` | — | Pool name/symbol search; normalized length must be `2`–`64` characters |
+| `tags` | `string` or repeated | — | Comma-separated pool tags; at most `12` distinct values |
+| `tagMatch` | `any` \| `all` | `any` | Whether a pool must carry any or all selected tags |
+| `vouchers` | `string` or repeated | — | Comma-separated stable voucher references (`chainId:0xAddress`); at most `12` |
+| `voucherMatch` | `any` \| `all` | `any` | Whether a pool must contain any or all selected vouchers |
+| `facets` | `bool` | `false` | With `true` on the first page, include tag and voucher facet counts |
+
+Voucher membership uses allowed `pool_tokens` rows, matching the pool voucher
+list and `voucherCount`; a historical disallowed row does not satisfy the
+filter. Voucher references are resolved by `(chainId, address)` rather than by
+environment-local numeric IDs. An invalid or unknown reference rejects the
+whole filter with `400` instead of silently broadening it.
 
 **Response `200`:**
 
@@ -788,6 +800,13 @@ Returns **all confirmed** (on-chain) SwapPool contracts across all users — the
 | `pools` | `array` | Current page of confirmed pools (`[]` when empty) |
 | `first` | `int` | Highest record ID in the current page |
 | `last` | `int` | Lowest record ID in the current page — use as `cursor` with `next=true` |
+
+When `facets=true` is requested on the first page, `result.tagFacets` contains
+`{tag, count}` rows and `result.voucherFacets` contains
+`{id, chainId, address, name, symbol, count}` rows. Each facet retains the
+search and the other facet dimension while omitting its own selected reducer,
+so the counts describe options the user can add. Facet keys are absent from
+cursor pages.
 
 **Note:** Prefer this endpoint for the Pools tab browse list. `GET /api/v2/users/me/pools` remains the authenticated user's own deployed pools only.
 
@@ -1594,6 +1613,22 @@ GET /api/v2/reports?perPage=20&cursorUpdatedAt=2026-07-19T08:14:02.311Z&cursorId
 
 `perPage` defaults to 20 and is capped at 100.
 
+The feed also accepts the catalog filter parameters below:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `q` | `string` | — | Report title/description search; normalized length must be `2`–`64` characters |
+| `tags` | `string` or repeated | — | Comma-separated report tags; at most `12` distinct values |
+| `tagMatch` | `any` \| `all` | `any` | Whether a report must carry any or all selected tags |
+| `vouchers` | `string` or repeated | — | Comma-separated stable voucher references (`chainId:0xAddress`); at most `12` |
+| `voucherMatch` | `any` \| `all` | `any` | Whether a report must be linked to any or all selected vouchers |
+| `facets` | `bool` | `false` | With `true` on the first page, include tag and voucher facet counts |
+
+Voucher references are case-insensitive addresses scoped by chain ID. Invalid
+or unknown references reject the whole request with `400`. `tagFacets` and
+`voucherFacets` use the same disjunctive counting contract as the pool catalog
+and are absent from cursor pages.
+
 **This route does not use the numeric `cursor`/`next` keyset the catalog routes
 use.** The feed is ordered by `updated_at DESC, id DESC`, and on the imported
 catalog that order is unrelated to id order — measured on 3,730 approved rows,
@@ -1613,7 +1648,7 @@ instead:
 
 Each row is a summary: `id`, `title`, `description`, `imageUrl`, `geoLat`,
 `geoLng`, `periodFrom`, `periodTo`, `authorAddress`, `createdAt`, `updatedAt`,
-`tags`, and `vouchers` (each `{address, name, symbol}`).
+`tags`, and `vouchers` (each `{id, chainId, address, name, symbol}`).
 
 `body` is not returned on the feed — a row is a summary and `description`
 already carries what it renders. It is available on the detail route.

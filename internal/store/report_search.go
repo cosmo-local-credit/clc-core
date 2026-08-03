@@ -38,10 +38,11 @@ SELECT r.id, r.title, r.description,
         FROM report_tags rt
         WHERE rt.report_id = r.id
     ), ARRAY[]::TEXT[]) AS tags,
-    COALESCE((
-        SELECT jsonb_agg(jsonb_build_object(
-            'address', v.address, 'name', v.name, 'symbol', v.symbol
-        ) ORDER BY v.id)
+	COALESCE((
+	    SELECT jsonb_agg(jsonb_build_object(
+	        'id', v.id, 'chainId', v.chain_id, 'address', v.address,
+	        'name', v.name, 'symbol', v.symbol
+	    ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
         WHERE rv.report_id = r.id
@@ -93,6 +94,31 @@ func reportTagPredicate(args *sqlArgs, filter CatalogFilter) string {
         )`
 }
 
+// reportVoucherPredicate returns the report_vouchers relationship reducer.
+// The primary key guarantees one row per report/voucher pair, so the all form
+// can compare COUNT(*) directly with the deduplicated requested ID count.
+func reportVoucherPredicate(args *sqlArgs, filter CatalogFilter) string {
+	if len(filter.VoucherIDs) == 0 {
+		return ""
+	}
+
+	placeholder := args.bind(voucherIDsParam(filter.VoucherIDs))
+	if filter.VoucherMatch == TagMatchAll {
+		return `(
+            SELECT COUNT(*)
+            FROM report_vouchers rv
+            WHERE rv.report_id = r.id
+                AND rv.voucher_id = ANY(` + placeholder + `::BIGINT[])
+        ) = cardinality(` + args.reuse() + `::BIGINT[])`
+	}
+	return `EXISTS (
+            SELECT 1
+            FROM report_vouchers rv
+            WHERE rv.report_id = r.id
+                AND rv.voucher_id = ANY(` + placeholder + `::BIGINT[])
+        )`
+}
+
 // reportCursorPredicate returns the feed's keyset comparison.
 //
 // A row comparison rather than a single column: `(updated_at, id) < ($1, $2)` is what makes
@@ -131,6 +157,7 @@ func composeReportPage(
 			whereClause(
 				"r.status = 'APPROVED'",
 				reportTagPredicate(args, filter),
+				reportVoucherPredicate(args, filter),
 				reportCursorPredicate(args, cursor, hasCursor),
 			) +
 			"\nORDER BY r.updated_at DESC, r.id DESC" +
@@ -146,6 +173,7 @@ func composeReportPage(
 			"r.status = 'APPROVED'",
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
+			reportVoucherPredicate(args, filter),
 		) +
 		"\n),\npage AS MATERIALIZED (\n" +
 		"    SELECT m.id\n" +
@@ -190,6 +218,7 @@ func composeReportTagCounts(filter CatalogFilter) composed {
 		whereClause(
 			"r.status = 'APPROVED'",
 			reportSearchPredicate(args, filter),
+			reportVoucherPredicate(args, filter),
 		) + `
 )
 SELECT rt.tag_value AS tag_value,
@@ -197,6 +226,32 @@ SELECT rt.tag_value AS tag_value,
 FROM candidates c
 INNER JOIN report_tags rt ON rt.report_id = c.id
 GROUP BY rt.tag_value;`
+
+	return composed{sql: sql, args: args.values}
+}
+
+// composeReportVoucherCounts returns the voucher options that occur under the
+// current search and tag filters. It deliberately omits the selected voucher
+// reducer, making the counts disjunctive within this facet.
+func composeReportVoucherCounts(filter CatalogFilter) composed {
+	args := &sqlArgs{}
+
+	sql := `WITH candidates AS MATERIALIZED (
+    SELECT r.id
+    FROM reports r` +
+		whereClause(
+			"r.status = 'APPROVED'",
+			reportSearchPredicate(args, filter),
+			reportTagPredicate(args, filter),
+		) + `
+)
+SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+    COUNT(*) AS match_count
+FROM candidates c
+INNER JOIN report_vouchers rv ON rv.report_id = c.id
+INNER JOIN vouchers v ON v.id = rv.voucher_id
+GROUP BY v.id, v.chain_id, v.address, v.name, v.symbol
+ORDER BY lower(v.name), v.id;`
 
 	return composed{sql: sql, args: args.values}
 }
@@ -244,4 +299,19 @@ func (pg *Pg) ListReportTagFacets(
 		filter.Active(),
 		filter.Tags,
 	)
+}
+
+// ListReportVoucherFacets returns relationship-scoped voucher choices for the
+// current report search and tag filters.
+func (pg *Pg) ListReportVoucherFacets(
+	ctx context.Context,
+	tx pgx.Tx,
+	filter CatalogFilter,
+) ([]VoucherFacet, error) {
+	query := composeReportVoucherCounts(filter)
+	var facets []VoucherFacet
+	if err := pgxscan.Select(ctx, tx, &facets, query.sql, query.args...); err != nil {
+		return nil, err
+	}
+	return facets, nil
 }

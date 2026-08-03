@@ -120,11 +120,36 @@ func TestCatalogFilterActive(t *testing.T) {
 		"empty":         {filter: CatalogFilter{}, want: false},
 		"term only":     {filter: CatalogFilter{Term: "sar"}, want: true},
 		"tags only":     {filter: CatalogFilter{Tags: []string{"Art"}}, want: true},
+		"vouchers only": {filter: CatalogFilter{VoucherIDs: []uint64{42}}, want: true},
 		"term and tags": {filter: CatalogFilter{Term: "sar", Tags: []string{"Art"}}, want: true},
 	} {
 		if got := tc.filter.Active(); got != tc.want {
 			t.Errorf("%s: Active() = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+func TestCatalogFilterWithVoucherIDsNormalizesAndBounds(t *testing.T) {
+	filter, err := (CatalogFilter{}).WithVoucherIDs([]uint64{9, 2, 9, 4}, TagMatchAll)
+	if err != nil {
+		t.Fatalf("WithVoucherIDs() error = %v", err)
+	}
+	if !slices.Equal(filter.VoucherIDs, []uint64{2, 4, 9}) {
+		t.Errorf("VoucherIDs = %v, want sorted unique IDs", filter.VoucherIDs)
+	}
+	if filter.VoucherMatch != TagMatchAll {
+		t.Errorf("VoucherMatch = %v, want all", filter.VoucherMatch)
+	}
+
+	over := make([]uint64, CatalogMaxVouchers+1)
+	for index := range over {
+		over[index] = uint64(index + 1)
+	}
+	if _, err := (CatalogFilter{}).WithVoucherIDs(over, TagMatchAny); !errors.Is(err, ErrCatalogTooManyVouchers) {
+		t.Errorf("over-limit error = %v, want ErrCatalogTooManyVouchers", err)
+	}
+	if _, err := (CatalogFilter{}).WithVoucherIDs(nil, TagMatch(99)); !errors.Is(err, ErrCatalogUnknownVoucherMatch) {
+		t.Errorf("unknown match error = %v, want ErrCatalogUnknownVoucherMatch", err)
 	}
 }
 
@@ -627,6 +652,71 @@ func TestComposePoolPageEveryComposition(t *testing.T) {
 	}
 }
 
+func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
+	for name, tc := range map[string]struct {
+		filter  CatalogFilter
+		wantAll bool
+	}{
+		"any": {filter: CatalogFilter{VoucherIDs: []uint64{7, 11}, VoucherMatch: TagMatchAny}},
+		"all": {filter: CatalogFilter{VoucherIDs: []uint64{7, 11}, VoucherMatch: TagMatchAll}, wantAll: true},
+	} {
+		t.Run("reports/"+name, func(t *testing.T) {
+			query := composeReportPage(tc.filter, ReportCursor{}, false, 20)
+			assertPlaceholdersMatchArgs(t, "report vouchers", query)
+			if !strings.Contains(query.sql, "FROM report_vouchers rv") ||
+				!strings.Contains(query.sql, "rv.voucher_id = ANY(") {
+				t.Errorf("report page must filter through report_vouchers:\n%s", query.sql)
+			}
+			if gotAll := strings.Contains(query.sql, ") = cardinality("); gotAll != tc.wantAll {
+				t.Errorf("all-match fragment = %v, want %v:\n%s", gotAll, tc.wantAll, query.sql)
+			}
+			if _, ok := query.args[0].([]int64); !ok {
+				t.Errorf("voucher IDs must bind as []int64 for PostgreSQL, got %T", query.args[0])
+			}
+		})
+
+		t.Run("pools/"+name, func(t *testing.T) {
+			query := composePoolPage(tc.filter, CatalogFirstPage, 0, 20)
+			assertPlaceholdersMatchArgs(t, "pool vouchers", query)
+			if !strings.Contains(query.sql, "FROM pool_tokens pv") ||
+				!strings.Contains(query.sql, "pv.is_allowed") ||
+				!strings.Contains(query.sql, "pv.voucher_id = ANY(") {
+				t.Errorf("pool page must filter through allowed pool_tokens:\n%s", query.sql)
+			}
+			if gotAll := strings.Contains(query.sql, ") = cardinality("); gotAll != tc.wantAll {
+				t.Errorf("all-match fragment = %v, want %v:\n%s", gotAll, tc.wantAll, query.sql)
+			}
+		})
+	}
+
+	filter := CatalogFilter{
+		Tags:         []string{"Art"},
+		TagMatch:     TagMatchAny,
+		VoucherIDs:   []uint64{7},
+		VoucherMatch: TagMatchAny,
+	}
+	for name, query := range map[string]composed{
+		"report tags": composeReportTagCounts(filter),
+		"pool tags":   composePoolTagCounts(filter),
+	} {
+		if !strings.Contains(query.sql, "voucher_id = ANY(") {
+			t.Errorf("%s must retain the voucher filter:\n%s", name, query.sql)
+		}
+	}
+	for name, query := range map[string]composed{
+		"report vouchers": composeReportVoucherCounts(filter),
+		"pool vouchers":   composePoolVoucherCounts(filter),
+	} {
+		assertPlaceholdersMatchArgs(t, name, query)
+		if strings.Contains(query.sql, "voucher_id = ANY(") {
+			t.Errorf("%s must omit its own selection for disjunctive counts:\n%s", name, query.sql)
+		}
+		if !strings.Contains(query.sql, "tag_value = ANY(") {
+			t.Errorf("%s must retain the tag filter:\n%s", name, query.sql)
+		}
+	}
+}
+
 func TestLoadCatalogSearchQueries(t *testing.T) {
 	queries, err := loadQueries("../../core_queries.sql")
 	if err != nil {
@@ -675,5 +765,12 @@ func TestLoadCatalogSearchQueries(t *testing.T) {
 	// next transaction that reuses this pooled connection.
 	if !strings.Contains(queries.SetCatalogStatementTimeout, "set_config('statement_timeout', $1, true)") {
 		t.Errorf("statement timeout must be transaction-local and parameterized:\n%s", queries.SetCatalogStatementTimeout)
+	}
+	if queries.ResolveVoucherRefs == "" {
+		t.Error("expected resolve-voucher-refs query to be loaded")
+	}
+	if !strings.Contains(queries.ResolveVoucherRefs, "unnest($1::BIGINT[], $2::TEXT[])") ||
+		!strings.Contains(queries.ResolveVoucherRefs, "v.chain_id = ref.chain_id") {
+		t.Errorf("resolve-voucher-refs must resolve stable chain/address pairs:\n%s", queries.ResolveVoucherRefs)
 	}
 }

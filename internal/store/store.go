@@ -105,7 +105,10 @@ type (
 		ListMarketVoucherTagFacets(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter) ([]TagFacet, error)
 		ListPoolsFiltered(context.Context, pgx.Tx, CatalogFilter, CatalogPage, uint64, uint64) ([]Pool, error)
 		ListPoolTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
+		ListPoolVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
+		ListReportVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
+		ResolveVoucherRefs(context.Context, pgx.Tx, []VoucherRef) ([]uint64, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)

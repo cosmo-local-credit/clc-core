@@ -14,7 +14,7 @@ import (
 // not the deploy pipeline (MIGRATION.md §3.5); deploy-status APIs keep
 // reading deployed_pools.
 //
-// Optional `q`, `tags`, `tagMatch`, and `facets` narrow the page
+// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, and `facets` narrow the page
 // (PG_SEARCH_PLAN.md Slice 2). Pool tags are the pool's own curated
 // `pool_tags` — the same values each row already returns — not member-voucher
 // or member-offering tags, so a filtered row always carries the tag that
@@ -28,7 +28,7 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 	}
 	pagination := normalizePagination(req)
 
-	search, err := parseCatalogSearch(c)
+	search, err := parseCatalogRelationshipSearch(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
@@ -44,6 +44,9 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 	}
 
 	if handled, vErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || vErr != nil {
+		return vErr
+	}
+	if handled, vErr := a.resolveVoucherFilter(c, tx, &search); handled || vErr != nil {
 		return vErr
 	}
 
@@ -83,6 +86,12 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 			return handlePostgresError(c, fErr)
 		}
 		result["tagFacets"] = facets
+
+		voucherFacets, vfErr := a.store.ListPoolVoucherFacets(ctx, tx, search.filter)
+		if vfErr != nil {
+			return handlePostgresError(c, vfErr)
+		}
+		result["voucherFacets"] = voucherFacets
 	}
 
 	if err := tx.Commit(ctx); err != nil {

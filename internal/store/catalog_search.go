@@ -63,6 +63,19 @@ type (
 		// two equivalent requests produce byte-identical parameters.
 		Tags     []string
 		TagMatch TagMatch
+		// VoucherIDs are database IDs resolved from the request's stable
+		// (chain_id, address) references inside the handler transaction. They
+		// never come directly from public input.
+		VoucherIDs   []uint64
+		VoucherMatch TagMatch
+	}
+
+	// VoucherRef is the stable public identity of a voucher. Numeric database
+	// IDs are deliberately not part of URLs because catalog transfers may
+	// remap them between environments.
+	VoucherRef struct {
+		ChainID int64
+		Address string
 	}
 
 	// TagFacet is one row of a tag facet: a vocabulary value and how many
@@ -71,6 +84,17 @@ type (
 	TagFacet struct {
 		Tag   string `db:"tag_value"   json:"tag"`
 		Count uint64 `db:"match_count" json:"count"`
+	}
+
+	// VoucherFacet is one relationship-filter option and the number of entities
+	// matching the current non-voucher filters that carry it.
+	VoucherFacet struct {
+		ID      uint64 `db:"id"          json:"id"`
+		ChainID int64  `db:"chain_id"    json:"chainId"`
+		Address string `db:"address"     json:"address"`
+		Name    string `db:"name"        json:"name"`
+		Symbol  string `db:"symbol"      json:"symbol"`
+		Count   uint64 `db:"match_count" json:"count"`
 	}
 
 	// sqlArgs collects bound values and hands back the placeholder that refers
@@ -121,6 +145,11 @@ const (
 	// useful query selects most of them.
 	CatalogMaxTags = 12
 
+	// CatalogMaxVouchers bounds one relationship filter. Beyond this the query
+	// is difficult to understand on a mobile filter sheet and an all-match
+	// reducer does work with no useful catalog-browsing benefit.
+	CatalogMaxVouchers = 12
+
 	// catalogStatementTimeout caps a catalog read at the database, below the
 	// outer HTTP timeout, so a pathological plan cannot hold a connection
 	// open indefinitely (PostgreSQL's default is unlimited). Representative
@@ -137,6 +166,9 @@ var (
 	ErrCatalogTooManyTags = errors.New("tags must contain at most " +
 		strconv.Itoa(CatalogMaxTags) + " values")
 	ErrCatalogUnknownTagMatch = errors.New(`tagMatch must be "any" or "all"`)
+	ErrCatalogTooManyVouchers = errors.New("vouchers must contain at most " +
+		strconv.Itoa(CatalogMaxVouchers) + " values")
+	ErrCatalogUnknownVoucherMatch = errors.New(`voucherMatch must be "any" or "all"`)
 )
 
 // NewCatalogFilter normalizes and validates raw request values. Tags are
@@ -147,9 +179,10 @@ var (
 // GET /api/v2/token-tags on an authenticated screen.
 func NewCatalogFilter(rawTerm string, rawTags []string, match TagMatch) (CatalogFilter, error) {
 	filter := CatalogFilter{
-		Term:     NormalizeCatalogTerm(rawTerm),
-		Tags:     normalizeCatalogTags(rawTags),
-		TagMatch: match,
+		Term:         NormalizeCatalogTerm(rawTerm),
+		Tags:         normalizeCatalogTags(rawTags),
+		TagMatch:     match,
+		VoucherMatch: TagMatchAny,
 	}
 
 	if runes := utf8.RuneCountInString(filter.Term); runes > 0 {
@@ -168,6 +201,26 @@ func NewCatalogFilter(rawTerm string, rawTags []string, match TagMatch) (Catalog
 	}
 
 	return filter, nil
+}
+
+// WithVoucherIDs returns a copy narrowed to the resolved voucher IDs. The
+// handler calls this only after every public voucher reference has resolved in
+// the database, so SQL receives canonical numeric keys rather than addresses.
+func (f CatalogFilter) WithVoucherIDs(raw []uint64, match TagMatch) (CatalogFilter, error) {
+	ids := slices.Clone(raw)
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+
+	if len(ids) > CatalogMaxVouchers {
+		return CatalogFilter{}, ErrCatalogTooManyVouchers
+	}
+	if match != TagMatchAny && match != TagMatchAll {
+		return CatalogFilter{}, ErrCatalogUnknownVoucherMatch
+	}
+
+	f.VoucherIDs = ids
+	f.VoucherMatch = match
+	return f, nil
 }
 
 // NormalizeCatalogTerm trims the term and collapses internal whitespace, so
@@ -208,7 +261,7 @@ func normalizeCatalogTags(raw []string) []string {
 // Active reports whether the filter narrows anything. When it does not, callers
 // use the existing static statements unchanged.
 func (f CatalogFilter) Active() bool {
-	return f.Term != "" || len(f.Tags) > 0
+	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0
 }
 
 // prefixOnly reports whether the term is short enough that it matches as a
@@ -347,6 +400,32 @@ func (pg *Pg) UnknownTokenTags(ctx context.Context, tx pgx.Tx, tags []string) ([
 	return unknown, nil
 }
 
+// ResolveVoucherRefs resolves stable public identities to the internal keys
+// used by report_vouchers and pool_tokens. Callers reject a short result so a
+// typo cannot silently broaden the requested relationship filter.
+func (pg *Pg) ResolveVoucherRefs(
+	ctx context.Context,
+	tx pgx.Tx,
+	refs []VoucherRef,
+) ([]uint64, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+
+	chainIDs := make([]int64, 0, len(refs))
+	addresses := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		chainIDs = append(chainIDs, ref.ChainID)
+		addresses = append(addresses, ref.Address)
+	}
+
+	var ids []uint64
+	if err := pgxscan.Select(ctx, tx, &ids, pg.queries.ResolveVoucherRefs, chainIDs, addresses); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 func (a *sqlArgs) bind(value any) string {
 	a.values = append(a.values, value)
 	return "$" + strconv.Itoa(len(a.values))
@@ -356,6 +435,17 @@ func (a *sqlArgs) bind(value any) string {
 // term against both name and symbol and must not bind it twice.
 func (a *sqlArgs) reuse() string {
 	return "$" + strconv.Itoa(len(a.values))
+}
+
+// voucherIDsParam converts database IDs to pgx's signed PostgreSQL integer
+// representation before binding an array. The IDs originated in PostgreSQL,
+// so the conversion cannot overflow int64.
+func voucherIDsParam(ids []uint64) []int64 {
+	values := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		values = append(values, int64(id))
+	}
+	return values
 }
 
 // searchPredicate returns the name/symbol match for the filter's term, or "" if
