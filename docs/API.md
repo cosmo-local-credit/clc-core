@@ -406,6 +406,56 @@ No body is returned. Use this to redirect the user to a sign-in flow.
 
 ---
 
+### 4.8 `GET /auth/profile`
+
+Returns the authenticated user's editable contact profile. A user JWT cookie is
+required. A saved location is returned as either `null` or a complete object:
+
+```json
+{
+  "ok": true,
+  "result": {
+    "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    "name": "Alice",
+    "email": "alice@example.com",
+    "phone": "+254700000000",
+    "country": "KE",
+    "location": {
+      "locationName": "Nairobi, Kenya",
+      "lat": -1.286389,
+      "lng": 36.817223
+    },
+    "createdAt": "2026-08-04T12:00:00Z"
+  }
+}
+```
+
+### 4.9 `POST /auth/profile`
+
+Updates contact fields and, optionally, the saved location pin. Omitting both
+`location` and `clearLocation` preserves the current pin, which keeps older
+clients backward compatible. Send `clearLocation: true` to remove it. Supplying
+both fields is rejected.
+
+```json
+{
+  "name": "Alice",
+  "email": "alice@example.com",
+  "phone": "+254700000000",
+  "country": "KE",
+  "location": {
+    "locationName": "Nairobi, Kenya",
+    "lat": -1.286389,
+    "lng": 36.817223
+  }
+}
+```
+
+Location coordinates must be valid latitude/longitude values and the three
+location fields are always stored or cleared together.
+
+---
+
 ## 5. Protected Endpoints (`/api/v2/*`)
 
 All routes in this section require **one** of:
@@ -1019,6 +1069,55 @@ Returns the complete deployment history for the authenticated user, covering bot
 | `trackingId` | `string` (UUID) | Use with [`GET /api/v2/otx/track/:trackingId`](#52-get-apiv2otxtracktrackingid) |
 | `resourceType` | `"TOKEN"` \| `"POOL"` | Type of deployed resource |
 | `createdAt` | `string` (ISO 8601) | When the deploy request was submitted |
+
+---
+
+### 6.6 `GET /api/v2/users/me/shares/eligibility/:address`
+
+Checks whether an exact wallet address belongs to a different, approved Cosmo
+user and can therefore receive a private send attachment.
+
+```json
+{
+  "ok": true,
+  "result": { "eligible": true }
+}
+```
+
+This endpoint only exposes a boolean and never returns the recipient's profile.
+
+### 6.7 `GET /api/v2/users/me/shares/:txHash`
+
+Returns the private attachment for a confirmed, successful relayed ERC-20
+transfer. Only its sender and designated recipient may read it. Missing,
+unconfirmed, failed, and unauthorized records all return `404`.
+
+```json
+{
+  "ok": true,
+  "result": {
+    "id": 42,
+    "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "txHash": "0xabc...",
+    "permission": 5,
+    "note": "Thanks for the supplies",
+    "sharedBy": {
+      "name": "Alice",
+      "email": "alice@example.com",
+      "location": {
+        "locationName": "Nairobi, Kenya",
+        "lat": -1.286389,
+        "lng": 36.817223
+      }
+    },
+    "createdAt": "2026-08-04T12:00:00Z"
+  }
+}
+```
+
+`permission` is a bitmask: email is `1`, phone is `2`, and location is `4`.
+Only selected fields are fetched from the sender's current profile and returned.
+The note and all contact/location fields remain off-chain.
 
 ---
 

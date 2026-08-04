@@ -135,6 +135,10 @@ type (
 		Address string `param:"address" validate:"required"`
 	}
 
+	TxHashParam struct {
+		TxHash string `param:"txHash" validate:"required,len=66,startswith=0x,hexadecimal"`
+	}
+
 	// Relayer (EIP-7702 / Calibur) types.
 
 	RelayerEOANonceParam struct {
@@ -179,6 +183,11 @@ type (
 		Deadline    string             `json:"deadline"    validate:"required,numeric"`
 	}
 
+	SendShareRequest struct {
+		Permission int    `json:"permission" validate:"gte=0,lte=7"`
+		Note       string `json:"note,omitempty" validate:"omitempty,max=500"`
+	}
+
 	RelayRequest struct {
 		UserAddress   string                `json:"userAddress"   validate:"required,eth_addr_checksum"`
 		SignedBatch   CaliburSignedBatch    `json:"signedBatch"   validate:"required"`
@@ -187,9 +196,10 @@ type (
 		Authorization *EIP7702Authorization `json:"authorization,omitempty" validate:"omitempty"`
 		// Registration-time fields (passed alongside the first secp256k1-signed
 		// relay so the backend can persist the WebAuthn credential mapping).
-		CredentialID string `json:"credentialId,omitempty" validate:"omitempty"`
-		PublicKeyX   string `json:"publicKeyX,omitempty"   validate:"omitempty,numeric"`
-		PublicKeyY   string `json:"publicKeyY,omitempty"   validate:"omitempty,numeric"`
+		CredentialID string            `json:"credentialId,omitempty" validate:"omitempty"`
+		PublicKeyX   string            `json:"publicKeyX,omitempty"   validate:"omitempty,numeric"`
+		PublicKeyY   string            `json:"publicKeyY,omitempty"   validate:"omitempty,numeric"`
+		Share        *SendShareRequest `json:"share,omitempty" validate:"omitempty"`
 	}
 
 	// RelayPreviewRequest asks the relayer to resolve the Calibur nonce and
@@ -217,12 +227,21 @@ type (
 		Signature string `json:"signature" validate:"required"`
 	}
 
-	// UpdateProfileRequest carries optional profile fields.
+	ProfileLocation struct {
+		LocationName string  `json:"locationName" validate:"required,max=255"`
+		Lat          float64 `json:"lat"          validate:"gte=-90,lte=90"`
+		Lng          float64 `json:"lng"          validate:"gte=-180,lte=180"`
+	}
+
+	// UpdateProfileRequest carries optional profile fields. Omitting both
+	// location fields preserves an existing pin; ClearLocation removes it.
 	UpdateProfileRequest struct {
-		Name    string `json:"name"    validate:"omitempty,max=80"`
-		Email   string `json:"email"   validate:"omitempty,email"`
-		Phone   string `json:"phone"`
-		Country string `json:"country" validate:"omitempty,len=2"`
+		Name          string           `json:"name"          validate:"omitempty,max=80"`
+		Email         string           `json:"email"         validate:"omitempty,email"`
+		Phone         string           `json:"phone"`
+		Country       string           `json:"country"       validate:"omitempty,len=2"`
+		Location      *ProfileLocation `json:"location,omitempty" validate:"omitempty"`
+		ClearLocation bool             `json:"clearLocation,omitempty"`
 	}
 )
 
@@ -244,4 +263,5 @@ const (
 	ErrCodeRelayerExecutorMismatch    = "E14"
 	ErrCodeWebAuthnVerificationFailed = "E15"
 	ErrCodeConflict                   = "E16"
+	ErrCodeShareUnavailable           = "E17"
 )

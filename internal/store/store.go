@@ -47,14 +47,17 @@ type (
 
 		InsertUser(context.Context, pgx.Tx, User) (User, error)
 		GetUserByAddress(context.Context, pgx.Tx, string) (User, error)
+		GetUserByAddressNormalized(context.Context, pgx.Tx, string) (User, error)
 		GetUserByEmail(context.Context, pgx.Tx, string) (User, error)
 		GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
-		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string) (User, error)
+		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)
 		ListUsers(context.Context, pgx.Tx) ([]User, error)
 		ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
+		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
+		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
 
 		InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
 		CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)

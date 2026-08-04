@@ -16,12 +16,27 @@ type (
 		Email           string    `db:"email"            json:"email"`
 		Phone           string    `db:"phone"            json:"phone"`
 		Country         string    `db:"country"          json:"country"`
+		LocationName    string    `db:"location_name"    json:"locationName"`
+		GeoLat          *float64  `db:"geo_lat"          json:"lat,omitempty"`
+		GeoLng          *float64  `db:"geo_lng"          json:"lng,omitempty"`
 		Role            string    `db:"role"             json:"role"`
 		Status          string    `db:"status"           json:"status"`
 		MaxPools        int       `db:"max_pools"        json:"maxPools"`
 		MaxTokens       int       `db:"max_tokens"       json:"maxTokens"`
 		CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
 		UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
+	}
+
+	UserProfileUpdate struct {
+		Address        string
+		Name           string
+		Email          string
+		Phone          string
+		Country        string
+		UpdateLocation bool
+		LocationName   string
+		GeoLat         *float64
+		GeoLng         *float64
 	}
 )
 
@@ -54,6 +69,21 @@ func (pg *Pg) GetUserByAddress(ctx context.Context, tx pgx.Tx, address string) (
 	var u User
 
 	row, err := tx.Query(ctx, pg.queries.GetUserByAddress, address)
+	if err != nil {
+		return u, err
+	}
+
+	if err := pgxscan.ScanOne(&u, row); err != nil {
+		return u, err
+	}
+
+	return u, nil
+}
+
+func (pg *Pg) GetUserByAddressNormalized(ctx context.Context, tx pgx.Tx, address string) (User, error) {
+	var u User
+
+	row, err := tx.Query(ctx, pg.queries.GetUserByAddressNormalized, address)
 	if err != nil {
 		return u, err
 	}
@@ -140,10 +170,22 @@ func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, m
 	return u, nil
 }
 
-func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, email, phone, country string) (User, error) {
+func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfileUpdate) (User, error) {
 	var u User
 
-	row, err := tx.Query(ctx, pg.queries.UpdateUserProfile, address, name, email, phone, country)
+	row, err := tx.Query(
+		ctx,
+		pg.queries.UpdateUserProfile,
+		update.Address,
+		update.Name,
+		update.Email,
+		update.Phone,
+		update.Country,
+		update.UpdateLocation,
+		update.LocationName,
+		update.GeoLat,
+		update.GeoLng,
+	)
 	if err != nil {
 		return u, err
 	}

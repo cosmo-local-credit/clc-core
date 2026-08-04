@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/tern/v2/migrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,12 +37,43 @@ func TestMigrationFiles(t *testing.T) {
 
 	assert.Contains(t, sqlFiles, "001_init.sql")
 	assert.Contains(t, sqlFiles, "002_unify_deploy_registry.sql")
+	assert.Contains(t, sqlFiles, "003_send_message_shares.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
-			name == "001_init.sql" || name == "002_unify_deploy_registry.sql",
+			name == "001_init.sql" ||
+				name == "002_unify_deploy_registry.sql" ||
+				name == "003_send_message_shares.sql",
 			"unexpected migration file %s", name,
 		)
 	}
+}
+
+func TestMigrationSequenceLoads(t *testing.T) {
+	files, err := migrate.FindMigrations(os.DirFS("."))
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"001_init.sql",
+		"002_unify_deploy_registry.sql",
+		"003_send_message_shares.sql",
+	}, files)
+}
+
+func TestSendMessageSharesMigration(t *testing.T) {
+	content, err := os.ReadFile("003_send_message_shares.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS location_name")
+	assert.Contains(t, s, "users_location_complete")
+	assert.Contains(t, s, "users_geo_lat_range")
+	assert.Contains(t, s, "users_geo_lng_range")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS user_shares")
+	assert.Contains(t, s, "tracking_id        UUID NOT NULL UNIQUE")
+	assert.Contains(t, s, "owner_user_id      INT NOT NULL REFERENCES users(id)")
+	assert.Contains(t, s, "authorized_user_id INT NOT NULL REFERENCES users(id)")
+	assert.Contains(t, s, "(share_permission & 7) = share_permission")
+	assert.Contains(t, s, "CHAR_LENGTH(extra_note) <= 500")
+	assert.Contains(t, s, "update_user_shares_timestamp")
 }
 
 func TestBaselineMigrationContainsLegacySchema(t *testing.T) {

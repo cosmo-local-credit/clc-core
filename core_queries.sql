@@ -239,20 +239,27 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
 VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE blockchain_address = $1;
 
+--name: get-user-by-address-normalized
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
+FROM users
+WHERE LOWER(blockchain_address) = LOWER($1)
+ORDER BY id
+LIMIT 1;
+
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -260,36 +267,75 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
 UPDATE users
-SET name = $2, email = NULLIF($3, ''), phone = NULLIF($4, ''), country = $5
+SET name = $2,
+    email = NULLIF($3, ''),
+    phone = NULLIF($4, ''),
+    country = $5,
+    location_name = CASE WHEN $6 THEN NULLIF($7, '') ELSE location_name END,
+    geo_lat = CASE WHEN $6 THEN $8::DOUBLE PRECISION ELSE geo_lat END,
+    geo_lng = CASE WHEN $6 THEN $9::DOUBLE PRECISION ELSE geo_lng END
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: list-users
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 ORDER BY created_at DESC;
 
 --name: list-users-by-status
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, COALESCE(location_name, '') AS location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE status = $1::user_status
 ORDER BY created_at DESC;
+
+-- User shares
+--name: insert-user-share
+INSERT INTO user_shares (
+    tracking_id, owner_user_id, authorized_user_id, share_permission, extra_note
+) VALUES ($1::uuid, $2, $3, $4, NULLIF($5, ''))
+RETURNING id;
+
+--name: get-user-share-by-tx-hash
+SELECT us.id,
+    us.tracking_id,
+    us.owner_user_id,
+    us.authorized_user_id,
+    us.share_permission,
+    COALESCE(us.extra_note, '') AS extra_note,
+    us.created_at,
+    us.updated_at,
+    o.tx_hash,
+    owner.name AS owner_name,
+    CASE WHEN (us.share_permission & 1) = 1 THEN COALESCE(owner.email, '') ELSE '' END AS email,
+    CASE WHEN (us.share_permission & 2) = 2 THEN COALESCE(owner.phone, '') ELSE '' END AS phone,
+    CASE WHEN (us.share_permission & 4) = 4 THEN COALESCE(owner.location_name, '') ELSE '' END AS location_name,
+    CASE WHEN (us.share_permission & 4) = 4 THEN owner.geo_lat ELSE NULL END AS geo_lat,
+    CASE WHEN (us.share_permission & 4) = 4 THEN owner.geo_lng ELSE NULL END AS geo_lng
+FROM user_shares us
+INNER JOIN users owner ON owner.id = us.owner_user_id
+INNER JOIN otx o ON o.tracking_id = us.tracking_id
+INNER JOIN dispatch d ON d.otx_id = o.id AND d.status = 'SUCCESS'
+WHERE LOWER(o.tx_hash) = LOWER($1)
+  AND $2 IN (us.owner_user_id, us.authorized_user_id)
+  AND o.otx_type IN ('RELAY_EXEC', 'RELAY_DELEGATE_EXEC')
+ORDER BY o.id DESC
+LIMIT 1;
 
 -- User deployments
 --name: count-user-tokens

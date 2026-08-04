@@ -166,6 +166,28 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 	}
 }
 
+// optionalUserAuthMiddleware recognizes a valid user session without making
+// authentication mandatory. The public relayer must remain usable during
+// first-time wallet registration; relayHandler requires these claims only
+// when private share metadata is present.
+func (a *API) optionalUserAuthMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			cookie, err := c.Cookie(userAuthCookieName)
+			if err == nil && cookie.Value != "" {
+				if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil {
+					c.Set("callerType", "user")
+					c.Set("callerUserID", claims.UserID)
+					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
+					c.Set("callerRole", claims.Role)
+				}
+			}
+
+			return next(c)
+		}
+	}
+}
+
 // requireUserAuth rejects requests that arrived via a service JWT.
 // Both USER and SUPERADMIN callers pass this guard.
 func (a *API) requireUserAuth() echo.MiddlewareFunc {

@@ -31,6 +31,48 @@ func pendingSIWEEmail(address string) string {
 	return "pending+" + strings.TrimPrefix(strings.ToLower(address), "0x") + "@clc.local"
 }
 
+func userLocationResult(user store.User) any {
+	if user.LocationName == "" || user.GeoLat == nil || user.GeoLng == nil {
+		return nil
+	}
+
+	return map[string]any{
+		"locationName": user.LocationName,
+		"lat":          *user.GeoLat,
+		"lng":          *user.GeoLng,
+	}
+}
+
+func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) (store.UserProfileUpdate, error) {
+	update := store.UserProfileUpdate{
+		Address: address,
+		Name:    req.Name,
+		Email:   req.Email,
+		Phone:   req.Phone,
+		Country: req.Country,
+	}
+
+	if req.Location != nil && req.ClearLocation {
+		return update, errors.New("location and clearLocation cannot both be supplied")
+	}
+
+	if req.Location != nil {
+		req.Location.LocationName = strings.TrimSpace(req.Location.LocationName)
+		if req.Location.LocationName == "" {
+			return update, errors.New("locationName cannot be blank")
+		}
+
+		update.UpdateLocation = true
+		update.LocationName = req.Location.LocationName
+		update.GeoLat = &req.Location.Lat
+		update.GeoLng = &req.Location.Lng
+	} else if req.ClearLocation {
+		update.UpdateLocation = true
+	}
+
+	return update, nil
+}
+
 // siweVerifyHandler is a unified sign-in / sign-up endpoint.
 //
 // If the address is new it is auto-created as PENDING. A background worker may
@@ -179,6 +221,7 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 			"email":     user.Email,
 			"phone":     user.Phone,
 			"country":   user.Country,
+			"location":  userLocationResult(user),
 			"createdAt": user.CreatedAt.Format(time.RFC3339),
 		},
 	})
@@ -195,6 +238,14 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 	}
 
 	_, addr, _ := getUserClaims(c)
+	update, err := profileUpdateFromRequest(addr, req)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: err.Error(),
+		})
+	}
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -203,7 +254,7 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	user, err := a.store.UpdateUserProfile(ctx, tx, addr, req.Name, req.Email, req.Phone, req.Country)
+	user, err := a.store.UpdateUserProfile(ctx, tx, update)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
@@ -223,11 +274,12 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Profile updated",
 		Result: map[string]any{
-			"address": user.EthereumAddress,
-			"name":    user.Name,
-			"email":   user.Email,
-			"phone":   user.Phone,
-			"country": user.Country,
+			"address":  user.EthereumAddress,
+			"name":     user.Name,
+			"email":    user.Email,
+			"phone":    user.Phone,
+			"country":  user.Country,
+			"location": userLocationResult(user),
 		},
 	})
 }
