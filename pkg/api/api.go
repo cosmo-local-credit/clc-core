@@ -218,11 +218,17 @@ type (
 	}
 
 	// UpdateProfileRequest carries optional profile fields.
+	// Geo fields match DeployTokenRequest: optional pointers, range checks.
+	// Both-or-neither is enforced in profileUpdateHandler (400 on a partial
+	// pair) and backstopped by users_geo_valid at the DB boundary.
 	UpdateProfileRequest struct {
-		Name    string `json:"name"    validate:"omitempty,max=80"`
-		Email   string `json:"email"   validate:"omitempty,email"`
-		Phone   string `json:"phone"`
-		Country string `json:"country" validate:"omitempty,len=2"`
+		Name         string   `json:"name"         validate:"omitempty,max=80"`
+		Email        string   `json:"email"        validate:"omitempty,email"`
+		Phone        string   `json:"phone"`
+		Country      string   `json:"country"      validate:"omitempty,len=2"`
+		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
+		GeoLat       *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
+		GeoLng       *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
 	}
 )
 

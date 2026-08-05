@@ -16,6 +16,9 @@ type (
 		Email           string    `db:"email"            json:"email"`
 		Phone           string    `db:"phone"            json:"phone"`
 		Country         string    `db:"country"          json:"country"`
+		LocationName    *string   `db:"location_name"    json:"locationName,omitempty"`
+		GeoLat          *float64  `db:"geo_lat"          json:"geoLat,omitempty"`
+		GeoLng          *float64  `db:"geo_lng"          json:"geoLng,omitempty"`
 		Role            string    `db:"role"             json:"role"`
 		Status          string    `db:"status"           json:"status"`
 		MaxPools        int       `db:"max_pools"        json:"maxPools"`
@@ -140,10 +143,10 @@ func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, m
 	return u, nil
 }
 
-func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, email, phone, country string) (User, error) {
+func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, email, phone, country string, locationName *string, geoLat, geoLng *float64) (User, error) {
 	var u User
 
-	row, err := tx.Query(ctx, pg.queries.UpdateUserProfile, address, name, email, phone, country)
+	row, err := tx.Query(ctx, pg.queries.UpdateUserProfile, address, name, email, phone, country, locationName, geoLat, geoLng)
 	if err != nil {
 		return u, err
 	}

@@ -238,20 +238,20 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
 VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE blockchain_address = $1;
 
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -259,33 +259,37 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
+-- location_name/geo_lat/geo_lng use COALESCE: a request that omits geo
+-- (an older client, a partial edit) must not erase a previously captured
+-- location. Pass the new value to overwrite, or NULL to leave it untouched.
 UPDATE users
-SET name = $2, email = NULLIF($3, ''), phone = NULLIF($4, ''), country = $5
+SET name = $2, email = NULLIF($3, ''), phone = NULLIF($4, ''), country = $5,
+    location_name = COALESCE($6, location_name), geo_lat = COALESCE($7, geo_lat), geo_lng = COALESCE($8, geo_lng)
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: list-users
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 ORDER BY created_at DESC;
 
 --name: list-users-by-status
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE status = $1::user_status
 ORDER BY created_at DESC;

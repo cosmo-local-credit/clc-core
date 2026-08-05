@@ -47,6 +47,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "011_catalog_search_indexes.sql")
 	assert.Contains(t, sqlFiles, "012_report_search_indexes.sql")
 	assert.Contains(t, sqlFiles, "013_voucher_relationship_filter_indexes.sql")
+	assert.Contains(t, sqlFiles, "014_user_geo.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -61,7 +62,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "010_report_body_normalization.sql" ||
 				name == "011_catalog_search_indexes.sql" ||
 				name == "012_report_search_indexes.sql" ||
-				name == "013_voucher_relationship_filter_indexes.sql",
+				name == "013_voucher_relationship_filter_indexes.sql" ||
+				name == "014_user_geo.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -614,4 +616,23 @@ func TestVoucherRelationshipFilterIndexesMigration(t *testing.T) {
 	assert.NotContains(t, s, "CREATE INDEX CONCURRENTLY")
 	assert.Contains(t, s, "ANALYZE report_vouchers")
 	assert.Contains(t, s, "ANALYZE pool_tokens")
+}
+
+func TestUserGeoMigration(t *testing.T) {
+	content, err := os.ReadFile("014_user_geo.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS location_name TEXT")
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS geo_lat       FLOAT8")
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS geo_lng       FLOAT8")
+	assert.Contains(t, s, "users_geo_valid")
+	assert.Contains(t, s, "((geo_lat IS NULL) = (geo_lng IS NULL))")
+	assert.Contains(t, s, "geo_lat BETWEEN -90 AND 90")
+	assert.Contains(t, s, "geo_lng BETWEEN -180 AND 180")
+	// Capture only — no proximity query path yet.
+	assert.NotContains(t, s, "CREATE INDEX")
+	assert.NotContains(t, s, "CREATE EXTENSION")
+	assert.NotContains(t, s, "geography(")
+	assert.NotContains(t, s, "geometry(")
 }

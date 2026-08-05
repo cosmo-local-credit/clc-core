@@ -174,12 +174,15 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "User profile",
 		Result: map[string]any{
-			"address":   user.EthereumAddress,
-			"name":      user.Name,
-			"email":     user.Email,
-			"phone":     user.Phone,
-			"country":   user.Country,
-			"createdAt": user.CreatedAt.Format(time.RFC3339),
+			"address":      user.EthereumAddress,
+			"name":         user.Name,
+			"email":        user.Email,
+			"phone":        user.Phone,
+			"country":      user.Country,
+			"locationName": user.LocationName,
+			"geoLat":       user.GeoLat,
+			"geoLng":       user.GeoLng,
+			"createdAt":    user.CreatedAt.Format(time.RFC3339),
 		},
 	})
 }
@@ -194,6 +197,14 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
+	if (req.GeoLat == nil) != (req.GeoLng == nil) {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "Validation failed: geoLat and geoLng must be provided together",
+		})
+	}
+
 	_, addr, _ := getUserClaims(c)
 	ctx := c.Request().Context()
 
@@ -203,7 +214,7 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	user, err := a.store.UpdateUserProfile(ctx, tx, addr, req.Name, req.Email, req.Phone, req.Country)
+	user, err := a.store.UpdateUserProfile(ctx, tx, addr, req.Name, req.Email, req.Phone, req.Country, req.LocationName, req.GeoLat, req.GeoLng)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
@@ -223,11 +234,14 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Profile updated",
 		Result: map[string]any{
-			"address": user.EthereumAddress,
-			"name":    user.Name,
-			"email":   user.Email,
-			"phone":   user.Phone,
-			"country": user.Country,
+			"address":      user.EthereumAddress,
+			"name":         user.Name,
+			"email":        user.Email,
+			"phone":        user.Phone,
+			"country":      user.Country,
+			"locationName": user.LocationName,
+			"geoLat":       user.GeoLat,
+			"geoLng":       user.GeoLng,
 		},
 	})
 }

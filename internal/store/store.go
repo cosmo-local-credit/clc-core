@@ -52,7 +52,7 @@ type (
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
-		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string) (User, error)
+		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string, *string, *float64, *float64) (User, error)
 		ListUsers(context.Context, pgx.Tx) ([]User, error)
 		ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
 
