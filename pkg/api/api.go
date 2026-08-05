@@ -244,4 +244,5 @@ const (
 	ErrCodeRelayerExecutorMismatch    = "E14"
 	ErrCodeWebAuthnVerificationFailed = "E15"
 	ErrCodeConflict                   = "E16"
+	ErrCodeEmailConflict              = "E17"
 )

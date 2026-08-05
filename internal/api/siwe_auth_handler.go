@@ -96,9 +96,12 @@ func (a *API) signupHandler(c *echo.Context) error {
 	//    it required, so it is always present here. Treat an email already
 	//    bound to another wallet as a duplicate-identity conflict.
 	if _, lookupErr := a.store.GetUserByEmail(ctx, tx, strings.ToLower(req.Email)); lookupErr == nil {
+		// Distinct code from the address-conflict branch above: the caller's
+		// address is not registered, so it must not attempt a SIWE sign-in as
+		// a recovery path (that would 404 — see ErrCodeNotFound on signin).
 		return c.JSON(http.StatusConflict, apiresp.ErrResponse{
 			Ok:          false,
-			ErrCode:     apiresp.ErrCodeConflict,
+			ErrCode:     apiresp.ErrCodeEmailConflict,
 			Description: "email already linked to another account",
 		})
 	} else if !errors.Is(lookupErr, pgx.ErrNoRows) {
@@ -108,7 +111,9 @@ func (a *API) signupHandler(c *echo.Context) error {
 	// 6. Persist the new user. Either unique constraint (blockchain_address
 	//    or email) can still trip from a concurrent registration raced
 	//    between the lookup above and this insert — translate that into a
-	//    409 rather than surfacing a generic 500.
+	//    409 rather than surfacing a generic 500. Distinguish by constraint
+	//    name so the caller still knows whether its address ended up
+	//    registered (safe to recover via sign-in) or not (email raced).
 	user, err := a.store.InsertUser(ctx, tx, store.User{
 		EthereumAddress: signerAddr,
 		Name:            req.Name,
@@ -121,9 +126,13 @@ func (a *API) signupHandler(c *echo.Context) error {
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+			errCode := apiresp.ErrCodeConflict
+			if pgErr.ConstraintName == "users_email_unique" {
+				errCode = apiresp.ErrCodeEmailConflict
+			}
 			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
 				Ok:          false,
-				ErrCode:     apiresp.ErrCodeConflict,
+				ErrCode:     errCode,
 				Description: "identity already linked to another account",
 			})
 		}
