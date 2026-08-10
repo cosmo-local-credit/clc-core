@@ -84,6 +84,100 @@ UPDATE deployed_tokens
 SET status = 'FAILED'
 WHERE otx_id = $1 AND status = 'PENDING';
 
+-- Confirm-path promotion (MIGRATION.md §2.4): a confirmed deploy becomes a row
+-- in the network voucher catalog, and the pipeline row links to it. Runs in the
+-- confirming transaction so a deploy is never CONFIRMED without its catalog row.
+--
+-- The projection lives here rather than in Go so the deploy row stays the single
+-- source for the copy and chain_id is derived from the real factory that was
+-- used, not from app config.
+--
+-- Conflict target is the lower(address) index, not UNIQUE (chain_id, address):
+-- an imported catalog row may carry different address casing, which would slip
+-- past an exact-match inference and then trip the lower() index on insert.
+-- Matching on lower() covers both, since an address that differs in case still
+-- collides and an address that differs in bytes cannot collide on either.
+--
+-- Merge policy: the deploy is the fresh, authoritative request, so its values
+-- win where present; a pre-existing catalog row keeps whatever the deploy has
+-- no opinion about (icon/banner/terms/sink, and active/internal state).
+--name: upsert-voucher-from-deploy
+WITH deploy AS (
+    SELECT
+        pc.chain_id,
+        pc.version AS contract_version,
+        dt.id      AS deployed_token_id,
+        dt.address,
+        dt.name,
+        dt.symbol,
+        dt.decimals,
+        dt.admin,
+        dt.description,
+        dt.website,
+        dt.email,
+        dt.phone,
+        dt.voucher_uoa,
+        dt.voucher_value,
+        dt.location_name,
+        dt.geo_lat,
+        dt.geo_lng,
+        dt.platform_contract_id
+    FROM deployed_tokens dt
+    INNER JOIN platform_contracts pc ON pc.id = dt.platform_contract_id
+    WHERE dt.id = $1 AND dt.address IS NOT NULL
+),
+upserted AS (
+    INSERT INTO vouchers (
+        chain_id, address, name, symbol, decimals, owner_address, voucher_type,
+        description, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng,
+        email, website, phone, contract_version, platform_contract_id
+    )
+    SELECT
+        d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
+        -- Every clc-core token deploy goes through the giftable token
+        -- implementation. The expiring variant is indistinguishable here
+        -- because the deploy row does not retain the expiry timestamp.
+        'GIFTABLE',
+        d.description, d.voucher_uoa, d.voucher_value, d.location_name,
+        d.geo_lat, d.geo_lng, d.email, d.website, d.phone,
+        NULLIF(d.contract_version, ''), d.platform_contract_id
+    FROM deploy d
+    ON CONFLICT (chain_id, lower(address)) DO UPDATE SET
+        name                 = COALESCE(EXCLUDED.name,          vouchers.name),
+        symbol               = COALESCE(EXCLUDED.symbol,        vouchers.symbol),
+        decimals             = COALESCE(EXCLUDED.decimals,      vouchers.decimals),
+        owner_address        = COALESCE(EXCLUDED.owner_address,  vouchers.owner_address),
+        voucher_type         = COALESCE(EXCLUDED.voucher_type,   vouchers.voucher_type),
+        description          = COALESCE(EXCLUDED.description,    vouchers.description),
+        voucher_uoa          = COALESCE(EXCLUDED.voucher_uoa,    vouchers.voucher_uoa),
+        voucher_value        = COALESCE(EXCLUDED.voucher_value,  vouchers.voucher_value),
+        location_name        = COALESCE(EXCLUDED.location_name,  vouchers.location_name),
+        geo_lat              = COALESCE(EXCLUDED.geo_lat,        vouchers.geo_lat),
+        geo_lng              = COALESCE(EXCLUDED.geo_lng,        vouchers.geo_lng),
+        email                = COALESCE(EXCLUDED.email,          vouchers.email),
+        website              = COALESCE(EXCLUDED.website,        vouchers.website),
+        phone                = COALESCE(EXCLUDED.phone,          vouchers.phone),
+        contract_version     = COALESCE(EXCLUDED.contract_version, vouchers.contract_version),
+        platform_contract_id = EXCLUDED.platform_contract_id
+    RETURNING id
+),
+linked AS (
+    UPDATE deployed_tokens
+    SET voucher_id = (SELECT id FROM upserted)
+    WHERE id = $1
+    RETURNING voucher_id
+),
+copied_tags AS (
+    INSERT INTO voucher_tags (voucher_id, tag_value)
+    SELECT (SELECT id FROM upserted), dtt.tag_value
+    FROM deployed_token_tags dtt
+    WHERE dtt.deployed_token_id = $1
+      AND EXISTS (SELECT 1 FROM upserted)
+    ON CONFLICT (voucher_id, tag_value) DO NOTHING
+    RETURNING voucher_id
+)
+SELECT id FROM upserted;
+
 --name: insert-deployed-token-tag
 INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
 
@@ -140,6 +234,99 @@ RETURNING id;
 UPDATE deployed_pools
 SET status = 'FAILED'
 WHERE otx_id = $1 AND status = 'PENDING';
+
+-- Confirm-path promotion for pools (MIGRATION.md §3.5). Same contract as
+-- upsert-voucher-from-deploy: derive chain_id from the real factory, match the
+-- catalog on lower(address), let the fresh deploy win field by field, and link
+-- the pipeline row — all inside the confirming transaction.
+--
+-- fee_ppm / fee_address / unit_of_account / terms / default_voucher_id have no
+-- counterpart on the deploy row and are left to the importer and pool sync.
+--name: upsert-pool-from-deploy
+WITH deploy AS (
+    SELECT
+        pc.chain_id,
+        dp.id AS deployed_pool_id,
+        dp.address,
+        dp.name,
+        dp.symbol,
+        dp.decimals,
+        dp.admin,
+        dp.token_registry_address,
+        dp.limiter_address,
+        dp.quoter_address,
+        dp.fee_policy_address,
+        dp.protocol_fee_controller_address,
+        dp.fees_decoupled,
+        dp.description,
+        dp.website,
+        dp.email,
+        dp.phone,
+        dp.location_name,
+        dp.geo_lat,
+        dp.geo_lng,
+        dp.image_url,
+        dp.banner_url,
+        dp.platform_contract_id
+    FROM deployed_pools dp
+    INNER JOIN platform_contracts pc ON pc.id = dp.platform_contract_id
+    WHERE dp.id = $1 AND dp.address IS NOT NULL
+),
+upserted AS (
+    INSERT INTO pools (
+        chain_id, address, name, symbol, decimals, owner_address,
+        token_registry_address, limiter_address, quoter_address, fee_policy_address,
+        protocol_fee_controller_address, fees_decoupled, description,
+        location_name, geo_lat, geo_lng, email, website, phone,
+        image_url, banner_url, platform_contract_id
+    )
+    SELECT
+        d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
+        d.token_registry_address, d.limiter_address, d.quoter_address,
+        d.fee_policy_address, d.protocol_fee_controller_address, d.fees_decoupled,
+        d.description, d.location_name, d.geo_lat, d.geo_lng,
+        d.email, d.website, d.phone, d.image_url, d.banner_url,
+        d.platform_contract_id
+    FROM deploy d
+    ON CONFLICT (chain_id, lower(address)) DO UPDATE SET
+        name                            = COALESCE(EXCLUDED.name,     pools.name),
+        symbol                          = COALESCE(EXCLUDED.symbol,   pools.symbol),
+        decimals                        = COALESCE(EXCLUDED.decimals, pools.decimals),
+        owner_address                   = COALESCE(EXCLUDED.owner_address, pools.owner_address),
+        token_registry_address          = COALESCE(EXCLUDED.token_registry_address, pools.token_registry_address),
+        limiter_address                 = COALESCE(EXCLUDED.limiter_address, pools.limiter_address),
+        quoter_address                  = COALESCE(EXCLUDED.quoter_address, pools.quoter_address),
+        fee_policy_address              = COALESCE(EXCLUDED.fee_policy_address, pools.fee_policy_address),
+        protocol_fee_controller_address = COALESCE(EXCLUDED.protocol_fee_controller_address, pools.protocol_fee_controller_address),
+        fees_decoupled                  = COALESCE(EXCLUDED.fees_decoupled, pools.fees_decoupled),
+        description                     = COALESCE(EXCLUDED.description, pools.description),
+        location_name                   = COALESCE(EXCLUDED.location_name, pools.location_name),
+        geo_lat                         = COALESCE(EXCLUDED.geo_lat, pools.geo_lat),
+        geo_lng                         = COALESCE(EXCLUDED.geo_lng, pools.geo_lng),
+        email                           = COALESCE(EXCLUDED.email,   pools.email),
+        website                         = COALESCE(EXCLUDED.website, pools.website),
+        phone                           = COALESCE(EXCLUDED.phone,   pools.phone),
+        image_url                       = COALESCE(EXCLUDED.image_url, pools.image_url),
+        banner_url                      = COALESCE(EXCLUDED.banner_url, pools.banner_url),
+        platform_contract_id            = EXCLUDED.platform_contract_id
+    RETURNING id
+),
+linked AS (
+    UPDATE deployed_pools
+    SET pool_id = (SELECT id FROM upserted)
+    WHERE id = $1
+    RETURNING pool_id
+),
+copied_tags AS (
+    INSERT INTO pool_tags (pool_id, tag_value)
+    SELECT (SELECT id FROM upserted), dpt.tag_value
+    FROM deployed_pool_tags dpt
+    WHERE dpt.deployed_pool_id = $1
+      AND EXISTS (SELECT 1 FROM upserted)
+    ON CONFLICT (pool_id, tag_value) DO NOTHING
+    RETURNING pool_id
+)
+SELECT id FROM upserted;
 
 --name: insert-deployed-pool-tag
 INSERT INTO deployed_pool_tags (deployed_pool_id, tag_value) VALUES ($1, $2);

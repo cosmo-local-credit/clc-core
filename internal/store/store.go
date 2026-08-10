@@ -24,6 +24,7 @@ type (
 		InsertDeployedToken(context.Context, pgx.Tx, DeployedToken) (uint64, error)
 		ConfirmDeployedToken(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedToken(context.Context, pgx.Tx, uint64) error
+		UpsertVoucherFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
 		InsertDeployedTokenTag(context.Context, pgx.Tx, uint64, string) error
 		GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
@@ -33,6 +34,7 @@ type (
 		InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
 		ConfirmDeployedPool(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedPool(context.Context, pgx.Tx, uint64) error
+		UpsertPoolFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error

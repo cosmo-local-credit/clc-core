@@ -48,6 +48,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "012_report_search_indexes.sql")
 	assert.Contains(t, sqlFiles, "013_voucher_relationship_filter_indexes.sql")
 	assert.Contains(t, sqlFiles, "014_user_geo.sql")
+	assert.Contains(t, sqlFiles, "015_deploy_catalog_promotion.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -63,7 +64,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "011_catalog_search_indexes.sql" ||
 				name == "012_report_search_indexes.sql" ||
 				name == "013_voucher_relationship_filter_indexes.sql" ||
-				name == "014_user_geo.sql",
+				name == "014_user_geo.sql" ||
+				name == "015_deploy_catalog_promotion.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -635,4 +637,67 @@ func TestUserGeoMigration(t *testing.T) {
 	assert.NotContains(t, s, "CREATE EXTENSION")
 	assert.NotContains(t, s, "geography(")
 	assert.NotContains(t, s, "geometry(")
+}
+
+func TestDeployCatalogPromotionMigration(t *testing.T) {
+	content, err := os.ReadFile("015_deploy_catalog_promotion.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+
+	// Backfills both catalogs and both link columns.
+	assert.Contains(t, s, "INSERT INTO vouchers (")
+	assert.Contains(t, s, "INSERT INTO pools (")
+	assert.Contains(t, s, "SET voucher_id = v.id")
+	assert.Contains(t, s, "SET pool_id = p.id")
+	assert.Contains(t, s, "INSERT INTO voucher_tags (voucher_id, tag_value)")
+	assert.Contains(t, s, "INSERT INTO pool_tags (pool_id, tag_value)")
+
+	// chain_id comes from the factory actually used, never a hardcoded chain.
+	assert.Contains(t, s, "INNER JOIN platform_contracts pc ON pc.id = dt.platform_contract_id")
+	assert.Contains(t, s, "INNER JOIN platform_contracts pc ON pc.id = dp.platform_contract_id")
+	assert.NotContains(t, s, "42220")
+
+	// Conflict inference must use the lower(address) index so imported rows
+	// with different casing are matched rather than duplicated.
+	assert.Equal(t, 2, strings.Count(s, "ON CONFLICT (chain_id, lower(address)) DO UPDATE SET"))
+
+	// Only CONFIRMED, addressed, still-unlinked deploys are promoted, which is
+	// what makes the migration idempotent. Four occurrences: the insert and the
+	// link step, for each of vouchers and pools.
+	assert.Equal(t, 4, strings.Count(s, "status = 'CONFIRMED'"))
+	assert.Contains(t, s, "dt.voucher_id IS NULL")
+	assert.Contains(t, s, "dp.pool_id IS NULL")
+	assert.Equal(t, 2, strings.Count(s, "ON CONFLICT (voucher_id, tag_value) DO NOTHING")+
+		strings.Count(s, "ON CONFLICT (pool_id, tag_value) DO NOTHING"))
+
+	// A backfill must not overwrite curated catalog values: the existing row is
+	// the first COALESCE argument throughout, unlike the confirm path.
+	assert.Contains(t, s, "COALESCE(vouchers.name,             EXCLUDED.name)")
+	assert.Contains(t, s, "COALESCE(pools.name,     EXCLUDED.name)")
+	assert.NotContains(t, s, "COALESCE(EXCLUDED.")
+
+	// Geo is copied as a pair so the geo_valid checks cannot be violated.
+	assert.Contains(t, s, "CASE WHEN vouchers.geo_lat IS NULL THEN EXCLUDED.geo_lng ELSE vouchers.geo_lng END")
+	assert.Contains(t, s, "CASE WHEN pools.geo_lat IS NULL THEN EXCLUDED.geo_lng ELSE pools.geo_lng END")
+
+	// Never invent pipeline facts for catalog rows (MIGRATION.md §2.6).
+	assert.NotContains(t, s, "INSERT INTO otx")
+	assert.NotContains(t, s, "INSERT INTO platform_contracts")
+	assert.NotContains(t, s, "INSERT INTO deployed_tokens")
+	assert.NotContains(t, s, "INSERT INTO deployed_pools")
+
+	// Data-only, so there is deliberately no 001 baseline fold to keep in sync.
+	assert.NotContains(t, s, "CREATE TABLE")
+	assert.NotContains(t, s, "ADD COLUMN")
+	assert.NotContains(t, s, "ADD CONSTRAINT")
+	assert.NotContains(t, s, "DROP")
+
+	// The link columns this migration populates stay 006-only by the same
+	// decision that kept them out of the baseline (column-add pattern, so fresh
+	// and upgraded databases end up with identical column order).
+	catalog, err := os.ReadFile("006_network_catalog.sql")
+	require.NoError(t, err)
+	assert.Contains(t, string(catalog), "voucher_id INT UNIQUE REFERENCES vouchers(id)")
+	assert.Contains(t, string(catalog), "pool_id INT UNIQUE REFERENCES pools(id)")
 }

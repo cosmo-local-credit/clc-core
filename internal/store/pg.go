@@ -27,6 +27,7 @@ type (
 		InsertDeployedToken          string `query:"insert-deployed-token"`
 		ConfirmDeployedToken         string `query:"confirm-deployed-token"`
 		FailDeployedToken            string `query:"fail-deployed-token"`
+		UpsertVoucherFromDeploy      string `query:"upsert-voucher-from-deploy"`
 		InsertDeployedTokenTag       string `query:"insert-deployed-token-tag"`
 		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
@@ -36,6 +37,7 @@ type (
 		InsertDeployedPool           string `query:"insert-deployed-pool"`
 		ConfirmDeployedPool          string `query:"confirm-deployed-pool"`
 		FailDeployedPool             string `query:"fail-deployed-pool"`
+		UpsertPoolFromDeploy         string `query:"upsert-pool-from-deploy"`
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`

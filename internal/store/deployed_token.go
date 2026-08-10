@@ -84,6 +84,24 @@ func (pg *Pg) FailDeployedToken(ctx context.Context, tx pgx.Tx, otxID uint64) er
 	return err
 }
 
+// UpsertVoucherFromDeploy promotes a confirmed token deploy into the network
+// voucher catalog, copies its tags to voucher_tags, sets
+// deployed_tokens.voucher_id, and returns the catalog voucher ID. Call it in the
+// same transaction as ConfirmDeployedToken so a CONFIRMED deploy is never
+// visible without its catalog row.
+//
+// Returns pgx.ErrNoRows if the deploy row has no address yet, which means the
+// caller confirmed a row the promotion cannot describe.
+func (pg *Pg) UpsertVoucherFromDeploy(ctx context.Context, tx pgx.Tx, deployedTokenID uint64) (uint64, error) {
+	var voucherID uint64
+
+	if err := tx.QueryRow(ctx, pg.queries.UpsertVoucherFromDeploy, deployedTokenID).Scan(&voucherID); err != nil {
+		return voucherID, err
+	}
+
+	return voucherID, nil
+}
+
 func (pg *Pg) InsertDeployedTokenTag(ctx context.Context, tx pgx.Tx, deployedTokenID uint64, tag string) error {
 	_, err := tx.Exec(ctx, pg.queries.InsertDeployedTokenTag, deployedTokenID, tag)
 	return err

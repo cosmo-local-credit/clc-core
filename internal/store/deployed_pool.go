@@ -90,6 +90,21 @@ func (pg *Pg) FailDeployedPool(ctx context.Context, tx pgx.Tx, otxID uint64) err
 	return err
 }
 
+// UpsertPoolFromDeploy promotes a confirmed pool deploy into the network pool
+// catalog, copies its tags to pool_tags, sets deployed_pools.pool_id, and
+// returns the catalog pool ID. The voucher-side counterpart is
+// UpsertVoucherFromDeploy; both carry the same transaction and ErrNoRows
+// contract.
+func (pg *Pg) UpsertPoolFromDeploy(ctx context.Context, tx pgx.Tx, deployedPoolID uint64) (uint64, error) {
+	var poolID uint64
+
+	if err := tx.QueryRow(ctx, pg.queries.UpsertPoolFromDeploy, deployedPoolID).Scan(&poolID); err != nil {
+		return poolID, err
+	}
+
+	return poolID, nil
+}
+
 func (pg *Pg) GetDeployedPoolByAddress(ctx context.Context, tx pgx.Tx, address string) (DeployedPool, error) {
 	var dp DeployedPool
 
