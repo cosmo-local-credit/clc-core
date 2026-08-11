@@ -223,6 +223,11 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 				Description: "user not found",
 			})
 		}
+		// email/phone are unique across users: claiming one already bound to
+		// another account is a caller-fixable 409, not an internal error.
+		if conflict, ok := userIdentityConflict(err); ok {
+			return c.JSON(http.StatusConflict, conflict)
+		}
 		return err
 	}
 

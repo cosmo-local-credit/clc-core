@@ -11,17 +11,7 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/labstack/echo/v5"
-)
-
-const (
-	// pgUniqueViolation is the PostgreSQL error code for a UNIQUE constraint
-	// violation. INSERTs that hit users_blockchain_address_unique or
-	// users_email_unique race through the duplicate-identity pre-checks
-	// above; we translate the violation into a 409 conflict rather than
-	// surfacing a generic 500 E01.
-	pgUniqueViolation = "23505"
 )
 
 func (a *API) nonceHandler(c *echo.Context) error {
@@ -124,17 +114,8 @@ func (a *API) signupHandler(c *echo.Context) error {
 		MaxTokens:       20,
 	})
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
-			errCode := apiresp.ErrCodeConflict
-			if pgErr.ConstraintName == "users_email_unique" {
-				errCode = apiresp.ErrCodeEmailConflict
-			}
-			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     errCode,
-				Description: "identity already linked to another account",
-			})
+		if conflict, ok := userIdentityConflict(err); ok {
+			return c.JSON(http.StatusConflict, conflict)
 		}
 		return err
 	}

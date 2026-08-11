@@ -251,4 +251,5 @@ const (
 	ErrCodeWebAuthnVerificationFailed = "E15"
 	ErrCodeConflict                   = "E16"
 	ErrCodeEmailConflict              = "E17"
+	ErrCodePhoneConflict              = "E18"
 )

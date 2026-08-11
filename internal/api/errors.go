@@ -6,8 +6,44 @@ import (
 
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/labstack/echo/v5"
 )
+
+const (
+	// pgUniqueViolation is the PostgreSQL error code for a UNIQUE constraint
+	// violation. Writes to users can trip users_blockchain_address_unique,
+	// users_email_unique or users_phone_unique — either raced past a
+	// duplicate-identity pre-check or never pre-checked at all; we translate
+	// the violation into a 409 conflict rather than surfacing a generic 500 E01.
+	pgUniqueViolation = "23505"
+)
+
+// userIdentityConflict maps a UNIQUE violation on the users table onto a 409
+// response, keyed by constraint name so the caller learns *which* identity
+// field collided instead of a generic conflict. Reports false for any other
+// error, which the caller should keep propagating.
+func userIdentityConflict(err error) (apiresp.ErrResponse, bool) {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != pgUniqueViolation {
+		return apiresp.ErrResponse{}, false
+	}
+
+	resp := apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeConflict,
+		Description: "identity already linked to another account",
+	}
+	switch pgErr.ConstraintName {
+	case "users_email_unique":
+		resp.ErrCode = apiresp.ErrCodeEmailConflict
+		resp.Description = "email already linked to another account"
+	case "users_phone_unique":
+		resp.ErrCode = apiresp.ErrCodePhoneConflict
+		resp.Description = "phone number already linked to another account"
+	}
+	return resp, true
+}
 
 func (a *API) customHTTPErrorHandler(c *echo.Context, err error) {
 	if r, rErr := echo.UnwrapResponse(c.Response()); rErr == nil && r.Committed {
