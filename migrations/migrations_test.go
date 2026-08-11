@@ -63,10 +63,7 @@ func TestSendMessageSharesMigration(t *testing.T) {
 	require.NoError(t, err)
 
 	s := string(content)
-	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS location_name")
-	assert.Contains(t, s, "users_location_complete")
-	assert.Contains(t, s, "users_geo_lat_range")
-	assert.Contains(t, s, "users_geo_lng_range")
+	assert.NotContains(t, s, "ALTER TABLE users")
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS user_shares")
 	assert.Contains(t, s, "tracking_id        UUID NOT NULL UNIQUE")
 	assert.Contains(t, s, "owner_user_id      INT NOT NULL REFERENCES users(id)")
