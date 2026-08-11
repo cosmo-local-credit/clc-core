@@ -123,6 +123,38 @@ func TestRelayGasLimit(t *testing.T) {
 	}
 }
 
+// A one-call relay has to cover the heaviest single action we sign, which is a
+// first GiftableToken mint: 103_407 measured on Celo (three zero->nonzero
+// SSTOREs — recipient balance, totalSupply, totalMinted). Of the tx limit,
+// ~26_000 goes to intrinsic + calldata and ~41_000 to Calibur's decode,
+// ecrecover and nonce write before the token frame is entered, so the limit
+// must clear roughly 170_000 for the mint to land. per_call_gas = 80_000 gave
+// 143_000 and reverted with OutOfGas.
+func TestRelayGasLimitCoversFirstMint(t *testing.T) {
+	const (
+		firstMintGas    = 103_407
+		relayOverhead   = 67_000
+		productionLimit = 275_000 // (50_000 + 200_000) * 1.10
+	)
+
+	r := testRelayer()
+	r.perCallGas = 200_000
+
+	got := r.relayGasLimit(1, true, false)
+	if got != productionLimit {
+		t.Fatalf("one-call delegated gas = %d, want %d", got, productionLimit)
+	}
+	if got < firstMintGas+relayOverhead {
+		t.Fatalf("one-call gas = %d, below the %d a first mint needs", got, firstMintGas+relayOverhead)
+	}
+
+	// The regression: the previous default could not fund the mint.
+	r.perCallGas = 80_000
+	if old := r.relayGasLimit(1, true, false); old >= firstMintGas+relayOverhead {
+		t.Fatalf("80k per-call budget = %d, expected it to fall short of a first mint", old)
+	}
+}
+
 func TestBuildCaliburNonce(t *testing.T) {
 	// root key (keyHash 0) => nonce == seq
 	if got := buildCaliburNonce(common.Hash{}, 42); got.Cmp(big.NewInt(42)) != 0 {

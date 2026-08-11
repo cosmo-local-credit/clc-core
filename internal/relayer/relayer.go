@@ -34,6 +34,9 @@ type (
 		// first relay, which also delegates) with a +10% safety bump, clamped to
 		// MaxRelayGas. We cannot eth_estimateGas the first relay because the
 		// delegation is not yet live, so we budget from known per-action averages.
+		//
+		// PerCallGas is sized to the heaviest single action rather than the
+		// average — see the default below.
 		PerCallGas            uint64
 		BaseExecGas           uint64
 		DelegationOverheadGas uint64
@@ -100,7 +103,13 @@ func New(o Opts) (*Relayer, error) {
 
 	perCallGas := o.PerCallGas
 	if perCallGas == 0 {
-		perCallGas = 80_000
+		// A first GiftableToken mint measures 103_407 on Celo (three
+		// zero->nonzero SSTOREs: recipient balance, totalSupply, totalMinted).
+		// The previous 80_000 default capped a one-call relay at 143_000, of
+		// which only ~74_000 reached the token after the intrinsic+calldata
+		// cost and Calibur's decode/ecrecover/nonce write — mintTo died with
+		// OutOfGas. Deployments that set no [relayer] gas keys inherit this.
+		perCallGas = 200_000
 	}
 	baseExecGas := o.BaseExecGas
 	if baseExecGas == 0 {
@@ -112,7 +121,10 @@ func New(o Opts) (*Relayer, error) {
 	}
 	maxRelayGas := o.MaxRelayGas
 	if maxRelayGas == 0 {
-		maxRelayGas = 3_000_000
+		// Fits a full 16-call batch at the per-call budget above
+		// ((50_000 + 200_000*16) * 1.10 = 3_575_000) so the clamp never
+		// silently under-provisions a long swap route.
+		maxRelayGas = 4_000_000
 	}
 	webAuthnVerifyGas := o.WebAuthnVerifyGas
 	if webAuthnVerifyGas == 0 {

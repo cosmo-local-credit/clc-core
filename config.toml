@@ -53,10 +53,20 @@ calibur_address = "0x1289fE793392fb1a905f78Ea23f632EDD3d15b85"
 # Relayed-batch gas budget. The first relay also delegates, and the Calibur
 # code is not live at the EOA until that tx executes, so eth_estimateGas would
 # revert so we budget from known per-action averages instead.
-per_call_gas = 80000
+#
+# per_call_gas must cover the heaviest single action, not the average: a first
+# GiftableToken mint measures 103_407 on Celo (three zero->nonzero SSTOREs —
+# recipient balance, totalSupply, totalMinted). At 80_000 a one-call mint got a
+# 143_000 limit and died with OutOfGas inside mintTo; only ~74_000 reached the
+# token after the intrinsic+calldata cost and Calibur's decode/ecrecover/nonce
+# write. Over-budgeting is close to free: only gas actually used is billed.
+per_call_gas = 200000
 base_exec_gas = 50000
 delegation_overhead_gas = 150000
-max_relay_gas = 3000000
+# Headroom for a full 16-call batch at the per-call budget above
+# ((50_000 + 200_000*16) * 1.10 = 3_575_000) so the clamp never silently
+# under-provisions a long swap route.
+max_relay_gas = 4000000
 # Extra gas added when the batch is signed by a WebAuthn/P256 passkey:
 # verifying a P-256 signature on chain costs far more than secp256k1 ecrecover
 webauthn_verify_gas = 400000

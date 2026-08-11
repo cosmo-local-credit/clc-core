@@ -49,6 +49,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "013_voucher_relationship_filter_indexes.sql")
 	assert.Contains(t, sqlFiles, "014_user_geo.sql")
 	assert.Contains(t, sqlFiles, "015_deploy_catalog_promotion.sql")
+	assert.Contains(t, sqlFiles, "016_deploy_terms.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -65,10 +66,21 @@ func TestMigrationFiles(t *testing.T) {
 				name == "012_report_search_indexes.sql" ||
 				name == "013_voucher_relationship_filter_indexes.sql" ||
 				name == "014_user_geo.sql" ||
-				name == "015_deploy_catalog_promotion.sql",
+				name == "015_deploy_catalog_promotion.sql" ||
+				name == "016_deploy_terms.sql",
 			"unexpected migration file %s", name,
 		)
 	}
+}
+
+func TestDeployTermsMigration(t *testing.T) {
+	content, err := os.ReadFile("016_deploy_terms.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ALTER TABLE deployed_tokens")
+	assert.Contains(t, s, "ALTER TABLE deployed_pools")
+	assert.Equal(t, 2, strings.Count(s, "ADD COLUMN IF NOT EXISTS terms TEXT"))
 }
 
 func TestMarketVoucherIndexesMigration(t *testing.T) {

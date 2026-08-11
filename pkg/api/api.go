@@ -26,6 +26,7 @@ type (
 		Website          string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email            string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone            string   `json:"phone,omitempty"`
+		Terms            string   `json:"terms,omitempty" validate:"omitempty,url"`
 		LocationName     string   `json:"locationName,omitempty"`
 		GeoLat           *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
 		GeoLng           *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
@@ -44,6 +45,7 @@ type (
 		Website         string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email           string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone           string   `json:"phone,omitempty"`
+		Terms           string   `json:"terms,omitempty" validate:"omitempty,url"`
 		VoucherUoa      string   `json:"voucherUoa,omitempty"`
 		VoucherValue    *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
 		LocationName    string   `json:"locationName,omitempty"`

@@ -44,6 +44,7 @@ type (
 		Website                    string   `json:"website"`
 		Email                      string   `json:"email"`
 		Phone                      string   `json:"phone"`
+		Terms                      string   `json:"terms"`
 		LocationName               string   `json:"locationName"`
 		GeoLat                     *float64 `json:"geoLat"`
 		GeoLng                     *float64 `json:"geoLng"`
@@ -372,6 +373,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		Website:                      nilIfEmpty(args.Website),
 		Email:                        nilIfEmpty(args.Email),
 		Phone:                        nilIfEmpty(args.Phone),
+		Terms:                        nilIfEmpty(args.Terms),
 		LocationName:                 nilIfEmpty(args.LocationName),
 		GeoLat:                       args.GeoLat,
 		GeoLng:                       args.GeoLng,

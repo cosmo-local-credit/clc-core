@@ -29,6 +29,7 @@ type (
 		Website            *string   `db:"website"              json:"website"`
 		Email              *string   `db:"email"                json:"email"`
 		Phone              *string   `db:"phone"                json:"phone"`
+		Terms              *string   `db:"terms"                json:"terms"`
 		VoucherUoa         *string   `db:"voucher_uoa"          json:"voucherUoa"`
 		VoucherValue       *float64  `db:"voucher_value"        json:"voucherValue"`
 		LocationName       *string   `db:"location_name"        json:"locationName"`
@@ -57,6 +58,7 @@ func (pg *Pg) InsertDeployedToken(ctx context.Context, tx pgx.Tx, dt DeployedTok
 		dt.Website,
 		dt.Email,
 		dt.Phone,
+		dt.Terms,
 		dt.VoucherUoa,
 		dt.VoucherValue,
 		dt.LocationName,

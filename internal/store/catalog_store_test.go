@@ -72,3 +72,31 @@ func TestLoadCatalogQueries(t *testing.T) {
 		}
 	}
 }
+
+func TestDeployQueriesPersistTermsIntoCatalogs(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatalf("load core queries: %v", err)
+	}
+
+	for name, query := range map[string]string{
+		"insert deployed token": queries.InsertDeployedToken,
+		"insert deployed pool":  queries.InsertDeployedPool,
+	} {
+		if !strings.Contains(query, "terms") {
+			t.Errorf("%s must persist terms", name)
+		}
+	}
+
+	for name, query := range map[string]string{
+		"promote voucher": queries.UpsertVoucherFromDeploy,
+		"promote pool":    queries.UpsertPoolFromDeploy,
+	} {
+		if !strings.Contains(query, "d.terms") {
+			t.Errorf("%s must copy deploy terms into the catalog", name)
+		}
+		if !strings.Contains(query, "COALESCE(EXCLUDED.terms") {
+			t.Errorf("%s must let non-empty deploy terms update the catalog", name)
+		}
+	}
+}

@@ -91,6 +91,7 @@ func TestUpsertVoucherFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	locName := "Nairobi"
 	lat, lng := -1.2921, 36.8219
 	desc, site, mail, phone := "A test voucher", "https://example.org", "a@example.org", "+254700"
+	terms := "https://example.org/terms"
 
 	deployedID, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
 		OTXID:              otxID,
@@ -103,6 +104,7 @@ func TestUpsertVoucherFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		Website:            &site,
 		Email:              &mail,
 		Phone:              &phone,
+		Terms:              &terms,
 		VoucherUoa:         &uoa,
 		VoucherValue:       &value,
 		LocationName:       &locName,
@@ -133,6 +135,7 @@ func TestUpsertVoucherFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		gotDecimals            int32
 		gotOwner               string
 		gotUoa, gotVersion     *string
+		gotTerms               *string
 		gotValue               *float64
 		gotLat, gotLng         *float64
 		gotPlatformContractID  *uint64
@@ -141,11 +144,11 @@ func TestUpsertVoucherFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	err = tx.QueryRow(ctx, `
 		SELECT chain_id, address, name, symbol, voucher_type, decimals, owner_address,
 		       voucher_uoa, contract_version, voucher_value, geo_lat, geo_lng,
-		       platform_contract_id, active, internal
+		       platform_contract_id, active, internal, terms
 		FROM vouchers WHERE id = $1`, voucherID).Scan(
 		&gotChainID, &gotAddress, &gotName, &gotSymbol, &gotType, &gotDecimals, &gotOwner,
 		&gotUoa, &gotVersion, &gotValue, &gotLat, &gotLng,
-		&gotPlatformContractID, &gotActive, &gotInternal)
+		&gotPlatformContractID, &gotActive, &gotInternal, &gotTerms)
 	require.NoError(t, err, "promoted voucher must exist")
 
 	// chain_id and contract_version come from the factory that was actually
@@ -170,6 +173,8 @@ func TestUpsertVoucherFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	require.NotNil(t, gotPlatformContractID, "the real factory must be recorded")
 	assert.True(t, gotActive, "new catalog rows default to active")
 	assert.False(t, gotInternal)
+	require.NotNil(t, gotTerms)
+	assert.Equal(t, terms, *gotTerms)
 
 	// The pipeline row links to the catalog row it produced.
 	var linkedVoucherID *uint64
@@ -328,6 +333,7 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	quoter := randomAddress(t, tx)
 	feeController := randomAddress(t, tx)
 	desc, site, mail, phone := "A test pool", "https://pool.example.org", "p@example.org", "+254701"
+	terms := "https://pool.example.org/terms"
 	locName := "Kisumu"
 	lat, lng := -0.0917, 34.7680
 	image, banner := "https://img", "https://banner"
@@ -349,6 +355,7 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		Website:                      &site,
 		Email:                        &mail,
 		Phone:                        &phone,
+		Terms:                        &terms,
 		LocationName:                 &locName,
 		GeoLat:                       &lat,
 		GeoLng:                       &lng,
@@ -423,7 +430,8 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	// and pool sync to own.
 	assert.Nil(t, gotFeePPM, "fee_ppm has no deploy-side source")
 	assert.Nil(t, gotUoa, "unit_of_account has no deploy-side source")
-	assert.Nil(t, gotTerms, "terms has no deploy-side source")
+	require.NotNil(t, gotTerms)
+	assert.Equal(t, terms, *gotTerms)
 	assert.Nil(t, gotDefaultVoucherID, "default_voucher_id has no deploy-side source")
 
 	var linkedPoolID *uint64
