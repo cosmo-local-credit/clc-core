@@ -23,7 +23,9 @@ import (
 	"github.com/knadh/koanf/v2"
 )
 
-const defaultExpiry = 30 * 24 * time.Hour
+const (
+	defaultExpiry = 30 * 24 * time.Hour
+)
 
 var (
 	confFlag    string

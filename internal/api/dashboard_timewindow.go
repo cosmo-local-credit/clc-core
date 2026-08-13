@@ -18,15 +18,17 @@ const (
 	timeRangeCustom = "custom"
 )
 
-type dashboardTimeWindow struct {
-	Preset        string
-	Since         time.Time
-	Until         time.Time
-	Bucket        time.Duration
-	BucketSeconds int64
-}
+type (
+	dashboardTimeWindow struct {
+		Preset        string
+		Since         time.Time
+		Until         time.Time
+		Bucket        time.Duration
+		BucketSeconds int64
+	}
 
-type rangeError string
+	rangeError string
+)
 
 func (e rangeError) Error() string { return string(e) }
 
@@ -140,28 +142,16 @@ func pickSeriesBucket(span time.Duration) time.Duration {
 func formatBucketLabel(d time.Duration) string {
 	switch {
 	case d < time.Minute:
-		secs := int(d / time.Second)
-		if secs < 1 {
-			secs = 1
-		}
+		secs := max(1, int(d/time.Second))
 		return fmt.Sprintf("%ds", secs)
 	case d < time.Hour:
-		mins := int(d / time.Minute)
-		if mins < 1 {
-			mins = 1
-		}
+		mins := max(1, int(d/time.Minute))
 		return fmt.Sprintf("%dm", mins)
 	case d < 24*time.Hour:
-		hours := int(d / time.Hour)
-		if hours < 1 {
-			hours = 1
-		}
+		hours := max(1, int(d/time.Hour))
 		return fmt.Sprintf("%dh", hours)
 	default:
-		days := int(d / (24 * time.Hour))
-		if days < 1 {
-			days = 1
-		}
+		days := max(1, int(d/(24*time.Hour)))
 		return fmt.Sprintf("%dd", days)
 	}
 }

@@ -8,24 +8,26 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type DashboardCatalogSnapshot struct {
-	Pools    int64 `db:"pools"    json:"pools"`
-	Vouchers int64 `db:"vouchers" json:"vouchers"`
-	Accounts int64 `db:"accounts" json:"accounts"`
-	Reports  int64 `db:"reports"  json:"reports"`
-}
+type (
+	DashboardCatalogSnapshot struct {
+		Pools    int64 `db:"pools"    json:"pools"`
+		Vouchers int64 `db:"vouchers" json:"vouchers"`
+		Accounts int64 `db:"accounts" json:"accounts"`
+		Reports  int64 `db:"reports"  json:"reports"`
+	}
 
-type DashboardCatalogPoint struct {
-	T        time.Time `db:"t"        json:"t"`
-	Reports  int64     `db:"reports"  json:"reports"`
-	Vouchers int64     `db:"vouchers" json:"vouchers"`
-	Pools    int64     `db:"pools"    json:"pools"`
-}
+	DashboardCatalogPoint struct {
+		T        time.Time `db:"t"        json:"t"`
+		Reports  int64     `db:"reports"  json:"reports"`
+		Vouchers int64     `db:"vouchers" json:"vouchers"`
+		Pools    int64     `db:"pools"    json:"pools"`
+	}
 
-type DashboardTransactionPoint struct {
-	T            time.Time `db:"t"            json:"t"`
-	Transactions int64     `db:"transactions" json:"transactions"`
-}
+	DashboardTransactionPoint struct {
+		T            time.Time `db:"t"            json:"t"`
+		Transactions int64     `db:"transactions" json:"transactions"`
+	}
+)
 
 func (pg *Pg) DashboardCatalogSnapshot(ctx context.Context, tx pgx.Tx, since, until time.Time) (DashboardCatalogSnapshot, error) {
 	var snap DashboardCatalogSnapshot
