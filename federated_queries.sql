@@ -278,3 +278,36 @@ SELECT * FROM (
     LIMIT $3
 ) page
 ORDER BY id DESC;
+
+-- Filled envelope series from chain_data_v2.tx only. One foreign scan:
+-- postgres_fdw ships the date filter but not GROUP BY, so the remote
+-- returns date_block rows and we bucket locally. A separate COUNT(*) is
+-- another scan of the same window — the handler sums this series instead.
+-- date_block is timestamp without time zone: bind $1/$2 as timestamp, not
+-- timestamptz, or the remote date filter is dropped.
+-- Sampled 1d ~110ms exec / 28d ~300ms / 90d ~600ms (fetch_size 100).
+-- $1 since, $2 until, $3 bucket seconds.
+-- extract() needs explicit types: untyped $1 is extract(unknown, unknown)
+-- (SQLSTATE 42725). Cast only in extract; leave the WHERE args bare so FDW
+-- still pushes a timestamp comparison.
+--name: dashboard-transaction-series
+WITH buckets AS (
+    SELECT g AS bucket_epoch
+    FROM generate_series(
+        (floor(extract(epoch from $1::timestamp) / $3::bigint) * $3::bigint)::bigint,
+        (extract(epoch from $2::timestamp)::bigint - 1),
+        $3::bigint
+    ) AS g
+),
+counts AS (
+    SELECT (floor(extract(epoch from date_block) / $3::bigint) * $3::bigint)::bigint AS bucket_epoch,
+        COUNT(*)::bigint AS n
+    FROM chain_data_v2.tx
+    WHERE date_block >= $1 AND date_block < $2
+    GROUP BY 1
+)
+SELECT to_timestamp(b.bucket_epoch) AS t,
+    COALESCE(c.n, 0) AS transactions
+FROM buckets b
+LEFT JOIN counts c ON c.bucket_epoch = b.bucket_epoch
+ORDER BY b.bucket_epoch;

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/keypair"
 	"github.com/jackc/pgx/v5"
@@ -57,6 +58,8 @@ type (
 		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string, *string, *float64, *float64) (User, error)
 		ListUsers(context.Context, pgx.Tx) ([]User, error)
 		ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
+		DashboardCatalogSnapshot(context.Context, pgx.Tx, time.Time, time.Time) (DashboardCatalogSnapshot, error)
+		DashboardCatalogSeries(context.Context, pgx.Tx, time.Time, time.Time, int64) ([]DashboardCatalogPoint, error)
 
 		InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
 		CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)

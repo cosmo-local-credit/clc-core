@@ -24,10 +24,15 @@ func TestLoadCatalogQueries(t *testing.T) {
 		"list-pool-offerings":         queries.ListPoolOfferings,
 		"list-pool-offerings-next":    queries.ListPoolOfferingsNext,
 		"list-pool-offerings-prev":    queries.ListPoolOfferingsPrev,
+		"dashboard-catalog-snapshot":  queries.DashboardCatalogSnapshot,
+		"dashboard-catalog-series":    queries.DashboardCatalogSeries,
 	} {
 		if query == "" {
 			t.Errorf("expected %s query to be loaded", name)
 		}
+	}
+	if queries.DashboardCatalogSeries != "" && !strings.Contains(queries.DashboardCatalogSeries, "generate_series") {
+		t.Fatal("expected catalog series to fill buckets in SQL")
 	}
 
 	if !strings.Contains(queries.ListPoolVouchers, "oracle_feeds") {

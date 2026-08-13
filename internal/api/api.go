@@ -237,6 +237,11 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 
+	// Dashboard aggregates are a separate group so catalog mutations and
+	// ops totals do not share a route prefix that invites accidental reuse.
+	dashboardGroup := adminGroup.Group("/dashboard")
+	dashboardGroup.GET("/stats", a.adminDashboardStatsHandler)
+
 	// Federation data routes — only if federation store is available
 	if a.federationStore != nil {
 		fedGroup := apiGroup.Group("/federation")

@@ -135,6 +135,9 @@ type (
 		ListVoucherTagVocabulary string `query:"list-voucher-tag-vocabulary"`
 		ListPoolTagVocabulary    string `query:"list-pool-tag-vocabulary"`
 		ListReportTagVocabulary  string `query:"list-report-tag-vocabulary"`
+
+		DashboardCatalogSnapshot string `query:"dashboard-catalog-snapshot"`
+		DashboardCatalogSeries   string `query:"dashboard-catalog-series"`
 	}
 
 	PgOpts struct {

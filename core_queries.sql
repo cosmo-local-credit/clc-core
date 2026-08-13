@@ -1447,3 +1447,55 @@ FROM report_tags rt
 INNER JOIN reports r ON r.id = rt.report_id
 WHERE r.status = 'APPROVED'
 ORDER BY rt.tag_value;
+
+-- Dashboard snapshot: lifetime stock plus windowed report creations.
+--name: dashboard-catalog-snapshot
+SELECT
+    (SELECT COUNT(*) FROM pools) AS pools,
+    (SELECT COUNT(*) FROM vouchers) AS vouchers,
+    (SELECT COUNT(*) FROM users) AS accounts,
+    (SELECT COUNT(*) FROM reports
+     WHERE status = 'APPROVED' AND created_at >= $1 AND created_at < $2) AS reports;
+
+-- Filled catalog series. generate_series builds the bucket grid so the API
+-- does not materialise empty slots in process memory.
+-- $1 since, $2 until, $3 bucket seconds.
+--name: dashboard-catalog-series
+WITH buckets AS (
+    SELECT g AS bucket_epoch
+    FROM generate_series(
+        (floor(extract(epoch from $1::timestamptz) / $3) * $3)::bigint,
+        (extract(epoch from $2::timestamptz)::bigint - 1),
+        $3
+    ) AS g
+),
+reports AS (
+    SELECT (floor(extract(epoch from created_at) / $3) * $3)::bigint AS bucket_epoch,
+        COUNT(*)::bigint AS count
+    FROM reports
+    WHERE status = 'APPROVED' AND created_at >= $1 AND created_at < $2
+    GROUP BY 1
+),
+vouchers AS (
+    SELECT (floor(extract(epoch from created_at) / $3) * $3)::bigint AS bucket_epoch,
+        COUNT(*)::bigint AS count
+    FROM vouchers
+    WHERE created_at >= $1 AND created_at < $2
+    GROUP BY 1
+),
+pools AS (
+    SELECT (floor(extract(epoch from created_at) / $3) * $3)::bigint AS bucket_epoch,
+        COUNT(*)::bigint AS count
+    FROM pools
+    WHERE created_at >= $1 AND created_at < $2
+    GROUP BY 1
+)
+SELECT to_timestamp(b.bucket_epoch) AS t,
+    COALESCE(r.count, 0) AS reports,
+    COALESCE(v.count, 0) AS vouchers,
+    COALESCE(p.count, 0) AS pools
+FROM buckets b
+LEFT JOIN reports r ON r.bucket_epoch = b.bucket_epoch
+LEFT JOIN vouchers v ON v.bucket_epoch = b.bucket_epoch
+LEFT JOIN pools p ON p.bucket_epoch = b.bucket_epoch
+ORDER BY b.bucket_epoch;

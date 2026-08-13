@@ -5,7 +5,15 @@ import (
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+// naiveUTC binds a timestamptz Go value as timestamp without time zone.
+// chain_data_v2.date_block is naive UTC; a timestamptz parameter drops the
+// remote date filter and the FDW scan times out.
+func naiveUTC(t time.Time) pgtype.Timestamp {
+	return pgtype.Timestamp{Time: t.UTC(), Valid: true}
+}
 
 type (
 	// FederationTokenBalance carries chain facts scanned from the federation
@@ -64,6 +72,17 @@ func (s *FederationPg) ListUserTokenHoldingsPrevious(ctx context.Context, addres
 		return nil, err
 	}
 	return holdings, nil
+}
+
+func (s *FederationPg) DashboardTransactionSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]DashboardTransactionPoint, error) {
+	var rows []DashboardTransactionPoint
+	if err := pgxscan.Select(ctx, s.db, &rows, s.queries.DashboardTransactionSeries, naiveUTC(since), naiveUTC(until), bucketSeconds); err != nil {
+		return nil, err
+	}
+	if rows == nil {
+		return []DashboardTransactionPoint{}, nil
+	}
+	return rows, nil
 }
 
 func (s *FederationPg) ListUserTransferHistory(ctx context.Context, address string, limit uint64) ([]FederationTransfer, error) {

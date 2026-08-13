@@ -27,9 +27,32 @@ func TestLoadFederationQueries(t *testing.T) {
 		"list-user-transfer-history":      queries.ListUserTransferHistory,
 		"list-user-transfer-history-next": queries.ListUserTransferHistoryNext,
 		"list-user-transfer-history-prev": queries.ListUserTransferHistoryPrevious,
+		"dashboard-transaction-series":    queries.DashboardTransactionSeries,
 	} {
 		if query == "" {
 			t.Fatalf("expected %s query to be loaded", name)
+		}
+	}
+	if !strings.Contains(queries.DashboardTransactionSeries, "generate_series") {
+		t.Fatal("expected transaction series to fill buckets in SQL")
+	}
+	if !strings.Contains(queries.DashboardTransactionSeries, "chain_data_v2.tx") {
+		t.Fatal("expected transaction series to read chain_data_v2.tx")
+	}
+	if !strings.Contains(queries.DashboardTransactionSeries, "extract(epoch from $1::timestamp)") {
+		t.Fatal("expected extract() to cast $1 to timestamp; untyped params are ambiguous")
+	}
+	for _, table := range []string{
+		"token_transfer",
+		"pool_swap",
+		"token_mint",
+		"token_burn",
+		"pool_deposit",
+		"token_approval",
+		"sarafu_network",
+	} {
+		if strings.Contains(queries.DashboardTransactionSeries, table) {
+			t.Fatalf("transaction series must read only chain_data_v2.tx, found %s", table)
 		}
 	}
 

@@ -48,6 +48,14 @@ docs:
 gen-service-token:
 	$(LOAD_ENV) && ${BUILD_CONF} ${DEBUG} go run cmd/gen-service-token/main.go -service ussd-staging
 
+# Local development only: mints a user session JWT so a client can call
+# authenticated endpoints without a wallet signature. ADDRESS defaults to the
+# seeded superadmin; override with `make gen-user-token ADDRESS=0x... ROLE=USER`.
+ADDRESS ?= 0x33a573149db22e759fB9A38Bcc461C12855c2645
+ROLE ?= SUPERADMIN
+gen-user-token:
+	@$(LOAD_ENV) && ${BUILD_CONF} go run cmd/gen-user-token/main.go -address $(ADDRESS) -role $(ROLE)
+
 seed-generate:
 	FEDERATION_DSN="$(FEDERATION_DSN)" ./seed/generate-federation-import.sh
 

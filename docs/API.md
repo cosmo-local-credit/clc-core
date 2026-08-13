@@ -48,6 +48,7 @@
    - [GET /api/v2/admin/tokens](#75-get-apiv2admintokens)
    - [GET /api/v2/admin/pools](#76-get-apiv2adminpools)
    - [GET /api/v2/admin/deployments](#77-get-apiv2admindeployments)
+   - [GET /api/v2/admin/dashboard/stats](#78-get-apiv2admindashboardstats)
 8. [SIWE Message Construction](#8-siwe-message-construction)
 9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
    - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
@@ -1229,6 +1230,45 @@ Lists all deployment history entries across all users.
   "description": "All deployment history",
   "result": {
     "deployments": [ { "trackingId": "...", "resourceType": "TOKEN", "createdAt": "..." } ]
+  }
+}
+```
+
+---
+
+### 7.8 `GET /api/v2/admin/dashboard/stats`
+
+Dashboard aggregates. Mounted on the `/admin/dashboard` group, not mixed with user/token mutations.
+
+**Query parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `range` | `string` | `5m`, `15m`, `30m`, `1h`, `6h`, `1d` (default), or `custom` |
+| `since` | `string` | RFC3339 start, required when `range=custom` |
+| `until` | `string` | RFC3339 end, required when `range=custom` |
+
+`pools`, `vouchers`, and `accounts` are lifetime catalog stock. `reports` and `transactions` are counts inside the requested window. Two series feed the charts: catalog creations, and `chain_data_v2.tx` envelopes. `transactions` is `null` when federation is down.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Admin dashboard totals",
+  "result": {
+    "range": { "preset": "1d", "since": "2026-08-12T00:00:00Z", "until": "2026-08-13T00:00:00Z", "bucket": "1h" },
+    "pools": 42,
+    "vouchers": 2192,
+    "accounts": 310,
+    "reports": 12,
+    "transactions": 1843,
+    "catalogSeries": [
+      { "t": "2026-08-12T00:00:00Z", "reports": 1, "vouchers": 2, "pools": 0 }
+    ],
+    "transactionSeries": [
+      { "t": "2026-08-12T00:00:00Z", "transactions": 16 }
+    ]
   }
 }
 ```

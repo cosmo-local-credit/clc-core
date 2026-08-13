@@ -74,4 +74,13 @@ webauthn_verify_gas = 400000
 delegate_gas_limit = 200000
 # WebAuthn recovery verification.
 relying_party_id = "192.168.1.20"
-allowed_origins = ["http://localhost:3000", "http://192.168.1.20:3000"]
+# :3000 is apps/web, :3001 the admin console. An assertion's clientDataJSON origin
+# is checked against this list, so a console origin missing here fails passkey
+# sign-in with "origin not allowed" even though the address is a valid superadmin.
+# A credential is bound to relying_party_id, so reach the console on that host.
+allowed_origins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://192.168.1.20:3000",
+  "http://192.168.1.20:3001",
+]

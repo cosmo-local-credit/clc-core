@@ -362,7 +362,7 @@ func (a *API) webAuthnSigninHandler(c *echo.Context) error {
 	})
 }
 
-// sessionHandler returns the current session's address and chainId.
+// sessionHandler returns the current session's address, chainId and role.
 // Returns 204 No Content when no valid session cookie is present.
 func (a *API) sessionHandler(c *echo.Context) error {
 	cookie, err := c.Cookie(userAuthCookieName)
@@ -380,5 +380,9 @@ func (a *API) sessionHandler(c *echo.Context) error {
 		// tokens, so clients receive a consistent canonical address.
 		"address": common.HexToAddress(token.EthereumAddress).Hex(),
 		"chainId": a.chainID,
+		// The role the signin response already returns. Without it a client that
+		// gates on privilege has to re-derive it after every reload by probing an
+		// admin endpoint and reading the 403.
+		"role": token.Role,
 	})
 }
