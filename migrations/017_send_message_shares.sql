@@ -1,5 +1,5 @@
 -- Persist one private attachment per relayed send. User location columns are
--- supplied by the schema-consolidation work that lands before this feature.
+-- supplied by 014_user_geo.sql.
 
 CREATE TABLE IF NOT EXISTS user_shares (
     id                 BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS user_shares (
     authorized_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     share_permission   INT NOT NULL DEFAULT 0,
     extra_note         TEXT,
-    created_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT user_shares_distinct_users CHECK (owner_user_id <> authorized_user_id),
     CONSTRAINT user_shares_known_permissions CHECK (
         share_permission >= 0 AND (share_permission & 7) = share_permission

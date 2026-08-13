@@ -29,6 +29,7 @@ type (
 		Website                      *string   `db:"website"                         json:"website"`
 		Email                        *string   `db:"email"                           json:"email"`
 		Phone                        *string   `db:"phone"                           json:"phone"`
+		Terms                        *string   `db:"terms"                           json:"terms"`
 		LocationName                 *string   `db:"location_name"                   json:"locationName"`
 		GeoLat                       *float64  `db:"geo_lat"                         json:"geoLat"`
 		GeoLng                       *float64  `db:"geo_lng"                         json:"geoLng"`
@@ -63,6 +64,7 @@ func (pg *Pg) InsertDeployedPool(ctx context.Context, tx pgx.Tx, dp DeployedPool
 		dp.Website,
 		dp.Email,
 		dp.Phone,
+		dp.Terms,
 		dp.LocationName,
 		dp.GeoLat,
 		dp.GeoLng,
@@ -88,6 +90,21 @@ func (pg *Pg) ConfirmDeployedPool(ctx context.Context, tx pgx.Tx, otxID uint64, 
 func (pg *Pg) FailDeployedPool(ctx context.Context, tx pgx.Tx, otxID uint64) error {
 	_, err := tx.Exec(ctx, pg.queries.FailDeployedPool, otxID)
 	return err
+}
+
+// UpsertPoolFromDeploy promotes a confirmed pool deploy into the network pool
+// catalog, copies its tags to pool_tags, sets deployed_pools.pool_id, and
+// returns the catalog pool ID. The voucher-side counterpart is
+// UpsertVoucherFromDeploy; both carry the same transaction and ErrNoRows
+// contract.
+func (pg *Pg) UpsertPoolFromDeploy(ctx context.Context, tx pgx.Tx, deployedPoolID uint64) (uint64, error) {
+	var poolID uint64
+
+	if err := tx.QueryRow(ctx, pg.queries.UpsertPoolFromDeploy, deployedPoolID).Scan(&poolID); err != nil {
+		return poolID, err
+	}
+
+	return poolID, nil
 }
 
 func (pg *Pg) GetDeployedPoolByAddress(ctx context.Context, tx pgx.Tx, address string) (DeployedPool, error) {

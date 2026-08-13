@@ -16,9 +16,9 @@ type (
 		Email           string    `db:"email"            json:"email"`
 		Phone           string    `db:"phone"            json:"phone"`
 		Country         string    `db:"country"          json:"country"`
-		LocationName    string    `db:"location_name"    json:"locationName"`
-		GeoLat          *float64  `db:"geo_lat"          json:"lat,omitempty"`
-		GeoLng          *float64  `db:"geo_lng"          json:"lng,omitempty"`
+		LocationName    *string   `db:"location_name"    json:"locationName,omitempty"`
+		GeoLat          *float64  `db:"geo_lat"          json:"geoLat,omitempty"`
+		GeoLng          *float64  `db:"geo_lng"          json:"geoLng,omitempty"`
 		Role            string    `db:"role"             json:"role"`
 		Status          string    `db:"status"           json:"status"`
 		MaxPools        int       `db:"max_pools"        json:"maxPools"`
@@ -28,15 +28,15 @@ type (
 	}
 
 	UserProfileUpdate struct {
-		Address        string
-		Name           string
-		Email          string
-		Phone          string
-		Country        string
-		UpdateLocation bool
-		LocationName   string
-		GeoLat         *float64
-		GeoLng         *float64
+		Address       string
+		Name          string
+		Email         string
+		Phone         string
+		Country       string
+		ClearLocation bool
+		LocationName  *string
+		GeoLat        *float64
+		GeoLng        *float64
 	}
 )
 
@@ -69,21 +69,6 @@ func (pg *Pg) GetUserByAddress(ctx context.Context, tx pgx.Tx, address string) (
 	var u User
 
 	row, err := tx.Query(ctx, pg.queries.GetUserByAddress, address)
-	if err != nil {
-		return u, err
-	}
-
-	if err := pgxscan.ScanOne(&u, row); err != nil {
-		return u, err
-	}
-
-	return u, nil
-}
-
-func (pg *Pg) GetUserByAddressNormalized(ctx context.Context, tx pgx.Tx, address string) (User, error) {
-	var u User
-
-	row, err := tx.Query(ctx, pg.queries.GetUserByAddressNormalized, address)
 	if err != nil {
 		return u, err
 	}
@@ -181,7 +166,7 @@ func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfi
 		update.Email,
 		update.Phone,
 		update.Country,
-		update.UpdateLocation,
+		update.ClearLocation,
 		update.LocationName,
 		update.GeoLat,
 		update.GeoLng,

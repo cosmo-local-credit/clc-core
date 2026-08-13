@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -15,13 +16,108 @@ type (
 	// functions for a federation resource of type T. Unlike
 	// paginatedListCallbacks these read directly from the federation pool (no
 	// pgx.Tx) because the federation store is read-only with respect to these
-	// queries.
+	// queries. The optional enrich hook runs on the fetched page before it is
+	// serialized — used to fill token metadata from the local vouchers
+	// catalog, which the federation queries no longer join.
 	paginatedFederationListCallbacks[T any] struct {
 		firstPage func(context.Context, string, uint64) ([]T, error)
 		nextPage  func(context.Context, string, uint64, uint64) ([]T, error)
 		prevPage  func(context.Context, string, uint64, uint64) ([]T, error)
+		enrich    func(context.Context, []T) error
 	}
 )
+
+// voucherMetadataByAddress loads local catalog metadata for the given token
+// addresses, keyed by lowercased address. Addresses missing from the catalog
+// simply have no entry — callers leave those rows' metadata zero-valued.
+func (a *API) voucherMetadataByAddress(ctx context.Context, addresses []string) (map[string]store.VoucherMetadata, error) {
+	meta := make(map[string]store.VoucherMetadata, len(addresses))
+	if len(addresses) == 0 {
+		return meta, nil
+	}
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := a.store.ListVoucherMetadataByAddresses(ctx, tx, addresses)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		meta[strings.ToLower(r.Address)] = r
+	}
+	return meta, nil
+}
+
+func dedupedLowerAddresses[T any](items []T, addr func(T) string) []string {
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		a := strings.ToLower(addr(it))
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		seen[a] = struct{}{}
+		out = append(out, a)
+	}
+	return out
+}
+
+// enrichTokenBalances fills token metadata on federation holdings from the
+// local vouchers catalog.
+func (a *API) enrichTokenBalances(ctx context.Context, items []store.FederationTokenBalance) error {
+	meta, err := a.voucherMetadataByAddress(ctx, dedupedLowerAddresses(items,
+		func(t store.FederationTokenBalance) string { return t.TokenAddress }))
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		m, ok := meta[strings.ToLower(items[i].TokenAddress)]
+		if !ok {
+			continue
+		}
+		if m.Symbol != nil {
+			items[i].TokenSymbol = *m.Symbol
+		}
+		if m.Name != nil {
+			items[i].TokenName = *m.Name
+		}
+		if m.Decimals != nil {
+			items[i].TokenDecimals = uint8(*m.Decimals)
+		}
+		items[i].IconURL = m.IconURL
+	}
+	return nil
+}
+
+// enrichTransfers fills token metadata on federation transfers from the local
+// vouchers catalog.
+func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTransfer) error {
+	meta, err := a.voucherMetadataByAddress(ctx, dedupedLowerAddresses(items,
+		func(t store.FederationTransfer) string { return t.TokenAddress }))
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		m, ok := meta[strings.ToLower(items[i].TokenAddress)]
+		if !ok {
+			continue
+		}
+		if m.Symbol != nil {
+			items[i].TokenSymbol = *m.Symbol
+		}
+		if m.Name != nil {
+			items[i].TokenName = *m.Name
+		}
+		if m.Decimals != nil {
+			items[i].TokenDecimals = uint8(*m.Decimals)
+		}
+	}
+	return nil
+}
 
 // cursorPaginatedFederationList executes a cursor-paginated federation query
 // and returns a JSON response with the items and first/last cursor values. The
@@ -55,6 +151,12 @@ func cursorPaginatedFederationList[T any](
 		return handlePostgresError(c, queryErr)
 	}
 
+	if p.enrich != nil && len(items) > 0 {
+		if err := p.enrich(ctx, items); err != nil {
+			return handlePostgresError(c, err)
+		}
+	}
+
 	var first, last uint64
 	if len(items) > 0 {
 		first = getID(items[0])
@@ -86,6 +188,9 @@ func (a *API) accountLatestTokensHandler(c *echo.Context) error {
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
+	if err := a.enrichTokenBalances(ctx, tokens); err != nil {
+		return handlePostgresError(c, err)
+	}
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
@@ -109,6 +214,7 @@ func (a *API) accountTokensHandler(c *echo.Context) error {
 		firstPage: a.federationStore.ListUserTokenHoldings,
 		nextPage:  a.federationStore.ListUserTokenHoldingsNext,
 		prevPage:  a.federationStore.ListUserTokenHoldingsPrevious,
+		enrich:    a.enrichTokenBalances,
 	}, req.Address, normalizePagination(apiresp.CursorPaginationRequest{
 		PerPage: req.PerPage,
 		Next:    req.Next,
@@ -130,6 +236,7 @@ func (a *API) accountTransfersHandler(c *echo.Context) error {
 		firstPage: a.federationStore.ListUserTransferHistory,
 		nextPage:  a.federationStore.ListUserTransferHistoryNext,
 		prevPage:  a.federationStore.ListUserTransferHistoryPrevious,
+		enrich:    a.enrichTransfers,
 	}, req.Address, normalizePagination(apiresp.CursorPaginationRequest{
 		PerPage: req.PerPage,
 		Next:    req.Next,

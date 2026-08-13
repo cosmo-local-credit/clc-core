@@ -26,6 +26,7 @@ type (
 		Website          string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email            string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone            string   `json:"phone,omitempty"`
+		Terms            string   `json:"terms,omitempty" validate:"omitempty,url"`
 		LocationName     string   `json:"locationName,omitempty"`
 		GeoLat           *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
 		GeoLng           *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
@@ -44,6 +45,7 @@ type (
 		Website         string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email           string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone           string   `json:"phone,omitempty"`
+		Terms           string   `json:"terms,omitempty" validate:"omitempty,url"`
 		VoucherUoa      string   `json:"voucherUoa,omitempty"`
 		VoucherValue    *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
 		LocationName    string   `json:"locationName,omitempty"`
@@ -227,21 +229,17 @@ type (
 		Signature string `json:"signature" validate:"required"`
 	}
 
-	ProfileLocation struct {
-		LocationName string  `json:"locationName" validate:"required,max=255"`
-		Lat          float64 `json:"lat"          validate:"gte=-90,lte=90"`
-		Lng          float64 `json:"lng"          validate:"gte=-180,lte=180"`
-	}
-
-	// UpdateProfileRequest carries optional profile fields. Omitting both
-	// location fields preserves an existing pin; ClearLocation removes it.
+	// UpdateProfileRequest carries optional profile fields. Omitted location
+	// values preserve stored data; ClearLocation explicitly removes the pin.
 	UpdateProfileRequest struct {
-		Name          string           `json:"name"          validate:"omitempty,max=80"`
-		Email         string           `json:"email"         validate:"omitempty,email"`
-		Phone         string           `json:"phone"`
-		Country       string           `json:"country"       validate:"omitempty,len=2"`
-		Location      *ProfileLocation `json:"location,omitempty" validate:"omitempty"`
-		ClearLocation bool             `json:"clearLocation,omitempty"`
+		Name          string   `json:"name"          validate:"omitempty,max=80"`
+		Email         string   `json:"email"         validate:"omitempty,email"`
+		Phone         string   `json:"phone"`
+		Country       string   `json:"country"       validate:"omitempty,len=2"`
+		LocationName  *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
+		GeoLat        *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
+		GeoLng        *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
+		ClearLocation bool     `json:"clearLocation,omitempty"`
 	}
 )
 
@@ -263,5 +261,7 @@ const (
 	ErrCodeRelayerExecutorMismatch    = "E14"
 	ErrCodeWebAuthnVerificationFailed = "E15"
 	ErrCodeConflict                   = "E16"
-	ErrCodeShareUnavailable           = "E17"
+	ErrCodeEmailConflict              = "E17"
+	ErrCodePhoneConflict              = "E18"
+	ErrCodeShareUnavailable           = "E19"
 )

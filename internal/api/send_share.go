@@ -71,7 +71,7 @@ func validateShareProfile(share apiresp.SendShareRequest, owner store.User) erro
 		return errors.New("phone is not available in the sender profile")
 	}
 	if share.Permission&store.SharePermissionLocation != 0 &&
-		(owner.LocationName == "" || owner.GeoLat == nil || owner.GeoLng == nil) {
+		(owner.LocationName == nil || strings.TrimSpace(*owner.LocationName) == "" || owner.GeoLat == nil || owner.GeoLng == nil) {
 		return errors.New("location is not available in the sender profile")
 	}
 	return nil
@@ -181,7 +181,7 @@ func (a *API) userShareEligibilityHandler(c *echo.Context) error {
 	defer tx.Rollback(ctx)
 
 	eligible := false
-	recipient, err := a.store.GetUserByAddressNormalized(ctx, tx, common.HexToAddress(address).Hex())
+	recipient, err := a.store.GetUserByAddress(ctx, tx, common.HexToAddress(address).Hex())
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return handlePostgresError(c, err)
 	}

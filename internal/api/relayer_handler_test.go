@@ -20,7 +20,7 @@ func TestIsPublicRelayerTrackingChain(t *testing.T) {
 		otxs []*store.OTX
 		want bool
 	}{
-		{"empty", nil, false},
+		{"empty", nil, true},
 		{"delegate only", []*store.OTX{{OTXType: store.RELAY_DELEGATE}}, true},
 		{"mixed relayer chain", []*store.OTX{{OTXType: store.RELAY_DELEGATE}, {OTXType: store.RELAY_EXEC}}, true},
 		{"non-relayer chain", []*store.OTX{{OTXType: store.TOKEN_PROXY_DEPLOY}}, false},
@@ -31,6 +31,46 @@ func TestIsPublicRelayerTrackingChain(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := isPublicRelayerTrackingChain(tc.otxs); got != tc.want {
 				t.Fatalf("isPublicRelayerTrackingChain() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRelayerTrackingStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		otxs       []*store.OTX
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "not yet written by async worker",
+			otxs:       nil,
+			wantStatus: http.StatusNotFound,
+			wantCode:   apiresp.ErrCodeNotFound,
+		},
+		{
+			name:       "non-public relayer flow",
+			otxs:       []*store.OTX{{OTXType: store.TOKEN_PROXY_DEPLOY}},
+			wantStatus: http.StatusForbidden,
+			wantCode:   apiresp.ErrCodeForbidden,
+		},
+		{
+			name:       "public relayer flow",
+			otxs:       []*store.OTX{{OTXType: store.RELAY_DELEGATE}},
+			wantStatus: http.StatusOK,
+			wantCode:   "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			status, code, _ := relayerTrackingStatus(tc.otxs)
+			if status != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", status, tc.wantStatus)
+			}
+			if code != tc.wantCode {
+				t.Fatalf("errCode = %q, want %q", code, tc.wantCode)
 			}
 		})
 	}

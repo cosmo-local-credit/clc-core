@@ -5,20 +5,34 @@ import (
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// naiveUTC binds a timestamptz Go value as timestamp without time zone.
+// chain_data_v2.date_block is naive UTC; a timestamptz parameter drops the
+// remote date filter and the FDW scan times out.
+func naiveUTC(t time.Time) pgtype.Timestamp {
+	return pgtype.Timestamp{Time: t.UTC(), Valid: true}
+}
+
 type (
+	// FederationTokenBalance carries chain facts scanned from the federation
+	// DB; the token metadata fields (db:"-") are enriched afterwards from the
+	// local vouchers catalog (MIGRATION.md §2 — the catalog is the metadata
+	// home). JSON shape is unchanged from the pre-cutover responses.
 	FederationTokenBalance struct {
 		ID            uint64    `db:"id"              json:"id"`
 		TokenAddress  string    `db:"token_address"   json:"tokenAddress"`
-		TokenSymbol   string    `db:"token_symbol"    json:"tokenSymbol"`
-		TokenName     string    `db:"token_name"      json:"tokenName"`
-		TokenDecimals uint8     `db:"token_decimals"  json:"tokenDecimals"`
+		TokenSymbol   string    `db:"-"               json:"tokenSymbol"`
+		TokenName     string    `db:"-"               json:"tokenName"`
+		TokenDecimals uint8     `db:"-"               json:"tokenDecimals"`
 		Balance       string    `db:"balance"         json:"balance"`
-		IconURL       *string   `db:"icon_url"        json:"iconUrl,omitempty"`
+		IconURL       *string   `db:"-"               json:"iconUrl,omitempty"`
 		LastDateBlock time.Time `db:"last_date_block" json:"lastDateBlock"`
 	}
 
+	// FederationTransfer: same split as FederationTokenBalance — chain facts
+	// from federation, token metadata enriched from the local catalog.
 	FederationTransfer struct {
 		ID               uint64    `db:"id"                   json:"id"`
 		TxHash           string    `db:"tx_hash"              json:"txHash"`
@@ -28,9 +42,9 @@ type (
 		SenderAddress    string    `db:"sender_address"       json:"senderAddress"`
 		RecipientAddress string    `db:"recipient_address"    json:"recipientAddress"`
 		TokenAddress     string    `db:"contract_address"     json:"tokenAddress"`
-		TokenSymbol      string    `db:"token_symbol"         json:"tokenSymbol"`
-		TokenName        string    `db:"token_name"           json:"tokenName"`
-		TokenDecimals    uint8     `db:"token_decimals"       json:"tokenDecimals"`
+		TokenSymbol      string    `db:"-"                    json:"tokenSymbol"`
+		TokenName        string    `db:"-"                    json:"tokenName"`
+		TokenDecimals    uint8     `db:"-"                    json:"tokenDecimals"`
 		Amount           string    `db:"amount"               json:"amount"`
 		Success          bool      `db:"success"              json:"success"`
 	}
@@ -58,6 +72,17 @@ func (s *FederationPg) ListUserTokenHoldingsPrevious(ctx context.Context, addres
 		return nil, err
 	}
 	return holdings, nil
+}
+
+func (s *FederationPg) DashboardTransactionSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]DashboardTransactionPoint, error) {
+	var rows []DashboardTransactionPoint
+	if err := pgxscan.Select(ctx, s.db, &rows, s.queries.DashboardTransactionSeries, naiveUTC(since), naiveUTC(until), bucketSeconds); err != nil {
+		return nil, err
+	}
+	if rows == nil {
+		return []DashboardTransactionPoint{}, nil
+	}
+	return rows, nil
 }
 
 func (s *FederationPg) ListUserTransferHistory(ctx context.Context, address string, limit uint64) ([]FederationTransfer, error) {

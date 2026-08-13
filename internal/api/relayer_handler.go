@@ -57,9 +57,6 @@ func (a *API) relayerEOANonceHandler(c *echo.Context) error {
 }
 
 func isPublicRelayerTrackingChain(otxs []*store.OTX) bool {
-	if len(otxs) == 0 {
-		return false
-	}
 	for _, otx := range otxs {
 		switch otx.OTXType {
 		case store.RELAY_DELEGATE, store.RELAY_EXEC, store.RELAY_DELEGATE_EXEC:
@@ -68,6 +65,19 @@ func isPublicRelayerTrackingChain(otxs []*store.OTX) bool {
 		}
 	}
 	return true
+}
+
+// relayerTrackingStatus decides the HTTP outcome for a tracking lookup.
+// An empty result means the OTX row hasn't been written by the async
+// relayer worker yet
+func relayerTrackingStatus(otxs []*store.OTX) (status int, errCode, description string) {
+	if len(otxs) == 0 {
+		return http.StatusNotFound, apiresp.ErrCodeNotFound, "tracking id not found"
+	}
+	if !isPublicRelayerTrackingChain(otxs) {
+		return http.StatusForbidden, apiresp.ErrCodeForbidden, "tracking id is not public relayer flow"
+	}
+	return http.StatusOK, "", ""
 }
 
 func relayDelegateTrackingID(result *rivertype.JobInsertResult, fallback string) string {
@@ -240,7 +250,7 @@ func (a *API) relayHandler(c *echo.Context) error {
 			return shareUnavailable(c, err.Error())
 		}
 
-		recipient, err := a.store.GetUserByAddressNormalized(ctx, tx, recipientAddress.Hex())
+		recipient, err := a.store.GetUserByAddress(ctx, tx, recipientAddress.Hex())
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return shareUnavailable(c, "recipient is not available for private sharing")
@@ -366,11 +376,11 @@ func (a *API) trackRelayerOTXHandler(c *echo.Context) error {
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
-	if !isPublicRelayerTrackingChain(otxs) {
-		return c.JSON(http.StatusForbidden, apiresp.ErrResponse{
+	if status, errCode, description := relayerTrackingStatus(otxs); status != http.StatusOK {
+		return c.JSON(status, apiresp.ErrResponse{
 			Ok:          false,
-			ErrCode:     apiresp.ErrCodeForbidden,
-			Description: "tracking id is not public relayer flow",
+			ErrCode:     errCode,
+			Description: description,
 		})
 	}
 

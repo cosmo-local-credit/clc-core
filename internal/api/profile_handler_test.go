@@ -3,7 +3,6 @@ package api
 import (
 	"testing"
 
-	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 )
 
@@ -34,23 +33,24 @@ func TestProfileUpdateFromRequestPreservesLocationWhenOmitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("profileUpdateFromRequest() error = %v", err)
 	}
-	if update.UpdateLocation {
-		t.Fatal("expected omitted location to preserve the stored pin")
+	if update.ClearLocation || update.LocationName != nil || update.GeoLat != nil || update.GeoLng != nil {
+		t.Fatalf("expected omitted location to preserve the stored pin, got %#v", update)
 	}
 }
 
 func TestProfileUpdateFromRequestReplacesLocation(t *testing.T) {
+	locationName := "  Sarajevo  "
+	lat := 43.8563
+	lng := 18.4131
 	update, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{
-		Location: &apiresp.ProfileLocation{
-			LocationName: "  Sarajevo  ",
-			Lat:          43.8563,
-			Lng:          18.4131,
-		},
+		LocationName: &locationName,
+		GeoLat:       &lat,
+		GeoLng:       &lng,
 	})
 	if err != nil {
 		t.Fatalf("profileUpdateFromRequest() error = %v", err)
 	}
-	if !update.UpdateLocation || update.LocationName != "Sarajevo" {
+	if update.LocationName == nil || *update.LocationName != "Sarajevo" {
 		t.Fatalf("unexpected update: %#v", update)
 	}
 	if update.GeoLat == nil || *update.GeoLat != 43.8563 || update.GeoLng == nil || *update.GeoLng != 18.4131 {
@@ -63,14 +63,15 @@ func TestProfileUpdateFromRequestClearsLocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("profileUpdateFromRequest() error = %v", err)
 	}
-	if !update.UpdateLocation || update.GeoLat != nil || update.GeoLng != nil {
+	if !update.ClearLocation || update.LocationName != nil || update.GeoLat != nil || update.GeoLng != nil {
 		t.Fatalf("unexpected clear update: %#v", update)
 	}
 }
 
 func TestProfileUpdateFromRequestRejectsConflictingLocationCommands(t *testing.T) {
+	locationName := "Sarajevo"
 	_, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{
-		Location:      &apiresp.ProfileLocation{LocationName: "Sarajevo"},
+		LocationName:  &locationName,
 		ClearLocation: true,
 	})
 	if err == nil {
@@ -78,13 +79,10 @@ func TestProfileUpdateFromRequestRejectsConflictingLocationCommands(t *testing.T
 	}
 }
 
-func TestUserLocationResultRequiresCompletePin(t *testing.T) {
+func TestProfileUpdateFromRequestRejectsPartialCoordinates(t *testing.T) {
 	lat := 43.8563
-	lng := 18.4131
-	if got := userLocationResult(store.User{LocationName: "Sarajevo", GeoLat: &lat, GeoLng: &lng}); got == nil {
-		t.Fatal("expected complete pin to be returned")
-	}
-	if got := userLocationResult(store.User{LocationName: "Sarajevo", GeoLat: &lat}); got != nil {
-		t.Fatalf("expected incomplete pin to be hidden, got %#v", got)
+	_, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{GeoLat: &lat})
+	if err == nil {
+		t.Fatal("expected a partial coordinate pair to fail")
 	}
 }

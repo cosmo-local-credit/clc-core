@@ -289,9 +289,19 @@ type (
 	}
 )
 
+const (
+	// catalogMaxPerPage is the default page size for every endpoint except the
+	// public market catalog, which bulk-imports into a client-side map.
+	catalogMaxPerPage = 100
+)
+
 func normalizePagination(q apiresp.CursorPaginationRequest) paginationParams {
-	if q.PerPage == 0 || q.PerPage > 100 {
-		q.PerPage = 100
+	return normalizePaginationWithMax(q, catalogMaxPerPage)
+}
+
+func normalizePaginationWithMax(q apiresp.CursorPaginationRequest, maxPerPage uint64) paginationParams {
+	if q.PerPage == 0 || q.PerPage > maxPerPage {
+		q.PerPage = maxPerPage
 	}
 	return paginationParams{
 		CursorPaginationRequest: q,

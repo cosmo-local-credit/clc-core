@@ -31,43 +31,30 @@ func pendingSIWEEmail(address string) string {
 	return "pending+" + strings.TrimPrefix(strings.ToLower(address), "0x") + "@clc.local"
 }
 
-func userLocationResult(user store.User) any {
-	if user.LocationName == "" || user.GeoLat == nil || user.GeoLng == nil {
-		return nil
-	}
-
-	return map[string]any{
-		"locationName": user.LocationName,
-		"lat":          *user.GeoLat,
-		"lng":          *user.GeoLng,
-	}
-}
-
 func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) (store.UserProfileUpdate, error) {
 	update := store.UserProfileUpdate{
-		Address: address,
-		Name:    req.Name,
-		Email:   req.Email,
-		Phone:   req.Phone,
-		Country: req.Country,
+		Address:       address,
+		Name:          req.Name,
+		Email:         req.Email,
+		Phone:         req.Phone,
+		Country:       req.Country,
+		ClearLocation: req.ClearLocation,
+		GeoLat:        req.GeoLat,
+		GeoLng:        req.GeoLng,
 	}
 
-	if req.Location != nil && req.ClearLocation {
-		return update, errors.New("location and clearLocation cannot both be supplied")
+	if req.ClearLocation && (req.LocationName != nil || req.GeoLat != nil || req.GeoLng != nil) {
+		return update, errors.New("location fields and clearLocation cannot both be supplied")
 	}
-
-	if req.Location != nil {
-		req.Location.LocationName = strings.TrimSpace(req.Location.LocationName)
-		if req.Location.LocationName == "" {
+	if (req.GeoLat == nil) != (req.GeoLng == nil) {
+		return update, errors.New("geoLat and geoLng must be provided together")
+	}
+	if req.LocationName != nil {
+		locationName := strings.TrimSpace(*req.LocationName)
+		if locationName == "" {
 			return update, errors.New("locationName cannot be blank")
 		}
-
-		update.UpdateLocation = true
-		update.LocationName = req.Location.LocationName
-		update.GeoLat = &req.Location.Lat
-		update.GeoLng = &req.Location.Lng
-	} else if req.ClearLocation {
-		update.UpdateLocation = true
+		update.LocationName = &locationName
 	}
 
 	return update, nil
@@ -216,13 +203,15 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "User profile",
 		Result: map[string]any{
-			"address":   user.EthereumAddress,
-			"name":      user.Name,
-			"email":     user.Email,
-			"phone":     user.Phone,
-			"country":   user.Country,
-			"location":  userLocationResult(user),
-			"createdAt": user.CreatedAt.Format(time.RFC3339),
+			"address":      user.EthereumAddress,
+			"name":         user.Name,
+			"email":        user.Email,
+			"phone":        user.Phone,
+			"country":      user.Country,
+			"locationName": user.LocationName,
+			"geoLat":       user.GeoLat,
+			"geoLng":       user.GeoLng,
+			"createdAt":    user.CreatedAt.Format(time.RFC3339),
 		},
 	})
 }
@@ -263,6 +252,11 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 				Description: "user not found",
 			})
 		}
+		// email/phone are unique across users: claiming one already bound to
+		// another account is a caller-fixable 409, not an internal error.
+		if conflict, ok := userIdentityConflict(err); ok {
+			return c.JSON(http.StatusConflict, conflict)
+		}
 		return err
 	}
 
@@ -274,12 +268,14 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Profile updated",
 		Result: map[string]any{
-			"address":  user.EthereumAddress,
-			"name":     user.Name,
-			"email":    user.Email,
-			"phone":    user.Phone,
-			"country":  user.Country,
-			"location": userLocationResult(user),
+			"address":      user.EthereumAddress,
+			"name":         user.Name,
+			"email":        user.Email,
+			"phone":        user.Phone,
+			"country":      user.Country,
+			"locationName": user.LocationName,
+			"geoLat":       user.GeoLat,
+			"geoLng":       user.GeoLng,
 		},
 	})
 }

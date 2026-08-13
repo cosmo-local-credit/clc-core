@@ -48,7 +48,13 @@
    - [GET /api/v2/admin/tokens](#75-get-apiv2admintokens)
    - [GET /api/v2/admin/pools](#76-get-apiv2adminpools)
    - [GET /api/v2/admin/deployments](#77-get-apiv2admindeployments)
+   - [GET /api/v2/admin/dashboard/stats](#78-get-apiv2admindashboardstats)
 8. [SIWE Message Construction](#8-siwe-message-construction)
+9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
+   - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
+   - [9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)](#97-voucher-offerings-get-apiv2vouchersaddressofferings)
+10. [Pool offerings (`GET /api/v2/pools/:address/offerings`)](#10-pool-offerings-get-apiv2poolsaddressofferings)
+11. [Reports (`GET /api/v2/reports`)](#11-reports-get-apiv2reports)
 
 ---
 
@@ -58,6 +64,7 @@
 |---|---|
 | Base URL | `http(s)://<host>/` |
 | Protected API prefix | `/api/v2` |
+| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
 | Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
 | Default chain | Celo Mainnet (`chainId: 42220`) |
 | Content-Type | `application/json` |
@@ -182,6 +189,14 @@ All responses are JSON objects. HTTP status codes are only used for top-level ca
 | `E09` | Request timeout |
 | `E10` | Forbidden (insufficient role or permissions) |
 | `E11` | Rate or quota limit exceeded |
+| `E12` | Relayer disabled |
+| `E13` | EIP-7702 authorization required |
+| `E14` | Relayer executor mismatch |
+| `E15` | WebAuthn verification failed |
+| `E16` | Address conflict |
+| `E17` | Email conflict |
+| `E18` | Phone conflict |
+| `E19` | Private share is unavailable for this send |
 
 ---
 
@@ -409,7 +424,7 @@ No body is returned. Use this to redirect the user to a sign-in flow.
 ### 4.8 `GET /auth/profile`
 
 Returns the authenticated user's editable contact profile. A user JWT cookie is
-required. A saved location is returned as either `null` or a complete object:
+required. Location fields are nullable:
 
 ```json
 {
@@ -420,11 +435,9 @@ required. A saved location is returned as either `null` or a complete object:
     "email": "alice@example.com",
     "phone": "+254700000000",
     "country": "KE",
-    "location": {
-      "locationName": "Nairobi, Kenya",
-      "lat": -1.286389,
-      "lng": 36.817223
-    },
+    "locationName": "Nairobi, Kenya",
+    "geoLat": -1.286389,
+    "geoLng": 36.817223,
     "createdAt": "2026-08-04T12:00:00Z"
   }
 }
@@ -432,10 +445,10 @@ required. A saved location is returned as either `null` or a complete object:
 
 ### 4.9 `POST /auth/profile`
 
-Updates contact fields and, optionally, the saved location pin. Omitting both
-`location` and `clearLocation` preserves the current pin, which keeps older
-clients backward compatible. Send `clearLocation: true` to remove it. Supplying
-both fields is rejected.
+Updates contact fields and, optionally, the saved location pin. Omitted location
+fields preserve their current values. Send `clearLocation: true` to remove the
+label and coordinates together. Supplying `clearLocation` with any location
+field is rejected.
 
 ```json
 {
@@ -443,20 +456,23 @@ both fields is rejected.
   "email": "alice@example.com",
   "phone": "+254700000000",
   "country": "KE",
-  "location": {
-    "locationName": "Nairobi, Kenya",
-    "lat": -1.286389,
-    "lng": 36.817223
-  }
+  "locationName": "Nairobi, Kenya",
+  "geoLat": -1.286389,
+  "geoLng": 36.817223
 }
 ```
 
-Location coordinates must be valid latitude/longitude values and the three
-location fields are always stored or cleared together.
+`geoLat` and `geoLng` must be supplied together and must be valid latitude and
+longitude values. A blank `locationName` is rejected.
 
 ---
 
 ## 5. Protected Endpoints (`/api/v2/*`)
+
+> The three public voucher catalog routes are the only exceptions to the
+> `/api/v2` prefix being protected. They are not part of this section — see
+> [section 9](#9-public-market-catalog-get-apiv2vouchers). Every statement
+> below applies unchanged to all other `/api/v2` routes.
 
 All routes in this section require **one** of:
 
@@ -790,6 +806,18 @@ Returns **all confirmed** (on-chain) SwapPool contracts across all users — the
 | `perPage` | `int` | `100` | Results per page (max `100`) |
 | `next` | `bool` | `false` | When `true`, page toward older records from `cursor` (load more) |
 | `cursor` | `int` | — | Use `last` with `next=true` for the next older page, or `first` without `next` to move back toward newer records |
+| `q` | `string` | — | Pool name/symbol search; normalized length must be `2`–`64` characters |
+| `tags` | `string` or repeated | — | Comma-separated pool tags; at most `12` distinct values |
+| `tagMatch` | `any` \| `all` | `any` | Whether a pool must carry any or all selected tags |
+| `vouchers` | `string` or repeated | — | Comma-separated stable voucher references (`chainId:0xAddress`); at most `12` |
+| `voucherMatch` | `any` \| `all` | `any` | Whether a pool must contain any or all selected vouchers |
+| `facets` | `bool` | `false` | With `true` on the first page, include tag and voucher facet counts |
+
+Voucher membership uses allowed `pool_tokens` rows, matching the pool voucher
+list and `voucherCount`; a historical disallowed row does not satisfy the
+filter. Voucher references are resolved by `(chainId, address)` rather than by
+environment-local numeric IDs. An invalid or unknown reference rejects the
+whole filter with `400` instead of silently broadening it.
 
 **Response `200`:**
 
@@ -827,6 +855,13 @@ Returns **all confirmed** (on-chain) SwapPool contracts across all users — the
 | `pools` | `array` | Current page of confirmed pools (`[]` when empty) |
 | `first` | `int` | Highest record ID in the current page |
 | `last` | `int` | Lowest record ID in the current page — use as `cursor` with `next=true` |
+
+When `facets=true` is requested on the first page, `result.tagFacets` contains
+`{tag, count}` rows and `result.voucherFacets` contains
+`{id, chainId, address, name, symbol, count}` rows. Each facet retains the
+search and the other facet dimension while omitting its own selected reducer,
+so the counts describe options the user can add. Facet keys are absent from
+cursor pages.
 
 **Note:** Prefer this endpoint for the Pools tab browse list. `GET /api/v2/users/me/pools` remains the authenticated user's own deployed pools only.
 
@@ -1304,6 +1339,45 @@ Lists all deployment history entries across all users.
 
 ---
 
+### 7.8 `GET /api/v2/admin/dashboard/stats`
+
+Dashboard aggregates. Mounted on the `/admin/dashboard` group, not mixed with user/token mutations.
+
+**Query parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `range` | `string` | `5m`, `15m`, `30m`, `1h`, `6h`, `1d` (default), or `custom` |
+| `since` | `string` | RFC3339 start, required when `range=custom` |
+| `until` | `string` | RFC3339 end, required when `range=custom` |
+
+`pools`, `vouchers`, and `accounts` are lifetime catalog stock. `reports` and `transactions` are counts inside the requested window. Two series feed the charts: catalog creations, and `chain_data_v2.tx` envelopes. `transactions` is `null` when federation is down.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Admin dashboard totals",
+  "result": {
+    "range": { "preset": "1d", "since": "2026-08-12T00:00:00Z", "until": "2026-08-13T00:00:00Z", "bucket": "1h" },
+    "pools": 42,
+    "vouchers": 2192,
+    "accounts": 310,
+    "reports": 12,
+    "transactions": 1843,
+    "catalogSeries": [
+      { "t": "2026-08-12T00:00:00Z", "reports": 1, "vouchers": 2, "pools": 0 }
+    ],
+    "transactionSeries": [
+      { "t": "2026-08-12T00:00:00Z", "transactions": 16 }
+    ]
+  }
+}
+```
+
+---
+
 ## 8. SIWE Message Construction
 
 The following is a client-side example using the [`siwe`](https://www.npmjs.com/package/siwe) JavaScript library. This pattern applies to `/auth/signup`, `/auth/signin`, and `/auth/siwe/verify`.
@@ -1338,6 +1412,448 @@ await fetch('/auth/signin', {
 });
 ```
 
-> **Note on `credentials: 'include'`:** All `fetch` calls to `/auth/*` and `/api/v2/*` must include `credentials: 'include'` so the browser sends and stores the `__clc_auth` HttpOnly cookie cross-origin.
+> **Note on `credentials: 'include'`:** Calls to `/auth/*` and protected
+> `/api/v2/*` routes must include credentials so the browser sends and stores
+> the `__clc_auth` HttpOnly cookie cross-origin. The public market routes in
+> [section 9](#9-public-market-catalog-get-apiv2vouchers) do not use the cookie
+> and may explicitly send `credentials: 'omit'`.
 
 For a full Reown AppKit (formerly WalletConnect) integration example, including the `siweConfig` adapter and sign-up flow, see [`docs/AUTH.md`](./AUTH.md).
+
+---
+
+## 9. Public Market Catalog (`GET /api/v2/vouchers`)
+
+These are the only public routes under `/api/v2`. They back the Market
+experience, which is browsable by signed-out visitors. Sending the
+`__clc_auth` cookie is harmless but changes nothing: a guest and a signed-in
+user receive byte-identical responses.
+
+The list route returns active, geolocated voucher summaries with a
+backend-derived marker kind. Per-voucher detail — contact details, images, and
+unit of account — lives in [section 9.6](#96-voucher-detail-get-apiv2vouchersaddress);
+its available offerings live in
+[section 9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
+
+### 9.1 Request
+
+```http
+GET /api/v2/vouchers?perPage=500
+GET /api/v2/vouchers?perPage=500&cursor=2212&next=true
+GET /api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1
+```
+
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| `perPage` | integer | `500` | **Endpoint exception:** default *and* maximum are 500, not the 100 used by every other catalog route. `0` or any value above 500 resolves to 500. |
+| `cursor` | integer | – | A voucher `id` from a previous response's `first` / `last`. |
+| `next` | boolean | `false` | `true` pages forward (`id < cursor`); `false` with a cursor pages backward (`id > cursor`). |
+| `bbox` | string | – | Optional `minLng,minLat,maxLng,maxLat` viewport filter. |
+
+**Pagination** uses descending `id` keyset paging. Requests without a cursor
+return the newest IDs first. Responses always carry `first` and `last` as JSON
+numbers; an empty page returns `"vouchers": []`, `"first": 0`, `"last": 0` —
+never `null` and never omitted.
+
+**`bbox` validation.** All four values must be finite and comma-separated, with
+`-180 <= lng <= 180`, `-90 <= lat <= 90`, `minLng <= maxLng`, and
+`minLat <= maxLat`. A single box therefore **cannot cross the antimeridian**; a
+client whose viewport does must issue two requests (`[-180, east]` and
+`[west, 180]`) and merge them by `id`. Malformed, out-of-range, or inverted
+values return `400` with code `E04` (validation failed).
+
+`bbox` composes with the cursor, but a caller **must keep one bbox fixed while
+traversing its pages** — changing it mid-traversal produces an inconsistent set.
+
+### 9.2 Response
+
+```/dev/null/vouchers.json#L1-20
+{
+  "ok": true,
+  "description": "Market vouchers",
+  "result": {
+    "vouchers": [
+      {
+        "id": 2710,
+        "chainId": 42220,
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Priscilah Malii",
+        "symbol": "VOUCHER",
+        "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
+        "locationName": "C96, KEN",
+        "geoLat": -1.450979,
+        "geoLng": 38.235115,
+        "kind": "voucher"
+      }
+    ],
+    "first": 2710,
+    "last": 2212
+  }
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | Database ID. Doubles as the pagination cursor and stable map feature identity. |
+| `chainId` | integer | Settlement chain, `42220` for Celo mainnet. |
+| `address` | string | Contract address, preserved in its stored EIP-55 checksummed form. Never lowercased by the API. |
+| `name` | string \| null | |
+| `symbol` | string \| null | |
+| `iconUrl` | string \| null | Profile image used by list rows. Clients must provide a fallback. |
+| `locationName` | string \| null | Free-text place label from the import. |
+| `geoLat` | number | Never null — rows without complete coordinates are excluded. |
+| `geoLng` | number | Never null. |
+| `kind` | string | `"goods"`, `"services"`, or `"voucher"`. |
+
+**Included rows.** Only vouchers that are `active` **and** have complete
+coordinates. There is no `internal` predicate: `internal` is an import
+artifact, not a visibility or product-policy flag, and it is not exposed in
+this contract. See `MIGRATION.md` §4.7.
+
+**`kind` derivation.** Computed from the voucher's **available** offerings:
+
+| Condition | `kind` |
+|---|---|
+| Dominant available `commodity_type` is `GOOD` | `goods` |
+| Dominant available `commodity_type` is `SERVICE` | `services` |
+| Equal `GOOD` / `SERVICE` counts | `goods` |
+| No available offerings | `voucher` |
+
+Unavailable offerings are ignored entirely. `commodity_type` is FK-constrained
+to `GOOD`/`SERVICE`, so the `voucher` fallback represents "no available
+offerings", never an unrecognised type.
+
+**No distance field.** Distance is relative to optional browser geolocation and
+is presentation state, not catalog state. It is never calculated server-side.
+
+`iconUrl` is included because the catalog backs the default list view. Larger
+profile fields remain on
+[voucher detail](#96-voucher-detail-get-apiv2vouchersaddress).
+
+### 9.3 Caching
+
+```http
+Cache-Control: public, max-age=60, stale-while-revalidate=300
+Vary: Origin
+```
+
+Successful `200` representations never vary by authorization or cookie, so
+they are publicly cacheable. Validation and server errors do not carry this
+cache policy. `Origin` is **merged** into any existing `Vary` rather than
+replacing it; the global CORS policy sets `AllowCredentials: true`, which makes
+origin variance mandatory even though this client sends no credentials.
+
+### 9.4 Rate limiting
+
+Because the routes have no authentication to fall back on, they carry a
+per-client-IP token bucket shared by all three public routes: **60 requests per
+minute sustained, burst 40**. Exceeding it returns `429 Too Many Requests` with
+a `Retry-After` header in whole seconds, calculated from the next available
+token.
+
+The burst is sized from how the Market tab actually opens: five catalog pages,
+a bounded viewport bootstrap, then detail and offerings requests for selected
+vouchers. Voucher-only rows skip the offerings request, so 40 still leaves
+headroom for a run of selections immediately after load.
+
+```/dev/null/rate-limited.json#L1-5
+{
+  "ok": false,
+  "description": "rate limit exceeded, retry later",
+  "code": "E11"
+}
+```
+
+The client key is the **direct peer address**. `X-Forwarded-For` is honoured
+only when `api.trust_proxy` is enabled, which must be set only where the
+service is reachable exclusively through the Caddy proxy network; otherwise any
+caller could forge the header and spend another client's budget. When trusted,
+the **rightmost** entry is used, since that is the address the proxy actually
+observed.
+
+The limiter's client registry is bounded and idle entries are swept
+periodically, so forged source addresses cannot grow it without bound.
+
+> This limit assumes the current single API replica. If the service is scaled
+> horizontally, move the limit to a shared edge or distributed limiter rather
+> than multiplying the allowance per replica.
+
+### 9.5 Examples
+
+First page:
+
+```sh
+curl -s 'https://<host>/api/v2/vouchers?perPage=500'
+```
+
+Next page, using the previous response's `last`:
+
+```sh
+curl -s 'https://<host>/api/v2/vouchers?perPage=500&cursor=2212&next=true'
+```
+
+Bounded to a Nairobi-sized viewport:
+
+```sh
+curl -s 'https://<host>/api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1'
+```
+
+### 9.6 Voucher detail (`GET /api/v2/vouchers/:address`)
+
+Public for the same reason as the list: a shared voucher link must open for a
+signed-out visitor. It backs both the map's selection card and the voucher page.
+
+```http
+GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7
+```
+
+`:address` must be a valid hex address; anything else returns `400` with code
+`E04` before the database is touched. Lookup is **case-insensitive**, so a
+lowercased pasted link resolves, but the response echoes the stored EIP-55
+checksummed form.
+
+```/dev/null/voucher.json#L1-27
+{
+  "ok": true,
+  "description": "Market voucher",
+  "result": {
+    "voucher": {
+      "id": 2710,
+      "chainId": 42220,
+      "address": "0x0001423EC38205B125e7340aa37F4D19276e3aB7",
+      "name": "Priscilah Malii",
+      "symbol": "MALII",
+      "decimals": 6,
+      "ownerAddress": "0xDeF0000000000000000000000000000000000456",
+      "description": "Community voucher",
+      "voucherUoa": "KSH",
+      "voucherValue": "10",
+      "locationName": "C96, KEN",
+      "geoLat": -1.450979,
+      "geoLng": 38.235115,
+      "email": "issuer@example.org",
+      "website": "https://example.org",
+      "phone": "+254700000000",
+      "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
+      "bannerUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
+      "kind": "goods"
+    }
+  }
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `id`, `chainId`, `address`, `name`, `symbol`, `locationName`, `kind` | — | Identical semantics to the [list contract](#92-response). |
+| `decimals` | integer \| null | ERC-20 decimals. |
+| `ownerAddress` | string \| null | Issuer's wallet, stored casing preserved. |
+| `description` | string \| null | |
+| `voucherUoa` | string \| null | Unit of account, **free text entered by the issuer** — `KSH`, `Ksh`, `KES`, `usd`, and `Hour` all occur. Never normalised server-side; render verbatim. |
+| `voucherValue` | string \| null | What one voucher is worth in `voucherUoa`, so `symbol` + `voucherValue` + `voucherUoa` reads "1 MALII = 10 KSH". Serialized as a **string**: the column is `NUMERIC` and a float would lose scale. |
+| `geoLat`, `geoLng` | number \| null | **Nullable here, unlike the list.** Coordinates are not required — a voucher without them still has a readable page, it simply renders no map. Absent coordinates are `null`, never `0`. |
+| `email`, `website`, `phone` | string \| null | Issuer contact, as imported. |
+| `iconUrl` | string \| null | Profile image. Absent for roughly two thirds of the imported catalog, so clients need a real fallback. |
+| `bannerUrl` | string \| null | Wide header image. Absent about as often as `iconUrl`. |
+
+**Visibility.** Only `active` vouchers resolve. A deactivated voucher returns
+`404` with a body **byte-identical** to an address that never existed, so the
+response cannot be used to probe which addresses are in the database. Unlike the
+list, coordinates are not required.
+
+Caching and rate limiting are exactly as in [9.3](#93-caching) and
+[9.4](#94-rate-limiting); all three routes share one per-IP bucket.
+
+> **Swagger drift.** `docs/swagger.yaml` predates the catalog surface and does
+> not describe these routes. Reconciling it is tracked as separate follow-up
+> work.
+
+### 9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)
+
+Returns the available offerings for one active voucher. It is public so a
+signed-out visitor can open the default Offerings tab on a shared voucher page.
+The address lookup is case-insensitive and rejects malformed hex addresses with
+`400` and code `E04`.
+
+```http
+GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7/offerings?perPage=20
+GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7/offerings?perPage=20&cursor=42&next=true
+```
+
+The route uses the standard descending-`id` keyset pagination contract:
+`perPage` defaults to 100 and is capped at 100, `next=true` selects IDs below
+the cursor, and a cursor without `next=true` selects IDs above it. Every
+response contains numeric `first` and `last` values. An empty result is
+`"offerings": []`, `"first": 0`, `"last": 0`, never `null`.
+
+Only rows satisfying both `offering.available = true` and
+`voucher.active = true` are returned. This matches the market voucher `kind`
+derivation: a catalog row with `kind: "voucher"` has an empty offerings result.
+The imported catalog observed on 2026-07-27 contains at most 19 offerings for a
+single voucher, so the client page size of 20 normally completes in one request.
+
+Caching and rate limiting are exactly as in [9.3](#93-caching) and
+[9.4](#94-rate-limiting).
+
+---
+
+## 10. Pool offerings (`GET /api/v2/pools/:address/offerings`)
+
+Returns every available offering published against a voucher the pool allows.
+The pool detail screen lists these in its default Offerings tab, instead of
+walking the pool's vouchers one request at a time.
+
+**Authentication required** — this route sits on the authenticated API group
+with the other `/api/v2/pools/*` routes, because the pool screen itself requires
+a session. It is therefore `no-store` and carries no public cache policy, unlike
+the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
+
+```http
+GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20
+GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20&cursor=1354&next=true
+```
+
+The address lookup is case-insensitive and rejects malformed hex addresses with
+`400` and code `E04`. Pagination is the standard descending-`id` keyset
+contract: `perPage` defaults to 100 and is capped at 100, `next=true` selects
+IDs below the cursor, and a cursor without `next=true` selects IDs above it.
+Every response contains numeric `first` and `last`. An empty result is
+`"offerings": []`, `"first": 0`, `"last": 0`, never `null`.
+
+Rows are filtered on three predicates:
+
+| Predicate               | Why                                                              |
+| ----------------------- | ---------------------------------------------------------------- |
+| `pool_tokens.is_allowed` | Matches `GET /api/v2/pools/:address/vouchers`, so the two tabs agree |
+| `offering.available`     | Matches [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
+| `voucher.active`         | Matches [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
+
+The last two are deliberately identical to the voucher-scoped route: an offering
+must read the same whether the user reached it through its voucher or through a
+pool that accepts it.
+
+Each row carries `voucherName`, `voucherSymbol`, and `voucherAddress`, because a
+pool's offerings come from many vouchers and the UI has to say which voucher each
+one belongs to. The response body is otherwise byte-identical in shape to
+[9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
+
+---
+
+## 11. Reports (`GET /api/v2/reports`)
+
+The Posts feed. **Authentication required** — Posts is a private home tab, so
+these routes sit on the authenticated API group.
+
+Only `APPROVED` reports are returned. `DRAFT`, `SUBMITTED`, and `REJECTED` are
+invisible on both routes, and an unapproved id is a `404` rather than a `403`:
+whether a draft exists is not public information.
+
+### 11.1 Feed (`GET /api/v2/reports`)
+
+```http
+GET /api/v2/reports?perPage=20
+GET /api/v2/reports?perPage=20&cursorUpdatedAt=2026-07-19T08:14:02.311Z&cursorId=3182
+```
+
+`perPage` defaults to 20 and is capped at 100.
+
+The feed also accepts the catalog filter parameters below:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `q` | `string` | — | Report title/description search; normalized length must be `2`–`64` characters |
+| `tags` | `string` or repeated | — | Comma-separated report tags; at most `12` distinct values |
+| `tagMatch` | `any` \| `all` | `any` | Whether a report must carry any or all selected tags |
+| `vouchers` | `string` or repeated | — | Comma-separated stable voucher references (`chainId:0xAddress`); at most `12` |
+| `voucherMatch` | `any` \| `all` | `any` | Whether a report must be linked to any or all selected vouchers |
+| `facets` | `bool` | `false` | With `true` on the first page, include tag and voucher facet counts |
+
+Voucher references are case-insensitive addresses scoped by chain ID. Invalid
+or unknown references reject the whole request with `400`. `tagFacets` and
+`voucherFacets` use the same disjunctive counting contract as the pool catalog
+and are absent from cursor pages.
+
+**This route does not use the numeric `cursor`/`next` keyset the catalog routes
+use.** The feed is ordered by `updated_at DESC, id DESC`, and on the imported
+catalog that order is unrelated to id order — measured on 3,730 approved rows,
+the two agree on 4 of them and drift by up to 2,606 positions. An id cursor
+would therefore skip and repeat rows. The cursor is the `(updatedAt, id)` pair
+instead:
+
+- `cursorUpdatedAt` is RFC3339 with nanoseconds; `cursorId` is a positive
+  integer. Sending one without the other is a `400`, because accepting one alone
+  would silently return the first page again.
+- The response carries `next` — the pair to send for the following page — or
+  `null` on the last page. A short page ends the feed, so `next` is `null`
+  rather than the client having to guess from emptiness.
+- `(updated_at, id)` row comparison is index-backed by
+  `reports_status_updated_idx` (migration 009). Measured: index-only scan,
+  0 heap fetches, ~0.03 ms for a cursor page.
+
+Each row is a summary: `id`, `title`, `description`, `imageUrl`, `geoLat`,
+`geoLng`, `periodFrom`, `periodTo`, `authorAddress`, `createdAt`, `updatedAt`,
+`tags`, and `vouchers` (each `{id, chainId, address, name, symbol}`).
+
+`body` is not returned on the feed — a row is a summary and `description`
+already carries what it renders. It is available on the detail route.
+
+`locationName` was removed in migration 010: the column was `NULL` on all 4,632
+imported rows, because the source stored geography as a `"lat, lng"` string and
+never a place name. Use `geoLat` / `geoLng`.
+
+### 11.2 Detail (`GET /api/v2/reports/:id`)
+
+```http
+GET /api/v2/reports/3182
+```
+
+Returns one report under `result.report` with every feed field plus `body`,
+`images`, `attachments`, `hostName`, `participants`, and `timeTaken`.
+
+Since migration 010 **none of this is parsed at request time.** The editor
+document used to live in `reports.body` as JSONB and this route re-derived the
+image list and the form from it on every call, with two independent
+`jsonb_array_elements` passes. That work now happens once, at write time:
+
+| Field                                     | Storage                        |
+| ----------------------------------------- | ------------------------------ |
+| `body`                                    | `reports.body`, markdown TEXT  |
+| `images`                                  | `report_images`, by `ordinal`  |
+| `attachments`                             | `report_attachments`           |
+| `hostName`, `participants`, `timeTaken`   | columns on `reports`           |
+
+`body` is **markdown**, not the editor's JSON and not plain text: heading
+levels, lists, tables, emphasis and links are preserved, and 41 hyperlinks
+across 8 reports have their URL only in the document (the visible text is a bare
+commit hash), so plain-text flattening would have lost them. Only 310 of 4,632
+imported reports have any prose at all — the rest keep their content in
+`description` — and the whole corpus is 129 KB, down from 17 MB of JSONB.
+
+`hostName`, `participants`, and `timeTaken` are issuer free text and are never
+normalized — `timeTaken` alone contains `2`, `1 hour`, `2 hours`, `2hrs`, and
+`1 hr`. Seven imported reports carry two form nodes and on two of them the
+second differs, so the stored value is the first form in document order that has
+any value at all; the previous unordered `LIMIT 1` picked arbitrarily.
+
+`images` entries are
+`{url, width, height, maxWidth, maxHeight, byteSize, caption}`. `width` and
+`height` are the editor's display box; `maxWidth` and `maxHeight` are the
+intrinsic size, and the two are **not** a scaled pair (a 267×1000 display box
+against a 747×1600 intrinsic occurs). Any of them may be `null`. `caption` is
+new — it was previously discarded. Reports carry 0 to 37 images; 73% have
+exactly one and 381 have none.
+
+`attachments` entries are `{kind, url, filename, byteSize}`, where `kind` is
+`FILE` for an uploaded document or video and `EMBED` for an external player URL.
+`filename` is set only for uploads. These were previously not served at all.
+
+**Only `http(s)` URLs are stored** in either table — a CHECK constraint enforces
+it, so the exclusion is a storage invariant rather than a filter each request
+re-applies. Legacy `img` nodes embed base64 `data:` URIs up to ~900 KB and 48
+`cloud_image` nodes hold unresolved `#nanoid` upload placeholders; none of them
+reach a response.
+
+One gap remains at the column level: six approved reports store a base64
+`data:` URI directly in `reports.image_url`, up to 876 KB. Both routes return
+`null` for those rather than the URI. They are not nulled in storage because
+four of the six have no other image, so the fix is a CDN re-upload, not a
+delete.
