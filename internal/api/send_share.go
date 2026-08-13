@@ -16,7 +16,9 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-var erc20TransferSelector = []byte{0xa9, 0x05, 0x9c, 0xbb}
+var (
+	erc20TransferSelector = []byte{0xa9, 0x05, 0x9c, 0xbb}
+)
 
 func validateSendShare(share *apiresp.SendShareRequest) error {
 	if share == nil {
