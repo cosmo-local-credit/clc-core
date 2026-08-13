@@ -27,15 +27,17 @@ type (
 		InsertDeployedToken          string `query:"insert-deployed-token"`
 		ConfirmDeployedToken         string `query:"confirm-deployed-token"`
 		FailDeployedToken            string `query:"fail-deployed-token"`
+		UpsertVoucherFromDeploy      string `query:"upsert-voucher-from-deploy"`
 		InsertDeployedTokenTag       string `query:"insert-deployed-token-tag"`
 		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
 		ListTokenTags                string `query:"list-token-tags"`
-		GetPoolAddress               string `query:"get-pool-address"`
-		SetPoolAddress               string `query:"set-pool-address"`
+		GetProtocolAddress           string `query:"get-protocol-address"`
+		SetProtocolAddress           string `query:"set-protocol-address"`
 		InsertDeployedPool           string `query:"insert-deployed-pool"`
 		ConfirmDeployedPool          string `query:"confirm-deployed-pool"`
 		FailDeployedPool             string `query:"fail-deployed-pool"`
+		UpsertPoolFromDeploy         string `query:"upsert-pool-from-deploy"`
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
@@ -84,6 +86,58 @@ type (
 		UpsertWebAuthnCredential string `query:"upsert-webauthn-credential"`
 		GetWebAuthnCredential    string `query:"get-webauthn-credential"`
 		SetNonceIfHigher         string `query:"set-nonce-if-higher"`
+
+		ListVoucherMetadataByAddresses string `query:"list-voucher-metadata-by-addresses"`
+
+		ListPools                string `query:"list-pools"`
+		ListPoolsNext            string `query:"list-pools-next"`
+		ListPoolsPrev            string `query:"list-pools-prev"`
+		GetPoolByAddress         string `query:"get-pool-by-address"`
+		ListPoolVouchers         string `query:"list-pool-vouchers"`
+		ListPoolVouchersNext     string `query:"list-pool-vouchers-next"`
+		ListPoolVouchersPrev     string `query:"list-pool-vouchers-prev"`
+		ListOfferings            string `query:"list-offerings"`
+		ListOfferingsNext        string `query:"list-offerings-next"`
+		ListOfferingsPrev        string `query:"list-offerings-prev"`
+		ListVoucherOfferings     string `query:"list-voucher-offerings"`
+		ListVoucherOfferingsNext string `query:"list-voucher-offerings-next"`
+		ListVoucherOfferingsPrev string `query:"list-voucher-offerings-prev"`
+		ListPoolOfferings        string `query:"list-pool-offerings"`
+		ListPoolOfferingsNext    string `query:"list-pool-offerings-next"`
+		ListPoolOfferingsPrev    string `query:"list-pool-offerings-prev"`
+		ListReports              string `query:"list-reports"`
+		ListReportsNext          string `query:"list-reports-next"`
+		GetReport                string `query:"get-report"`
+
+		// Bounded and unbounded market pages are separate statements so the
+		// bbox predicate never hides behind a nullable OR, which would stop
+		// Postgres from reliably choosing the GiST point index.
+		ListMarketVouchers            string `query:"list-market-vouchers"`
+		ListMarketVouchersNext        string `query:"list-market-vouchers-next"`
+		ListMarketVouchersPrev        string `query:"list-market-vouchers-prev"`
+		ListMarketVouchersBounded     string `query:"list-market-vouchers-bounded"`
+		ListMarketVouchersNextBounded string `query:"list-market-vouchers-next-bounded"`
+		ListMarketVouchersPrevBounded string `query:"list-market-vouchers-prev-bounded"`
+
+		GetMarketVoucherByAddress string `query:"get-market-voucher-by-address"`
+
+		// Catalog search support. The filtered voucher and pool statements are
+		// composed in Go from constant fragments (internal/store/catalog_search.go)
+		// rather than enumerated here: one statement per combination of entity,
+		// page direction, viewport, search, and tag mode would be an
+		// unmaintainable set of near-identical queries.
+		UnknownTokenTags           string `query:"unknown-token-tags"`
+		SetCatalogStatementTimeout string `query:"set-catalog-statement-timeout"`
+		ResolveVoucherRefs         string `query:"resolve-voucher-refs"`
+
+		// Facet vocabularies are parameterless and request-independent; only
+		// the count half varies with the search, and it is composed.
+		ListVoucherTagVocabulary string `query:"list-voucher-tag-vocabulary"`
+		ListPoolTagVocabulary    string `query:"list-pool-tag-vocabulary"`
+		ListReportTagVocabulary  string `query:"list-report-tag-vocabulary"`
+
+		DashboardCatalogSnapshot string `query:"dashboard-catalog-snapshot"`
+		DashboardCatalogSeries   string `query:"dashboard-catalog-series"`
 	}
 
 	PgOpts struct {

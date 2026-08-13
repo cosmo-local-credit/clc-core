@@ -7,8 +7,14 @@
 -- source tables, filtered to a single holder:
 --   chain_data_v2.token_transfer  — one row per on-chain token transfer
 --   chain_data_v2.tx              — transaction envelope (hash, block, success)
---   chain_data_v2.tokens          — token metadata (symbol/name/decimals)
---   sarafu_network.vouchers       — voucher icon URLs
+--
+-- These queries return CHAIN FACTS ONLY. Token metadata (symbol, name,
+-- decimals, icon) is enriched from the LOCAL vouchers catalog by the API
+-- layer (per MIGRATION.md §2 the catalog is the single home for living
+-- voucher attributes) — the former joins to chain_data_v2.tokens and
+-- sarafu_network.vouchers are gone. A side effect is that holdings and
+-- transfers are no longer silently dropped for tokens the federation
+-- metadata tables did not know.
 --
 -- These reads used to be served from two materialized views refreshed on a
 -- 2-minute timer, which made every write invisible to the API for up to that
@@ -31,11 +37,10 @@ SELECT EXISTS (
 
 -- Token holdings ------------------------------------------------------------
 -- A holder's balance for a token is the signed sum of every successful
--- movement (credited as recipient, debited as sender). Metadata and icon are
--- joined onto the aggregated holdings only — a handful of rows per holder — so
--- the join cost is negligible. Tokens absent from chain_data_v2.tokens are
--- dropped (INNER JOIN), matching the previous view semantics. `id` is the
--- holder's most recent tx id for that token and drives keyset pagination.
+-- movement (credited as recipient, debited as sender). Token metadata is NOT
+-- joined here — the API enriches rows from the local vouchers catalog. `id`
+-- is the holder's most recent tx id for that token and drives keyset
+-- pagination.
 
 --name: list-user-token-holdings
 WITH movements AS (
@@ -62,15 +67,9 @@ holding AS (
 SELECT
     h.last_tx_id AS id,
     h.contract_address AS token_address,
-    t.token_symbol,
-    t.token_name,
-    t.token_decimals,
     h.balance::text AS balance,
-    v.icon_url,
     h.last_date_block
 FROM holding h
-JOIN chain_data_v2.tokens t ON t.contract_address = h.contract_address
-LEFT JOIN sarafu_network.vouchers v ON v.voucher_address = h.contract_address
 ORDER BY h.last_tx_id DESC
 LIMIT $2;
 
@@ -99,15 +98,9 @@ holding AS (
 SELECT
     h.last_tx_id AS id,
     h.contract_address AS token_address,
-    t.token_symbol,
-    t.token_name,
-    t.token_decimals,
     h.balance::text AS balance,
-    v.icon_url,
     h.last_date_block
 FROM holding h
-JOIN chain_data_v2.tokens t ON t.contract_address = h.contract_address
-LEFT JOIN sarafu_network.vouchers v ON v.voucher_address = h.contract_address
 WHERE h.last_tx_id < $2
 ORDER BY h.last_tx_id DESC
 LIMIT $3;
@@ -138,15 +131,9 @@ SELECT * FROM (
     SELECT
         h.last_tx_id AS id,
         h.contract_address AS token_address,
-        t.token_symbol,
-        t.token_name,
-        t.token_decimals,
         h.balance::text AS balance,
-        v.icon_url,
         h.last_date_block
     FROM holding h
-    JOIN chain_data_v2.tokens t ON t.contract_address = h.contract_address
-    LEFT JOIN sarafu_network.vouchers v ON v.voucher_address = h.contract_address
     WHERE h.last_tx_id > $2
     ORDER BY h.last_tx_id ASC
     LIMIT $3
@@ -172,14 +159,10 @@ SELECT * FROM (
             tt.sender_address,
             tt.recipient_address,
             tt.contract_address,
-            t.token_symbol,
-            t.token_name,
-            t.token_decimals,
             tt.transfer_value::text AS amount,
             tx.success
         FROM chain_data_v2.token_transfer tt
         JOIN chain_data_v2.tx ON tx.id = tt.tx_id
-        JOIN chain_data_v2.tokens t ON t.contract_address = tt.contract_address
         WHERE tt.recipient_address = $1
         ORDER BY tt.id DESC
         LIMIT $2
@@ -195,14 +178,10 @@ SELECT * FROM (
             tt.sender_address,
             tt.recipient_address,
             tt.contract_address,
-            t.token_symbol,
-            t.token_name,
-            t.token_decimals,
             tt.transfer_value::text AS amount,
             tx.success
         FROM chain_data_v2.token_transfer tt
         JOIN chain_data_v2.tx ON tx.id = tt.tx_id
-        JOIN chain_data_v2.tokens t ON t.contract_address = tt.contract_address
         WHERE tt.sender_address = $1 AND tt.sender_address <> tt.recipient_address
         ORDER BY tt.id DESC
         LIMIT $2
@@ -223,14 +202,10 @@ SELECT * FROM (
             tt.sender_address,
             tt.recipient_address,
             tt.contract_address,
-            t.token_symbol,
-            t.token_name,
-            t.token_decimals,
             tt.transfer_value::text AS amount,
             tx.success
         FROM chain_data_v2.token_transfer tt
         JOIN chain_data_v2.tx ON tx.id = tt.tx_id
-        JOIN chain_data_v2.tokens t ON t.contract_address = tt.contract_address
         WHERE tt.recipient_address = $1 AND tt.id < $2
         ORDER BY tt.id DESC
         LIMIT $3
@@ -246,14 +221,10 @@ SELECT * FROM (
             tt.sender_address,
             tt.recipient_address,
             tt.contract_address,
-            t.token_symbol,
-            t.token_name,
-            t.token_decimals,
             tt.transfer_value::text AS amount,
             tx.success
         FROM chain_data_v2.token_transfer tt
         JOIN chain_data_v2.tx ON tx.id = tt.tx_id
-        JOIN chain_data_v2.tokens t ON t.contract_address = tt.contract_address
         WHERE tt.sender_address = $1 AND tt.sender_address <> tt.recipient_address AND tt.id < $2
         ORDER BY tt.id DESC
         LIMIT $3
@@ -275,14 +246,10 @@ SELECT * FROM (
                 tt.sender_address,
                 tt.recipient_address,
                 tt.contract_address,
-                t.token_symbol,
-                t.token_name,
-                t.token_decimals,
                 tt.transfer_value::text AS amount,
                 tx.success
             FROM chain_data_v2.token_transfer tt
             JOIN chain_data_v2.tx ON tx.id = tt.tx_id
-            JOIN chain_data_v2.tokens t ON t.contract_address = tt.contract_address
             WHERE tt.recipient_address = $1 AND tt.id > $2
             ORDER BY tt.id ASC
             LIMIT $3
@@ -298,14 +265,10 @@ SELECT * FROM (
                 tt.sender_address,
                 tt.recipient_address,
                 tt.contract_address,
-                t.token_symbol,
-                t.token_name,
-                t.token_decimals,
                 tt.transfer_value::text AS amount,
                 tx.success
             FROM chain_data_v2.token_transfer tt
             JOIN chain_data_v2.tx ON tx.id = tt.tx_id
-            JOIN chain_data_v2.tokens t ON t.contract_address = tt.contract_address
             WHERE tt.sender_address = $1 AND tt.sender_address <> tt.recipient_address AND tt.id > $2
             ORDER BY tt.id ASC
             LIMIT $3
@@ -315,3 +278,36 @@ SELECT * FROM (
     LIMIT $3
 ) page
 ORDER BY id DESC;
+
+-- Filled envelope series from chain_data_v2.tx only. One foreign scan:
+-- postgres_fdw ships the date filter but not GROUP BY, so the remote
+-- returns date_block rows and we bucket locally. A separate COUNT(*) is
+-- another scan of the same window — the handler sums this series instead.
+-- date_block is timestamp without time zone: bind $1/$2 as timestamp, not
+-- timestamptz, or the remote date filter is dropped.
+-- Sampled 1d ~110ms exec / 28d ~300ms / 90d ~600ms (fetch_size 100).
+-- $1 since, $2 until, $3 bucket seconds.
+-- extract() needs explicit types: untyped $1 is extract(unknown, unknown)
+-- (SQLSTATE 42725). Cast only in extract; leave the WHERE args bare so FDW
+-- still pushes a timestamp comparison.
+--name: dashboard-transaction-series
+WITH buckets AS (
+    SELECT g AS bucket_epoch
+    FROM generate_series(
+        (floor(extract(epoch from $1::timestamp) / $3::bigint) * $3::bigint)::bigint,
+        (extract(epoch from $2::timestamp)::bigint - 1),
+        $3::bigint
+    ) AS g
+),
+counts AS (
+    SELECT (floor(extract(epoch from date_block) / $3::bigint) * $3::bigint)::bigint AS bucket_epoch,
+        COUNT(*)::bigint AS n
+    FROM chain_data_v2.tx
+    WHERE date_block >= $1 AND date_block < $2
+    GROUP BY 1
+)
+SELECT to_timestamp(b.bucket_epoch) AS t,
+    COALESCE(c.n, 0) AS transactions
+FROM buckets b
+LEFT JOIN counts c ON c.bucket_epoch = b.bucket_epoch
+ORDER BY b.bucket_epoch;

@@ -2,6 +2,11 @@
 prod = false
 address = ":5003"
 cors = ["https://sarafu.network", "http://localhost:3000", "http://localhost:3001", "http://192.168.1.20:3000"]
+# Trust X-Forwarded-For as the rate-limit key for the public market catalog.
+# Enable ONLY when the service is reachable exclusively through the Caddy
+# proxy network; otherwise any caller can forge the header and spend another
+# client's budget.
+trust_proxy = false
 # These are sample keys, replace them with your own in production.
 # openssl genpkey -algorithm ED25519 -out private.pem
 # openssl pkey -in private.pem -pubout -out public.pem
@@ -27,10 +32,8 @@ max = 0
 id = 42220
 rpc_endpoint = "https://r4-celo.grassecon.org"
 divvi_consumer = "0x5523058cdFfe5F3c1EaDADD5015E55C6E00fb439"
-# CICRegistry pointer contract — resolves well-known contract addresses
-# (AccountIndex, CustodialRegistrationProxy, etc.) via addressOf(bytes32).
-# Used to register users onchain when a Calibur wallet is activated.
-ge_registry = "0xEA7a52e565C43598011cC5f509b8252Eb3e8dbE5"
+# CICRegistry pointer contract that resolves well-known contract addresses
+ge_registry = "0xcaeEcFc5359c50365bED9f6dFEaFD332b57d5475"
 
 [jetstream]
 endpoints = ["nats://127.0.0.1:4222"]
@@ -38,33 +41,46 @@ id = "clc-core-dev"
 persist_duration_hrs = 48
 # Dev-only: drop the durable consumer on startup so we skip the backlog and
 # Leave false in production.
-skip_backlog = false
+skip_backlog = true
 
 [pretium]
 base_url = "http://127.0.0.1:5004/api/v1"
 
 [relayer]
-# The relayer uses the master signing key stored in the DB (bootstrapped by
-# the store on first run). No separate private_key config is needed here.
 # Calibur implementation address on the target chain.
 # Celo mainnet: 0x1289fE793392fb1a905f78Ea23f632EDD3d15b85
 calibur_address = "0x1289fE793392fb1a905f78Ea23f632EDD3d15b85"
 # Relayed-batch gas budget. The first relay also delegates, and the Calibur
 # code is not live at the EOA until that tx executes, so eth_estimateGas would
-# revert — we budget from known per-action averages instead. The limit is
-# (base_exec_gas + per_call_gas*len(calls) [+ delegation_overhead_gas on the
-# first relay]) with a +10% safety bump, clamped to max_relay_gas.
-# per_call_gas should be the measured average gas of a single action.
-per_call_gas = 80000
+# revert so we budget from known per-action averages instead.
+#
+# per_call_gas must cover the heaviest single action, not the average: a first
+# GiftableToken mint measures 103_407 on Celo (three zero->nonzero SSTOREs —
+# recipient balance, totalSupply, totalMinted). At 80_000 a one-call mint got a
+# 143_000 limit and died with OutOfGas inside mintTo; only ~74_000 reached the
+# token after the intrinsic+calldata cost and Calibur's decode/ecrecover/nonce
+# write. Over-budgeting is close to free: only gas actually used is billed.
+per_call_gas = 200000
 base_exec_gas = 50000
 delegation_overhead_gas = 150000
-max_relay_gas = 3000000
+# Headroom for a full 16-call batch at the per-call budget above
+# ((50_000 + 200_000*16) * 1.10 = 3_575_000) so the clamp never silently
+# under-provisions a long swap route.
+max_relay_gas = 4000000
 # Extra gas added when the batch is signed by a WebAuthn/P256 passkey:
 # verifying a P-256 signature on chain costs far more than secp256k1 ecrecover
-# (no cheap precompile on every chain).
 webauthn_verify_gas = 400000
 # Gas limit for a bare delegation (no calldata).
 delegate_gas_limit = 200000
 # WebAuthn recovery verification.
 relying_party_id = "192.168.1.20"
-allowed_origins = ["http://localhost:3000", "http://192.168.1.20:3000"]
+# :3000 is apps/web, :3001 the admin console. An assertion's clientDataJSON origin
+# is checked against this list, so a console origin missing here fails passkey
+# sign-in with "origin not allowed" even though the address is a valid superadmin.
+# A credential is bound to relying_party_id, so reach the console on that host.
+allowed_origins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://192.168.1.20:3000",
+  "http://192.168.1.20:3001",
+]

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/keypair"
 	"github.com/jackc/pgx/v5"
@@ -24,15 +25,17 @@ type (
 		InsertDeployedToken(context.Context, pgx.Tx, DeployedToken) (uint64, error)
 		ConfirmDeployedToken(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedToken(context.Context, pgx.Tx, uint64) error
+		UpsertVoucherFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
 		InsertDeployedTokenTag(context.Context, pgx.Tx, uint64, string) error
 		GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 		ListTokenTags(context.Context, pgx.Tx) ([]string, error)
-		GetPoolAddress(context.Context, pgx.Tx, string) (string, error)
-		SetPoolAddress(context.Context, pgx.Tx, string, string) error
+		GetProtocolAddress(context.Context, pgx.Tx, string) (string, error)
+		SetProtocolAddress(context.Context, pgx.Tx, string, string) error
 		InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
 		ConfirmDeployedPool(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedPool(context.Context, pgx.Tx, uint64) error
+		UpsertPoolFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
@@ -52,9 +55,11 @@ type (
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
-		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string) (User, error)
+		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string, *string, *float64, *float64) (User, error)
 		ListUsers(context.Context, pgx.Tx) ([]User, error)
 		ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
+		DashboardCatalogSnapshot(context.Context, pgx.Tx, time.Time, time.Time) (DashboardCatalogSnapshot, error)
+		DashboardCatalogSeries(context.Context, pgx.Tx, time.Time, time.Time, int64) ([]DashboardCatalogPoint, error)
 
 		InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
 		CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)
@@ -73,6 +78,43 @@ type (
 		ListConfirmedPoolsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]DeployedPool, error)
 		ListAllTokens(context.Context, pgx.Tx) ([]DeployedToken, error)
 		ListAllPools(context.Context, pgx.Tx) ([]DeployedPool, error)
+		ListVoucherMetadataByAddresses(context.Context, pgx.Tx, []string) ([]VoucherMetadata, error)
+		ListPools(context.Context, pgx.Tx, uint64) ([]Pool, error)
+		ListPoolsNext(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
+		ListPoolsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
+		GetPoolByAddress(context.Context, pgx.Tx, string) (Pool, error)
+		ListPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
+		ListPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
+		ListPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
+		ListOfferings(context.Context, pgx.Tx, uint64) ([]Offering, error)
+		ListOfferingsNext(context.Context, pgx.Tx, uint64, uint64) ([]Offering, error)
+		ListOfferingsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Offering, error)
+		ListVoucherOfferings(context.Context, pgx.Tx, string, uint64) ([]Offering, error)
+		ListVoucherOfferingsNext(context.Context, pgx.Tx, string, uint64, uint64) ([]Offering, error)
+		ListVoucherOfferingsPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]Offering, error)
+		ListPoolOfferings(context.Context, pgx.Tx, string, uint64) ([]Offering, error)
+		ListPoolOfferingsNext(context.Context, pgx.Tx, string, uint64, uint64) ([]Offering, error)
+		ListPoolOfferingsPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]Offering, error)
+		ListReports(context.Context, pgx.Tx, uint64) ([]Report, error)
+		ListReportsNext(context.Context, pgx.Tx, ReportCursor, uint64) ([]Report, error)
+		ListReportsFiltered(context.Context, pgx.Tx, CatalogFilter, ReportCursor, bool, uint64) ([]Report, error)
+		ListReportTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
+		GetReport(context.Context, pgx.Tx, uint64) (*Report, error)
+		ListMarketVouchers(context.Context, pgx.Tx, *MarketVoucherBounds, uint64) ([]MarketVoucher, error)
+		ListMarketVouchersNext(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
+		ListMarketVouchersPrevious(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
+		GetMarketVoucherByAddress(context.Context, pgx.Tx, string) (MarketVoucherDetail, error)
+
+		// Catalog search and tag filtering (PG_SEARCH_PLAN.md Slices 1 and 2).
+		ListMarketVouchersFiltered(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter, CatalogPage, uint64, uint64) ([]MarketVoucher, error)
+		ListMarketVoucherTagFacets(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter) ([]TagFacet, error)
+		ListPoolsFiltered(context.Context, pgx.Tx, CatalogFilter, CatalogPage, uint64, uint64) ([]Pool, error)
+		ListPoolTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
+		ListPoolVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
+		ListReportVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
+		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
+		ResolveVoucherRefs(context.Context, pgx.Tx, []VoucherRef) ([]uint64, error)
+		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
 		ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)

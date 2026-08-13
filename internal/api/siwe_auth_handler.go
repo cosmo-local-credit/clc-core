@@ -11,17 +11,7 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/labstack/echo/v5"
-)
-
-const (
-	// pgUniqueViolation is the PostgreSQL error code for a UNIQUE constraint
-	// violation. INSERTs that hit users_blockchain_address_unique or
-	// users_email_unique race through the duplicate-identity pre-checks
-	// above; we translate the violation into a 409 conflict rather than
-	// surfacing a generic 500 E01.
-	pgUniqueViolation = "23505"
 )
 
 func (a *API) nonceHandler(c *echo.Context) error {
@@ -96,9 +86,12 @@ func (a *API) signupHandler(c *echo.Context) error {
 	//    it required, so it is always present here. Treat an email already
 	//    bound to another wallet as a duplicate-identity conflict.
 	if _, lookupErr := a.store.GetUserByEmail(ctx, tx, strings.ToLower(req.Email)); lookupErr == nil {
+		// Distinct code from the address-conflict branch above: the caller's
+		// address is not registered, so it must not attempt a SIWE sign-in as
+		// a recovery path (that would 404 — see ErrCodeNotFound on signin).
 		return c.JSON(http.StatusConflict, apiresp.ErrResponse{
 			Ok:          false,
-			ErrCode:     apiresp.ErrCodeConflict,
+			ErrCode:     apiresp.ErrCodeEmailConflict,
 			Description: "email already linked to another account",
 		})
 	} else if !errors.Is(lookupErr, pgx.ErrNoRows) {
@@ -108,7 +101,9 @@ func (a *API) signupHandler(c *echo.Context) error {
 	// 6. Persist the new user. Either unique constraint (blockchain_address
 	//    or email) can still trip from a concurrent registration raced
 	//    between the lookup above and this insert — translate that into a
-	//    409 rather than surfacing a generic 500.
+	//    409 rather than surfacing a generic 500. Distinguish by constraint
+	//    name so the caller still knows whether its address ended up
+	//    registered (safe to recover via sign-in) or not (email raced).
 	user, err := a.store.InsertUser(ctx, tx, store.User{
 		EthereumAddress: signerAddr,
 		Name:            req.Name,
@@ -119,13 +114,8 @@ func (a *API) signupHandler(c *echo.Context) error {
 		MaxTokens:       20,
 	})
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
-			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeConflict,
-				Description: "identity already linked to another account",
-			})
+		if conflict, ok := userIdentityConflict(err); ok {
+			return c.JSON(http.StatusConflict, conflict)
 		}
 		return err
 	}
@@ -372,7 +362,7 @@ func (a *API) webAuthnSigninHandler(c *echo.Context) error {
 	})
 }
 
-// sessionHandler returns the current session's address and chainId.
+// sessionHandler returns the current session's address, chainId and role.
 // Returns 204 No Content when no valid session cookie is present.
 func (a *API) sessionHandler(c *echo.Context) error {
 	cookie, err := c.Cookie(userAuthCookieName)
@@ -390,5 +380,9 @@ func (a *API) sessionHandler(c *echo.Context) error {
 		// tokens, so clients receive a consistent canonical address.
 		"address": common.HexToAddress(token.EthereumAddress).Hex(),
 		"chainId": a.chainID,
+		// The role the signin response already returns. Without it a client that
+		// gates on privilege has to re-derive it after every reload by probing an
+		// admin endpoint and reading the 403.
+		"role": token.Role,
 	})
 }

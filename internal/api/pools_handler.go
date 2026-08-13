@@ -9,7 +9,16 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// poolsListHandler returns all confirmed pools (global catalog), cursor-paginated.
+// poolsListHandler returns the network pool catalog (imported + clc-core
+// deploys), cursor-paginated. Directory reads come from the pools catalog,
+// not the deploy pipeline (MIGRATION.md §3.5); deploy-status APIs keep
+// reading deployed_pools.
+//
+// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, and `facets` narrow the page
+// (PG_SEARCH_PLAN.md Slice 2). Pool tags are the pool's own curated
+// `pool_tags` — the same values each row already returns — not member-voucher
+// or member-offering tags, so a filtered row always carries the tag that
+// matched it. Every page direction applies every active predicate.
 func (a *API) poolsListHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -19,31 +28,45 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 	}
 	pagination := normalizePagination(req)
 
+	search, err := parseCatalogRelationshipSearch(c)
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 
-	var (
-		pools    []store.DeployedPool
-		queryErr error
-	)
+	if err := a.store.SetCatalogStatementTimeout(ctx, tx); err != nil {
+		return handlePostgresError(c, err)
+	}
 
+	if handled, vErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || vErr != nil {
+		return vErr
+	}
+	if handled, vErr := a.resolveVoucherFilter(c, tx, &search); handled || vErr != nil {
+		return vErr
+	}
+
+	var page store.CatalogPage
 	switch {
 	case pagination.FirstPage:
-		pools, queryErr = a.store.ListConfirmedPools(ctx, tx, pagination.PerPage)
+		page = store.CatalogFirstPage
 	case pagination.Next:
-		pools, queryErr = a.store.ListConfirmedPoolsNext(ctx, tx, pagination.Cursor, pagination.PerPage)
+		page = store.CatalogNextPage
 	default:
-		pools, queryErr = a.store.ListConfirmedPoolsPrevious(ctx, tx, pagination.Cursor, pagination.PerPage)
+		page = store.CatalogPrevPage
 	}
-	if queryErr != nil {
-		return handlePostgresError(c, queryErr)
+
+	pools, err := a.store.ListPoolsFiltered(ctx, tx, search.filter, page, pagination.Cursor, pagination.PerPage)
+	if err != nil {
+		return handlePostgresError(c, err)
 	}
 
 	if pools == nil {
-		pools = []store.DeployedPool{}
+		pools = []store.Pool{}
 	}
 
 	var first, last uint64
@@ -52,22 +75,38 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 		last = pools[len(pools)-1].ID
 	}
 
+	result := map[string]any{
+		"pools": pools,
+		"first": first,
+		"last":  last,
+	}
+	if search.facets && pagination.FirstPage {
+		facets, fErr := a.store.ListPoolTagFacets(ctx, tx, search.filter)
+		if fErr != nil {
+			return handlePostgresError(c, fErr)
+		}
+		result["tagFacets"] = facets
+
+		voucherFacets, vfErr := a.store.ListPoolVoucherFacets(ctx, tx, search.filter)
+		if vfErr != nil {
+			return handlePostgresError(c, vfErr)
+		}
+		result["voucherFacets"] = voucherFacets
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: "Confirmed pools",
-		Result: map[string]any{
-			"pools": pools,
-			"first": first,
-			"last":  last,
-		},
+		Description: "Pools",
+		Result:      result,
 	})
 }
 
-// poolsByAddressHandler returns a single confirmed pool by contract address.
+// poolsByAddressHandler returns a single catalog pool by contract address
+// (case-insensitive lookup; stored addresses are EIP-55).
 func (a *API) poolsByAddressHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 	address := c.Param("address")
@@ -78,7 +117,7 @@ func (a *API) poolsByAddressHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	pool, err := a.store.GetDeployedPoolByAddress(ctx, tx, address)
+	pool, err := a.store.GetPoolByAddress(ctx, tx, address)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}

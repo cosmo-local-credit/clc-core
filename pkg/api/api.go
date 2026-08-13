@@ -26,6 +26,7 @@ type (
 		Website          string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email            string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone            string   `json:"phone,omitempty"`
+		Terms            string   `json:"terms,omitempty" validate:"omitempty,url"`
 		LocationName     string   `json:"locationName,omitempty"`
 		GeoLat           *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
 		GeoLng           *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
@@ -44,6 +45,7 @@ type (
 		Website         string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email           string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone           string   `json:"phone,omitempty"`
+		Terms           string   `json:"terms,omitempty" validate:"omitempty,url"`
 		VoucherUoa      string   `json:"voucherUoa,omitempty"`
 		VoucherValue    *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
 		LocationName    string   `json:"locationName,omitempty"`
@@ -218,11 +220,17 @@ type (
 	}
 
 	// UpdateProfileRequest carries optional profile fields.
+	// Geo fields match DeployTokenRequest: optional pointers, range checks.
+	// Both-or-neither is enforced in profileUpdateHandler (400 on a partial
+	// pair) and backstopped by users_geo_valid at the DB boundary.
 	UpdateProfileRequest struct {
-		Name    string `json:"name"    validate:"omitempty,max=80"`
-		Email   string `json:"email"   validate:"omitempty,email"`
-		Phone   string `json:"phone"`
-		Country string `json:"country" validate:"omitempty,len=2"`
+		Name         string   `json:"name"         validate:"omitempty,max=80"`
+		Email        string   `json:"email"        validate:"omitempty,email"`
+		Phone        string   `json:"phone"`
+		Country      string   `json:"country"      validate:"omitempty,len=2"`
+		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
+		GeoLat       *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
+		GeoLng       *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
 	}
 )
 
@@ -244,4 +252,6 @@ const (
 	ErrCodeRelayerExecutorMismatch    = "E14"
 	ErrCodeWebAuthnVerificationFailed = "E15"
 	ErrCodeConflict                   = "E16"
+	ErrCodeEmailConflict              = "E17"
+	ErrCodePhoneConflict              = "E18"
 )

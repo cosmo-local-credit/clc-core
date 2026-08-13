@@ -45,6 +45,7 @@ type (
 		Website               string   `json:"website"`
 		Email                 string   `json:"email"`
 		Phone                 string   `json:"phone"`
+		Terms                 string   `json:"terms"`
 		VoucherUoa            string   `json:"voucherUoa"`
 		VoucherValue          *float64 `json:"voucherValue"`
 		LocationName          string   `json:"locationName"`
@@ -150,6 +151,7 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		Website:            nilIfEmpty(args.Website),
 		Email:              nilIfEmpty(args.Email),
 		Phone:              nilIfEmpty(args.Phone),
+		Terms:              nilIfEmpty(args.Terms),
 		VoucherUoa:         nilIfEmpty(args.VoucherUoa),
 		VoucherValue:       args.VoucherValue,
 		LocationName:       nilIfEmpty(args.LocationName),

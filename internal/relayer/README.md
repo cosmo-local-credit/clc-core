@@ -27,8 +27,15 @@ revert. The limit is therefore budgeted from known per-action averages:
 limit = (base_exec_gas + per_call_gas*len(calls) [+ delegation_overhead_gas]) * 1.10
 ```
 
-clamped to `max_relay_gas`. Tune `per_call_gas` to the measured average gas of a
-single action (see `[relayer]` in `config.toml`).
+clamped to `max_relay_gas`. Tune `per_call_gas` to the **heaviest** single action
+we sign, not the average (see `[relayer]` in `config.toml`). The binding case is
+a first `GiftableToken` mint: 103,407 gas on Celo, from three zero->nonzero
+SSTOREs (recipient balance, `totalSupply`, `totalMinted`). Of a one-call limit,
+~26k goes to intrinsic + calldata and ~41k to Calibur's decode, `ecrecover` and
+nonce write before the inner frame is entered, so a one-call batch needs to clear
+roughly 170k. `per_call_gas = 80000` gave 143,000 and reverted with `OutOfGas`
+inside `mintTo`; the default is now 200,000. Over-budgeting costs almost nothing
+— only gas actually used is billed.
 
 ## Tests
 
