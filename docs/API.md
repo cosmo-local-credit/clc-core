@@ -45,10 +45,11 @@
    - [PUT /api/v2/admin/users/:address/approve](#72-put-apiv2adminusersaddressapprove)
    - [PUT /api/v2/admin/users/:address/reject](#73-put-apiv2adminusersaddressreject)
    - [PUT /api/v2/admin/users/:address/limits](#74-put-apiv2adminusersaddresslimits)
-   - [GET /api/v2/admin/tokens](#75-get-apiv2admintokens)
-   - [GET /api/v2/admin/pools](#76-get-apiv2adminpools)
-   - [GET /api/v2/admin/deployments](#77-get-apiv2admindeployments)
-   - [GET /api/v2/admin/dashboard/stats](#78-get-apiv2admindashboardstats)
+   - [PUT /api/v2/admin/users/:address/profile](#75-put-apiv2adminusersaddressprofile)
+   - [GET /api/v2/admin/tokens](#76-get-apiv2admintokens)
+   - [GET /api/v2/admin/pools](#77-get-apiv2adminpools)
+   - [GET /api/v2/admin/deployments](#78-get-apiv2admindeployments)
+   - [GET /api/v2/admin/dashboard/stats](#79-get-apiv2admindashboardstats)
 8. [SIWE Message Construction](#8-siwe-message-construction)
 9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
    - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
@@ -1208,7 +1209,67 @@ Updates the deployment quotas for a specific user.
 
 ---
 
-### 7.5 `GET /api/v2/admin/tokens`
+### 7.5 `PUT /api/v2/admin/users/:address/profile`
+
+Corrects another account's identity and contact details. `PUT /auth/profile` edits only the signed-in account, so this is the operator equivalent; it takes the same body and applies the same validation.
+
+It cannot change status, role or limits — those have their own endpoints.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `address` | `string` | Ethereum address of the target user |
+
+**Request body:**
+
+```/dev/null/admin-profile-request.json#L1-8
+{
+  "name":         "Ada Lovelace",
+  "email":        "ada@example.com",
+  "phone":        "+254700000000",
+  "country":      "KE",
+  "locationName": "Nairobi",
+  "geoLat":       -1.2921,
+  "geoLng":       36.8219
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | No | Max 80 characters |
+| `email` | `string` | No | Must be a valid address, unique across accounts |
+| `phone` | `string` | No | Unique across accounts |
+| `country` | `string` | No | ISO 3166-1 alpha-2 code |
+| `locationName` | `string` | No | Max 200 characters |
+| `geoLat` | `number` | No | −90 to 90. Must be sent with `geoLng` |
+| `geoLng` | `number` | No | −180 to 180. Must be sent with `geoLat` |
+
+Omitted location fields preserve the stored values; they are not cleared.
+
+**Response `200`:**
+
+```/dev/null/admin-profile-response.json#L1-7
+{
+  "ok": true,
+  "description": "User profile updated",
+  "result": {
+    "user": { "..." : "..." }
+  }
+}
+```
+
+**Errors:**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | Validation failed, including `geoLat` sent without `geoLng` or vice versa |
+| `404` | `E03` | No account at that address |
+| `409` | `E17` / `E18` | `email` or `phone` already belongs to another account |
+
+---
+
+### 7.6 `GET /api/v2/admin/tokens`
 
 Lists all confirmed token contracts deployed across all users.
 
@@ -1226,7 +1287,7 @@ Lists all confirmed token contracts deployed across all users.
 
 ---
 
-### 7.6 `GET /api/v2/admin/pools`
+### 7.7 `GET /api/v2/admin/pools`
 
 Lists all confirmed SwapPool contracts deployed across all users.
 
@@ -1244,7 +1305,7 @@ Lists all confirmed SwapPool contracts deployed across all users.
 
 ---
 
-### 7.7 `GET /api/v2/admin/deployments`
+### 7.8 `GET /api/v2/admin/deployments`
 
 Lists all deployment history entries across all users.
 
@@ -1262,7 +1323,7 @@ Lists all deployment history entries across all users.
 
 ---
 
-### 7.8 `GET /api/v2/admin/dashboard/stats`
+### 7.9 `GET /api/v2/admin/dashboard/stats`
 
 Dashboard aggregates. Mounted on the `/admin/dashboard` group, not mixed with user/token mutations.
 

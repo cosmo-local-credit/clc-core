@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -53,6 +54,29 @@ func (a *API) adminListUsersHandler(c *echo.Context) error {
 	}, pagination, "users", "Users list", func(u store.User) uint64 { return u.ID }, catalogListHooks{})
 }
 
+// adminUserAddress reads the checksummed account address from the path.
+//
+// Read with c.Param rather than bound into an EthAddressParam, because binding
+// consumes the request body: echo's binder reads it while looking for fields to
+// fill, so a handler that binds the path parameter and then binds a body gets an
+// empty second read. That is what made PUT /admin/users/:address/limits answer
+// 400 for every well-formed request, including one carrying the documented
+// payload. Handlers here take the address this way and bind at most once.
+//
+// It reports handled = true when it has already written the error response,
+// matching bindCatalogAddressPagination's contract.
+func adminUserAddress(c *echo.Context) (address string, handled bool, err error) {
+	raw := c.Param("address")
+	if !common.IsHexAddress(raw) {
+		return "", true, c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "invalid Ethereum address",
+		})
+	}
+	return common.HexToAddress(raw).Hex(), false, nil
+}
+
 func (a *API) adminApproveUserHandler(c *echo.Context) error {
 	return a.adminSetUserStatus(c, "APPROVED")
 }
@@ -62,19 +86,11 @@ func (a *API) adminRejectUserHandler(c *echo.Context) error {
 }
 
 func (a *API) adminSetUserStatus(c *echo.Context, status string) error {
-	var param apiresp.EthAddressParam
-	if err := c.Bind(&param); err != nil {
-		return handleBindError(c, err)
-	}
-	if !common.IsHexAddress(param.Address) {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "invalid Ethereum address",
-		})
+	address, handled, err := adminUserAddress(c)
+	if handled || err != nil {
+		return err
 	}
 
-	address := common.HexToAddress(param.Address).Hex()
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -102,16 +118,9 @@ func (a *API) adminSetUserStatus(c *echo.Context, status string) error {
 }
 
 func (a *API) adminUpdateUserLimitsHandler(c *echo.Context) error {
-	var param apiresp.EthAddressParam
-	if err := c.Bind(&param); err != nil {
-		return handleBindError(c, err)
-	}
-	if !common.IsHexAddress(param.Address) {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "invalid Ethereum address",
-		})
+	address, handled, err := adminUserAddress(c)
+	if handled || err != nil {
+		return err
 	}
 
 	var req apiresp.UpdateUserLimitsRequest
@@ -122,7 +131,6 @@ func (a *API) adminUpdateUserLimitsHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
-	address := common.HexToAddress(param.Address).Hex()
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -143,6 +151,88 @@ func (a *API) adminUpdateUserLimitsHandler(c *echo.Context) error {
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "User limits updated",
+		Result: map[string]any{
+			"user": user,
+		},
+	})
+}
+
+// adminUpdateUserProfileHandler lets a superadmin correct another account's
+// identity and contact details.
+//
+// The self-service handler at PUT /auth/profile edits the signed-in account and
+// nothing else — it takes its address from the JWT claims — so an operator fixing
+// a mistyped phone number on someone else's account has had no endpoint at all.
+// This is that endpoint, and it is deliberately the same request shape and the
+// same store call, so one set of validation rules and one geo both-or-neither
+// rule govern a profile however it was edited.
+//
+// It carries no status, role or limits: those have their own endpoints, and an
+// operator correcting a name must not be able to grant a role by editing a form
+// field.
+func (a *API) adminUpdateUserProfileHandler(c *echo.Context) error {
+	address, handled, err := adminUserAddress(c)
+	if handled || err != nil {
+		return err
+	}
+
+	var req apiresp.UpdateProfileRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	// A label without coordinates, or coordinates without a label, describes a
+	// place nobody can point at. users_geo_valid backstops this at the database,
+	// but a 400 names the field the caller got wrong.
+	if (req.GeoLat == nil) != (req.GeoLng == nil) {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "Validation failed: geoLat and geoLng must be provided together",
+		})
+	}
+
+	ctx := c.Request().Context()
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	user, err := a.store.UpdateUserProfile(
+		ctx, tx, address,
+		req.Name, req.Email, req.Phone, req.Country,
+		req.LocationName, req.GeoLat, req.GeoLng,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeNotFound,
+				Description: "user not found",
+			})
+		}
+		// email and phone are unique across accounts, so claiming one that
+		// belongs to another account is a caller-fixable 409.
+		if conflict, ok := userIdentityConflict(err); ok {
+			return c.JSON(http.StatusConflict, conflict)
+		}
+		return handlePostgresError(c, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// The whole row, matching every other admin user mutation, so a console can
+	// write the response straight into its cache.
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "User profile updated",
 		Result: map[string]any{
 			"user": user,
 		},

@@ -233,6 +233,7 @@ func New(o APIOpts) *API {
 	adminGroup.PUT("/users/:address/approve", a.adminApproveUserHandler)
 	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
 	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)
+	adminGroup.PUT("/users/:address/profile", a.adminUpdateUserProfileHandler)
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
