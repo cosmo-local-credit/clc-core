@@ -227,6 +227,7 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/pools/:address", a.userPoolByAddressHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
 	userGroup.GET("/me/shares/eligibility/:address", a.userShareEligibilityHandler)
+	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
 	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)
 
 	// Superadmin-only routes
@@ -260,7 +261,7 @@ func New(o APIOpts) *API {
 	relayerGroup.GET("/calibur-nonce/:address/:keyHash", a.caliburNonceHandler)
 	relayerGroup.GET("/track/:trackingId", a.trackRelayerOTXHandler)
 	relayerGroup.POST("/delegate", a.delegateHandler)
-	relayerGroup.POST("/relay", a.relayHandler, a.optionalUserAuthMiddleware())
+	relayerGroup.POST("/relay", a.relayHandler)
 	relayerGroup.POST("/relay/preview", a.relayPreviewHandler)
 	relayerGroup.GET("/webauthn/challenge", a.webAuthnChallengeHandler)
 	relayerGroup.POST("/webauthn/recover", a.webAuthnRecoverHandler)

@@ -1,8 +1,9 @@
 package api
 
 import (
-	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"strings"
@@ -11,20 +12,19 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
+	"github.com/lmittmann/w3/module/eth"
 )
 
 var (
-	erc20TransferSelector = []byte{0xa9, 0x05, 0x9c, 0xbb}
+	erc20TransferTopic                 = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	errSendShareTransactionUnavailable = errors.New("send transaction is not confirmed")
 )
 
-func validateSendShare(share *apiresp.SendShareRequest) error {
-	if share == nil {
-		return nil
-	}
-
+func validateSendShare(share *apiresp.CreateSendShareRequest) error {
 	share.Note = strings.TrimSpace(share.Note)
 	if share.Permission < 0 || share.Permission&^store.SharePermissionAll != 0 {
 		return errors.New("share contains an unknown permission")
@@ -39,32 +39,83 @@ func validateSendShare(share *apiresp.SendShareRequest) error {
 	return nil
 }
 
-func sendShareRecipient(batch apiresp.CaliburSignedBatch) (common.Address, error) {
-	if len(batch.BatchedCall.Calls) != 1 {
-		return common.Address{}, errors.New("a shared send must contain exactly one transfer call")
+func confirmedSendRecipient(
+	chainTx *types.Transaction,
+	receipt *types.Receipt,
+	txHash common.Hash,
+	chainID int64,
+	owner common.Address,
+) (common.Address, error) {
+	if chainTx == nil || receipt == nil || receipt.BlockNumber == nil || receipt.Status != types.ReceiptStatusSuccessful {
+		return common.Address{}, errSendShareTransactionUnavailable
+	}
+	if chainTx.Hash() != txHash || receipt.TxHash != txHash {
+		return common.Address{}, errSendShareTransactionUnavailable
 	}
 
-	call := batch.BatchedCall.Calls[0]
-	value, ok := new(big.Int).SetString(call.Value, 10)
-	if !ok || value.Sign() != 0 {
-		return common.Address{}, errors.New("a shared send cannot transfer native value")
+	belongsToOwner := false
+	sender, err := types.Sender(types.LatestSignerForChainID(big.NewInt(chainID)), chainTx)
+	if err == nil && sender == owner {
+		belongsToOwner = true
+	}
+	if to := chainTx.To(); to != nil && *to == owner {
+		// EIP-7702 and other smart-account sends are submitted to the user's
+		// account by a relayer, so the outer signer is intentionally different.
+		belongsToOwner = true
+	}
+	if !belongsToOwner {
+		return common.Address{}, errSendShareTransactionUnavailable
 	}
 
-	data, err := hexutil.Decode(call.Data)
-	if err != nil || len(data) != 4+32+32 || !bytes.Equal(data[:4], erc20TransferSelector) {
-		return common.Address{}, errors.New("a shared send must be one ERC-20 transfer")
-	}
+	var (
+		recipient     common.Address
+		transferCount int
+	)
+	for _, eventLog := range receipt.Logs {
+		if eventLog == nil || eventLog.Removed || len(eventLog.Topics) != 3 ||
+			eventLog.Topics[0] != erc20TransferTopic || len(eventLog.Data) != 32 {
+			continue
+		}
+		if common.BytesToAddress(eventLog.Topics[1].Bytes()) != owner {
+			continue
+		}
+		if new(big.Int).SetBytes(eventLog.Data).Sign() <= 0 {
+			continue
+		}
 
-	recipient := common.BytesToAddress(data[16:36])
-	amount := new(big.Int).SetBytes(data[36:68])
-	if recipient == (common.Address{}) || amount.Sign() <= 0 {
-		return common.Address{}, errors.New("a shared send requires a recipient and positive amount")
+		recipient = common.BytesToAddress(eventLog.Topics[2].Bytes())
+		transferCount++
 	}
-
+	if transferCount != 1 || recipient == (common.Address{}) {
+		return common.Address{}, errSendShareTransactionUnavailable
+	}
 	return recipient, nil
 }
 
-func validateShareProfile(share apiresp.SendShareRequest, owner store.User) error {
+func (a *API) loadConfirmedSendRecipient(
+	ctx context.Context,
+	txHash common.Hash,
+	owner common.Address,
+) (common.Address, error) {
+	if a.chainProvider == nil || a.chainProvider.Client == nil {
+		return common.Address{}, errors.New("chain provider is unavailable")
+	}
+
+	var (
+		chainTx *types.Transaction
+		receipt *types.Receipt
+	)
+	if err := a.chainProvider.Client.CallCtx(ctx,
+		eth.Tx(txHash).Returns(&chainTx),
+		eth.TxReceipt(txHash).Returns(&receipt),
+	); err != nil {
+		return common.Address{}, fmt.Errorf("load confirmed send transaction: %w", err)
+	}
+
+	return confirmedSendRecipient(chainTx, receipt, txHash, a.chainID, owner)
+}
+
+func validateShareProfile(share apiresp.CreateSendShareRequest, owner store.User) error {
 	if share.Permission&store.SharePermissionEmail != 0 &&
 		(owner.Email == "" || strings.HasSuffix(strings.ToLower(owner.Email), "@clc.local")) {
 		return errors.New("email is not available in the sender profile")
@@ -79,6 +130,18 @@ func validateShareProfile(share apiresp.SendShareRequest, owner store.User) erro
 	return nil
 }
 
+func matchesExistingShare(
+	share store.UserShareDetails,
+	ownerUserID uint64,
+	authorizedUserID uint64,
+	req apiresp.CreateSendShareRequest,
+) bool {
+	return share.OwnerUserID == ownerUserID &&
+		share.AuthorizedUserID == authorizedUserID &&
+		share.SharePermission == req.Permission &&
+		share.ExtraNote == req.Note
+}
+
 func shareUnavailable(c *echo.Context, description string) error {
 	return c.JSON(http.StatusUnprocessableEntity, apiresp.ErrResponse{
 		Ok:          false,
@@ -89,13 +152,14 @@ func shareUnavailable(c *echo.Context, description string) error {
 
 func userShareResult(share store.UserShareDetails) map[string]any {
 	sharedBy := map[string]any{"name": share.OwnerName}
-	if share.Email != "" {
+	if share.SharePermission&store.SharePermissionEmail != 0 && share.Email != "" {
 		sharedBy["email"] = share.Email
 	}
-	if share.Phone != "" {
+	if share.SharePermission&store.SharePermissionPhone != 0 && share.Phone != "" {
 		sharedBy["phone"] = share.Phone
 	}
-	if share.LocationName != "" && share.GeoLat != nil && share.GeoLng != nil {
+	if share.SharePermission&store.SharePermissionLocation != 0 &&
+		share.LocationName != "" && share.GeoLat != nil && share.GeoLng != nil {
 		sharedBy["location"] = map[string]any{
 			"locationName": share.LocationName,
 			"lat":          *share.GeoLat,
@@ -103,15 +167,143 @@ func userShareResult(share store.UserShareDetails) map[string]any {
 		}
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"id":         share.ID,
-		"trackingId": share.TrackingID,
 		"txHash":     share.TxHash,
 		"permission": share.SharePermission,
 		"note":       share.ExtraNote,
 		"sharedBy":   sharedBy,
 		"createdAt":  share.CreatedAt,
 	}
+	return result
+}
+
+func (a *API) userShareCreateHandler(c *echo.Context) error {
+	var req apiresp.CreateSendShareRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+	if err := validateSendShare(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: err.Error(),
+		})
+	}
+
+	callerUserID, callerAddress, _ := getUserClaims(c)
+	txHash := common.HexToHash(req.TxHash)
+	recipientAddress, err := a.loadConfirmedSendRecipient(
+		c.Request().Context(),
+		txHash,
+		common.HexToAddress(callerAddress),
+	)
+	if err != nil {
+		if errors.Is(err, errSendShareTransactionUnavailable) {
+			return shareUnavailable(c, "transaction is not a confirmed token send from this user")
+		}
+		return err
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	owner, err := a.store.GetUserByID(ctx, tx, callerUserID)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if !strings.EqualFold(owner.EthereumAddress, callerAddress) {
+		return handleForbiddenError(c, "authenticated user does not own the confirmed transaction")
+	}
+
+	recipient, err := a.store.GetUserByAddress(ctx, tx, recipientAddress.Hex())
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return shareUnavailable(c, "recipient is not available for private sharing")
+		}
+		return handlePostgresError(c, err)
+	}
+	existing, err := a.store.GetUserShareByTxHash(ctx, tx, txHash.Hex(), owner.ID)
+	if err == nil {
+		if !matchesExistingShare(existing, owner.ID, recipient.ID, req) {
+			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeConflict,
+				Description: "a different private attachment already exists for this transaction",
+			})
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return handlePostgresError(c, err)
+		}
+		return c.JSON(http.StatusOK, apiresp.OKResponse{
+			Ok:          true,
+			Description: "Private send attachment saved",
+			Result: map[string]any{
+				"shareId": existing.ID,
+				"txHash":  txHash.Hex(),
+			},
+		})
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return handlePostgresError(c, err)
+	}
+	if err := validateShareProfile(req, owner); err != nil {
+		return shareUnavailable(c, err.Error())
+	}
+	if recipient.Status != "APPROVED" {
+		return shareUnavailable(c, "recipient is not available for private sharing")
+	}
+	if recipient.ID == owner.ID {
+		return shareUnavailable(c, "private attachments are not supported for self-sends")
+	}
+
+	shareID, err := a.store.InsertUserShare(ctx, tx, store.UserShare{
+		TxHash:           txHash.Hex(),
+		OwnerUserID:      owner.ID,
+		AuthorizedUserID: recipient.ID,
+		SharePermission:  req.Permission,
+		ExtraNote:        req.Note,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeConflict,
+				Description: "a different private attachment already exists for this transaction",
+			})
+		}
+		return handlePostgresError(c, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	if a.logg != nil {
+		a.logg.Info("private send attachment saved",
+			"share_id", shareID,
+			"tx_hash", txHash.Hex(),
+			"owner_user_id", owner.ID,
+			"authorized_user_id", recipient.ID,
+			"permission", req.Permission,
+			"status", "CONFIRMED",
+		)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Private send attachment saved",
+		Result: map[string]any{
+			"shareId": shareID,
+			"txHash":  txHash.Hex(),
+		},
+	})
 }
 
 func (a *API) userShareByTxHashHandler(c *echo.Context) error {

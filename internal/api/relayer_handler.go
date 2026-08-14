@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -181,8 +180,8 @@ func (a *API) delegateHandler(c *echo.Context) error {
 	})
 }
 
-// relayHandler queues a relay and, for an authenticated share-bearing send,
-// persists its private attachment in the same database transaction.
+// relayHandler queues a relay job. Private send attachments are created only
+// after confirmation through the authenticated user-share endpoint.
 func (a *API) relayHandler(c *echo.Context) error {
 	req := apiresp.RelayRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -191,39 +190,6 @@ func (a *API) relayHandler(c *echo.Context) error {
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
 	}
-	if err := validateSendShare(req.Share); err != nil {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: err.Error(),
-		})
-	}
-
-	var (
-		callerUserID     uint64
-		recipientAddress common.Address
-	)
-	if req.Share != nil {
-		var callerAddress string
-		callerUserID, callerAddress, _ = getUserClaims(c)
-		if callerUserID == 0 {
-			return handleJWTAuthError(c, "user authentication is required to attach a share")
-		}
-		if !strings.EqualFold(callerAddress, req.UserAddress) {
-			return handleForbiddenError(c, "authenticated user does not own the relay address")
-		}
-
-		var err error
-		recipientAddress, err = sendShareRecipient(req.SignedBatch)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeValidationFailed,
-				Description: err.Error(),
-			})
-		}
-	}
-
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -233,49 +199,6 @@ func (a *API) relayHandler(c *echo.Context) error {
 	defer tx.Rollback(ctx)
 
 	trackingID := uuid.NewString()
-	var (
-		shareID          uint64
-		authorizedUserID uint64
-	)
-
-	if req.Share != nil {
-		owner, err := a.store.GetUserByID(ctx, tx, callerUserID)
-		if err != nil {
-			return handlePostgresError(c, err)
-		}
-		if !strings.EqualFold(owner.EthereumAddress, req.UserAddress) {
-			return handleForbiddenError(c, "authenticated user does not own the relay address")
-		}
-		if err := validateShareProfile(*req.Share, owner); err != nil {
-			return shareUnavailable(c, err.Error())
-		}
-
-		recipient, err := a.store.GetUserByAddress(ctx, tx, recipientAddress.Hex())
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return shareUnavailable(c, "recipient is not available for private sharing")
-			}
-			return handlePostgresError(c, err)
-		}
-		if recipient.Status != "APPROVED" {
-			return shareUnavailable(c, "recipient is not available for private sharing")
-		}
-		if recipient.ID == owner.ID {
-			return shareUnavailable(c, "private attachments are not supported for self-sends")
-		}
-		authorizedUserID = recipient.ID
-
-		shareID, err = a.store.InsertUserShare(ctx, tx, store.UserShare{
-			TrackingID:       trackingID,
-			OwnerUserID:      owner.ID,
-			AuthorizedUserID: recipient.ID,
-			SharePermission:  req.Share.Permission,
-			ExtraNote:        req.Share.Note,
-		})
-		if err != nil {
-			return handlePostgresError(c, err)
-		}
-	}
 
 	if _, err := a.queueClient.InsertTx(ctx, tx, worker.RelayArgs{
 		TrackingID:    trackingID,
@@ -295,25 +218,12 @@ func (a *API) relayHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
-	result := map[string]any{"trackingId": trackingID}
-	if shareID != 0 {
-		result["shareId"] = shareID
-		if a.logg != nil {
-			a.logg.Info("private send attachment queued",
-				"share_id", shareID,
-				"tracking_id", trackingID,
-				"owner_user_id", callerUserID,
-				"authorized_user_id", authorizedUserID,
-				"permission", req.Share.Permission,
-				"status", "QUEUED",
-			)
-		}
-	}
-
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "Relay request accepted",
-		Result:      result,
+		Result: map[string]any{
+			"trackingId": trackingID,
+		},
 	})
 }
 

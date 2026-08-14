@@ -185,7 +185,8 @@ type (
 		Deadline    string             `json:"deadline"    validate:"required,numeric"`
 	}
 
-	SendShareRequest struct {
+	CreateSendShareRequest struct {
+		TxHash     string `param:"txHash" validate:"required,len=66,startswith=0x,hexadecimal"`
 		Permission int    `json:"permission" validate:"gte=0,lte=7"`
 		Note       string `json:"note,omitempty" validate:"omitempty,max=500"`
 	}
@@ -198,10 +199,9 @@ type (
 		Authorization *EIP7702Authorization `json:"authorization,omitempty" validate:"omitempty"`
 		// Registration-time fields (passed alongside the first secp256k1-signed
 		// relay so the backend can persist the WebAuthn credential mapping).
-		CredentialID string            `json:"credentialId,omitempty" validate:"omitempty"`
-		PublicKeyX   string            `json:"publicKeyX,omitempty"   validate:"omitempty,numeric"`
-		PublicKeyY   string            `json:"publicKeyY,omitempty"   validate:"omitempty,numeric"`
-		Share        *SendShareRequest `json:"share,omitempty" validate:"omitempty"`
+		CredentialID string `json:"credentialId,omitempty" validate:"omitempty"`
+		PublicKeyX   string `json:"publicKeyX,omitempty"   validate:"omitempty,numeric"`
+		PublicKeyY   string `json:"publicKeyY,omitempty"   validate:"omitempty,numeric"`
 	}
 
 	// RelayPreviewRequest asks the relayer to resolve the Calibur nonce and

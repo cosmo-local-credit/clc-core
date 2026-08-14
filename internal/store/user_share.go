@@ -18,7 +18,7 @@ const (
 type (
 	UserShare struct {
 		ID               uint64    `db:"id"                 json:"id"`
-		TrackingID       string    `db:"tracking_id"        json:"trackingId"`
+		TxHash           string    `db:"tx_hash"            json:"txHash"`
 		OwnerUserID      uint64    `db:"owner_user_id"      json:"ownerUserId"`
 		AuthorizedUserID uint64    `db:"authorized_user_id" json:"authorizedUserId"`
 		SharePermission  int       `db:"share_permission"   json:"permission"`
@@ -29,7 +29,6 @@ type (
 
 	UserShareDetails struct {
 		ID               uint64    `db:"id"                 json:"id"`
-		TrackingID       string    `db:"tracking_id"        json:"trackingId"`
 		OwnerUserID      uint64    `db:"owner_user_id"      json:"ownerUserId"`
 		AuthorizedUserID uint64    `db:"authorized_user_id" json:"authorizedUserId"`
 		SharePermission  int       `db:"share_permission"   json:"permission"`
@@ -51,7 +50,7 @@ func (pg *Pg) InsertUserShare(ctx context.Context, tx pgx.Tx, share UserShare) (
 	if err := tx.QueryRow(
 		ctx,
 		pg.queries.InsertUserShare,
-		share.TrackingID,
+		share.TxHash,
 		share.OwnerUserID,
 		share.AuthorizedUserID,
 		share.SharePermission,

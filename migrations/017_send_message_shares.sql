@@ -1,9 +1,10 @@
--- Persist one private attachment per relayed send. User location columns are
--- supplied by 014_user_geo.sql.
+-- Persist one private attachment per confirmed token send. Notes need no PII
+-- permission; email, phone, and location are selected by permission bits.
+-- User location columns are supplied by 014_user_geo.sql.
 
 CREATE TABLE IF NOT EXISTS user_shares (
     id                 BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    tracking_id        UUID NOT NULL UNIQUE,
+    tx_hash            TEXT NOT NULL,
     owner_user_id      INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     authorized_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     share_permission   INT NOT NULL DEFAULT 0,
@@ -19,9 +20,14 @@ CREATE TABLE IF NOT EXISTS user_shares (
     ),
     CONSTRAINT user_shares_note_length CHECK (
         extra_note IS NULL OR CHAR_LENGTH(extra_note) <= 500
+    ),
+    CONSTRAINT user_shares_tx_hash_format CHECK (
+        tx_hash ~ '^0x[0-9a-fA-F]{64}$'
     )
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS user_shares_tx_hash_lower_unique
+    ON user_shares (LOWER(tx_hash));
 CREATE INDEX IF NOT EXISTS user_shares_owner_user_id_idx
     ON user_shares(owner_user_id);
 CREATE INDEX IF NOT EXISTS user_shares_authorized_user_id_idx

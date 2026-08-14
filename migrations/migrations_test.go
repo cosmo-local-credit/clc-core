@@ -106,12 +106,15 @@ func TestSendMessageSharesMigration(t *testing.T) {
 
 	s := string(content)
 	assert.NotContains(t, s, "ALTER TABLE users")
+	assert.NotContains(t, s, "tracking_id")
 	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS user_shares")
-	assert.Contains(t, s, "tracking_id        UUID NOT NULL UNIQUE")
+	assert.Contains(t, s, "tx_hash            TEXT NOT NULL")
 	assert.Contains(t, s, "owner_user_id      INT NOT NULL REFERENCES users(id)")
 	assert.Contains(t, s, "authorized_user_id INT NOT NULL REFERENCES users(id)")
 	assert.Contains(t, s, "(share_permission & 7) = share_permission")
+	assert.Contains(t, s, "share_permission <> 0 OR NULLIF(BTRIM(extra_note), '') IS NOT NULL")
 	assert.Contains(t, s, "CHAR_LENGTH(extra_note) <= 500")
+	assert.Contains(t, s, "user_shares_tx_hash_lower_unique")
 	assert.Contains(t, s, "update_user_shares_timestamp")
 }
 

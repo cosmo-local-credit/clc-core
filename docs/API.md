@@ -196,7 +196,7 @@ All responses are JSON objects. HTTP status codes are only used for top-level ca
 | `E16` | Address conflict |
 | `E17` | Email conflict |
 | `E18` | Phone conflict |
-| `E19` | Private share is unavailable for this send |
+| `E19` | Private share or confirmed send is unavailable |
 
 ---
 
@@ -1121,18 +1121,55 @@ user and can therefore receive a private send attachment.
 
 This endpoint only exposes a boolean and never returns the recipient's profile.
 
-### 6.7 `GET /api/v2/users/me/shares/:txHash`
+### 6.7 `POST /api/v2/users/me/shares/:txHash`
 
-Returns the private attachment for a confirmed, successful relayed ERC-20
-transfer. Only its sender and designated recipient may read it. Missing,
-unconfirmed, failed, and unauthorized records all return `404`.
+Creates a private attachment after the token send is confirmed. This endpoint
+works for transactions paid by the user's wallet and for transactions submitted
+through the Cosmo relayer.
+
+```json
+{
+  "permission": 5,
+  "note": "Thanks for the supplies"
+}
+```
+
+```json
+{
+  "ok": true,
+  "result": {
+    "shareId": 42,
+    "txHash": "0xabc..."
+  }
+}
+```
+
+The backend rechecks the receipt even if the client already waited for it. The
+receipt must be successful, belong to the authenticated wallet either as the
+outer signer or smart-account target, and contain exactly one positive ERC-20
+`Transfer` from that wallet. The event recipient must be a different, approved
+Cosmo user.
+
+`permission` is a bitmask: email is `1`, phone is `2`, and location (label plus
+coordinates) is `4`. Any authenticated sender whose transaction is verified may
+add a trimmed note with `permission: 0`; no profile PII is required in that
+case. PII is opt-in and only the sender chooses the bits. Repeating an identical
+request is idempotent and returns the same `shareId`; trying to replace an
+existing attachment for the transaction returns `409` with `E16`. An
+unconfirmed, failed, ambiguous, or unrelated transaction returns `422` with
+`E19`.
+
+### 6.8 `GET /api/v2/users/me/shares/:txHash`
+
+Returns the private attachment for a confirmed ERC-20 transfer. Only its sender
+and designated recipient may read it. Missing and unauthorized records both
+return `404`.
 
 ```json
 {
   "ok": true,
   "result": {
     "id": 42,
-    "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
     "txHash": "0xabc...",
     "permission": 5,
     "note": "Thanks for the supplies",
@@ -1150,9 +1187,10 @@ unconfirmed, failed, and unauthorized records all return `404`.
 }
 ```
 
-`permission` is a bitmask: email is `1`, phone is `2`, and location is `4`.
-Only selected fields are fetched from the sender's current profile and returned.
-The note and all contact/location fields remain off-chain.
+The note is always returned to an authorized participant. PII is fetched from
+the sender's current profile only when its permission bit is set; the SQL query
+and response serializer both enforce the bitset. The note and all
+contact/location fields remain off-chain.
 
 ---
 
