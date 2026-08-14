@@ -158,32 +158,6 @@ func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, e
 	return u, nil
 }
 
-func (pg *Pg) ListUsers(ctx context.Context, tx pgx.Tx) ([]User, error) {
-	var users []User
-
-	rows, err := tx.Query(ctx, pg.queries.ListUsers)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := pgxscan.ScanAll(&users, rows); err != nil {
-		return nil, err
-	}
-
-	return users, nil
-}
-
-func (pg *Pg) ListUsersByStatus(ctx context.Context, tx pgx.Tx, status string) ([]User, error) {
-	var users []User
-
-	rows, err := tx.Query(ctx, pg.queries.ListUsersByStatus, status)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := pgxscan.ScanAll(&users, rows); err != nil {
-		return nil, err
-	}
-
-	return users, nil
-}
+// Listing the directory lives in user_search.go: the endpoint that reads it now
+// pages and searches, and the whole-table statements this file used to hold had
+// no other caller.

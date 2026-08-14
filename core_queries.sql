@@ -474,17 +474,6 @@ SET name = $2, email = NULLIF($3, ''), phone = NULLIF($4, ''), country = $5,
 WHERE blockchain_address = $1
 RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
---name: list-users
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
-FROM users
-ORDER BY created_at DESC;
-
---name: list-users-by-status
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
-FROM users
-WHERE status = $1::user_status
-ORDER BY created_at DESC;
-
 -- User deployments
 --name: count-user-tokens
 SELECT COUNT(*) FROM user_deployments

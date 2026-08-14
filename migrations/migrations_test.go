@@ -50,6 +50,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "014_user_geo.sql")
 	assert.Contains(t, sqlFiles, "015_deploy_catalog_promotion.sql")
 	assert.Contains(t, sqlFiles, "016_deploy_terms.sql")
+	assert.Contains(t, sqlFiles, "017_admin_user_search_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -67,7 +68,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "013_voucher_relationship_filter_indexes.sql" ||
 				name == "014_user_geo.sql" ||
 				name == "015_deploy_catalog_promotion.sql" ||
-				name == "016_deploy_terms.sql",
+				name == "016_deploy_terms.sql" ||
+				name == "017_admin_user_search_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -105,6 +107,32 @@ func TestMarketVoucherIndexesMigration(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
 	// The primary key already drives the unbounded descending page scan.
 	assert.NotContains(t, s, "ON vouchers (id")
+}
+
+func TestAdminUserSearchIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("017_admin_user_search_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Trigram, not B-tree: a generic plan cannot range-scan a B-tree for
+	// `lower(col) LIKE lower($1) || '%'`.
+	assert.Contains(t, s, "CREATE EXTENSION IF NOT EXISTS pg_trgm")
+	// One index per column the directory search matches, and the expression must
+	// be the one the query emits or the planner cannot use it.
+	assert.Contains(t, s, "ON users USING gin (lower(name) gin_trgm_ops)")
+	assert.Contains(t, s, "ON users USING gin (lower(email) gin_trgm_ops)")
+	assert.Contains(t, s, "ON users USING gin (lower(phone) gin_trgm_ops)")
+	assert.Contains(t, s, "ON users USING gin (lower(blockchain_address) gin_trgm_ops)")
+	// Country and role are not searched, so indexing them would buy nothing.
+	assert.NotContains(t, s, "lower(country)")
+	assert.NotContains(t, s, "(role")
+	// Each statement ends at the operator class, so none of the four carries a
+	// partial predicate: an operator must be able to find a rejected account.
+	assert.Equal(t, 4, strings.Count(s, "gin_trgm_ops);"))
+	// Re-running the migration must be a no-op.
+	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	// Expression statistics do not exist until the index does.
+	assert.Contains(t, s, "ANALYZE users;")
 }
 
 func TestBaselineMigrationContainsLegacySchema(t *testing.T) {

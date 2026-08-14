@@ -58,8 +58,6 @@ type (
 		ApprovePendingUserByAddress   string `query:"approve-pending-user-by-address"`
 		UpdateUserLimits              string `query:"update-user-limits"`
 		UpdateUserProfile             string `query:"update-user-profile"`
-		ListUsers                     string `query:"list-users"`
-		ListUsersByStatus             string `query:"list-users-by-status"`
 		CountUserTokens               string `query:"count-user-tokens"`
 		CountUserPools                string `query:"count-user-pools"`
 		InsertUserDeployment          string `query:"insert-user-deployment"`

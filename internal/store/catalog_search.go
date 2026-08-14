@@ -185,13 +185,8 @@ func NewCatalogFilter(rawTerm string, rawTags []string, match TagMatch) (Catalog
 		VoucherMatch: TagMatchAny,
 	}
 
-	if runes := utf8.RuneCountInString(filter.Term); runes > 0 {
-		if runes < CatalogTermMinRunes {
-			return CatalogFilter{}, ErrCatalogTermTooShort
-		}
-		if runes > CatalogTermMaxRunes {
-			return CatalogFilter{}, ErrCatalogTermTooLong
-		}
+	if err := validateTermLength(filter.Term); err != nil {
+		return CatalogFilter{}, err
 	}
 	if len(filter.Tags) > CatalogMaxTags {
 		return CatalogFilter{}, ErrCatalogTooManyTags
@@ -267,18 +262,51 @@ func (f CatalogFilter) Active() bool {
 // prefixOnly reports whether the term is short enough that it matches as a
 // prefix rather than a substring.
 func (f CatalogFilter) prefixOnly() bool {
-	return utf8.RuneCountInString(f.Term) <= CatalogTermPrefixRunes
+	return termPrefixOnly(f.Term)
 }
 
-// likeTerm escapes the LIKE metacharacters in the normalized term so a caller
-// searching for a literal "%" or "_" gets that literal and cannot widen the
-// pattern. The escape character is backslash, declared explicitly by every
-// emitted LIKE so the intent is visible in the SQL; the backslash itself must
-// be doubled first or it would escape the character after it.
+// likeTerm escapes the LIKE metacharacters in this filter's term.
 func (f CatalogFilter) likeTerm() string {
-	term := strings.ReplaceAll(f.Term, `\`, `\\`)
-	term = strings.ReplaceAll(term, "%", `\%`)
-	return strings.ReplaceAll(term, "_", `\_`)
+	return escapeLikeTerm(f.Term)
+}
+
+// The three rules below are the term contract itself — how long a term may be,
+// when it matches as a prefix, and how its metacharacters are escaped — so they
+// are package-level rather than methods on CatalogFilter. The account directory
+// search (user_search.go) is a second caller with no tags and no facets, and a
+// second copy of an escaping rule is how one of them ends up wrong.
+
+// validateTermLength enforces the searchable range. An empty term is not a
+// length error: it means no search predicate, which every filtered list accepts.
+func validateTermLength(term string) error {
+	runes := utf8.RuneCountInString(term)
+	if runes == 0 {
+		return nil
+	}
+	if runes < CatalogTermMinRunes {
+		return ErrCatalogTermTooShort
+	}
+	if runes > CatalogTermMaxRunes {
+		return ErrCatalogTermTooLong
+	}
+	return nil
+}
+
+// termPrefixOnly reports whether a term is short enough to match as a prefix
+// rather than a substring.
+func termPrefixOnly(term string) bool {
+	return utf8.RuneCountInString(term) <= CatalogTermPrefixRunes
+}
+
+// escapeLikeTerm escapes the LIKE metacharacters in a normalized term so a
+// caller searching for a literal "%" or "_" gets that literal and cannot widen
+// the pattern. The escape character is backslash, declared explicitly by every
+// emitted LIKE so the intent is visible in the SQL; the backslash itself must be
+// doubled first or it would escape the character after it.
+func escapeLikeTerm(term string) string {
+	escaped := strings.ReplaceAll(term, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, "%", `\%`)
+	return strings.ReplaceAll(escaped, "_", `\_`)
 }
 
 // mergeTagFacets combines a request-independent vocabulary with the counts the

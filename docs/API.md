@@ -1063,32 +1063,58 @@ The baseline migration seeds an initial approved superadmin account. Additional 
 
 ### 7.1 `GET /api/v2/admin/users`
 
-Lists all registered users. Optionally filter by account status.
+Returns one page of the account directory, newest first, using cursor pagination that matches the catalog (`perPage`, `cursor`, `next`). Optionally narrowed by approval status and by a search term.
+
+> **Breaking change.** This endpoint previously ignored pagination and answered with every row. `users` is now at most `perPage` accounts and the response carries `first` / `last`. A client that pages or filters the directory locally must move both jobs to the server, or it will silently present a truncated directory as the whole one.
 
 **Query parameters:**
 
-| Parameter | Type | Required | Description |
+| Parameter | Type | Default | Description |
 |---|---|---|---|
-| `status` | `string` | No | Filter by status: `PENDING`, `APPROVED`, or `REJECTED` |
+| `q` | `string` | — | Search over name, email, phone and address. 2–64 characters; a shorter or longer term is rejected. Country and role are not searched |
+| `status` | `string` | — | Filter by status: `PENDING`, `APPROVED`, or `REJECTED` (case-insensitive) |
+| `perPage` | `int` | `100` | Results per page (max `100`) |
+| `next` | `bool` | `false` | When `true`, page toward newer records from `cursor` |
+| `cursor` | `int` | — | Use `last` to fetch older records or `first` with `next=true` to move back toward newer records |
+
+`q` matches as a prefix at two characters and as a substring above that, and the same rules and error messages apply as on the public catalog search.
 
 **Response `200`:**
 
-```/dev/null/admin-users-response.json#L1-14
+```/dev/null/admin-users-response.json#L1-20
 {
   "ok": true,
   "description": "Users list",
   "result": {
     "users": [
       {
-        "id":              "f47ac10b-...",
+        "id":              4210,
         "ethereumAddress": "0xd8dA6BF2...",
+        "name":            "Ada Lovelace",
+        "email":           "ada@example.com",
+        "phone":           "+254700000000",
+        "country":         "KE",
         "role":            "USER",
         "status":          "PENDING"
       }
-    ]
+    ],
+    "first": 4210,
+    "last": 4187
   }
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `users` | `array` | Current page of accounts |
+| `first` | `int` | Highest account ID in the current page |
+| `last` | `int` | Lowest account ID in the current page |
+
+**Errors:**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | `q` is shorter than 2 or longer than 64 characters, or `status` is not one of the three approval states |
 
 ---
 

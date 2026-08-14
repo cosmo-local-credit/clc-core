@@ -1,47 +1,56 @@
 package api
 
 import (
+	"context"
 	"net/http"
-	"strings"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
 
+// adminListUsersHandler serves the account directory: one cursor page of
+// accounts, newest first, narrowed by an optional approval `status` and an
+// optional `q` over name, email, phone and address.
+//
+// It used to answer with the whole table and no search, which left the console
+// downloading every account to filter in the browser. Both jobs are the
+// database's, and the whole-table answer had no upper bound: the response grew
+// with the directory, and a client that paged it locally would eventually page a
+// list it had only partly received. This is therefore a deliberately breaking
+// change to the response — `users` is now at most `perPage` rows and `first` /
+// `last` carry the cursor, exactly as every other list endpoint answers.
+//
+// Cursor and page-size handling come from the shared paginated list, which also
+// bounds the read with the catalog statement timeout. `q` reuses the catalog's
+// term rules — same minimum, maximum and error text as the public search — and
+// `status` is parsed against the enum before any transaction opens, so an
+// unknown value is a 400 here rather than a failed cast inside PostgreSQL.
 func (a *API) adminListUsersHandler(c *echo.Context) error {
-	status := strings.ToUpper(c.QueryParam("status"))
-	ctx := c.Request().Context()
+	req := apiresp.CursorPaginationRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	pagination := normalizePagination(req)
 
-	tx, err := a.store.Pool().Begin(ctx)
+	filter, err := store.NewUserFilter(c.QueryParam("q"), c.QueryParam("status"))
 	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	var result any
-	var queryErr error
-
-	if status != "" {
-		result, queryErr = a.store.ListUsersByStatus(ctx, tx, status)
-	} else {
-		result, queryErr = a.store.ListUsers(ctx, tx)
-	}
-	if queryErr != nil {
-		return handlePostgresError(c, queryErr)
+		return respondCatalogSearchError(c, err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-
-	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok:          true,
-		Description: "Users list",
-		Result: map[string]any{
-			"users": result,
+	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.User]{
+		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.User, error) {
+			return a.store.ListUsersFiltered(ctx, tx, filter, store.CatalogFirstPage, 0, limit)
 		},
-	})
+		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.User, error) {
+			return a.store.ListUsersFiltered(ctx, tx, filter, store.CatalogNextPage, cursor, limit)
+		},
+		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.User, error) {
+			return a.store.ListUsersFiltered(ctx, tx, filter, store.CatalogPrevPage, cursor, limit)
+		},
+	}, pagination, "users", "Users list", func(u store.User) uint64 { return u.ID }, catalogListHooks{})
 }
 
 func (a *API) adminApproveUserHandler(c *echo.Context) error {
