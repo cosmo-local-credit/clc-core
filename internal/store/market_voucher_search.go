@@ -97,6 +97,7 @@ func composeMarketVoucherPage(
 				"v.active",
 				"v.geo_lat IS NOT NULL",
 				boundsPredicate(args, bounds),
+				ownerPredicate(args, "v.owner_address", filter),
 				voucherTagPredicate(args, filter),
 				cursorPredicate(args, "v.id", page, cursor),
 			) +
@@ -114,6 +115,7 @@ func composeMarketVoucherPage(
 			"v.active",
 			"v.geo_lat IS NOT NULL",
 			boundsPredicate(args, bounds),
+			ownerPredicate(args, "v.owner_address", filter),
 			searchPredicate(args, filter, "v"),
 			voucherTagPredicate(args, filter),
 		) +
@@ -154,6 +156,7 @@ func composeMarketVoucherTagCounts(bounds *MarketVoucherBounds, filter CatalogFi
 			"v.active",
 			"v.geo_lat IS NOT NULL",
 			boundsPredicate(args, bounds),
+			ownerPredicate(args, "v.owner_address", filter),
 			searchPredicate(args, filter, "v"),
 		) + `
 )

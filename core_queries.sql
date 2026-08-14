@@ -1488,3 +1488,17 @@ LEFT JOIN reports r ON r.bucket_epoch = b.bucket_epoch
 LEFT JOIN vouchers v ON v.bucket_epoch = b.bucket_epoch
 LEFT JOIN pools p ON p.bucket_epoch = b.bucket_epoch
 ORDER BY b.bucket_epoch;
+
+--name: account-relationship-counts
+-- Visibility matches the lists these figures sit beside: approved reports, and
+-- vouchers the public catalog can return.
+SELECT
+    (SELECT COUNT(*) FROM reports r
+        WHERE r.status = 'APPROVED' AND lower(r.author_address) = lower($1)) AS reports,
+    (SELECT COUNT(*) FROM vouchers v
+        WHERE v.active AND v.geo_lat IS NOT NULL
+            AND lower(v.owner_address) = lower($1)) AS vouchers,
+    (SELECT COUNT(DISTINCT pt.pool_id)
+        FROM pool_tokens pt
+        INNER JOIN vouchers v ON v.id = pt.voucher_id
+        WHERE pt.is_allowed AND lower(v.owner_address) = lower($1)) AS pool_memberships;

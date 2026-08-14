@@ -51,6 +51,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "015_deploy_catalog_promotion.sql")
 	assert.Contains(t, sqlFiles, "016_deploy_terms.sql")
 	assert.Contains(t, sqlFiles, "017_admin_user_search_indexes.sql")
+	assert.Contains(t, sqlFiles, "018_account_relationship_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -69,7 +70,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "014_user_geo.sql" ||
 				name == "015_deploy_catalog_promotion.sql" ||
 				name == "016_deploy_terms.sql" ||
-				name == "017_admin_user_search_indexes.sql",
+				name == "017_admin_user_search_indexes.sql" ||
+				name == "018_account_relationship_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -133,6 +135,20 @@ func TestAdminUserSearchIndexesMigration(t *testing.T) {
 	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
 	// Expression statistics do not exist until the index does.
 	assert.Contains(t, s, "ANALYZE users;")
+}
+
+func TestAccountRelationshipIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("018_account_relationship_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// The indexed expression must be the one the comparisons emit, or the planner
+	// cannot use it.
+	assert.Contains(t, s, "ON vouchers (lower(owner_address))")
+	assert.Contains(t, s, "ON reports (lower(author_address))")
+	assert.Equal(t, 2, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.Contains(t, s, "ANALYZE vouchers;")
+	assert.Contains(t, s, "ANALYZE reports;")
 }
 
 func TestBaselineMigrationContainsLegacySchema(t *testing.T) {

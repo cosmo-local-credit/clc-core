@@ -234,6 +234,8 @@ func New(o APIOpts) *API {
 	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
 	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)
 	adminGroup.PUT("/users/:address/profile", a.adminUpdateUserProfileHandler)
+	adminGroup.GET("/users/:address/pools", a.adminAccountPoolsHandler)
+	adminGroup.GET("/users/:address/stats", a.adminAccountStatsHandler)
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
@@ -242,6 +244,7 @@ func New(o APIOpts) *API {
 	// ops totals do not share a route prefix that invites accidental reuse.
 	dashboardGroup := adminGroup.Group("/dashboard")
 	dashboardGroup.GET("/stats", a.adminDashboardStatsHandler)
+	dashboardGroup.GET("/transactions", a.adminDashboardTransactionsHandler)
 
 	// Federation data routes — only if federation store is available
 	if a.federationStore != nil {

@@ -29,6 +29,30 @@ import (
 // term rules — same minimum, maximum and error text as the public search — and
 // `status` is parsed against the enum before any transaction opens, so an
 // unknown value is a 400 here rather than a failed cast inside PostgreSQL.
+// adminPagedList wires a store list that pages by CatalogPage into the shared
+// cursor-paginated response, so a handler names its resource once instead of
+// repeating the three directions.
+func adminPagedList[T any](
+	c *echo.Context,
+	a *API,
+	pagination paginationParams,
+	resultKey, description string,
+	getID func(T) uint64,
+	list func(context.Context, pgx.Tx, store.CatalogPage, uint64, uint64) ([]T, error),
+) error {
+	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[T]{
+		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]T, error) {
+			return list(ctx, tx, store.CatalogFirstPage, 0, limit)
+		},
+		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]T, error) {
+			return list(ctx, tx, store.CatalogNextPage, cursor, limit)
+		},
+		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]T, error) {
+			return list(ctx, tx, store.CatalogPrevPage, cursor, limit)
+		},
+	}, pagination, resultKey, description, getID, catalogListHooks{})
+}
+
 func (a *API) adminListUsersHandler(c *echo.Context) error {
 	req := apiresp.CursorPaginationRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -41,17 +65,11 @@ func (a *API) adminListUsersHandler(c *echo.Context) error {
 		return respondCatalogSearchError(c, err)
 	}
 
-	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.User]{
-		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.User, error) {
-			return a.store.ListUsersFiltered(ctx, tx, filter, store.CatalogFirstPage, 0, limit)
-		},
-		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.User, error) {
-			return a.store.ListUsersFiltered(ctx, tx, filter, store.CatalogNextPage, cursor, limit)
-		},
-		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.User, error) {
-			return a.store.ListUsersFiltered(ctx, tx, filter, store.CatalogPrevPage, cursor, limit)
-		},
-	}, pagination, "users", "Users list", func(u store.User) uint64 { return u.ID }, catalogListHooks{})
+	return adminPagedList(c, a, pagination, "users", "Users list",
+		func(u store.User) uint64 { return u.ID },
+		func(ctx context.Context, tx pgx.Tx, page store.CatalogPage, cursor, limit uint64) ([]store.User, error) {
+			return a.store.ListUsersFiltered(ctx, tx, filter, page, cursor, limit)
+		})
 }
 
 // adminUserAddress reads the checksummed account address from the path.
@@ -236,6 +254,87 @@ func (a *API) adminUpdateUserProfileHandler(c *echo.Context) error {
 		Result: map[string]any{
 			"user": user,
 		},
+	})
+}
+
+// adminAccountPoolsHandler lists the pools an account belongs to.
+//
+// Membership is derived: nothing records a user joining a pool, but the catalog
+// records which vouchers a pool allows, so an account belongs to the pools that
+// allow a voucher it owns.
+func (a *API) adminAccountPoolsHandler(c *echo.Context) error {
+	address, handled, err := adminUserAddress(c)
+	if handled || err != nil {
+		return err
+	}
+
+	req := apiresp.CursorPaginationRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	pagination := normalizePagination(req)
+
+	return adminPagedList(c, a, pagination, "pools", "Account pool memberships",
+		func(p store.Pool) uint64 { return p.ID },
+		func(ctx context.Context, tx pgx.Tx, page store.CatalogPage, cursor, limit uint64) ([]store.Pool, error) {
+			return a.store.ListAccountPools(ctx, tx, address, page, cursor, limit)
+		})
+}
+
+// adminAccountStatsHandler answers the account screen's figures.
+//
+// The chain totals come from the federation database and are null when it is not
+// configured. Null rather than zero: an operator must be able to tell "no
+// transactions" from "no answer", and a zero would read as the first.
+func (a *API) adminAccountStatsHandler(c *echo.Context) error {
+	address, handled, err := adminUserAddress(c)
+	if handled || err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	counts, err := a.store.AccountRelationshipCounts(ctx, tx, address)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	result := map[string]any{
+		"reports":         counts.Reports,
+		"vouchers":        counts.Vouchers,
+		"poolMemberships": counts.PoolMemberships,
+		"transactions":    nil,
+		"swaps":           nil,
+		"partners":        nil,
+	}
+
+	if a.federationStore != nil {
+		activity, actErr := a.federationStore.AccountActivityCounts(ctx, address)
+		if actErr != nil {
+			// The catalog half is already known and useful on its own, so a
+			// federation failure degrades the response rather than failing it.
+			a.logg.Error("admin account stats: federation counts", "address", address, "error", actErr)
+		} else {
+			result["transactions"] = activity.Transactions
+			result["swaps"] = activity.Swaps
+			result["partners"] = activity.Partners
+		}
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Account statistics",
+		Result:      result,
 	})
 }
 

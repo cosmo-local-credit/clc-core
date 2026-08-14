@@ -46,10 +46,12 @@
    - [PUT /api/v2/admin/users/:address/reject](#73-put-apiv2adminusersaddressreject)
    - [PUT /api/v2/admin/users/:address/limits](#74-put-apiv2adminusersaddresslimits)
    - [PUT /api/v2/admin/users/:address/profile](#75-put-apiv2adminusersaddressprofile)
-   - [GET /api/v2/admin/tokens](#76-get-apiv2admintokens)
-   - [GET /api/v2/admin/pools](#77-get-apiv2adminpools)
-   - [GET /api/v2/admin/deployments](#78-get-apiv2admindeployments)
-   - [GET /api/v2/admin/dashboard/stats](#79-get-apiv2admindashboardstats)
+   - [GET /api/v2/admin/users/:address/pools](#76-get-apiv2adminusersaddresspools)
+   - [GET /api/v2/admin/users/:address/stats](#77-get-apiv2adminusersaddressstats)
+   - [GET /api/v2/admin/tokens](#78-get-apiv2admintokens)
+   - [GET /api/v2/admin/pools](#79-get-apiv2adminpools)
+   - [GET /api/v2/admin/deployments](#710-get-apiv2admindeployments)
+   - [GET /api/v2/admin/dashboard/stats](#711-get-apiv2admindashboardstats)
 8. [SIWE Message Construction](#8-siwe-message-construction)
 9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
    - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
@@ -758,6 +760,7 @@ Returns **all confirmed** (on-chain) SwapPool contracts across all users — the
 | `tagMatch` | `any` \| `all` | `any` | Whether a pool must carry any or all selected tags |
 | `vouchers` | `string` or repeated | — | Comma-separated stable voucher references (`chainId:0xAddress`); at most `12` |
 | `voucherMatch` | `any` \| `all` | `any` | Whether a pool must contain any or all selected vouchers |
+| `author` | `string` | — | Only reports authored by this address. Compared case-insensitively; a malformed address is a `400` |
 | `facets` | `bool` | `false` | With `true` on the first page, include tag and voucher facet counts |
 
 Voucher membership uses allowed `pool_tokens` rows, matching the pool voucher
@@ -1269,7 +1272,55 @@ Omitted location fields preserve the stored values; they are not cleared.
 
 ---
 
-### 7.6 `GET /api/v2/admin/tokens`
+### 7.6 `GET /api/v2/admin/users/:address/pools`
+
+The pools an account belongs to, cursor paginated.
+
+Membership is **derived**, not stored: nothing records a user joining a pool, but the catalog records which vouchers a pool allows, so an account belongs to the pools that allow a voucher it owns. Pool ownership and deployment history are deliberately not part of this.
+
+**Query parameters:** `perPage`, `cursor`, `next`, as elsewhere.
+
+**Response `200`:** `{ "pools": [ … ], "first": 42, "last": 17 }` — pool rows in the same shape as [`GET /api/v2/pools`](#10-pool-offerings-get-apiv2poolsaddressofferings).
+
+---
+
+### 7.7 `GET /api/v2/admin/users/:address/stats`
+
+The figures behind one account.
+
+**Response `200`:**
+
+```/dev/null/admin-account-stats.json#L1-12
+{
+  "ok": true,
+  "description": "Account statistics",
+  "result": {
+    "reports":         3,
+    "vouchers":        2,
+    "poolMemberships": 1,
+    "transactions":    118,
+    "swaps":           4,
+    "partners":        9
+  }
+}
+```
+
+| Field | Source | Description |
+|---|---|---|
+| `reports` | catalog | Approved reports authored by the account |
+| `vouchers` | catalog | Vouchers the account owns that the public catalog can return (active, geolocated) |
+| `poolMemberships` | catalog | Distinct pools allowing a voucher the account owns |
+| `transactions` | federation | Successful transfers sent or received |
+| `swaps` | federation | Successful swaps the account initiated |
+| `partners` | federation | Distinct counterparties across successful transfers, excluding the account itself |
+
+The three catalog figures use the same visibility rules as the lists they sit beside, so a count and its list never disagree.
+
+**The three federation figures are `null` when the federation database is not configured or a read fails.** Null rather than zero, deliberately: a caller must be able to tell "none" from "no answer", and a zero reads as the first. The catalog half is still returned in that case.
+
+---
+
+### 7.8 `GET /api/v2/admin/tokens`
 
 Lists all confirmed token contracts deployed across all users.
 
@@ -1287,7 +1338,7 @@ Lists all confirmed token contracts deployed across all users.
 
 ---
 
-### 7.7 `GET /api/v2/admin/pools`
+### 7.9 `GET /api/v2/admin/pools`
 
 Lists all confirmed SwapPool contracts deployed across all users.
 
@@ -1305,7 +1356,7 @@ Lists all confirmed SwapPool contracts deployed across all users.
 
 ---
 
-### 7.8 `GET /api/v2/admin/deployments`
+### 7.10 `GET /api/v2/admin/deployments`
 
 Lists all deployment history entries across all users.
 
@@ -1323,7 +1374,7 @@ Lists all deployment history entries across all users.
 
 ---
 
-### 7.9 `GET /api/v2/admin/dashboard/stats`
+### 7.11 `GET /api/v2/admin/dashboard/stats`
 
 Dashboard aggregates. Mounted on the `/admin/dashboard` group, not mixed with user/token mutations.
 
@@ -1336,6 +1387,18 @@ Dashboard aggregates. Mounted on the `/admin/dashboard` group, not mixed with us
 | `until` | `string` | RFC3339 end, required when `range=custom` |
 
 `pools`, `vouchers`, and `accounts` are lifetime catalog stock. `reports` and `transactions` are counts inside the requested window. Two series feed the charts: catalog creations, and `chain_data_v2.tx` envelopes. `transactions` is `null` when federation is down.
+
+### 7.12 `GET /api/v2/admin/dashboard/transactions`
+
+Latest indexed envelopes from `chain_data_v2.tx`, classified from live event tables. Cursor pagination matches the catalog (`perPage`, `cursor`, `next`).
+
+| Parameter | Type | Description |
+|---|---|---|
+| `perPage` | `number` | Page size, default/max 100 |
+| `cursor` | `number` | Event or envelope id bound |
+| `next` | `boolean` | `true` pages forward (lower ids), `false` pages back |
+| `type` | `string` | `transfer`, `swap`, `mint`, `burn`, `deposit`, `faucet` |
+| `voucher` | `string` | Token or pool `0x` address (`contract_address`) |
 
 **Response `200`:**
 
@@ -1433,6 +1496,7 @@ GET /api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1
 | `cursor` | integer | – | A voucher `id` from a previous response's `first` / `last`. |
 | `next` | boolean | `false` | `true` pages forward (`id < cursor`); `false` with a cursor pages backward (`id > cursor`). |
 | `bbox` | string | – | Optional `minLng,minLat,maxLng,maxLat` viewport filter. |
+| `owner` | string | – | Only vouchers owned by this address. Compared case-insensitively; a malformed address is a `400`. |
 
 **Pagination** uses descending `id` keyset paging. Requests without a cursor
 return the newest IDs first. Responses always carry `first` and `last` as JSON

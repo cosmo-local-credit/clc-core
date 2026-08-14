@@ -68,6 +68,9 @@ type (
 		// never come directly from public input.
 		VoucherIDs   []uint64
 		VoucherMatch TagMatch
+		// Owner restricts the page to rows belonging to one address: a voucher's
+		// owner_address, a report's author_address. Empty means no restriction.
+		Owner string
 	}
 
 	// VoucherRef is the stable public identity of a voucher. Numeric database
@@ -256,7 +259,7 @@ func normalizeCatalogTags(raw []string) []string {
 // Active reports whether the filter narrows anything. When it does not, callers
 // use the existing static statements unchanged.
 func (f CatalogFilter) Active() bool {
-	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0
+	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || f.Owner != ""
 }
 
 // prefixOnly reports whether the term is short enough that it matches as a
@@ -554,6 +557,16 @@ func poolTagPredicate(args *sqlArgs, filter CatalogFilter) string {
             WHERE pt.pool_id = p.id
                 AND pt.tag_value = ANY(` + placeholder + `::TEXT[])
         )`
+}
+
+// ownerPredicate restricts a page to one owning address. Compared case-folded
+// because an address reaches the database from several sources — a checksummed
+// deploy, a lowercased URL — and migration 018 indexes the same expression.
+func ownerPredicate(args *sqlArgs, column string, filter CatalogFilter) string {
+	if filter.Owner == "" {
+		return ""
+	}
+	return "lower(" + column + ") = lower(" + args.bind(filter.Owner) + ")"
 }
 
 // cursorPredicate returns the keyset comparison for a page direction, over the

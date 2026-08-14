@@ -27,6 +27,32 @@ type (
 		T            time.Time `db:"t"            json:"t"`
 		Transactions int64     `db:"transactions" json:"transactions"`
 	}
+
+	DashboardTransaction struct {
+		ID      int64     `db:"id"      json:"id"`
+		TxID    int64     `db:"tx_id"   json:"txId"`
+		TxHash  string    `db:"tx_hash" json:"txHash"`
+		T       time.Time `db:"t"       json:"t"`
+		Success bool      `db:"success" json:"success"`
+		Type    string    `db:"kind"    json:"type"`
+		Voucher *string   `db:"voucher" json:"voucher"`
+		Amount  *string   `db:"amount"  json:"amount"`
+	}
+
+	dashboardTxEnvelope struct {
+		ID      int64     `db:"id"`
+		TxHash  string    `db:"tx_hash"`
+		Block   int64     `db:"block_number"`
+		T       time.Time `db:"t"`
+		Success bool      `db:"success"`
+	}
+
+	dashboardTxEvent struct {
+		TxID    int64   `db:"tx_id"`
+		Kind    string  `db:"kind"`
+		Voucher *string `db:"voucher"`
+		Amount  *string `db:"amount"`
+	}
 )
 
 func (pg *Pg) DashboardCatalogSnapshot(ctx context.Context, tx pgx.Tx, since, until time.Time) (DashboardCatalogSnapshot, error) {

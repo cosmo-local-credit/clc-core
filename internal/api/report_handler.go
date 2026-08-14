@@ -63,6 +63,9 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	if search.filter.Owner, err = addressFilterParam(c, "author"); err != nil {
+		return respondCatalogSearchError(c, err)
+	}
 
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)

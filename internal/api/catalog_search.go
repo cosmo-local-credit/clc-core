@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -171,6 +172,20 @@ func parseCatalogRelationshipSearch(c *echo.Context) (catalogSearchRequest, erro
 // respondCatalogSearchError maps a filter validation failure to 400. The
 // messages name the offending parameter and its rule but never echo the
 // caller's own value back.
+// addressFilterParam reads an optional address filter. Parsed per handler rather
+// than in parseCatalogSearch: only the endpoints whose composer applies it accept
+// one, so a caller cannot pass it somewhere it would be silently dropped.
+func addressFilterParam(c *echo.Context, name string) (string, error) {
+	raw := strings.TrimSpace(c.Request().URL.Query().Get(name))
+	if raw == "" {
+		return "", nil
+	}
+	if !common.IsHexAddress(raw) {
+		return "", fmt.Errorf("%s must be a valid hex address", name)
+	}
+	return raw, nil
+}
+
 func respondCatalogSearchError(c *echo.Context, err error) error {
 	if jErr := c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 		Ok:          false,
