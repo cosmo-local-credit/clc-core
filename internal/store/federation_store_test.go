@@ -21,17 +21,13 @@ func TestLoadFederationQueries(t *testing.T) {
 		t.Fatal("expected legacy user lookup query to target sarafu_network.accounts")
 	}
 	for name, query := range map[string]string{
-		"list-user-token-holdings":           queries.ListUserTokenHoldings,
-		"list-user-token-holdings-next":      queries.ListUserTokenHoldingsNext,
-		"list-user-token-holdings-prev":      queries.ListUserTokenHoldingsPrevious,
-		"list-user-transfer-history":         queries.ListUserTransferHistory,
-		"list-user-transfer-history-next":    queries.ListUserTransferHistoryNext,
-		"list-user-transfer-history-prev":    queries.ListUserTransferHistoryPrevious,
-		"dashboard-transaction-series":       queries.DashboardTransactionSeries,
-		"dashboard-transaction-page":         queries.DashboardTransactionPage,
-		"dashboard-transaction-page-prev":    queries.DashboardTransactionPagePrev,
-		"dashboard-transaction-events":       queries.DashboardTransactionEvents,
-		"dashboard-transactions-by-id-range": queries.DashboardTransactionsByIDRange,
+		"list-user-token-holdings":        queries.ListUserTokenHoldings,
+		"list-user-token-holdings-next":   queries.ListUserTokenHoldingsNext,
+		"list-user-token-holdings-prev":   queries.ListUserTokenHoldingsPrevious,
+		"list-user-transfer-history":      queries.ListUserTransferHistory,
+		"list-user-transfer-history-next": queries.ListUserTransferHistoryNext,
+		"list-user-transfer-history-prev": queries.ListUserTransferHistoryPrevious,
+		"dashboard-transaction-series":    queries.DashboardTransactionSeries,
 	} {
 		if query == "" {
 			t.Fatalf("expected %s query to be loaded", name)

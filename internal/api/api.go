@@ -244,7 +244,15 @@ func New(o APIOpts) *API {
 	// ops totals do not share a route prefix that invites accidental reuse.
 	dashboardGroup := adminGroup.Group("/dashboard")
 	dashboardGroup.GET("/stats", a.adminDashboardStatsHandler)
-	dashboardGroup.GET("/transactions", a.adminDashboardTransactionsHandler)
+
+	// Transaction pages. Three resources rather than one filtered list: the
+	// first two read the chain in the two shapes it comes in, and the third
+	// reads what this service signed, which is a different fact from what the
+	// chain did with it.
+	txGroup := adminGroup.Group("/transactions")
+	txGroup.GET("/vouchers", a.adminVoucherTransactionsHandler)
+	txGroup.GET("/pools", a.adminPoolTransactionsHandler)
+	txGroup.GET("/otx", a.adminOTXHandler)
 
 	// Federation data routes — only if federation store is available
 	if a.federationStore != nil {

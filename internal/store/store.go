@@ -45,6 +45,7 @@ type (
 		GetOTXByAccount(context.Context, pgx.Tx, string, uint64) ([]*OTX, error)
 		GetOTXByAccountNext(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
 		GetOTXByAccountPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
+		ListAdminOTX(context.Context, pgx.Tx, string, string, AdminTransactionSearch, CatalogPage, uint64, uint64) ([]AdminOTX, error)
 		PeekNonce(context.Context, pgx.Tx, string) (uint64, error)
 		CheckKeypair(context.Context, pgx.Tx, string) (bool, error)
 

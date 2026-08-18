@@ -35,11 +35,13 @@ type (
 		ListUserTokenHoldings(context.Context, string, uint64) ([]FederationTokenBalance, error)
 		ListUserTokenHoldingsNext(context.Context, string, uint64, uint64) ([]FederationTokenBalance, error)
 		ListUserTokenHoldingsPrevious(context.Context, string, uint64, uint64) ([]FederationTokenBalance, error)
+		AccountActivityCounts(context.Context, string) (AccountActivityCounts, error)
 		ListUserTransferHistory(context.Context, string, uint64) ([]FederationTransfer, error)
 		ListUserTransferHistoryNext(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
 		ListUserTransferHistoryPrevious(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
 		DashboardTransactionSeries(context.Context, time.Time, time.Time, int64) ([]DashboardTransactionPoint, error)
-		AccountActivityCounts(context.Context, string) (AccountActivityCounts, error)
+		ListAdminVoucherTransactions(context.Context, *uint64, uint64, bool, string, string, AdminTransactionSearch) ([]AdminVoucherTransaction, error)
+		ListAdminPoolTransactions(context.Context, *uint64, uint64, bool, string, string, AdminTransactionSearch) ([]AdminPoolTransaction, error)
 		Close()
 	}
 

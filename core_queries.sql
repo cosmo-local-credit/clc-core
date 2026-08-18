@@ -417,6 +417,50 @@ WHERE k.public_key = $1 AND otx.id < $2
 ORDER BY otx.id DESC
 LIMIT $3;
 
+-- The operator console's OTX page: every origin transaction the service signed,
+-- newest first, narrowed by an optional type and dispatch status. Unlike
+-- get-otx-by-account this is not scoped to one signer, and it omits raw_tx —
+-- a page of 100 raw transactions is a payload nothing on that screen reads.
+--
+-- The two filters are written as `$n = '' OR col = $n` so one statement serves
+-- the filtered and unfiltered reads. Both columns are indexed (migration 019);
+-- the ordering is the primary key, so an unfiltered page is a backward index
+-- scan.
+--name: list-otx
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE ($1 = '' OR otx.otx_type = $1) AND ($2 = '' OR d.status = $2)
+ORDER BY otx.id DESC
+LIMIT $3;
+
+--name: list-otx-next
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE ($1 = '' OR otx.otx_type = $1) AND ($2 = '' OR d.status = $2) AND otx.id < $3
+ORDER BY otx.id DESC
+LIMIT $4;
+
+-- Keyset window fetched ascending (the rows immediately above the cursor) then
+-- re-sorted descending in SQL, so the API never reorders rows in memory.
+--name: list-otx-prev
+SELECT * FROM (
+    SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.tx_hash,
+        otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+    FROM otx
+    INNER JOIN dispatch d ON otx.id = d.otx_id
+    INNER JOIN keystore k ON otx.signer_account = k.id
+    WHERE ($1 = '' OR otx.otx_type = $1) AND ($2 = '' OR d.status = $2) AND otx.id > $3
+    ORDER BY otx.id ASC
+    LIMIT $4
+) page
+ORDER BY page.id DESC;
+
 --name: peek-nonce
 SELECT next_nonce FROM noncestore
 INNER JOIN keystore ON keystore.id = noncestore.keystore_id

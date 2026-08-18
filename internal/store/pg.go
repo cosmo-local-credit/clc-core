@@ -47,6 +47,9 @@ type (
 		GetOTXByAccount              string `query:"get-otx-by-account"`
 		GetOTXByAccountNext          string `query:"get-otx-by-account-next"`
 		GetOTXByAccountPrev          string `query:"get-otx-by-account-prev"`
+		ListOTX                      string `query:"list-otx"`
+		ListOTXNext                  string `query:"list-otx-next"`
+		ListOTXPrev                  string `query:"list-otx-prev"`
 		PeekNonce                    string `query:"peek-nonce"`
 		CheckKeypair                 string `query:"check-keypair"`
 

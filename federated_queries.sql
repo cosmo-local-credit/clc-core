@@ -312,6 +312,14 @@ FROM buckets b
 LEFT JOIN counts c ON c.bucket_epoch = b.bucket_epoch
 ORDER BY b.bucket_epoch;
 
+-- The operator console's transaction pages are NOT here. Their SQL is assembled
+-- in internal/store/admin_transactions.go, one small query per event table, from
+-- literal table and column names held in that file. A named query per
+-- (table x direction x filter) combination would be eighteen near-identical
+-- statements for the voucher page alone; the arms differ only in their
+-- projection, so they are composed rather than copied. Only the keyset bounds
+-- and the contract filter are bound as parameters.
+
 --name: account-activity-counts
 -- Successful transactions only: a reverted transfer moved nothing, so counting it
 -- would overstate both the total and the partner list.

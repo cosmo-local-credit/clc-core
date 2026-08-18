@@ -52,6 +52,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "016_deploy_terms.sql")
 	assert.Contains(t, sqlFiles, "017_admin_user_search_indexes.sql")
 	assert.Contains(t, sqlFiles, "018_account_relationship_indexes.sql")
+	assert.Contains(t, sqlFiles, "019_admin_otx_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -71,7 +72,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "015_deploy_catalog_promotion.sql" ||
 				name == "016_deploy_terms.sql" ||
 				name == "017_admin_user_search_indexes.sql" ||
-				name == "018_account_relationship_indexes.sql",
+				name == "018_account_relationship_indexes.sql" ||
+				name == "019_admin_otx_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -149,6 +151,20 @@ func TestAccountRelationshipIndexesMigration(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
 	assert.Contains(t, s, "ANALYZE vouchers;")
 	assert.Contains(t, s, "ANALYZE reports;")
+}
+
+func TestAdminOTXIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("019_admin_otx_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "otx_type_id_idx")
+	assert.Contains(t, s, "dispatch_status_idx")
+	assert.Contains(t, s, "CREATE EXTENSION IF NOT EXISTS pg_trgm")
+	assert.Contains(t, s, "ON otx USING gin (lower(tracking_id::text) gin_trgm_ops)")
+	assert.Contains(t, s, "ON otx USING gin (lower(tx_hash) gin_trgm_ops)")
+	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.Contains(t, s, "ANALYZE otx;")
 }
 
 func TestBaselineMigrationContainsLegacySchema(t *testing.T) {
