@@ -31,6 +31,35 @@ func pendingSIWEEmail(address string) string {
 	return "pending+" + strings.TrimPrefix(strings.ToLower(address), "0x") + "@clc.local"
 }
 
+func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) (store.UserProfileUpdate, error) {
+	update := store.UserProfileUpdate{
+		Address:       address,
+		Name:          req.Name,
+		Email:         req.Email,
+		Phone:         req.Phone,
+		Country:       req.Country,
+		ClearLocation: req.ClearLocation,
+		GeoLat:        req.GeoLat,
+		GeoLng:        req.GeoLng,
+	}
+
+	if req.ClearLocation && (req.LocationName != nil || req.GeoLat != nil || req.GeoLng != nil) {
+		return update, errors.New("location fields and clearLocation cannot both be supplied")
+	}
+	if (req.GeoLat == nil) != (req.GeoLng == nil) {
+		return update, errors.New("geoLat and geoLng must be provided together")
+	}
+	if req.LocationName != nil {
+		locationName := strings.TrimSpace(*req.LocationName)
+		if locationName == "" {
+			return update, errors.New("locationName cannot be blank")
+		}
+		update.LocationName = &locationName
+	}
+
+	return update, nil
+}
+
 // siweVerifyHandler is a unified sign-in / sign-up endpoint.
 //
 // If the address is new it is auto-created as PENDING. A background worker may
@@ -197,15 +226,15 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
-	if (req.GeoLat == nil) != (req.GeoLng == nil) {
+	_, addr, _ := getUserClaims(c)
+	update, err := profileUpdateFromRequest(addr, req)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "Validation failed: geoLat and geoLng must be provided together",
+			Description: err.Error(),
 		})
 	}
-
-	_, addr, _ := getUserClaims(c)
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)
@@ -214,7 +243,7 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	user, err := a.store.UpdateUserProfile(ctx, tx, addr, req.Name, req.Email, req.Phone, req.Country, req.LocationName, req.GeoLat, req.GeoLng)
+	user, err := a.store.UpdateUserProfile(ctx, tx, update)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{

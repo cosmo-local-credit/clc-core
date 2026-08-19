@@ -60,6 +60,8 @@ type (
 		UpdateUserProfile             string `query:"update-user-profile"`
 		ListUsers                     string `query:"list-users"`
 		ListUsersByStatus             string `query:"list-users-by-status"`
+		InsertUserShare               string `query:"insert-user-share"`
+		GetUserShareByTxHash          string `query:"get-user-share-by-tx-hash"`
 		CountUserTokens               string `query:"count-user-tokens"`
 		CountUserPools                string `query:"count-user-pools"`
 		InsertUserDeployment          string `query:"insert-user-deployment"`

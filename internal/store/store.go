@@ -55,9 +55,11 @@ type (
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
-		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string, *string, *float64, *float64) (User, error)
+		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)
 		ListUsers(context.Context, pgx.Tx) ([]User, error)
 		ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
+		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
+		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
 		DashboardCatalogSnapshot(context.Context, pgx.Tx, time.Time, time.Time) (DashboardCatalogSnapshot, error)
 		DashboardCatalogSeries(context.Context, pgx.Tx, time.Time, time.Time, int64) ([]DashboardCatalogPoint, error)
 

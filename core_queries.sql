@@ -434,7 +434,8 @@ RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') 
 --name: get-user-by-address
 SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
-WHERE blockchain_address = $1;
+WHERE LOWER(blockchain_address) = LOWER($1)
+LIMIT 1;
 
 --name: get-user-by-id
 SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
@@ -465,12 +466,16 @@ WHERE blockchain_address = $1
 RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
--- location_name/geo_lat/geo_lng use COALESCE: a request that omits geo
--- (an older client, a partial edit) must not erase a previously captured
--- location. Pass the new value to overwrite, or NULL to leave it untouched.
+-- Omitted location fields preserve their stored values. clearLocation overrides
+-- them together so callers can explicitly remove a saved pin.
 UPDATE users
-SET name = $2, email = NULLIF($3, ''), phone = NULLIF($4, ''), country = $5,
-    location_name = COALESCE($6, location_name), geo_lat = COALESCE($7, geo_lat), geo_lng = COALESCE($8, geo_lng)
+SET name = $2,
+    email = NULLIF($3, ''),
+    phone = NULLIF($4, ''),
+    country = $5,
+    location_name = CASE WHEN $6 THEN NULL ELSE COALESCE($7, location_name) END,
+    geo_lat = CASE WHEN $6 THEN NULL ELSE COALESCE($8::DOUBLE PRECISION, geo_lat) END,
+    geo_lng = CASE WHEN $6 THEN NULL ELSE COALESCE($9::DOUBLE PRECISION, geo_lng) END
 WHERE blockchain_address = $1
 RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
 
@@ -484,6 +489,40 @@ SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS 
 FROM users
 WHERE status = $1::user_status
 ORDER BY created_at DESC;
+
+-- User shares
+--name: insert-user-share
+INSERT INTO user_shares (
+    tx_hash, owner_user_id, authorized_user_id, share_permission, extra_note
+) VALUES (LOWER($1), $2, $3, $4, NULLIF($5, ''))
+ON CONFLICT (LOWER(tx_hash)) DO UPDATE
+SET tx_hash = EXCLUDED.tx_hash
+WHERE user_shares.owner_user_id = EXCLUDED.owner_user_id
+  AND user_shares.authorized_user_id = EXCLUDED.authorized_user_id
+  AND user_shares.share_permission = EXCLUDED.share_permission
+  AND user_shares.extra_note IS NOT DISTINCT FROM EXCLUDED.extra_note
+RETURNING id;
+
+--name: get-user-share-by-tx-hash
+SELECT us.id,
+    us.owner_user_id,
+    us.authorized_user_id,
+    us.share_permission,
+    COALESCE(us.extra_note, '') AS extra_note,
+    us.created_at,
+    us.updated_at,
+    us.tx_hash,
+    owner.name AS owner_name,
+    CASE WHEN (us.share_permission & 1) = 1 THEN COALESCE(owner.email, '') ELSE '' END AS email,
+    CASE WHEN (us.share_permission & 2) = 2 THEN COALESCE(owner.phone, '') ELSE '' END AS phone,
+    CASE WHEN (us.share_permission & 4) = 4 THEN COALESCE(owner.location_name, '') ELSE '' END AS location_name,
+    CASE WHEN (us.share_permission & 4) = 4 THEN owner.geo_lat ELSE NULL END AS geo_lat,
+    CASE WHEN (us.share_permission & 4) = 4 THEN owner.geo_lng ELSE NULL END AS geo_lng
+FROM user_shares us
+INNER JOIN users owner ON owner.id = us.owner_user_id
+WHERE LOWER(us.tx_hash) = LOWER($1)
+  AND $2 IN (us.owner_user_id, us.authorized_user_id)
+LIMIT 1;
 
 -- User deployments
 --name: count-user-tokens

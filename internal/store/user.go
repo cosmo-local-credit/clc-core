@@ -26,6 +26,18 @@ type (
 		CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
 		UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
 	}
+
+	UserProfileUpdate struct {
+		Address       string
+		Name          string
+		Email         string
+		Phone         string
+		Country       string
+		ClearLocation bool
+		LocationName  *string
+		GeoLat        *float64
+		GeoLng        *float64
+	}
 )
 
 func (pg *Pg) InsertUser(ctx context.Context, tx pgx.Tx, u User) (User, error) {
@@ -143,10 +155,22 @@ func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, m
 	return u, nil
 }
 
-func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, address, name, email, phone, country string, locationName *string, geoLat, geoLng *float64) (User, error) {
+func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfileUpdate) (User, error) {
 	var u User
 
-	row, err := tx.Query(ctx, pg.queries.UpdateUserProfile, address, name, email, phone, country, locationName, geoLat, geoLng)
+	row, err := tx.Query(
+		ctx,
+		pg.queries.UpdateUserProfile,
+		update.Address,
+		update.Name,
+		update.Email,
+		update.Phone,
+		update.Country,
+		update.ClearLocation,
+		update.LocationName,
+		update.GeoLat,
+		update.GeoLng,
+	)
 	if err != nil {
 		return u, err
 	}

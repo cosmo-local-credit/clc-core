@@ -189,6 +189,14 @@ All responses are JSON objects. HTTP status codes are only used for top-level ca
 | `E09` | Request timeout |
 | `E10` | Forbidden (insufficient role or permissions) |
 | `E11` | Rate or quota limit exceeded |
+| `E12` | Relayer disabled |
+| `E13` | EIP-7702 authorization required |
+| `E14` | Relayer executor mismatch |
+| `E15` | WebAuthn verification failed |
+| `E16` | Address conflict |
+| `E17` | Email conflict |
+| `E18` | Phone conflict |
+| `E19` | Private share or confirmed send is unavailable |
 
 ---
 
@@ -410,6 +418,52 @@ Returns the active session address and chain ID. Designed for use by wallet SDKs
 **Response `204 No Content` — no active session.**
 
 No body is returned. Use this to redirect the user to a sign-in flow.
+
+---
+
+### 4.8 `GET /auth/profile`
+
+Returns the authenticated user's editable contact profile. A user JWT cookie is
+required. Location fields are nullable:
+
+```json
+{
+  "ok": true,
+  "result": {
+    "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    "name": "Alice",
+    "email": "alice@example.com",
+    "phone": "+254700000000",
+    "country": "KE",
+    "locationName": "Nairobi, Kenya",
+    "geoLat": -1.286389,
+    "geoLng": 36.817223,
+    "createdAt": "2026-08-04T12:00:00Z"
+  }
+}
+```
+
+### 4.9 `POST /auth/profile`
+
+Updates contact fields and, optionally, the saved location pin. Omitted location
+fields preserve their current values. Send `clearLocation: true` to remove the
+label and coordinates together. Supplying `clearLocation` with any location
+field is rejected.
+
+```json
+{
+  "name": "Alice",
+  "email": "alice@example.com",
+  "phone": "+254700000000",
+  "country": "KE",
+  "locationName": "Nairobi, Kenya",
+  "geoLat": -1.286389,
+  "geoLng": 36.817223
+}
+```
+
+`geoLat` and `geoLng` must be supplied together and must be valid latitude and
+longitude values. A blank `locationName` is rejected.
 
 ---
 
@@ -1050,6 +1104,93 @@ Returns the complete deployment history for the authenticated user, covering bot
 | `trackingId` | `string` (UUID) | Use with [`GET /api/v2/otx/track/:trackingId`](#52-get-apiv2otxtracktrackingid) |
 | `resourceType` | `"TOKEN"` \| `"POOL"` | Type of deployed resource |
 | `createdAt` | `string` (ISO 8601) | When the deploy request was submitted |
+
+---
+
+### 6.6 `GET /api/v2/users/me/shares/eligibility/:address`
+
+Checks whether an exact wallet address belongs to a different, approved Cosmo
+user and can therefore receive a private send attachment.
+
+```json
+{
+  "ok": true,
+  "result": { "eligible": true }
+}
+```
+
+This endpoint only exposes a boolean and never returns the recipient's profile.
+
+### 6.7 `POST /api/v2/users/me/shares/:txHash`
+
+Creates a private attachment after the token send is confirmed. This endpoint
+works for transactions paid by the user's wallet and for transactions submitted
+through the Cosmo relayer.
+
+```json
+{
+  "permission": 5,
+  "note": "Thanks for the supplies"
+}
+```
+
+```json
+{
+  "ok": true,
+  "result": {
+    "shareId": 42,
+    "txHash": "0xabc..."
+  }
+}
+```
+
+The backend rechecks the receipt even if the client already waited for it. The
+receipt must be successful, belong to the authenticated wallet either as the
+outer signer or smart-account target, and contain exactly one positive ERC-20
+`Transfer` from that wallet. The event recipient must be a different, approved
+Cosmo user.
+
+`permission` is a bitmask: email is `1`, phone is `2`, and location (label plus
+coordinates) is `4`. Any authenticated sender whose transaction is verified may
+add a trimmed note with `permission: 0`; no profile PII is required in that
+case. PII is opt-in and only the sender chooses the bits. Repeating an identical
+request is idempotent and returns the same `shareId`; trying to replace an
+existing attachment for the transaction returns `409` with `E16`. An
+unconfirmed, failed, ambiguous, or unrelated transaction returns `422` with
+`E19`.
+
+### 6.8 `GET /api/v2/users/me/shares/:txHash`
+
+Returns the private attachment for a confirmed ERC-20 transfer. Only its sender
+and designated recipient may read it. Missing and unauthorized records both
+return `404`.
+
+```json
+{
+  "ok": true,
+  "result": {
+    "id": 42,
+    "txHash": "0xabc...",
+    "permission": 5,
+    "note": "Thanks for the supplies",
+    "sharedBy": {
+      "name": "Alice",
+      "email": "alice@example.com",
+      "location": {
+        "locationName": "Nairobi, Kenya",
+        "lat": -1.286389,
+        "lng": 36.817223
+      }
+    },
+    "createdAt": "2026-08-04T12:00:00Z"
+  }
+}
+```
+
+The note is always returned to an authorized participant. PII is fetched from
+the sender's current profile only when its permission bit is set; the SQL query
+and response serializer both enforce the bitset. The note and all
+contact/location fields remain off-chain.
 
 ---
 

@@ -180,12 +180,8 @@ func (a *API) delegateHandler(c *echo.Context) error {
 	})
 }
 
-// relayHandler is a thin job-queue client. It validates the request shape and
-// hands the whole payload to the RELAY river worker, which decides between a
-// plain execution and a delegate+execute, signs with the master key,
-// persists any registration credential, and dispatches — all within one
-// transaction. The executor / delegation / authorization checks now live in
-// the worker so the route stays a simple queue client.
+// relayHandler queues a relay job. Private send attachments are created only
+// after confirmation through the authenticated user-share endpoint.
 func (a *API) relayHandler(c *echo.Context) error {
 	req := apiresp.RelayRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -194,7 +190,6 @@ func (a *API) relayHandler(c *echo.Context) error {
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
 	}
-
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)

@@ -2,6 +2,8 @@ package api
 
 import (
 	"testing"
+
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 )
 
 func TestNewPendingSIWEUserIsInactive(t *testing.T) {
@@ -23,5 +25,64 @@ func TestPendingSIWEEmailIsAddressScoped(t *testing.T) {
 	want := "pending+abc123@clc.local"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestProfileUpdateFromRequestPreservesLocationWhenOmitted(t *testing.T) {
+	update, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{Name: "Alice"})
+	if err != nil {
+		t.Fatalf("profileUpdateFromRequest() error = %v", err)
+	}
+	if update.ClearLocation || update.LocationName != nil || update.GeoLat != nil || update.GeoLng != nil {
+		t.Fatalf("expected omitted location to preserve the stored pin, got %#v", update)
+	}
+}
+
+func TestProfileUpdateFromRequestReplacesLocation(t *testing.T) {
+	locationName := "  Sarajevo  "
+	lat := 43.8563
+	lng := 18.4131
+	update, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{
+		LocationName: &locationName,
+		GeoLat:       &lat,
+		GeoLng:       &lng,
+	})
+	if err != nil {
+		t.Fatalf("profileUpdateFromRequest() error = %v", err)
+	}
+	if update.LocationName == nil || *update.LocationName != "Sarajevo" {
+		t.Fatalf("unexpected update: %#v", update)
+	}
+	if update.GeoLat == nil || *update.GeoLat != 43.8563 || update.GeoLng == nil || *update.GeoLng != 18.4131 {
+		t.Fatalf("unexpected coordinates: %#v", update)
+	}
+}
+
+func TestProfileUpdateFromRequestClearsLocation(t *testing.T) {
+	update, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{ClearLocation: true})
+	if err != nil {
+		t.Fatalf("profileUpdateFromRequest() error = %v", err)
+	}
+	if !update.ClearLocation || update.LocationName != nil || update.GeoLat != nil || update.GeoLng != nil {
+		t.Fatalf("unexpected clear update: %#v", update)
+	}
+}
+
+func TestProfileUpdateFromRequestRejectsConflictingLocationCommands(t *testing.T) {
+	locationName := "Sarajevo"
+	_, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{
+		LocationName:  &locationName,
+		ClearLocation: true,
+	})
+	if err == nil {
+		t.Fatal("expected conflicting location update to fail")
+	}
+}
+
+func TestProfileUpdateFromRequestRejectsPartialCoordinates(t *testing.T) {
+	lat := 43.8563
+	_, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{GeoLat: &lat})
+	if err == nil {
+		t.Fatal("expected a partial coordinate pair to fail")
 	}
 }

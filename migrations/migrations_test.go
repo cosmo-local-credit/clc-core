@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/tern/v2/migrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,6 +51,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "014_user_geo.sql")
 	assert.Contains(t, sqlFiles, "015_deploy_catalog_promotion.sql")
 	assert.Contains(t, sqlFiles, "016_deploy_terms.sql")
+	assert.Contains(t, sqlFiles, "017_send_message_shares.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -67,10 +69,53 @@ func TestMigrationFiles(t *testing.T) {
 				name == "013_voucher_relationship_filter_indexes.sql" ||
 				name == "014_user_geo.sql" ||
 				name == "015_deploy_catalog_promotion.sql" ||
-				name == "016_deploy_terms.sql",
+				name == "016_deploy_terms.sql" ||
+				name == "017_send_message_shares.sql",
 			"unexpected migration file %s", name,
 		)
 	}
+}
+
+func TestMigrationSequenceLoads(t *testing.T) {
+	files, err := migrate.FindMigrations(os.DirFS("."))
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"001_init.sql",
+		"002_unify_deploy_registry.sql",
+		"003_constraint_hardening.sql",
+		"004_timestamptz.sql",
+		"005_rename_protocol_addresses.sql",
+		"006_network_catalog.sql",
+		"007_pool_token_oracle_feeds.sql",
+		"008_market_voucher_indexes.sql",
+		"009_report_feed_index.sql",
+		"010_report_body_normalization.sql",
+		"011_catalog_search_indexes.sql",
+		"012_report_search_indexes.sql",
+		"013_voucher_relationship_filter_indexes.sql",
+		"014_user_geo.sql",
+		"015_deploy_catalog_promotion.sql",
+		"016_deploy_terms.sql",
+		"017_send_message_shares.sql",
+	}, files)
+}
+
+func TestSendMessageSharesMigration(t *testing.T) {
+	content, err := os.ReadFile("017_send_message_shares.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.NotContains(t, s, "ALTER TABLE users")
+	assert.NotContains(t, s, "tracking_id")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS user_shares")
+	assert.Contains(t, s, "tx_hash            TEXT NOT NULL")
+	assert.Contains(t, s, "owner_user_id      INT NOT NULL REFERENCES users(id)")
+	assert.Contains(t, s, "authorized_user_id INT NOT NULL REFERENCES users(id)")
+	assert.Contains(t, s, "(share_permission & 7) = share_permission")
+	assert.Contains(t, s, "share_permission <> 0 OR NULLIF(BTRIM(extra_note), '') IS NOT NULL")
+	assert.Contains(t, s, "CHAR_LENGTH(extra_note) <= 500")
+	assert.Contains(t, s, "user_shares_tx_hash_lower_unique")
+	assert.Contains(t, s, "update_user_shares_timestamp")
 }
 
 func TestDeployTermsMigration(t *testing.T) {

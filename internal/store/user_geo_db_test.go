@@ -39,7 +39,10 @@ func TestUpdateUserProfilePreservesGeoWhenOmitted(t *testing.T) {
 	lng := 36.8219
 	locName := "Nairobi"
 
-	set, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "", "KE", &locName, &lat, &lng)
+	set, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: address, Name: "Geo Test", Email: email, Country: "KE",
+		LocationName: &locName, GeoLat: &lat, GeoLng: &lng,
+	})
 	require.NoError(t, err)
 	require.NotNil(t, set.GeoLat)
 	require.NotNil(t, set.GeoLng)
@@ -51,7 +54,9 @@ func TestUpdateUserProfilePreservesGeoWhenOmitted(t *testing.T) {
 	// A later update that only touches an unrelated field (phone) and omits
 	// geo entirely must preserve the previously captured location, not null
 	// it out.
-	again, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "+254700000000", "KE", nil, nil, nil)
+	again, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: address, Name: "Geo Test", Email: email, Phone: "+254700000000", Country: "KE",
+	})
 	require.NoError(t, err)
 	require.NotNil(t, again.GeoLat, "geo_lat must be preserved when omitted from an update")
 	require.NotNil(t, again.GeoLng, "geo_lng must be preserved when omitted from an update")
@@ -65,11 +70,23 @@ func TestUpdateUserProfilePreservesGeoWhenOmitted(t *testing.T) {
 	movedLat := 51.5072
 	movedLng := -0.1276
 	movedName := "London"
-	moved, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "+254700000000", "KE", &movedName, &movedLat, &movedLng)
+	moved, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: address, Name: "Geo Test", Email: email, Phone: "+254700000000", Country: "KE",
+		LocationName: &movedName, GeoLat: &movedLat, GeoLng: &movedLng,
+	})
 	require.NoError(t, err)
 	assert.Equal(t, movedLat, *moved.GeoLat)
 	assert.Equal(t, movedLng, *moved.GeoLng)
 	assert.Equal(t, "London", *moved.LocationName)
+
+	cleared, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: address, Name: "Geo Test", Email: email, Phone: "+254700000000", Country: "KE",
+		ClearLocation: true,
+	})
+	require.NoError(t, err)
+	assert.Nil(t, cleared.LocationName)
+	assert.Nil(t, cleared.GeoLat)
+	assert.Nil(t, cleared.GeoLng)
 }
 
 func TestUsersGeoValidRejectsPartialCoordinates(t *testing.T) {
@@ -92,6 +109,8 @@ func TestUsersGeoValidRejectsPartialCoordinates(t *testing.T) {
 	require.NoError(t, err)
 
 	lat := 1.0
-	_, err = pg.UpdateUserProfile(ctx, tx, address, "Geo Partial Test", email, "", "KE", nil, &lat, nil)
+	_, err = pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: address, Name: "Geo Partial Test", Email: email, Country: "KE", GeoLat: &lat,
+	})
 	require.Error(t, err, "users_geo_valid must reject a lat without a matching lng")
 }

@@ -50,10 +50,14 @@ func TestUpdateUserProfileDuplicatePhoneIsUniqueViolation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = pg.UpdateUserProfile(ctx, tx, holderAddr, "Phone Holder", "phone-holder-test@example.com", phone, "KE", nil, nil, nil)
+	_, err = pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: holderAddr, Name: "Phone Holder", Email: "phone-holder-test@example.com", Phone: phone, Country: "KE",
+	})
 	require.NoError(t, err)
 
-	_, err = pg.UpdateUserProfile(ctx, tx, claimantAddr, "Phone Claimant", "phone-claimant-test@example.com", phone, "KE", nil, nil, nil)
+	_, err = pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: claimantAddr, Name: "Phone Claimant", Email: "phone-claimant-test@example.com", Phone: phone, Country: "KE",
+	})
 	require.Error(t, err, "a phone already bound to another user must be rejected")
 
 	var pgErr *pgconn.PgError
@@ -84,7 +88,9 @@ func TestUpdateUserProfileEmptyPhoneDoesNotCollide(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		updated, err := pg.UpdateUserProfile(ctx, tx, u.addr, "No Phone", u.email, "", "KE", nil, nil, nil)
+		updated, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+			Address: u.addr, Name: "No Phone", Email: u.email, Country: "KE",
+		})
 		require.NoError(t, err, "an unset phone must not collide with another unset phone")
 		assert.Equal(t, "", updated.Phone)
 	}

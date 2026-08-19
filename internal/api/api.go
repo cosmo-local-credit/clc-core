@@ -226,6 +226,9 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/pools", a.userPoolsHandler)
 	userGroup.GET("/me/pools/:address", a.userPoolByAddressHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
+	userGroup.GET("/me/shares/eligibility/:address", a.userShareEligibilityHandler)
+	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
+	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)
 
 	// Superadmin-only routes
 	adminGroup := apiGroup.Group("/admin", a.requireSuperAdmin())

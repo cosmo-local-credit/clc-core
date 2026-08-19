@@ -137,6 +137,10 @@ type (
 		Address string `param:"address" validate:"required"`
 	}
 
+	TxHashParam struct {
+		TxHash string `param:"txHash" validate:"required,len=66,startswith=0x,hexadecimal"`
+	}
+
 	// Relayer (EIP-7702 / Calibur) types.
 
 	RelayerEOANonceParam struct {
@@ -181,6 +185,12 @@ type (
 		Deadline    string             `json:"deadline"    validate:"required,numeric"`
 	}
 
+	CreateSendShareRequest struct {
+		TxHash     string `param:"txHash" validate:"required,len=66,startswith=0x,hexadecimal"`
+		Permission int    `json:"permission" validate:"gte=0,lte=7"`
+		Note       string `json:"note,omitempty" validate:"omitempty,max=500"`
+	}
+
 	RelayRequest struct {
 		UserAddress   string                `json:"userAddress"   validate:"required,eth_addr_checksum"`
 		SignedBatch   CaliburSignedBatch    `json:"signedBatch"   validate:"required"`
@@ -219,18 +229,17 @@ type (
 		Signature string `json:"signature" validate:"required"`
 	}
 
-	// UpdateProfileRequest carries optional profile fields.
-	// Geo fields match DeployTokenRequest: optional pointers, range checks.
-	// Both-or-neither is enforced in profileUpdateHandler (400 on a partial
-	// pair) and backstopped by users_geo_valid at the DB boundary.
+	// UpdateProfileRequest carries optional profile fields. Omitted location
+	// values preserve stored data; ClearLocation explicitly removes the pin.
 	UpdateProfileRequest struct {
-		Name         string   `json:"name"         validate:"omitempty,max=80"`
-		Email        string   `json:"email"        validate:"omitempty,email"`
-		Phone        string   `json:"phone"`
-		Country      string   `json:"country"      validate:"omitempty,len=2"`
-		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
-		GeoLat       *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
-		GeoLng       *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
+		Name          string   `json:"name"          validate:"omitempty,max=80"`
+		Email         string   `json:"email"         validate:"omitempty,email"`
+		Phone         string   `json:"phone"`
+		Country       string   `json:"country"       validate:"omitempty,len=2"`
+		LocationName  *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
+		GeoLat        *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
+		GeoLng        *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
+		ClearLocation bool     `json:"clearLocation,omitempty"`
 	}
 )
 
@@ -254,4 +263,5 @@ const (
 	ErrCodeConflict                   = "E16"
 	ErrCodeEmailConflict              = "E17"
 	ErrCodePhoneConflict              = "E18"
+	ErrCodeShareUnavailable           = "E19"
 )
