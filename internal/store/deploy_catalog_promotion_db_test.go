@@ -337,6 +337,7 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	locName := "Kisumu"
 	lat, lng := -0.0917, 34.7680
 	image, banner := "https://img", "https://banner"
+	quoterType := "oracle"
 
 	deployedID, err := pg.InsertDeployedPool(ctx, tx, DeployedPool{
 		OTXID:                        otxID,
@@ -348,6 +349,7 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		LimiterAddress:               limiter,
 		FeePolicyAddress:             feePolicy,
 		QuoterAddress:                quoter,
+		QuoterType:                   &quoterType,
 		ProtocolFeeControllerAddress: feeController,
 		FeesDecoupled:                true,
 		Admin:                        admin,
@@ -386,17 +388,20 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		gotPlatformID                  *uint64
 		gotFeePPM, gotUoa, gotTerms    *string
 		gotDefaultVoucherID            *uint64
+		gotQuoterType                  *string
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT chain_id, address, name, symbol, owner_address,
 		       token_registry_address, limiter_address, quoter_address, fee_policy_address,
 		       protocol_fee_controller_address, fees_decoupled, image_url, banner_url,
-		       platform_contract_id, fee_ppm::TEXT, unit_of_account, terms, default_voucher_id
+		       platform_contract_id, fee_ppm::TEXT, unit_of_account, terms, default_voucher_id,
+		       quoter_type
 		FROM pools WHERE id = $1`, poolID).Scan(
 		&gotChainID, &gotAddress, &gotName, &gotSymbol, &gotOwner,
 		&gotRegistry, &gotLimiter, &gotQuoter, &gotFeePolicy,
 		&gotFeeController, &gotDecoupled, &gotImage, &gotBanner,
-		&gotPlatformID, &gotFeePPM, &gotUoa, &gotTerms, &gotDefaultVoucherID)
+		&gotPlatformID, &gotFeePPM, &gotUoa, &gotTerms, &gotDefaultVoucherID,
+		&gotQuoterType)
 	require.NoError(t, err, "promoted pool must exist")
 
 	assert.NotZero(t, gotChainID)
@@ -414,6 +419,10 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	assert.Equal(t, limiter, *gotLimiter)
 	require.NotNil(t, gotQuoter)
 	assert.Equal(t, quoter, *gotQuoter, "quoter must not be swapped with fee policy")
+	// The address alone cannot say which quoter this is — all three implementations
+	// answer the same ERC-165 ids — so the kind has to ride along with it.
+	require.NotNil(t, gotQuoterType)
+	assert.Equal(t, "oracle", *gotQuoterType)
 	require.NotNil(t, gotFeePolicy)
 	assert.Equal(t, feePolicy, *gotFeePolicy)
 	require.NotNil(t, gotFeeController)

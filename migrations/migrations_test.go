@@ -53,6 +53,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "017_admin_user_search_indexes.sql")
 	assert.Contains(t, sqlFiles, "018_account_relationship_indexes.sql")
 	assert.Contains(t, sqlFiles, "019_admin_otx_indexes.sql")
+	assert.Contains(t, sqlFiles, "020_pool_quoter_type.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -73,7 +74,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "016_deploy_terms.sql" ||
 				name == "017_admin_user_search_indexes.sql" ||
 				name == "018_account_relationship_indexes.sql" ||
-				name == "019_admin_otx_indexes.sql",
+				name == "019_admin_otx_indexes.sql" ||
+				name == "020_pool_quoter_type.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -87,6 +89,45 @@ func TestDeployTermsMigration(t *testing.T) {
 	assert.Contains(t, s, "ALTER TABLE deployed_tokens")
 	assert.Contains(t, s, "ALTER TABLE deployed_pools")
 	assert.Equal(t, 2, strings.Count(s, "ADD COLUMN IF NOT EXISTS terms TEXT"))
+}
+
+func TestPoolQuoterTypeMigration(t *testing.T) {
+	content, err := os.ReadFile("020_pool_quoter_type.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Both ends of the promotion: the deploy row records it, the catalog row
+	// serves it. Recording it on only one of the two would leave the API unable
+	// to report what the deploy already knew.
+	assert.Contains(t, s, "ALTER TABLE deployed_pools")
+	assert.Contains(t, s, "ALTER TABLE pools")
+	assert.Equal(t, 2, strings.Count(s, "ADD COLUMN IF NOT EXISTS quoter_type TEXT"))
+	// The same closed set the request validator enforces (pkg/api,
+	// oneof=decimal oracle relative), so a direct write cannot store a value the
+	// API would have rejected.
+	assert.Equal(t, 2, strings.Count(s, "IN ('decimal', 'oracle', 'relative')"))
+	// Re-running must be a no-op: the columns are guarded, and each constraint is
+	// dropped before it is added.
+	assert.Equal(t, 2, strings.Count(s, "DROP CONSTRAINT IF EXISTS"))
+	// Nullable and unbackfilled — NULL means unknown, not decimal.
+	assert.NotContains(t, s, "NOT NULL")
+	assert.NotContains(t, s, "DEFAULT")
+	assert.NotContains(t, s, "UPDATE pools")
+}
+
+func TestPoolQuoterTypeInBaseline(t *testing.T) {
+	// The usual fold: a fresh database gets the column from the baseline, and the
+	// ALTER above is the no-op catch-up for existing ones.
+	baseline, err := os.ReadFile("001_init.sql")
+	require.NoError(t, err)
+	catalog, err := os.ReadFile("006_network_catalog.sql")
+	require.NoError(t, err)
+
+	assert.Contains(t, string(baseline), "quoter_type                     TEXT,")
+	assert.Contains(t, string(baseline), "deployed_pools_quoter_type_valid")
+	assert.Contains(t, string(baseline), "pools_quoter_type_valid")
+	// 006 defines pools too, so the fold has to land in both files.
+	assert.Contains(t, string(catalog), "pools_quoter_type_valid")
 }
 
 func TestMarketVoucherIndexesMigration(t *testing.T) {

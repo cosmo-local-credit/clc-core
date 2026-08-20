@@ -22,6 +22,7 @@ type (
 		LimiterAddress               string    `db:"limiter_address"                 json:"limiterAddress"`
 		FeePolicyAddress             string    `db:"fee_policy_address"              json:"feePolicyAddress"`
 		QuoterAddress                string    `db:"quoter_address"                  json:"quoterAddress"`
+		QuoterType                   *string   `db:"quoter_type"                     json:"quoterType"`
 		ProtocolFeeControllerAddress string    `db:"protocol_fee_controller_address" json:"protocolFeeControllerAddress"`
 		FeesDecoupled                bool      `db:"fees_decoupled"                  json:"feesDecoupled"`
 		Admin                        string    `db:"admin"                           json:"admin"`
@@ -57,6 +58,7 @@ func (pg *Pg) InsertDeployedPool(ctx context.Context, tx pgx.Tx, dp DeployedPool
 		dp.LimiterAddress,
 		dp.FeePolicyAddress,
 		dp.QuoterAddress,
+		dp.QuoterType,
 		dp.ProtocolFeeControllerAddress,
 		dp.FeesDecoupled,
 		dp.Admin,

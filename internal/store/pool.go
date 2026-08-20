@@ -14,17 +14,22 @@ type (
 	// pipeline's record. Most fields are pointers: catalog rows merged from
 	// sparse sources (federation import, deploy metadata) may lack them.
 	Pool struct {
-		ID                           uint64    `db:"id"                              json:"id"`
-		ChainID                      int64     `db:"chain_id"                        json:"chainId"`
-		Address                      string    `db:"address"                         json:"address"`
-		Name                         *string   `db:"name"                            json:"name"`
-		Symbol                       *string   `db:"symbol"                          json:"symbol"`
-		OwnerAddress                 *string   `db:"owner_address"                   json:"ownerAddress"`
-		FeePPM                       *float64  `db:"fee_ppm"                         json:"feePpm"`
-		FeeAddress                   *string   `db:"fee_address"                     json:"feeAddress"`
-		TokenRegistryAddress         *string   `db:"token_registry_address"          json:"tokenRegistryAddress"`
-		LimiterAddress               *string   `db:"limiter_address"                 json:"limiterAddress"`
-		QuoterAddress                *string   `db:"quoter_address"                  json:"quoterAddress"`
+		ID                   uint64   `db:"id"                              json:"id"`
+		ChainID              int64    `db:"chain_id"                        json:"chainId"`
+		Address              string   `db:"address"                         json:"address"`
+		Name                 *string  `db:"name"                            json:"name"`
+		Symbol               *string  `db:"symbol"                          json:"symbol"`
+		OwnerAddress         *string  `db:"owner_address"                   json:"ownerAddress"`
+		FeePPM               *float64 `db:"fee_ppm"                         json:"feePpm"`
+		FeeAddress           *string  `db:"fee_address"                     json:"feeAddress"`
+		TokenRegistryAddress *string  `db:"token_registry_address"          json:"tokenRegistryAddress"`
+		LimiterAddress       *string  `db:"limiter_address"                 json:"limiterAddress"`
+		QuoterAddress        *string  `db:"quoter_address"                  json:"quoterAddress"`
+		// The quoter kind the pool was published with (decimal, oracle or
+		// relative). NULL for imported pools and for deploys that predate
+		// migration 020 — the three quoters are indistinguishable over ERC-165,
+		// so nothing can reconstruct it after the fact.
+		QuoterType                   *string   `db:"quoter_type"                     json:"quoterType"`
 		FeePolicyAddress             *string   `db:"fee_policy_address"              json:"feePolicyAddress"`
 		ProtocolFeeControllerAddress *string   `db:"protocol_fee_controller_address" json:"protocolFeeControllerAddress"`
 		FeesDecoupled                *bool     `db:"fees_decoupled"                  json:"feesDecoupled"`
