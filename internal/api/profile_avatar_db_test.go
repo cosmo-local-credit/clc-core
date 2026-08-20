@@ -14,7 +14,9 @@ import (
 // The middleware normalizes the claim to its checksummed form before any handler
 // sees it, and update-user-profile matches blockchain_address exactly, so the
 // fixture has to be stored in that same form.
-var avatarTestAddress = common.HexToAddress(accountAddress).Hex()
+var (
+	avatarTestAddress = common.HexToAddress(accountAddress).Hex()
+)
 
 // A write followed by a read on a cold cache, through the real route table.
 //

@@ -140,9 +140,9 @@ func TestUpdateUserProfilePreservesAvatarWhenOmitted(t *testing.T) {
 	require.NotNil(t, again.AvatarURL, "an omitted avatar must not clear the stored one")
 	assert.Equal(t, avatar, *again.AvatarURL)
 
-	clear := base
-	clear.ClearAvatar = true
-	cleared, err := pg.UpdateUserProfile(ctx, tx, clear)
+	removal := base
+	removal.ClearAvatar = true
+	cleared, err := pg.UpdateUserProfile(ctx, tx, removal)
 	require.NoError(t, err)
 	assert.Nil(t, cleared.AvatarURL, "clearAvatar must remove the stored avatar")
 }
