@@ -72,3 +72,77 @@ func (pg *Pg) ListPoolVouchersPrevious(ctx context.Context, tx pgx.Tx, poolAddre
 	}
 	return vouchers, nil
 }
+
+// SetPoolTokenMembership records whether a pool's registry admits a token.
+//
+// Keyed on the registry's address rather than the pool's, because that is what
+// AddressAdded/AddressRemoved carry — the registry does not know which pools
+// point at it. One registry may serve several pools, so every pool that names it
+// is updated; a pool or voucher this service has never catalogued matches
+// nothing and reports zero rows, which the caller logs rather than treats as an
+// error.
+func (pg *Pg) SetPoolTokenMembership(
+	ctx context.Context,
+	tx pgx.Tx,
+	registryAddress string,
+	tokenAddress string,
+	isAllowed bool,
+) (int64, error) {
+	tag, err := tx.Exec(ctx, pg.queries.SetPoolTokenMembership, registryAddress, tokenAddress, isAllowed)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// SetPoolTokenLimit records the limiter cap a pool may hold of a token.
+//
+// Keyed on the pool address: LimitSet names the holder directly, and the holder
+// of a pool's cap is the pool. `limit` is the raw on-chain integer as a decimal
+// string; the caller validates its shape before this reaches NUMERIC.
+func (pg *Pg) SetPoolTokenLimit(
+	ctx context.Context,
+	tx pgx.Tx,
+	poolAddress string,
+	tokenAddress string,
+	limit string,
+) (int64, error) {
+	tag, err := tx.Exec(ctx, pg.queries.SetPoolTokenLimit, poolAddress, tokenAddress, limit)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// SetPoolTokenOracle records which curated feed prices a token for a pool.
+//
+// Keyed on the quoter's address, which is what OracleUpdated carries. An
+// aggregator with no oracle_feeds row stores NULL: the pool can price the token
+// on chain, this service just cannot name the feed.
+func (pg *Pg) SetPoolTokenOracle(
+	ctx context.Context,
+	tx pgx.Tx,
+	quoterAddress string,
+	tokenAddress string,
+	aggregatorAddress string,
+) (int64, error) {
+	tag, err := tx.Exec(ctx, pg.queries.SetPoolTokenOracle, quoterAddress, tokenAddress, aggregatorAddress)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// ClearPoolTokenOracle drops the feed a quoter no longer maps.
+func (pg *Pg) ClearPoolTokenOracle(
+	ctx context.Context,
+	tx pgx.Tx,
+	quoterAddress string,
+	tokenAddress string,
+) (int64, error) {
+	tag, err := tx.Exec(ctx, pg.queries.ClearPoolTokenOracle, quoterAddress, tokenAddress)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

@@ -41,6 +41,10 @@ type (
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
+		SetPoolTokenMembership       string `query:"set-pool-token-membership"`
+		SetPoolTokenLimit            string `query:"set-pool-token-limit"`
+		SetPoolTokenOracle           string `query:"set-pool-token-oracle"`
+		ClearPoolTokenOracle         string `query:"clear-pool-token-oracle"`
 		GetOracleFeedByName          string `query:"get-oracle-feed-by-name"`
 		ListOracleFeeds              string `query:"list-oracle-feeds"`
 		GetOTXByTrackingID           string `query:"get-otx-by-tracking-id"`

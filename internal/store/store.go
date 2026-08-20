@@ -36,6 +36,10 @@ type (
 		ConfirmDeployedPool(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedPool(context.Context, pgx.Tx, uint64) error
 		UpsertPoolFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
+		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
+		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
+		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string) (int64, error)
+		ClearPoolTokenOracle(context.Context, pgx.Tx, string, string) (int64, error)
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error

@@ -827,6 +827,85 @@ LEFT JOIN pool_tags pt ON pt.pool_id = p.id
 WHERE lower(p.address) = lower($1)
 GROUP BY p.id;
 
+-- Pool composition projected from chain events (TRACKER.* via internal/sub).
+--
+-- The chain is the source of truth for what a pool holds: nothing else writes
+-- pool_tokens, and clc-core is not always the party that signed the change — an
+-- operator console, a script, or another relayer can all move the same state.
+-- Each statement therefore resolves its own ids from addresses and upserts, so a
+-- redelivered NATS message is a no-op rather than a duplicate.
+--
+-- Ownership of columns is split along the contract that emits them, and no
+-- statement writes a column it did not hear about:
+--
+--   is_allowed     the token registry (INDEX_ADD / INDEX_REMOVE)
+--   token_limit    the limiter        (LIMIT_SET)
+--   oracle_feed_id the quoter         (ORACLE_UPDATED / ORACLE_REMOVED)
+--
+-- The two non-registry statements insert is_allowed = FALSE when they are the
+-- first to see a pair, because a cap or a price says nothing about membership;
+-- their ON CONFLICT clauses leave it alone so an INDEX_ADD that already landed
+-- is not undone by a later cap.
+
+--name: set-pool-token-membership
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, synced_at)
+SELECT p.id, v.id, $3, CURRENT_TIMESTAMP
+FROM pools p
+JOIN vouchers v ON v.chain_id = p.chain_id
+WHERE lower(p.token_registry_address) = lower($1)
+  AND lower(v.address) = lower($2)
+ON CONFLICT (pool_id, voucher_id) DO UPDATE
+SET is_allowed = EXCLUDED.is_allowed,
+    synced_at  = EXCLUDED.synced_at;
+
+--name: set-pool-token-limit
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, token_limit, synced_at)
+SELECT p.id, v.id, FALSE, $3::NUMERIC, CURRENT_TIMESTAMP
+FROM pools p
+JOIN vouchers v ON v.chain_id = p.chain_id
+WHERE lower(p.address) = lower($1)
+  AND lower(v.address) = lower($2)
+ON CONFLICT (pool_id, voucher_id) DO UPDATE
+SET token_limit = EXCLUDED.token_limit,
+    synced_at   = EXCLUDED.synced_at;
+
+-- An aggregator with no oracle_feeds row resolves to NULL: the mapping is real
+-- but this service cannot name the feed, which is a different fact from having
+-- no mapping and is why the join is outer rather than inner.
+--
+-- The lateral is not decoration. oracle_feeds is unique on name, not address, and
+-- some feeds share an aggregator — USDC and EURC both point at 0xc7A353Ba… — so a
+-- plain join returns two rows, the insert proposes the same (pool, voucher) pair
+-- twice, and Postgres aborts the whole statement with "ON CONFLICT DO UPDATE
+-- command cannot affect row a second time". Picking the lowest id keeps one
+-- deterministic answer; by address the two feeds are the same contract anyway.
+--name: set-pool-token-oracle
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, oracle_feed_id, synced_at)
+SELECT p.id, v.id, FALSE, f.id, CURRENT_TIMESTAMP
+FROM pools p
+JOIN vouchers v ON v.chain_id = p.chain_id
+LEFT JOIN LATERAL (
+    SELECT id FROM oracle_feeds WHERE lower(address) = lower($3) ORDER BY id LIMIT 1
+) f ON TRUE
+WHERE lower(p.quoter_address) = lower($1)
+  AND lower(v.address) = lower($2)
+ON CONFLICT (pool_id, voucher_id) DO UPDATE
+SET oracle_feed_id = EXCLUDED.oracle_feed_id,
+    synced_at      = EXCLUDED.synced_at;
+
+-- Removal only ever clears an existing pairing; it must not conjure a row for a
+-- pool that never priced the token.
+--name: clear-pool-token-oracle
+UPDATE pool_tokens pt
+SET oracle_feed_id = NULL,
+    synced_at      = CURRENT_TIMESTAMP
+FROM pools p, vouchers v
+WHERE pt.pool_id = p.id
+  AND pt.voucher_id = v.id
+  AND v.chain_id = p.chain_id
+  AND lower(p.quoter_address) = lower($1)
+  AND lower(v.address) = lower($2);
+
 -- Pool voucher composition (MIGRATION.md §3.4). Oracle feeds replace legacy
 -- fixed exchange rates; offering counts are local catalog facts.
 --name: list-pool-vouchers
