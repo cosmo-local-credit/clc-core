@@ -1,5 +1,9 @@
 package api
 
+import (
+	"time"
+)
+
 type (
 	OKResponse struct {
 		Ok          bool           `json:"ok"`
@@ -219,10 +223,6 @@ type (
 		Signature string `json:"signature" validate:"required"`
 	}
 
-	// UpdateProfileRequest carries optional profile fields.
-	// Geo fields match DeployTokenRequest: optional pointers, range checks.
-	// Both-or-neither is enforced in profileUpdateHandler (400 on a partial
-	// pair) and backstopped by users_geo_valid at the DB boundary.
 	// UpdatePoolProfileRequest carries a pool's editable off-chain record.
 	//
 	// Every field is optional in the JSON but assigned unconditionally by the
@@ -242,6 +242,10 @@ type (
 		Tags          []string `json:"tags,omitempty"`
 	}
 
+	// UpdateProfileRequest carries optional profile fields.
+	// Geo fields match DeployTokenRequest: optional pointers, range checks.
+	// Both-or-neither is enforced in profileUpdateHandler (400 on a partial
+	// pair) and backstopped by users_geo_valid at the DB boundary.
 	UpdateProfileRequest struct {
 		Name         string   `json:"name"         validate:"omitempty,max=80"`
 		Email        string   `json:"email"        validate:"omitempty,email"`
@@ -250,6 +254,52 @@ type (
 		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
 		GeoLat       *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
 		GeoLng       *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
+	}
+
+	// ReportVoucherRefRequest names a voucher by its stable public identity.
+	// Database ids are intentionally absent: imports can remap them between
+	// environments, while (chainId, address) survives a catalog transfer.
+	ReportVoucherRefRequest struct {
+		ChainID int64  `json:"chainId" validate:"required,gt=0"`
+		Address string `json:"address" validate:"required"`
+	}
+
+	ReportImageRequest struct {
+		URL       string  `json:"url"                 validate:"required"`
+		Width     *int32  `json:"width,omitempty"     validate:"omitempty,gt=0"`
+		Height    *int32  `json:"height,omitempty"    validate:"omitempty,gt=0"`
+		MaxWidth  *int32  `json:"maxWidth,omitempty"  validate:"omitempty,gt=0"`
+		MaxHeight *int32  `json:"maxHeight,omitempty" validate:"omitempty,gt=0"`
+		ByteSize  *int64  `json:"byteSize,omitempty"  validate:"omitempty,gt=0"`
+		Caption   *string `json:"caption,omitempty"   validate:"omitempty,max=500"`
+	}
+
+	ReportAttachmentRequest struct {
+		Kind     string  `json:"kind"               validate:"required,oneof=FILE EMBED"`
+		URL      string  `json:"url"                validate:"required"`
+		Filename *string `json:"filename,omitempty" validate:"omitempty,max=255"`
+		ByteSize *int64  `json:"byteSize,omitempty" validate:"omitempty,gt=0"`
+	}
+
+	// ReportWriteRequest is an assign-all post write. PUT replaces every
+	// editable scalar and every relation, so an omitted optional field clears it
+	// and an omitted collection becomes an empty set.
+	ReportWriteRequest struct {
+		Title        string                    `json:"title"       validate:"required,max=200"`
+		Body         string                    `json:"body"        validate:"max=500000"`
+		Description  string                    `json:"description" validate:"max=10000"`
+		ImageURL     *string                   `json:"imageUrl,omitempty"`
+		GeoLat       *float64                  `json:"geoLat,omitempty"   validate:"omitempty,min=-90,max=90"`
+		GeoLng       *float64                  `json:"geoLng,omitempty"   validate:"omitempty,min=-180,max=180"`
+		PeriodFrom   *time.Time                `json:"periodFrom,omitempty"`
+		PeriodTo     *time.Time                `json:"periodTo,omitempty"`
+		HostName     *string                   `json:"hostName,omitempty"     validate:"omitempty,max=200"`
+		Participants *string                   `json:"participants,omitempty" validate:"omitempty,max=100"`
+		TimeTaken    *string                   `json:"timeTaken,omitempty"    validate:"omitempty,max=100"`
+		Tags         []string                  `json:"tags"        validate:"max=12,dive,required,max=100"`
+		Vouchers     []ReportVoucherRefRequest `json:"vouchers"    validate:"max=12,dive"`
+		Images       []ReportImageRequest      `json:"images"      validate:"max=50,dive"`
+		Attachments  []ReportAttachmentRequest `json:"attachments" validate:"max=20,dive"`
 	}
 )
 

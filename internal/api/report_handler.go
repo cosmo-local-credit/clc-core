@@ -1,12 +1,19 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
 
@@ -145,9 +152,9 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 // field-report form. An unapproved report is a 404, not a 403: whether a draft
 // exists is not public information.
 func (a *API) reportByIDHandler(c *echo.Context) error {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		return reportValidationError(c, "id must be a positive integer")
+	id, handled, err := reportIDParam(c)
+	if handled || err != nil {
+		return err
 	}
 
 	ctx := c.Request().Context()
@@ -179,6 +186,413 @@ func (a *API) reportByIDHandler(c *echo.Context) error {
 		Description: "Report",
 		Result:      map[string]any{"report": report},
 	})
+}
+
+// reportCreateHandler creates a post attributed to the authenticated wallet.
+// authorAddress is never accepted from JSON: the JWT identity is the provenance
+// record, and allowing a caller to supply it would defeat the owner check on
+// later edits. Normal-user posts start SUBMITTED; a superadmin can create an
+// APPROVED post because that role already holds the approval authority.
+func (a *API) reportCreateHandler(c *echo.Context) error {
+	report, voucherRefs, handled, err := a.bindReportWrite(c)
+	if handled || err != nil {
+		return err
+	}
+
+	_, callerAddress, callerRole := getUserClaims(c)
+	status := "SUBMITTED"
+	if callerRole == "SUPERADMIN" {
+		status = "APPROVED"
+	}
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs); handled || err != nil {
+		return err
+	}
+
+	id, err := a.store.CreateReport(ctx, tx, report, callerAddress, status)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := a.store.ReplaceReportRelations(ctx, tx, id, report); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	created, err := a.store.GetReportForMutation(ctx, tx, id)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if created == nil {
+		return fmt.Errorf("created report %d could not be read back", id)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Report created",
+		Result:      map[string]any{"report": created},
+	})
+}
+
+// reportApproveHandler is the only path that promotes an existing post to
+// APPROVED, and the route is guarded by requireSuperAdmin. Content edits use a
+// different store statement that never assigns status, so authors can edit both
+// submitted and approved posts without changing their review state.
+func (a *API) reportApproveHandler(c *echo.Context) error {
+	id, handled, err := reportIDParam(c)
+	if handled || err != nil {
+		return err
+	}
+
+	_, callerAddress, _ := getUserClaims(c)
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := a.store.ApproveReport(ctx, tx, id, callerAddress); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return reportNotFoundError(c)
+		}
+		return handlePostgresError(c, err)
+	}
+	approved, err := a.store.GetReportForMutation(ctx, tx, id)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if approved == nil {
+		return fmt.Errorf("approved report %d could not be read back", id)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Report approved",
+		Result:      map[string]any{"report": approved},
+	})
+}
+
+// reportUpdateHandler is assign-all PUT: scalars and all four relation sets are
+// one atomic replacement. The immutable original author may edit their own
+// post, and a superadmin may edit any post. LockReportAuthor makes that decision
+// against the same row version the transaction updates.
+func (a *API) reportUpdateHandler(c *echo.Context) error {
+	id, handled, err := reportIDParam(c)
+	if handled || err != nil {
+		return err
+	}
+
+	report, voucherRefs, handled, err := a.bindReportWrite(c)
+	if handled || err != nil {
+		return err
+	}
+
+	_, callerAddress, callerRole := getUserClaims(c)
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	authorAddress, err := a.store.LockReportAuthor(ctx, tx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return reportNotFoundError(c)
+		}
+		return handlePostgresError(c, err)
+	}
+	if !canUpdateReport(callerAddress, callerRole, authorAddress) {
+		return handleForbiddenError(c, "only the original author or a superadmin may edit this report")
+	}
+
+	// Database-backed relation validation follows authorization, so a caller
+	// who cannot edit this row cannot use it to probe tag or voucher existence.
+	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs); handled || err != nil {
+		return err
+	}
+	if err := a.store.UpdateReport(ctx, tx, id, report, callerAddress); err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := a.store.ReplaceReportRelations(ctx, tx, id, report); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	updated, err := a.store.GetReportForMutation(ctx, tx, id)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if updated == nil {
+		return fmt.Errorf("updated report %d could not be read back", id)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Report updated",
+		Result:      map[string]any{"report": updated},
+	})
+}
+
+// reportDeleteHandler is mounted behind requireSuperAdmin. Authors can correct
+// their own post but cannot erase the catalog record; deletion is the one post
+// mutation reserved for operators and cascades to every report relation.
+func (a *API) reportDeleteHandler(c *echo.Context) error {
+	id, handled, err := reportIDParam(c)
+	if handled || err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := a.store.DeleteReport(ctx, tx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return reportNotFoundError(c)
+		}
+		return handlePostgresError(c, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Report deleted",
+		Result:      map[string]any{"id": id},
+	})
+}
+
+func reportIDParam(c *echo.Context) (id uint64, handled bool, err error) {
+	id, err = strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		return 0, true, reportValidationError(c, "id must be a positive integer")
+	}
+	return id, false, nil
+}
+
+func reportNotFoundError(c *echo.Context) error {
+	return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeNotFound,
+		Description: "report not found",
+	})
+}
+
+func canUpdateReport(callerAddress, callerRole, authorAddress string) bool {
+	return callerRole == "SUPERADMIN" ||
+		(callerAddress != "" && strings.EqualFold(callerAddress, authorAddress))
+}
+
+// bindReportWrite performs request-shape validation first, then the cross-field
+// and normalisation rules validator tags cannot express. It reports handled=true
+// after writing a response, matching the catalog parsing helpers beside it.
+func (a *API) bindReportWrite(
+	c *echo.Context,
+) (store.ReportWrite, []store.VoucherRef, bool, error) {
+	var req apiresp.ReportWriteRequest
+	if err := c.Bind(&req); err != nil {
+		return store.ReportWrite{}, nil, true, handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return store.ReportWrite{}, nil, true, a.handleValidateError(c, err)
+	}
+
+	report, voucherRefs, err := normalizeReportWrite(req)
+	if err != nil {
+		return store.ReportWrite{}, nil, true, reportValidationError(c, err.Error())
+	}
+	return report, voucherRefs, false, nil
+}
+
+func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []store.VoucherRef, error) {
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		return store.ReportWrite{}, nil, fmt.Errorf("title must not be blank")
+	}
+	if (req.GeoLat == nil) != (req.GeoLng == nil) {
+		return store.ReportWrite{}, nil, fmt.Errorf("geoLat and geoLng must be provided together")
+	}
+	if req.PeriodFrom != nil && req.PeriodTo != nil && req.PeriodFrom.After(*req.PeriodTo) {
+		return store.ReportWrite{}, nil, fmt.Errorf("periodFrom must be before or equal to periodTo")
+	}
+
+	imageURL, err := optionalHTTPURL(req.ImageURL, "imageUrl")
+	if err != nil {
+		return store.ReportWrite{}, nil, err
+	}
+
+	tagSet := make(map[string]struct{}, len(req.Tags))
+	tags := make([]string, 0, len(req.Tags))
+	for _, raw := range req.Tags {
+		tag := strings.TrimSpace(raw)
+		if tag == "" {
+			return store.ReportWrite{}, nil, fmt.Errorf("tags must not contain blank values")
+		}
+		if _, duplicate := tagSet[tag]; duplicate {
+			continue
+		}
+		tagSet[tag] = struct{}{}
+		tags = append(tags, tag)
+	}
+	slices.Sort(tags)
+
+	voucherSet := make(map[string]struct{}, len(req.Vouchers))
+	voucherRefs := make([]store.VoucherRef, 0, len(req.Vouchers))
+	for _, requested := range req.Vouchers {
+		if requested.ChainID <= 0 || !common.IsHexAddress(requested.Address) {
+			return store.ReportWrite{}, nil, fmt.Errorf(
+				"vouchers must contain positive chainId values and valid hex addresses")
+		}
+		address := common.HexToAddress(requested.Address).Hex()
+		key := strconv.FormatInt(requested.ChainID, 10) + ":" + strings.ToLower(address)
+		if _, duplicate := voucherSet[key]; duplicate {
+			continue
+		}
+		voucherSet[key] = struct{}{}
+		voucherRefs = append(voucherRefs, store.VoucherRef{
+			ChainID: requested.ChainID,
+			Address: address,
+		})
+	}
+	slices.SortFunc(voucherRefs, func(left, right store.VoucherRef) int {
+		if left.ChainID < right.ChainID {
+			return -1
+		}
+		if left.ChainID > right.ChainID {
+			return 1
+		}
+		return strings.Compare(strings.ToLower(left.Address), strings.ToLower(right.Address))
+	})
+
+	images := make([]store.ReportImage, 0, len(req.Images))
+	imageSet := make(map[string]struct{}, len(req.Images))
+	for index, requested := range req.Images {
+		mediaURL, err := requiredHTTPURL(requested.URL, fmt.Sprintf("images[%d].url", index))
+		if err != nil {
+			return store.ReportWrite{}, nil, err
+		}
+		if _, duplicate := imageSet[mediaURL]; duplicate {
+			return store.ReportWrite{}, nil, fmt.Errorf("images must not contain duplicate URLs")
+		}
+		imageSet[mediaURL] = struct{}{}
+		images = append(images, store.ReportImage{
+			URL:       mediaURL,
+			Width:     requested.Width,
+			Height:    requested.Height,
+			MaxWidth:  requested.MaxWidth,
+			MaxHeight: requested.MaxHeight,
+			ByteSize:  requested.ByteSize,
+			Caption:   optionalText(requested.Caption),
+		})
+	}
+
+	attachments := make([]store.ReportAttachment, 0, len(req.Attachments))
+	for index, requested := range req.Attachments {
+		mediaURL, err := requiredHTTPURL(requested.URL, fmt.Sprintf("attachments[%d].url", index))
+		if err != nil {
+			return store.ReportWrite{}, nil, err
+		}
+		attachments = append(attachments, store.ReportAttachment{
+			Kind:     requested.Kind,
+			URL:      mediaURL,
+			Filename: optionalText(requested.Filename),
+			ByteSize: requested.ByteSize,
+		})
+	}
+
+	return store.ReportWrite{
+		Title:        title,
+		Body:         req.Body,
+		Description:  req.Description,
+		ImageURL:     imageURL,
+		GeoLat:       req.GeoLat,
+		GeoLng:       req.GeoLng,
+		PeriodFrom:   req.PeriodFrom,
+		PeriodTo:     req.PeriodTo,
+		HostName:     optionalText(req.HostName),
+		Participants: optionalText(req.Participants),
+		TimeTaken:    optionalText(req.TimeTaken),
+		Tags:         tags,
+		Images:       images,
+		Attachments:  attachments,
+	}, voucherRefs, nil
+}
+
+func optionalText(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func optionalHTTPURL(value *string, field string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	normalized, err := requiredHTTPURL(*value, field)
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
+}
+
+func requiredHTTPURL(value, field string) (string, error) {
+	value = strings.TrimSpace(value)
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", fmt.Errorf("%s must be an http(s) URL", field)
+	}
+	return value, nil
+}
+
+// resolveReportWriteRelations validates vocabulary-backed fields and replaces
+// stable voucher references with internal IDs before anything is persisted.
+func (a *API) resolveReportWriteRelations(
+	c *echo.Context,
+	tx pgx.Tx,
+	report *store.ReportWrite,
+	voucherRefs []store.VoucherRef,
+) (bool, error) {
+	if handled, err := a.rejectUnknownTags(c, tx, report.Tags); handled || err != nil {
+		return handled, err
+	}
+	if len(voucherRefs) == 0 {
+		return false, nil
+	}
+
+	ids, err := a.store.ResolveVoucherRefs(c.Request().Context(), tx, voucherRefs)
+	if err != nil {
+		return true, handlePostgresError(c, err)
+	}
+	if len(ids) != len(voucherRefs) {
+		return true, respondCatalogSearchError(c, errUnknownVoucherRef)
+	}
+	report.VoucherIDs = ids
+	return false, nil
 }
 
 // parseReportCursor requires both halves of the keyset position or neither.

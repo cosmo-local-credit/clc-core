@@ -1490,7 +1490,7 @@ LIMIT $3;
 SELECT r.id, r.title, r.body, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
     r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
-    r.created_at, r.updated_at,
+    r.status, r.created_at, r.updated_at,
     r.host_name, r.participants, r.time_taken,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
@@ -1525,7 +1525,93 @@ SELECT r.id, r.title, r.body, r.description,
         WHERE rv.report_id = r.id
     ), '[]'::JSONB) AS vouchers
 FROM reports r
-WHERE r.id = $1 AND r.status = 'APPROVED';
+WHERE r.id = $1 AND ($2 OR r.status = 'APPROVED');
+
+-- Report writes. author_address is set only by the insert and never appears in
+-- the update statement: the wallet that created a post remains its original
+-- author even when a superadmin later corrects it. A normal user's post starts
+-- SUBMITTED; a superadmin may create it already APPROVED because that caller
+-- has the same authority as the explicit approval endpoint.
+--name: create-report
+INSERT INTO reports (
+    title, body, description, image_url, geo_lat, geo_lng,
+    period_from, period_to, author_address, status,
+    host_name, participants, time_taken
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id;
+
+-- The ownership decision and the write share one transaction. Locking the row
+-- closes the gap in which a concurrent admin delete could otherwise happen
+-- between checking the author and applying the edit.
+--name: lock-report-author
+SELECT author_address
+FROM reports
+WHERE id = $1
+FOR UPDATE;
+
+-- Assign-all editing. source_id, author_address, status and created_at are
+-- deliberately absent: they are provenance/workflow state, not post content.
+--name: update-report
+UPDATE reports
+SET title = $2,
+    body = $3,
+    description = $4,
+    image_url = $5,
+    geo_lat = $6,
+    geo_lng = $7,
+    period_from = $8,
+    period_to = $9,
+    modifier_address = $10,
+    host_name = $11,
+    participants = $12,
+    time_taken = $13
+WHERE id = $1;
+
+-- Approval is separate from content editing. Neither an author edit nor an
+-- admin correction touches status, so an approved post stays approved and a
+-- submitted post stays submitted until a superadmin explicitly approves it.
+--name: approve-report
+UPDATE reports
+SET status = 'APPROVED', modifier_address = $2
+WHERE id = $1
+RETURNING id;
+
+--name: delete-report
+DELETE FROM reports
+WHERE id = $1
+RETURNING id;
+
+-- A post write replaces its small relation sets in the same transaction as
+-- the scalar row. Clear-and-insert makes omission mean empty and avoids a read
+-- whose only purpose would be to calculate a diff.
+--name: delete-report-tags
+DELETE FROM report_tags WHERE report_id = $1;
+
+--name: insert-report-tag
+INSERT INTO report_tags (report_id, tag_value) VALUES ($1, $2);
+
+--name: delete-report-vouchers
+DELETE FROM report_vouchers WHERE report_id = $1;
+
+--name: insert-report-voucher
+INSERT INTO report_vouchers (report_id, voucher_id) VALUES ($1, $2);
+
+--name: delete-report-images
+DELETE FROM report_images WHERE report_id = $1;
+
+--name: insert-report-image
+INSERT INTO report_images (
+    report_id, ordinal, url, width, height, max_width, max_height, byte_size, caption
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+
+--name: delete-report-attachments
+DELETE FROM report_attachments WHERE report_id = $1;
+
+--name: insert-report-attachment
+INSERT INTO report_attachments (report_id, ordinal, kind, url, filename, byte_size)
+VALUES ($1, $2, $3, $4, $5, $6);
 
 -- Returns the requested tag values that are not in the token_tag vocabulary, so
 -- a catalog filter can be rejected rather than silently narrowed. unnest keeps

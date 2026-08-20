@@ -26,6 +26,19 @@ func TestLoadCatalogQueries(t *testing.T) {
 		"list-pool-offerings-prev":    queries.ListPoolOfferingsPrev,
 		"dashboard-catalog-snapshot":  queries.DashboardCatalogSnapshot,
 		"dashboard-catalog-series":    queries.DashboardCatalogSeries,
+		"create-report":               queries.CreateReport,
+		"lock-report-author":          queries.LockReportAuthor,
+		"update-report":               queries.UpdateReport,
+		"approve-report":              queries.ApproveReport,
+		"delete-report":               queries.DeleteReport,
+		"delete-report-tags":          queries.DeleteReportTags,
+		"insert-report-tag":           queries.InsertReportTag,
+		"delete-report-vouchers":      queries.DeleteReportVouchers,
+		"insert-report-voucher":       queries.InsertReportVoucher,
+		"delete-report-images":        queries.DeleteReportImages,
+		"insert-report-image":         queries.InsertReportImage,
+		"delete-report-attachments":   queries.DeleteReportAttachments,
+		"insert-report-attachment":    queries.InsertReportAttachment,
 	} {
 		if query == "" {
 			t.Errorf("expected %s query to be loaded", name)

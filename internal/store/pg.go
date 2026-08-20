@@ -117,6 +117,19 @@ type (
 		ListReports              string `query:"list-reports"`
 		ListReportsNext          string `query:"list-reports-next"`
 		GetReport                string `query:"get-report"`
+		CreateReport             string `query:"create-report"`
+		LockReportAuthor         string `query:"lock-report-author"`
+		UpdateReport             string `query:"update-report"`
+		ApproveReport            string `query:"approve-report"`
+		DeleteReport             string `query:"delete-report"`
+		DeleteReportTags         string `query:"delete-report-tags"`
+		InsertReportTag          string `query:"insert-report-tag"`
+		DeleteReportVouchers     string `query:"delete-report-vouchers"`
+		InsertReportVoucher      string `query:"insert-report-voucher"`
+		DeleteReportImages       string `query:"delete-report-images"`
+		InsertReportImage        string `query:"insert-report-image"`
+		DeleteReportAttachments  string `query:"delete-report-attachments"`
+		InsertReportAttachment   string `query:"insert-report-attachment"`
 
 		// Bounded and unbounded market pages are separate statements so the
 		// bbox predicate never hides behind a nullable OR, which would stop

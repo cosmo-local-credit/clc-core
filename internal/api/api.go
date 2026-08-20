@@ -192,9 +192,14 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/pools/:address/offerings", a.poolOfferingsListHandler)
 
 	// Report feed for the Posts tab. Authenticated like the pool routes: Posts
-	// is a private home tab.
+	// is a private home tab. Reads also accept service credentials; mutations
+	// require a user JWT so authorship always names a user wallet.
 	apiGroup.GET("/reports", a.reportsListHandler)
 	apiGroup.GET("/reports/:id", a.reportByIDHandler)
+	apiGroup.POST("/reports", a.reportCreateHandler, a.requireUserAuth())
+	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
+	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
+	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
 

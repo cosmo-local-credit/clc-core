@@ -108,6 +108,13 @@ type (
 		ListReportsFiltered(context.Context, pgx.Tx, CatalogFilter, ReportCursor, bool, uint64) ([]Report, error)
 		ListReportTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		GetReport(context.Context, pgx.Tx, uint64) (*Report, error)
+		GetReportForMutation(context.Context, pgx.Tx, uint64) (*Report, error)
+		CreateReport(context.Context, pgx.Tx, ReportWrite, string, string) (uint64, error)
+		LockReportAuthor(context.Context, pgx.Tx, uint64) (string, error)
+		UpdateReport(context.Context, pgx.Tx, uint64, ReportWrite, string) error
+		ApproveReport(context.Context, pgx.Tx, uint64, string) error
+		ReplaceReportRelations(context.Context, pgx.Tx, uint64, ReportWrite) error
+		DeleteReport(context.Context, pgx.Tx, uint64) error
 		ListMarketVouchers(context.Context, pgx.Tx, *MarketVoucherBounds, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersNext(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersPrevious(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)

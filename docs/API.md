@@ -57,7 +57,14 @@
    - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
    - [9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)](#97-voucher-offerings-get-apiv2vouchersaddressofferings)
 10. [Pool offerings (`GET /api/v2/pools/:address/offerings`)](#10-pool-offerings-get-apiv2poolsaddressofferings)
-11. [Reports (`GET /api/v2/reports`)](#11-reports-get-apiv2reports)
+11. [Reports / Posts (`/api/v2/reports`)](#11-reports--posts-apiv2reports)
+   - [Feed (`GET /api/v2/reports`)](#111-feed-get-apiv2reports)
+   - [Detail (`GET /api/v2/reports/:id`)](#112-detail-get-apiv2reportsid)
+   - [Write contract](#113-write-contract)
+   - [Create (`POST /api/v2/reports`)](#114-create-post-apiv2reports)
+   - [Update (`PUT /api/v2/reports/:id`)](#115-update-put-apiv2reportsid)
+   - [Approve (`PUT /api/v2/reports/:id/approve`)](#116-approve-put-apiv2reportsidapprove)
+   - [Delete (`DELETE /api/v2/reports/:id`)](#117-delete-delete-apiv2reportsid)
 
 ---
 
@@ -1786,14 +1793,22 @@ one belongs to. The response body is otherwise byte-identical in shape to
 
 ---
 
-## 11. Reports (`GET /api/v2/reports`)
+## 11. Reports / Posts (`/api/v2/reports`)
 
 The Posts feed. **Authentication required** — Posts is a private home tab, so
 these routes sit on the authenticated API group.
 
-Only `APPROVED` reports are returned. `DRAFT`, `SUBMITTED`, and `REJECTED` are
-invisible on both routes, and an unapproved id is a `404` rather than a `403`:
-whether a draft exists is not public information.
+| Operation | User JWT | Service JWT | `SUPERADMIN` user JWT |
+|---|---|---|---|
+| List and detail | Yes | Yes | Yes |
+| Create | Yes, as `SUBMITTED` | No | Yes, as `APPROVED` |
+| Update | Original author only | No | Any post |
+| Approve | No | No | Any post |
+| Delete | No | No | Any post |
+
+Only `APPROVED` reports are returned by the two read routes. `DRAFT`,
+`SUBMITTED`, and `REJECTED` are invisible there, and an unapproved id is a
+`404` rather than a `403`: whether a draft exists is not public information.
 
 ### 11.1 Feed (`GET /api/v2/reports`)
 
@@ -1854,8 +1869,9 @@ never a place name. Use `geoLat` / `geoLng`.
 GET /api/v2/reports/3182
 ```
 
-Returns one report under `result.report` with every feed field plus `body`,
-`images`, `attachments`, `hostName`, `participants`, and `timeTaken`.
+Returns one report under `result.report` with every feed field plus `status`
+(`APPROVED` on this read route), `body`, `images`, `attachments`, `hostName`,
+`participants`, and `timeTaken`.
 
 Since migration 010 **none of this is parsed at request time.** The editor
 document used to live in `reports.body` as JSONB and this route re-derived the
@@ -1905,3 +1921,186 @@ One gap remains at the column level: six approved reports store a base64
 `null` for those rather than the URI. They are not nulled in storage because
 four of the six have no other image, so the fix is a CDN re-upload, not a
 delete.
+
+### 11.3 Write contract
+
+`POST` and `PUT` use the same JSON document. `title` is the only required
+content field; every other scalar is optional. Collections may be omitted or
+sent as empty arrays.
+
+```json
+{
+  "title": "August community harvest",
+  "body": "## Harvest\n\nTwenty members took part.",
+  "description": "A summary shown in the Posts feed.",
+  "imageUrl": "https://content.example/posts/harvest-cover.jpg",
+  "geoLat": -1.2864,
+  "geoLng": 36.8172,
+  "periodFrom": "2026-08-01T08:00:00Z",
+  "periodTo": "2026-08-01T12:00:00Z",
+  "hostName": "Wendo Group",
+  "participants": "20",
+  "timeTaken": "4 hours",
+  "tags": ["Agriculture", "Youth"],
+  "vouchers": [
+    {
+      "chainId": 42220,
+      "address": "0x0000000000000000000000000000000000000001"
+    }
+  ],
+  "images": [
+    {
+      "url": "https://content.example/posts/harvest-1.jpg",
+      "width": 720,
+      "height": 1080,
+      "maxWidth": 1440,
+      "maxHeight": 2160,
+      "byteSize": 245761,
+      "caption": "Sorting the harvest"
+    }
+  ],
+  "attachments": [
+    {
+      "kind": "FILE",
+      "url": "https://content.example/posts/harvest-notes.pdf",
+      "filename": "harvest-notes.pdf",
+      "byteSize": 81920
+    }
+  ]
+}
+```
+
+| Field | Validation and storage rule |
+|---|---|
+| `title` | Required, non-blank, maximum 200 characters; surrounding whitespace is removed |
+| `body` | Markdown text, maximum 500,000 characters; never editor JSON |
+| `description` | Feed summary, maximum 10,000 characters |
+| `imageUrl` | Optional `http(s)` URL; `null` or omission clears it on `PUT` |
+| `geoLat`, `geoLng` | Must be sent together; latitude `-90..90`, longitude `-180..180` |
+| `periodFrom`, `periodTo` | RFC3339 timestamps; if both are set, `periodFrom <= periodTo` |
+| `hostName` | Optional issuer free text, maximum 200 characters |
+| `participants`, `timeTaken` | Optional issuer free text, maximum 100 characters each |
+| `tags` | At most 12 values from the existing `token_tag` vocabulary; duplicates are removed |
+| `vouchers` | At most 12 stable `{chainId,address}` references; every referenced voucher must exist |
+| `images` | At most 50, in document order; URLs must be unique within the post and use `http(s)` |
+| `attachments` | At most 20, in document order; `kind` is `FILE` or `EMBED`, and URLs use `http(s)` |
+
+`PUT` is **assign-all**, not patch semantics. It replaces every editable scalar
+and all four relation sets (`tags`, `vouchers`, `images`, `attachments`) in one
+transaction. Omitting an optional scalar clears it; omitting a collection
+replaces that collection with an empty set. A validation or database failure
+leaves the existing post unchanged.
+
+The client cannot send `authorAddress`, `modifierAddress`, `status`, `sourceId`,
+or timestamps. The server derives the immutable original author from the user
+JWT. An edit records the caller as the modifier but never transfers authorship
+or changes approval state. In particular, editing an `APPROVED` post leaves it
+`APPROVED`; no reapproval is required.
+
+### 11.4 Create (`POST /api/v2/reports`)
+
+Requires a user JWT; service JWTs receive `403 E10`. A normal user's new post is
+stored as `SUBMITTED` and remains absent from the feed and detail routes until a
+superadmin approves it. A `SUPERADMIN`-created post is stored as `APPROVED`
+immediately because that caller already holds approval authority.
+
+```http
+POST /api/v2/reports
+Content-Type: application/json
+Cookie: __clc_auth=<user-jwt>
+```
+
+Success is `201 Created` and returns the complete created report:
+
+```json
+{
+  "ok": true,
+  "description": "Report created",
+  "result": {
+    "report": {
+      "id": 4633,
+      "title": "August community harvest",
+      "authorAddress": "0x0000000000000000000000000000000000000011",
+      "status": "SUBMITTED",
+      "tags": ["Agriculture", "Youth"],
+      "vouchers": [],
+      "images": [],
+      "attachments": [],
+      "createdAt": "2026-08-20T10:00:00Z",
+      "updatedAt": "2026-08-20T10:00:00Z"
+    }
+  }
+}
+```
+
+### 11.5 Update (`PUT /api/v2/reports/:id`)
+
+Requires a user JWT. The caller must be either the report's immutable original
+author or a `SUPERADMIN`. The ownership row is locked and checked in the same
+transaction as the update, so authorization cannot race a concurrent delete or
+edit. Another user receives `403 E10`.
+
+```http
+PUT /api/v2/reports/4633
+Content-Type: application/json
+Cookie: __clc_auth=<author-or-admin-jwt>
+```
+
+The request body is the complete [write document](#113-write-contract).
+Success is `200 OK` with description `Report updated` and the complete report
+under `result.report`.
+
+An authorized edit always preserves the existing workflow status:
+
+- A `SUBMITTED`, `DRAFT`, or `REJECTED` post keeps that status and the normal
+  detail route continues to answer `404` until a superadmin approves it.
+- An `APPROVED` post stays approved after either an author or admin edit and is
+  still visible immediately; editing never sends it back for reapproval.
+
+The mutation response includes `status` and returns the row to its authorized
+caller even when the normal detail route hides it.
+
+### 11.6 Approve (`PUT /api/v2/reports/:id/approve`)
+
+Approval is `SUPERADMIN`-only. Normal users and service credentials receive
+`403 E10`. No request body is required.
+
+```http
+PUT /api/v2/reports/4633/approve
+Cookie: __clc_auth=<superadmin-jwt>
+```
+
+The endpoint changes only `status` to `APPROVED` and records the superadmin as
+the latest modifier. It does not rewrite the post body or any relation. Calling
+it for an already-approved post is idempotent in state and returns `200 OK` with
+description `Report approved` and the complete report under `result.report`.
+
+Once approved, the post appears in the feed and detail routes. Later author or
+admin edits preserve `APPROVED` and do not require this endpoint again.
+
+### 11.7 Delete (`DELETE /api/v2/reports/:id`)
+
+Deletion is `SUPERADMIN`-only. Original authors cannot delete their own posts;
+normal user and service credentials receive `403 E10`. Deleting the report also
+deletes its tags, voucher links, images, attachments, and verifiers through the
+existing foreign-key cascades.
+
+```http
+DELETE /api/v2/reports/4633
+Cookie: __clc_auth=<superadmin-jwt>
+```
+
+Success is `200 OK`:
+
+```json
+{
+  "ok": true,
+  "description": "Report deleted",
+  "result": { "id": 4633 }
+}
+```
+
+The mutation routes return `400 E02` for malformed JSON, `400 E04` for
+invalid fields or unknown tag/voucher references, `401 E06` without valid
+authentication, `403 E10` when the credential lacks permission, and `404 E03`
+when `:id` does not exist.
