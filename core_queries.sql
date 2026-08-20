@@ -827,6 +827,42 @@ LEFT JOIN pool_tags pt ON pt.pool_id = p.id
 WHERE lower(p.address) = lower($1)
 GROUP BY p.id;
 
+-- Operator edits to a pool's off-chain record (PUT /admin/pools/:address/profile).
+--
+-- Only catalog metadata: nothing here has an on-chain counterpart, so an edit
+-- cannot put the row out of step with the contract. Name, symbol, decimals and
+-- every dependency address are deliberately absent — those mirror SwapPool, and
+-- a catalog that disagrees with the chain about them is worse than one that
+-- cannot edit them.
+--
+-- Assign-all rather than patch: the caller sends the whole record and every
+-- column is written, so clearing a field is expressing it as empty rather than
+-- omitting it. pools_geo_valid backstops the both-or-neither coordinate rule the
+-- handler checks first.
+--name: update-pool-profile
+UPDATE pools
+SET description     = $2,
+    unit_of_account = $3,
+    email           = $4,
+    website         = $5,
+    phone           = $6,
+    terms           = $7,
+    location_name   = $8,
+    geo_lat         = $9,
+    geo_lng         = $10
+WHERE lower(address) = lower($1)
+RETURNING id;
+
+-- Tags are a junction, so a replace is a clear and a re-insert. Both run inside
+-- the caller's transaction with the profile update, or an operator who mistypes
+-- one tag loses the rest.
+--name: delete-pool-tags
+DELETE FROM pool_tags WHERE pool_id = $1;
+
+--name: insert-pool-tag
+INSERT INTO pool_tags (pool_id, tag_value) VALUES ($1, $2)
+ON CONFLICT (pool_id, tag_value) DO NOTHING;
+
 -- Pool composition projected from chain events (TRACKER.* via internal/sub).
 --
 -- The chain is the source of truth for what a pool holds: nothing else writes

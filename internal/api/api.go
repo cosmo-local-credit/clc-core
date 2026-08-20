@@ -238,6 +238,7 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/users/:address/stats", a.adminAccountStatsHandler)
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
+	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 
 	// Dashboard aggregates are a separate group so catalog mutations and

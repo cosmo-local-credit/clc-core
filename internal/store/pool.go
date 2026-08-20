@@ -101,3 +101,64 @@ func (pg *Pg) GetPoolByAddress(ctx context.Context, tx pgx.Tx, address string) (
 	}
 	return pool, nil
 }
+
+// UpdatePoolProfile writes an operator's edits to a pool's off-chain record and
+// returns the pool's id so tags can be replaced in the same transaction.
+//
+// Every column is assigned, so a caller must send the whole record: an omitted
+// field clears rather than preserves. That matches UpdateUserProfile, and the
+// alternative — patch semantics over nullable columns — cannot express clearing
+// a field at all, because JSON gives no way to tell an absent key from a null.
+func (pg *Pg) UpdatePoolProfile(
+	ctx context.Context,
+	tx pgx.Tx,
+	address string,
+	profile PoolProfile,
+) (uint64, error) {
+	var id uint64
+	err := tx.QueryRow(
+		ctx,
+		pg.queries.UpdatePoolProfile,
+		address,
+		profile.Description,
+		profile.UnitOfAccount,
+		profile.Email,
+		profile.Website,
+		profile.Phone,
+		profile.Terms,
+		profile.LocationName,
+		profile.GeoLat,
+		profile.GeoLng,
+	).Scan(&id)
+	return id, err
+}
+
+// PoolProfile is the editable half of a pool row. Nothing in it mirrors chain
+// state, which is what makes it safe for an operator to overwrite.
+type PoolProfile struct {
+	Description   *string
+	UnitOfAccount *string
+	Email         *string
+	Website       *string
+	Phone         *string
+	Terms         *string
+	LocationName  *string
+	GeoLat        *float64
+	GeoLng        *float64
+}
+
+// ReplacePoolTags swaps a pool's whole tag set.
+//
+// Clear-then-insert rather than a diff: the set is small, the caller sends all
+// of it, and a diff would need the current rows read back for no gain.
+func (pg *Pg) ReplacePoolTags(ctx context.Context, tx pgx.Tx, poolID uint64, tags []string) error {
+	if _, err := tx.Exec(ctx, pg.queries.DeletePoolTags, poolID); err != nil {
+		return err
+	}
+	for _, tag := range tags {
+		if _, err := tx.Exec(ctx, pg.queries.InsertPoolTag, poolID, tag); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -223,6 +223,25 @@ type (
 	// Geo fields match DeployTokenRequest: optional pointers, range checks.
 	// Both-or-neither is enforced in profileUpdateHandler (400 on a partial
 	// pair) and backstopped by users_geo_valid at the DB boundary.
+	// UpdatePoolProfileRequest carries a pool's editable off-chain record.
+	//
+	// Every field is optional in the JSON but assigned unconditionally by the
+	// handler, so a caller sends the whole record and omitting a field clears
+	// it. Nothing here mirrors SwapPool: name, symbol, decimals and the
+	// dependency addresses all come from the chain and are not editable.
+	UpdatePoolProfileRequest struct {
+		Description   *string  `json:"description,omitempty"   validate:"omitempty,max=500"`
+		UnitOfAccount *string  `json:"unitOfAccount,omitempty" validate:"omitempty,max=16"`
+		Email         *string  `json:"email,omitempty"         validate:"omitempty,email"`
+		Website       *string  `json:"website,omitempty"       validate:"omitempty,url"`
+		Phone         *string  `json:"phone,omitempty"`
+		Terms         *string  `json:"terms,omitempty"         validate:"omitempty,url"`
+		LocationName  *string  `json:"locationName,omitempty"  validate:"omitempty,max=200"`
+		GeoLat        *float64 `json:"geoLat,omitempty"        validate:"omitempty,min=-90,max=90"`
+		GeoLng        *float64 `json:"geoLng,omitempty"        validate:"omitempty,min=-180,max=180"`
+		Tags          []string `json:"tags,omitempty"`
+	}
+
 	UpdateProfileRequest struct {
 		Name         string   `json:"name"         validate:"omitempty,max=80"`
 		Email        string   `json:"email"        validate:"omitempty,email"`

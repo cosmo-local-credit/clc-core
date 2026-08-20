@@ -418,3 +418,105 @@ func (a *API) adminListDeploymentsHandler(c *echo.Context) error {
 		},
 	})
 }
+
+// adminUpdatePoolProfileHandler lets a superadmin correct a pool's off-chain
+// record.
+//
+// Pools had no write endpoint at all: `upsert-pool-from-deploy` fills what the
+// deploy knew and the importer fills the rest, so a mistyped steward email or a
+// missing location could only be fixed in the database by hand.
+//
+// It edits catalog metadata and nothing else. Name, symbol, decimals and every
+// dependency address mirror SwapPool, and letting an operator retype them here
+// would produce a catalog that disagrees with the chain — with the catalog
+// winning on every screen that reads it. Those change by transacting, not by
+// editing a form.
+//
+// Assign-all, like the account profile handler beside it: the caller sends the
+// whole record and every column is written, so clearing a field means sending it
+// empty. Tags are replaced in the same transaction, so a rejected tag value
+// leaves the profile edit unapplied rather than half-saved.
+func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
+	address, handled, err := adminUserAddress(c)
+	if handled || err != nil {
+		return err
+	}
+
+	var req apiresp.UpdatePoolProfileRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	// A label without coordinates, or coordinates without a label, describes a
+	// place nobody can point at. pools_geo_valid backstops this at the database,
+	// but a 400 names the field the caller got wrong.
+	if (req.GeoLat == nil) != (req.GeoLng == nil) {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "Validation failed: geoLat and geoLng must be provided together",
+		})
+	}
+
+	ctx := c.Request().Context()
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Same vocabulary check the catalog search applies, so a tag cannot enter
+	// through this endpoint that no filter could ever select.
+	if rejected, err := a.rejectUnknownTags(c, tx, req.Tags); rejected || err != nil {
+		return err
+	}
+
+	poolID, err := a.store.UpdatePoolProfile(ctx, tx, address, store.PoolProfile{
+		Description:   req.Description,
+		UnitOfAccount: req.UnitOfAccount,
+		Email:         req.Email,
+		Website:       req.Website,
+		Phone:         req.Phone,
+		Terms:         req.Terms,
+		LocationName:  req.LocationName,
+		GeoLat:        req.GeoLat,
+		GeoLng:        req.GeoLng,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeNotFound,
+				Description: "pool not found",
+			})
+		}
+		return handlePostgresError(c, err)
+	}
+
+	if err := a.store.ReplacePoolTags(ctx, tx, poolID, req.Tags); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	pool, err := a.store.GetPoolByAddress(ctx, tx, address)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// The whole row, so a console can write the response straight into its cache
+	// rather than refetching what it just sent.
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Pool profile updated",
+		Result: map[string]any{
+			"pool": pool,
+		},
+	})
+}
