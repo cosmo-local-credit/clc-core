@@ -109,7 +109,7 @@ func TestAdminTxSeqOrdersByChainPosition(t *testing.T) {
 	laterLog := adminTxSeq(100, 3)
 	laterTx := adminTxSeq(101, 0)
 
-	if !(earlierLog < laterLog && laterLog < laterTx) {
+	if earlierLog >= laterLog || laterLog >= laterTx {
 		t.Fatalf("packing lost chain order: %d, %d, %d", earlierLog, laterLog, laterTx)
 	}
 }
@@ -169,7 +169,7 @@ func TestAdminTxArmsShareOneProjection(t *testing.T) {
 
 func aliasesOf(columns string) []string {
 	aliases := make([]string, 0, 8)
-	for _, column := range strings.Split(columns, ", ") {
+	for column := range strings.SplitSeq(columns, ", ") {
 		parts := strings.Split(column, " AS ")
 		aliases = append(aliases, parts[len(parts)-1])
 	}

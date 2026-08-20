@@ -110,53 +110,55 @@ const (
 	adminTxZeroAddress = "0x0000000000000000000000000000000000000000"
 )
 
+var (
+	adminVoucherArms = []adminTxArm{
+		{
+			kind:          "transfer",
+			table:         "chain_data_v2.token_transfer",
+			columns:       "ev.contract_address AS voucher, ev.sender_address AS from_address, ev.recipient_address AS to_address, ev.transfer_value::text AS amount",
+			searchColumns: []string{"ev.contract_address", "ev.sender_address", "ev.recipient_address"},
+			// _mint and _burn each emit a Transfer log with the zero address on one
+			// side, so every mint and every burn is in token_transfer as well as in
+			// its own table. Dropping those two rows here is what keeps one movement
+			// to one row; without it a mint appears twice, once with no minter.
+			exclude: "ev.sender_address <> '" + adminTxZeroAddress + "' AND ev.recipient_address <> '" + adminTxZeroAddress + "'",
+		},
+		{
+			kind:          "mint",
+			table:         "chain_data_v2.token_mint",
+			columns:       "ev.contract_address AS voucher, ev.minter_address AS from_address, ev.recipient_address AS to_address, ev.mint_value::text AS amount",
+			searchColumns: []string{"ev.contract_address", "ev.minter_address", "ev.recipient_address"},
+		},
+		{
+			kind:          "burn",
+			table:         "chain_data_v2.token_burn",
+			columns:       "ev.contract_address AS voucher, ev.burner_address AS from_address, NULL::text AS to_address, ev.burn_value::text AS amount",
+			searchColumns: []string{"ev.contract_address", "ev.burner_address"},
+		},
+	}
+
+	adminPoolArms = []adminTxArm{
+		{
+			kind:          "swap",
+			table:         "chain_data_v2.pool_swap",
+			columns:       "ev.contract_address AS pool, ev.initiator_address AS initiator, ev.token_in_address AS token_in, ev.token_out_address AS token_out, ev.in_value::text AS amount_in, ev.out_value::text AS amount_out, ev.fee::text AS fee",
+			searchColumns: []string{"ev.contract_address", "ev.initiator_address", "ev.token_in_address", "ev.token_out_address"},
+		},
+		{
+			kind:          "deposit",
+			table:         "chain_data_v2.pool_deposit",
+			columns:       "ev.contract_address AS pool, ev.initiator_address AS initiator, ev.token_in_address AS token_in, NULL::text AS token_out, ev.in_value::text AS amount_in, NULL::text AS amount_out, NULL::text AS fee",
+			searchColumns: []string{"ev.contract_address", "ev.initiator_address", "ev.token_in_address"},
+		},
+	}
+)
+
 func adminTxSeq(txID, logIndex int64) uint64 {
 	return uint64(txID*adminTxSeqScale + logIndex)
 }
 
 func splitAdminTxSeq(seq uint64) (txID, logIndex int64) {
 	return int64(seq / adminTxSeqScale), int64(seq % adminTxSeqScale)
-}
-
-var adminVoucherArms = []adminTxArm{
-	{
-		kind:          "transfer",
-		table:         "chain_data_v2.token_transfer",
-		columns:       "ev.contract_address AS voucher, ev.sender_address AS from_address, ev.recipient_address AS to_address, ev.transfer_value::text AS amount",
-		searchColumns: []string{"ev.contract_address", "ev.sender_address", "ev.recipient_address"},
-		// _mint and _burn each emit a Transfer log with the zero address on one
-		// side, so every mint and every burn is in token_transfer as well as in
-		// its own table. Dropping those two rows here is what keeps one movement
-		// to one row; without it a mint appears twice, once with no minter.
-		exclude: "ev.sender_address <> '" + adminTxZeroAddress + "' AND ev.recipient_address <> '" + adminTxZeroAddress + "'",
-	},
-	{
-		kind:          "mint",
-		table:         "chain_data_v2.token_mint",
-		columns:       "ev.contract_address AS voucher, ev.minter_address AS from_address, ev.recipient_address AS to_address, ev.mint_value::text AS amount",
-		searchColumns: []string{"ev.contract_address", "ev.minter_address", "ev.recipient_address"},
-	},
-	{
-		kind:          "burn",
-		table:         "chain_data_v2.token_burn",
-		columns:       "ev.contract_address AS voucher, ev.burner_address AS from_address, NULL::text AS to_address, ev.burn_value::text AS amount",
-		searchColumns: []string{"ev.contract_address", "ev.burner_address"},
-	},
-}
-
-var adminPoolArms = []adminTxArm{
-	{
-		kind:          "swap",
-		table:         "chain_data_v2.pool_swap",
-		columns:       "ev.contract_address AS pool, ev.initiator_address AS initiator, ev.token_in_address AS token_in, ev.token_out_address AS token_out, ev.in_value::text AS amount_in, ev.out_value::text AS amount_out, ev.fee::text AS fee",
-		searchColumns: []string{"ev.contract_address", "ev.initiator_address", "ev.token_in_address", "ev.token_out_address"},
-	},
-	{
-		kind:          "deposit",
-		table:         "chain_data_v2.pool_deposit",
-		columns:       "ev.contract_address AS pool, ev.initiator_address AS initiator, ev.token_in_address AS token_in, NULL::text AS token_out, ev.in_value::text AS amount_in, NULL::text AS amount_out, NULL::text AS fee",
-		searchColumns: []string{"ev.contract_address", "ev.initiator_address", "ev.token_in_address"},
-	},
 }
 
 // AdminVoucherTxKinds is the set of `type` values the voucher page accepts, in

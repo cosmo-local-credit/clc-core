@@ -52,6 +52,26 @@ type (
 		CreatedAt                    time.Time `db:"created_at"                      json:"createdAt"`
 		UpdatedAt                    time.Time `db:"updated_at"                      json:"updatedAt"`
 	}
+
+	// PoolProfile is the editable half of a pool row. Nothing in it mirrors chain
+	// state, which is what makes it safe for an operator to overwrite.
+	//
+	// ImageURL and BannerURL are the exception to the assign-all rule the statement
+	// documents: nil preserves what is stored, and a pointer to "" clears it. A
+	// client that predates pool images therefore cannot blank them.
+	PoolProfile struct {
+		Description   *string
+		UnitOfAccount *string
+		Email         *string
+		Website       *string
+		Phone         *string
+		Terms         *string
+		LocationName  *string
+		GeoLat        *float64
+		GeoLng        *float64
+		ImageURL      *string
+		BannerURL     *string
+	}
 )
 
 func (pg *Pg) ListPools(ctx context.Context, tx pgx.Tx, limit uint64) ([]Pool, error) {
@@ -133,26 +153,6 @@ func (pg *Pg) UpdatePoolProfile(
 		profile.BannerURL,
 	).Scan(&id)
 	return id, err
-}
-
-// PoolProfile is the editable half of a pool row. Nothing in it mirrors chain
-// state, which is what makes it safe for an operator to overwrite.
-//
-// ImageURL and BannerURL are the exception to the assign-all rule the statement
-// documents: nil preserves what is stored, and a pointer to "" clears it. A
-// client that predates pool images therefore cannot blank them.
-type PoolProfile struct {
-	Description   *string
-	UnitOfAccount *string
-	Email         *string
-	Website       *string
-	Phone         *string
-	Terms         *string
-	LocationName  *string
-	GeoLat        *float64
-	GeoLng        *float64
-	ImageURL      *string
-	BannerURL     *string
 }
 
 // ReplacePoolTags swaps a pool's whole tag set.

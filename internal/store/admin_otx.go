@@ -8,58 +8,73 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// AdminOTX is one origin transaction as the operator console lists it.
-//
-// Distinct from OTX, which the per-account and per-tracking-ID reads answer
-// with: this omits raw_tx. A page of a hundred raw signed transactions is a
-// payload no screen reads, and it dwarfs everything else in the row.
-type AdminOTX struct {
-	ID         uint64 `db:"id"          json:"id"`
-	TrackingID string `db:"tracking_id" json:"trackingId"`
-	OTXType    string `db:"otx_type"    json:"otxType"`
-	// The service signer that sent it. Every row here originates with clc-core,
-	// so this is one of our keystore accounts rather than a user address.
-	Signer    string    `db:"public_key" json:"signer"`
-	TxHash    string    `db:"tx_hash"    json:"txHash"`
-	Nonce     uint64    `db:"nonce"      json:"nonce"`
-	Replaced  bool      `db:"replaced"   json:"replaced"`
-	Status    string    `db:"status"     json:"status"`
-	CreatedAt time.Time `db:"created_at" json:"createdAt"`
-	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
-}
+type (
+	// AdminOTX is one origin transaction as the operator console lists it.
+	//
+	// Distinct from OTX, which the per-account and per-tracking-ID reads answer
+	// with: this omits raw_tx. A page of a hundred raw signed transactions is a
+	// payload no screen reads, and it dwarfs everything else in the row.
+	AdminOTX struct {
+		ID         uint64 `db:"id"          json:"id"`
+		TrackingID string `db:"tracking_id" json:"trackingId"`
+		OTXType    string `db:"otx_type"    json:"otxType"`
+		// The service signer that sent it. Every row here originates with clc-core,
+		// so this is one of our keystore accounts rather than a user address.
+		Signer    string    `db:"public_key" json:"signer"`
+		TxHash    string    `db:"tx_hash"    json:"txHash"`
+		Nonce     uint64    `db:"nonce"      json:"nonce"`
+		Replaced  bool      `db:"replaced"   json:"replaced"`
+		Status    string    `db:"status"     json:"status"`
+		CreatedAt time.Time `db:"created_at" json:"createdAt"`
+		UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
+	}
+)
 
-// OTXTypes is otx_tx_type, in the order migration 001 seeds it: the deploy
-// pipeline first, then the relayer, then account registration.
-var OTXTypes = []string{
-	TOKEN_PROXY_DEPLOY,
-	"POOL_DEPLOY_STEP",
-	POOL_PROXY_DEPLOY,
-	POOL_TOKEN_INDEX_DEPLOY,
-	POOL_LIMITER_DEPLOY,
-	POOL_FEE_POLICY_DEPLOY,
-	POOL_ORACLE_QUOTER_DEPLOY,
-	POOL_RELATIVE_QUOTER_DEPLOY,
-	PROXY_UPGRADE,
-	RELAY_DELEGATE,
-	RELAY_EXEC,
-	RELAY_DELEGATE_EXEC,
-	ACCOUNT_REGISTER,
-}
+const (
+	adminOTXSearchPageProjection = `
+	SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.tx_hash,
+	    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+	FROM page
+	INNER JOIN otx ON otx.id = page.id
+	INNER JOIN dispatch d ON otx.id = d.otx_id
+	INNER JOIN keystore k ON otx.signer_account = k.id
+	ORDER BY otx.id DESC;`
+)
 
-// DispatchStatuses is dispatch_status_type: the lifecycle first, then the six
-// ways a dispatch fails to reach the chain.
-var DispatchStatuses = []string{
-	"PENDING",
-	"IN_NETWORK",
-	"SUCCESS",
-	"REVERTED",
-	"LOW_NONCE",
-	"NO_GAS",
-	"LOW_GAS_PRICE",
-	"NETWORK_ERROR",
-	"REPLACEMENT_UNDERPRICED",
-	"UNKNOWN_RPC_ERROR",
-}
+var (
+	// OTXTypes is otx_tx_type, in the order migration 001 seeds it: the deploy
+	// pipeline first, then the relayer, then account registration.
+	OTXTypes = []string{
+		TOKEN_PROXY_DEPLOY,
+		"POOL_DEPLOY_STEP",
+		POOL_PROXY_DEPLOY,
+		POOL_TOKEN_INDEX_DEPLOY,
+		POOL_LIMITER_DEPLOY,
+		POOL_FEE_POLICY_DEPLOY,
+		POOL_ORACLE_QUOTER_DEPLOY,
+		POOL_RELATIVE_QUOTER_DEPLOY,
+		PROXY_UPGRADE,
+		RELAY_DELEGATE,
+		RELAY_EXEC,
+		RELAY_DELEGATE_EXEC,
+		ACCOUNT_REGISTER,
+	}
+
+	// DispatchStatuses is dispatch_status_type: the lifecycle first, then the six
+	// ways a dispatch fails to reach the chain.
+	DispatchStatuses = []string{
+		"PENDING",
+		"IN_NETWORK",
+		"SUCCESS",
+		"REVERTED",
+		"LOW_NONCE",
+		"NO_GAS",
+		"LOW_GAS_PRICE",
+		"NETWORK_ERROR",
+		"REPLACEMENT_UNDERPRICED",
+		"UNKNOWN_RPC_ERROR",
+	}
+)
 
 // ListAdminOTX answers one cursor page of origin transactions, newest first.
 // An empty otxType or status means "every one"; both are validated by the
@@ -92,15 +107,6 @@ func (pg *Pg) ListAdminOTX(ctx context.Context, tx pgx.Tx, otxType, status strin
 	}
 	return rows, nil
 }
-
-const adminOTXSearchPageProjection = `
-SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.tx_hash,
-    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
-FROM page
-INNER JOIN otx ON otx.id = page.id
-INNER JOIN dispatch d ON otx.id = d.otx_id
-INNER JOIN keystore k ON otx.signer_account = k.id
-ORDER BY otx.id DESC;`
 
 // composeAdminOTXSearchPage is the searched counterpart to the three named
 // OTX statements. It is composed from typed page directions and constant column

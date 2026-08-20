@@ -2,7 +2,6 @@ package sub
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"testing"
 
@@ -13,6 +12,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type (
+	call struct {
+		method string
+		args   []any
+	}
+
+	// Only the four projection methods are implemented. The embedded interface is
+	// nil, so any other call panics rather than passing silently — this test is
+	// about which write a given event produces, and a wrong one must not go unseen.
+	recordingStore struct {
+		store.Store
+
+		calls []call
+	}
+)
+
 const (
 	testRegistry   = "0xaDfB1e9CA7de2c0718fe7F4F2750e2e81479327d"
 	testLimiter    = "0xea5Cda0799d664cdAF5572cEc16b792eA4789619"
@@ -21,19 +36,6 @@ const (
 	testToken      = "0xE74B7fDeda8f66A01dC438A012b1eE5cc377298D"
 	testAggregator = "0x0826492a24b1dBd1d8fcB4701b38C557CE685e9D"
 )
-
-type call struct {
-	method string
-	args   []any
-}
-
-// Only the four projection methods are implemented. The embedded interface is
-// nil, so any other call panics rather than passing silently — this test is
-// about which write a given event produces, and a wrong one must not go unseen.
-type recordingStore struct {
-	store.Store
-	calls []call
-}
 
 func (r *recordingStore) SetPoolTokenMembership(
 	_ context.Context, _ pgx.Tx, registry, token string, allowed bool,
@@ -67,7 +69,7 @@ func newTestSub() (*Sub, *recordingStore) {
 	recorder := &recordingStore{}
 	return &Sub{
 		store: recorder,
-		logg:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		logg:  slog.New(slog.DiscardHandler),
 	}, recorder
 }
 

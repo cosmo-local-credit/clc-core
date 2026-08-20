@@ -106,24 +106,45 @@ func adminChainTxPage[T any](
 	})
 }
 
-func (a *API) adminVoucherTransactionsHandler(c *echo.Context) error {
+// adminChainTxQuery reads everything the two chain-backed pages parse before they
+// diverge: the federation dependency, the cursor page, the `type` and contract
+// filters, and the free-text term. handled = true means the error response is
+// already written.
+//
+// Extracted because the two handlers were byte-identical here, differing only in
+// which kinds they accept and which contract parameter they name — and a filter
+// fixed on one page but not the other is exactly the bug that shape invites.
+func (a *API) adminChainTxQuery(
+	c *echo.Context,
+	kinds []string,
+	contractParam string,
+) (page paginationParams, kind, contract string, search store.AdminTransactionSearch, handled bool, err error) {
 	if a.federationStore == nil {
-		return respondFederationUnavailable(c)
+		return page, "", "", search, true, respondFederationUnavailable(c)
 	}
-	pagination, err := bindCatalogPagination(c)
+	page, err = bindCatalogPagination(c)
 	if err != nil {
-		return err
+		return page, "", "", search, true, err
 	}
-	kind, voucher, handled, err := adminTxFilters(c, store.AdminVoucherTxKinds(), "voucher")
+	kind, contract, handled, err = adminTxFilters(c, kinds, contractParam)
+	if handled {
+		return page, "", "", search, true, err
+	}
+	search, err = store.NewAdminTransactionSearch(c.QueryParam("q"))
+	if err != nil {
+		return page, "", "", search, true, respondCatalogSearchError(c, err)
+	}
+	return page, kind, contract, search, false, nil
+}
+
+func (a *API) adminVoucherTransactionsHandler(c *echo.Context) error {
+	page, kind, voucher, search, handled, err := a.adminChainTxQuery(
+		c, store.AdminVoucherTxKinds(), "voucher")
 	if handled {
 		return err
 	}
-	search, err := store.NewAdminTransactionSearch(c.QueryParam("q"))
-	if err != nil {
-		return respondCatalogSearchError(c, err)
-	}
 
-	return adminChainTxPage(c, a, pagination, "transactions", "Voucher transactions",
+	return adminChainTxPage(c, a, page, "transactions", "Voucher transactions",
 		func(row store.AdminVoucherTransaction) uint64 { return row.ID },
 		func(ctx context.Context, cursor *uint64, limit uint64, next bool) ([]store.AdminVoucherTransaction, error) {
 			return a.federationStore.ListAdminVoucherTransactions(ctx, cursor, limit, next, kind, voucher, search)
@@ -132,23 +153,13 @@ func (a *API) adminVoucherTransactionsHandler(c *echo.Context) error {
 }
 
 func (a *API) adminPoolTransactionsHandler(c *echo.Context) error {
-	if a.federationStore == nil {
-		return respondFederationUnavailable(c)
-	}
-	pagination, err := bindCatalogPagination(c)
-	if err != nil {
-		return err
-	}
-	kind, pool, handled, err := adminTxFilters(c, store.AdminPoolTxKinds(), "pool")
+	page, kind, pool, search, handled, err := a.adminChainTxQuery(
+		c, store.AdminPoolTxKinds(), "pool")
 	if handled {
 		return err
 	}
-	search, err := store.NewAdminTransactionSearch(c.QueryParam("q"))
-	if err != nil {
-		return respondCatalogSearchError(c, err)
-	}
 
-	return adminChainTxPage(c, a, pagination, "transactions", "Pool transactions",
+	return adminChainTxPage(c, a, page, "transactions", "Pool transactions",
 		func(row store.AdminPoolTransaction) uint64 { return row.ID },
 		func(ctx context.Context, cursor *uint64, limit uint64, next bool) ([]store.AdminPoolTransaction, error) {
 			return a.federationStore.ListAdminPoolTransactions(ctx, cursor, limit, next, kind, pool, search)

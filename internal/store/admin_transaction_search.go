@@ -1,15 +1,19 @@
 package store
 
-import "strings"
+import (
+	"strings"
+)
 
-// AdminTransactionSearch is the validated free-text filter the operator uses
-// across the transaction lists. It follows the account directory's term
-// contract: one shared normalization and length limit means a half-typed query
-// never turns into an unbounded request on one screen but a 400 on another.
-type AdminTransactionSearch struct {
-	// Term is normalized search text. Empty means no search predicate.
-	Term string
-}
+type (
+	// AdminTransactionSearch is the validated free-text filter the operator uses
+	// across the transaction lists. It follows the account directory's term
+	// contract: one shared normalization and length limit means a half-typed query
+	// never turns into an unbounded request on one screen but a 400 on another.
+	AdminTransactionSearch struct {
+		// Term is normalized search text. Empty means no search predicate.
+		Term string
+	}
+)
 
 // NewAdminTransactionSearch normalizes and validates an operator's query.
 func NewAdminTransactionSearch(raw string) (AdminTransactionSearch, error) {
