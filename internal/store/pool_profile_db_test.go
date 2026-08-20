@@ -159,3 +159,80 @@ func lowerHex(address string) string {
 	}
 	return string(lowered)
 }
+
+// Images are the one exception to this statement's assign-all rule, so they get
+// their own test: the deployed console sends no image fields, and if omission
+// cleared them it would blank a pool's images every time an operator fixed a
+// typo in its description.
+func TestUpdatePoolProfilePreservesImagesWhenOmitted(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	poolID, address := seedEditablePool(t, tx)
+	image, banner := "https://content.example/pool_400_a3f91c2e.webp", "https://content.example/pool_1280_b1c2d3e4.webp"
+	require.NoError(t, func() error {
+		_, err := tx.Exec(ctx, `UPDATE pools SET image_url = $2, banner_url = $3 WHERE id = $1`,
+			poolID, image, banner)
+		return err
+	}())
+
+	// A profile edit that says nothing about images.
+	desc := "Edited by an older client"
+	_, err := pg.UpdatePoolProfile(ctx, tx, address, PoolProfile{Description: &desc})
+	require.NoError(t, err)
+
+	gotImage, gotBanner := readPoolImages(t, tx, poolID)
+	require.NotNil(t, gotImage)
+	require.NotNil(t, gotBanner)
+	assert.Equal(t, image, *gotImage)
+	assert.Equal(t, banner, *gotBanner)
+}
+
+func TestUpdatePoolProfileWritesAndClearsImages(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	poolID, address := seedEditablePool(t, tx)
+
+	image := "https://content.example/pool_400_a3f91c2e.webp"
+	_, err := pg.UpdatePoolProfile(ctx, tx, address, PoolProfile{ImageURL: &image})
+	require.NoError(t, err)
+
+	gotImage, gotBanner := readPoolImages(t, tx, poolID)
+	require.NotNil(t, gotImage)
+	assert.Equal(t, image, *gotImage)
+	assert.Nil(t, gotBanner, "a banner nobody set stays unset")
+
+	// Clearing needs a value, not an absence: "" is the only way to say "remove
+	// it", because an omitted field preserves.
+	empty := ""
+	_, err = pg.UpdatePoolProfile(ctx, tx, address, PoolProfile{ImageURL: &empty})
+	require.NoError(t, err)
+
+	cleared, _ := readPoolImages(t, tx, poolID)
+	assert.Nil(t, cleared, "an empty string must clear the image")
+}
+
+// The database refuses what the API refuses, so a direct write cannot leave a
+// data URI where every screen expects a URL.
+func TestUpdatePoolProfileRejectsANonHttpImage(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	_, address := seedEditablePool(t, tx)
+
+	dataURI := "data:image/jpeg;base64,/9j/4AAQSkZJRg"
+	_, err := pg.UpdatePoolProfile(ctx, tx, address, PoolProfile{ImageURL: &dataURI})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pools_image_urls_http")
+}
+
+func readPoolImages(t *testing.T, tx pgx.Tx, poolID uint64) (image, banner *string) {
+	t.Helper()
+	require.NoError(t, tx.QueryRow(context.Background(), `
+		SELECT image_url, banner_url FROM pools WHERE id = $1`, poolID).Scan(&image, &banner))
+	return image, banner
+}

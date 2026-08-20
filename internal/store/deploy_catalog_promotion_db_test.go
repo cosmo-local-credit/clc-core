@@ -592,3 +592,81 @@ func TestPromotedVoucherIsVisibleToCatalogReads(t *testing.T) {
 	assert.Equal(t, int32(6), *after[0].Decimals)
 	assert.Equal(t, strings.ToLower(tokenAddress), strings.ToLower(after[0].Address))
 }
+
+// The icon and banner a creator chose are recorded on the deploy row and must
+// reach the catalog when the address exists. Before this, both were dropped at
+// confirmation while the catalog columns that should receive them sat empty.
+func TestUpsertVoucherFromDeployCarriesTheDeployImages(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	otxID := seedDeployOTX(t, tx, TOKEN_PROXY_DEPLOY)
+	icon := "https://content.example/voucher/abc_400_a3f91c2e.webp"
+	banner := "https://content.example/voucher/def_1280_b1c2d3e4.webp"
+
+	deployedID, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
+		OTXID:              otxID,
+		PlatformContractID: platformContractID(t, tx, "ERC20"),
+		Symbol:             "IMG",
+		Name:               "Illustrated Voucher",
+		Decimals:           6,
+		Admin:              randomAddress(t, tx),
+		IconURL:            &icon,
+		BannerURL:          &banner,
+	})
+	require.NoError(t, err)
+
+	_, err = pg.ConfirmDeployedToken(ctx, tx, otxID, randomAddress(t, tx))
+	require.NoError(t, err)
+
+	voucherID, err := pg.UpsertVoucherFromDeploy(ctx, tx, deployedID)
+	require.NoError(t, err)
+	require.NotZero(t, voucherID)
+
+	var gotIcon, gotBanner *string
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT icon_url, banner_url FROM vouchers WHERE id = $1`, voucherID).Scan(&gotIcon, &gotBanner))
+	require.NotNil(t, gotIcon)
+	require.NotNil(t, gotBanner)
+	assert.Equal(t, icon, *gotIcon)
+	assert.Equal(t, banner, *gotBanner)
+}
+
+// A deploy with no images must not blank the images an imported catalog row
+// already had: the merge is COALESCE, matching every other field.
+func TestUpsertVoucherFromDeployKeepsExistingImagesWhenTheDeployHasNone(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	address := randomAddress(t, tx)
+	existing := "https://content.example/voucher/imported_400_aaaaaaaa.webp"
+	_, err := tx.Exec(ctx, `
+		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, icon_url)
+		VALUES (42220, $1, 'Imported', 'IMP', 6, $2)`, address, existing)
+	require.NoError(t, err)
+
+	otxID := seedDeployOTX(t, tx, TOKEN_PROXY_DEPLOY)
+	deployedID, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
+		OTXID:              otxID,
+		PlatformContractID: platformContractID(t, tx, "ERC20"),
+		Symbol:             "IMP",
+		Name:               "Imported",
+		Decimals:           6,
+		Admin:              randomAddress(t, tx),
+	})
+	require.NoError(t, err)
+
+	_, err = pg.ConfirmDeployedToken(ctx, tx, otxID, address)
+	require.NoError(t, err)
+
+	voucherID, err := pg.UpsertVoucherFromDeploy(ctx, tx, deployedID)
+	require.NoError(t, err)
+
+	var gotIcon *string
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT icon_url FROM vouchers WHERE id = $1`, voucherID).Scan(&gotIcon))
+	require.NotNil(t, gotIcon, "an image-less deploy must not clear an imported icon")
+	assert.Equal(t, existing, *gotIcon)
+}

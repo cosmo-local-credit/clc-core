@@ -54,6 +54,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "018_account_relationship_indexes.sql")
 	assert.Contains(t, sqlFiles, "019_admin_otx_indexes.sql")
 	assert.Contains(t, sqlFiles, "020_pool_quoter_type.sql")
+	assert.Contains(t, sqlFiles, "021_image_urls.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -75,7 +76,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "017_admin_user_search_indexes.sql" ||
 				name == "018_account_relationship_indexes.sql" ||
 				name == "019_admin_otx_indexes.sql" ||
-				name == "020_pool_quoter_type.sql",
+				name == "020_pool_quoter_type.sql" ||
+				name == "021_image_urls.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -813,4 +815,40 @@ func TestDeployCatalogPromotionMigration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(catalog), "voucher_id INT UNIQUE REFERENCES vouchers(id)")
 	assert.Contains(t, string(catalog), "pool_id INT UNIQUE REFERENCES pools(id)")
+}
+
+func TestImageURLsMigration(t *testing.T) {
+	content, err := os.ReadFile("021_image_urls.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+
+	// The avatar column, and the deploy row that carries an icon and banner to
+	// catalog promotion. Only deployed_tokens: token_deploy_meta was folded into
+	// it and dropped by migration 002, so altering that table would fail.
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS avatar_url TEXT")
+	assert.Equal(t, 1, strings.Count(s, "ADD COLUMN IF NOT EXISTS icon_url TEXT"))
+	assert.Equal(t, 1, strings.Count(s, "ADD COLUMN IF NOT EXISTS banner_url TEXT"))
+	assert.NotContains(t, s, "ALTER TABLE token_deploy_meta")
+
+	// New columns are validated; existing catalog columns are not. Six approved
+	// reports still hold base64 data URIs that the feed nulls at read time, so a
+	// validated constraint on reports.image_url would fail on live data.
+	assert.Contains(t, s, "CONSTRAINT users_avatar_url_http")
+	assert.NotContains(t, s, "users_avatar_url_http\n        CHECK (avatar_url IS NULL OR avatar_url ~* '^https?://')\n        NOT VALID")
+	for _, constraint := range []string{
+		"vouchers_image_urls_http",
+		"pools_image_urls_http",
+		"reports_image_url_http",
+	} {
+		assert.Contains(t, s, constraint)
+	}
+	// The clause, not the word: the comment above these constraints explains the
+	// choice and mentions it too.
+	assert.Equal(t, 3, strings.Count(s, "\n        NOT VALID;"))
+
+	// Re-running must be a no-op: every column is guarded and every constraint is
+	// dropped before it is added.
+	assert.Equal(t, 5, strings.Count(s, "DROP CONSTRAINT IF EXISTS"))
+	assert.Equal(t, 5, strings.Count(s, "ADD CONSTRAINT"))
 }

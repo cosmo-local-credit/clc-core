@@ -34,9 +34,13 @@ type (
 		LocationName     string   `json:"locationName,omitempty"`
 		GeoLat           *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
 		GeoLng           *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
-		ImageURL         string   `json:"imageUrl,omitempty" validate:"omitempty,url"`
-		BannerURL        string   `json:"bannerUrl,omitempty" validate:"omitempty,url"`
-		Tags             []string `json:"tags,omitempty"`
+		// http_url, not url: the latter accepts ftp:, data: and javascript:, and a
+		// deploy is validated long before the catalog's HTTP-only constraint sees
+		// the value — by which point the transaction has been signed and its nonce
+		// spent, with MaxAttempts 1 and no retry.
+		ImageURL  string   `json:"imageUrl,omitempty"  validate:"omitempty,http_url"`
+		BannerURL string   `json:"bannerUrl,omitempty" validate:"omitempty,http_url"`
+		Tags      []string `json:"tags,omitempty"`
 	}
 
 	DeployTokenRequest struct {
@@ -55,7 +59,16 @@ type (
 		LocationName    string   `json:"locationName,omitempty"`
 		GeoLat          *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
 		GeoLng          *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
-		Tags            []string `json:"tags,omitempty"`
+		// Off-chain catalog metadata, carried through the deploy so a voucher
+		// created with an icon still has one once its address exists. Never
+		// written on-chain.
+		//
+		// http_url rather than url, for the reason DeployPoolRequest gives above:
+		// deployed_tokens_image_urls_http would otherwise reject the metadata in the
+		// worker, after the deploy transaction is already signed and broadcast.
+		IconURL   string   `json:"iconUrl,omitempty"   validate:"omitempty,http_url"`
+		BannerURL string   `json:"bannerUrl,omitempty" validate:"omitempty,http_url"`
+		Tags      []string `json:"tags,omitempty"`
 	}
 
 	RegisterVersionRequest struct {
@@ -239,7 +252,14 @@ type (
 		LocationName  *string  `json:"locationName,omitempty"  validate:"omitempty,max=200"`
 		GeoLat        *float64 `json:"geoLat,omitempty"        validate:"omitempty,min=-90,max=90"`
 		GeoLng        *float64 `json:"geoLng,omitempty"        validate:"omitempty,min=-180,max=180"`
-		Tags          []string `json:"tags,omitempty"`
+		// Unlike every other field here, these two preserve on omission rather
+		// than clearing: update-pool-profile COALESCEs them so a client that does
+		// not send images cannot blank a pool's images. Send "" to clear one.
+		// `http_url|eq=`: an http(s) URL to set, "" to clear. The alternation is
+		// required because omitempty does not skip a pointer to an empty string.
+		ImageURL  *string  `json:"imageUrl,omitempty"  validate:"omitempty,http_url|eq="`
+		BannerURL *string  `json:"bannerUrl,omitempty" validate:"omitempty,http_url|eq="`
+		Tags      []string `json:"tags,omitempty"`
 	}
 
 	// UpdateProfileRequest carries optional profile fields.
@@ -254,6 +274,9 @@ type (
 		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
 		GeoLat       *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
 		GeoLng       *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
+		// Preserved when omitted, like the geo fields above, so an older client
+		// editing a name cannot wipe an avatar it knows nothing about. "" clears.
+		AvatarURL *string `json:"avatarUrl,omitempty" validate:"omitempty,http_url|eq="`
 	}
 
 	// ReportVoucherRefRequest names a voucher by its stable public identity.

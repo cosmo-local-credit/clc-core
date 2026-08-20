@@ -49,7 +49,7 @@ func seedDirectoryUser(t *testing.T, tx pgx.Tx, pg *Pg, name, email, phone, stat
 	})
 	require.NoError(t, err)
 
-	updated, err := pg.UpdateUserProfile(ctx, tx, address, name, email, phone, "KE", nil, nil, nil)
+	updated, err := pg.UpdateUserProfile(ctx, tx, address, name, email, phone, "KE", nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, inserted.ID, updated.ID)
 

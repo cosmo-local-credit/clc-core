@@ -224,7 +224,7 @@ func (a *API) adminUpdateUserProfileHandler(c *echo.Context) error {
 	user, err := a.store.UpdateUserProfile(
 		ctx, tx, address,
 		req.Name, req.Email, req.Phone, req.Country,
-		req.LocationName, req.GeoLat, req.GeoLng,
+		req.LocationName, req.GeoLat, req.GeoLng, req.AvatarURL,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -483,6 +483,8 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 		Phone:         req.Phone,
 		Terms:         req.Terms,
 		LocationName:  req.LocationName,
+		ImageURL:      req.ImageURL,
+		BannerURL:     req.BannerURL,
 		GeoLat:        req.GeoLat,
 		GeoLng:        req.GeoLng,
 	})

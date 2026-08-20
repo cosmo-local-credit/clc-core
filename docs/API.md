@@ -24,6 +24,7 @@
    - [POST /auth/siwe/nonce](#45-post-authsiwenonce)
    - [POST /auth/siwe/verify](#46-post-authsiweverify)
    - [GET /auth/session](#47-get-authsession)
+   - [POST /auth/storage-token](#48-post-authstorage-token)
 5. [Protected Endpoints (`/api/v2/*`)](#5-protected-endpoints-apiv2)
    - [GET /api/v2/system](#51-get-apiv2system)
    - [GET /api/v2/otx/track/:trackingId](#52-get-apiv2otxtracktrackingid)
@@ -423,6 +424,54 @@ No body is returned. Use this to redirect the user to a sign-in flow.
 
 ---
 
+### 4.8 `POST /auth/storage-token`
+
+Returns a readable copy of the caller's own session token, for uploading images to
+the storage service.
+
+Requires an authenticated user — the session cookie, or the same user JWT as a
+bearer token. A service token is rejected with `403`: it has no browser to hand a
+token to, and it already holds its own credential.
+
+The storage service accepts an ordinary `clc-core` user JWT in an `Authorization`
+header. It reads no cookies and is served from another host, so the session cookie
+can neither be read by JavaScript nor be sent there. This endpoint bridges that
+gap, and it is needed even though `POST /auth/siwe/verify` already returns a token:
+the cookie survives a page reload and an in-memory token does not, so a signed-in
+user must be able to ask for one again.
+
+**Request body:** none
+
+**Response `200`:**
+
+```/dev/null/storage-token-response.json#L1-7
+{
+  "ok": true,
+  "description": "Storage token issued",
+  "result": {
+    "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
+    "expiresAt": "2026-09-19T10:00:00Z"
+  }
+}
+```
+
+The response carries `Cache-Control: no-store`.
+
+**This is the full session token, not a scoped one.** It is echoed, never
+re-minted — minting here would issue a fresh 30-day token on every upload and roll
+the session forward indefinitely — so two calls in a row return the same string and
+the same `expiresAt`.
+
+Because it is the session itself, and because `flexibleAuthMiddleware` accepts a
+user JWT as a bearer token as well as in the cookie, a leaked copy is API access as
+that user until it expires; signing out clears the cookie but there is no token
+blocklist. Clients must therefore keep it in memory only — never `localStorage`,
+`sessionStorage`, a persisted cache, or a server-rendered payload — and drop it at
+every identity boundary. If that trade needs reversing, this endpoint is where a
+short-lived, audience-scoped token would be minted instead, with no client change.
+
+---
+
 ## 5. Protected Endpoints (`/api/v2/*`)
 
 > The three public voucher catalog routes are the only exceptions to the
@@ -626,6 +675,13 @@ Submits a request to deploy an ERC-20 token contract. The deployment is queued a
 | `decimals` | `string` (int) | Yes | Token decimal places (e.g. `"6"`) |
 | `owner` | `string` | Yes | Checksummed Ethereum address of the token owner |
 | `expiryTimestamp` | `string` (ISO 8601) | No | Optional expiry date for the token |
+| `iconUrl` | `string` (http/https URL) | No | Off-chain catalog image, carried to the voucher on confirmation |
+| `bannerUrl` | `string` (http/https URL) | No | Off-chain catalog header image, same path as `iconUrl` |
+
+Image URLs must be `http` or `https`. Other schemes — including `data:` — are
+rejected with `400` before the deploy is queued, because the catalog column that
+finally receives them is HTTP-only and by then the transaction would already be
+signed and its nonce spent.
 
 **Response `200`:**
 
@@ -681,7 +737,7 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 | `feesDecoupled` | `bool` | No | If `true`, fee policy executes independently of swaps (default: `false`) |
 | `feePolicyDefault` | `string` | No | Default fee policy identifier |
 | `baseCurrency` | `string` | Conditional | Checksummed non-zero token address; **required** when `quoterType` is `"oracle"` |
-| `imageUrl` | `string` | No | Optional pool image URL |
+| `imageUrl` | `string` (http/https URL) | No | Optional pool image URL |
 | `bannerUrl` | `string` | No | Optional pool banner image URL |
 
 **`quoterType` values:**

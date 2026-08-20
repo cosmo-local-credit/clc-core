@@ -69,8 +69,8 @@ WHERE chain_id = $1 AND contract_type = $2::contract_type;
 INSERT INTO deployed_tokens (
     otx_id, platform_contract_id, status, symbol, name, decimals, admin,
     description, website, email, phone, terms, voucher_uoa, voucher_value,
-    location_name, geo_lat, geo_lng
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    location_name, geo_lat, geo_lng, icon_url, banner_url
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 RETURNING id;
 
 --name: confirm-deployed-token
@@ -100,7 +100,9 @@ WHERE otx_id = $1 AND status = 'PENDING';
 --
 -- Merge policy: the deploy is the fresh, authoritative request, so its values
 -- win where present; a pre-existing catalog row keeps whatever the deploy has
--- no opinion about (icon/banner/sink, and active/internal state).
+-- no opinion about (sink, and active/internal state). The icon and banner are
+-- part of the request now, so they merge on the same COALESCE terms: a deploy
+-- that carried an image sets it, one that did not leaves an imported image alone.
 --name: upsert-voucher-from-deploy
 WITH deploy AS (
     SELECT
@@ -122,6 +124,8 @@ WITH deploy AS (
         dt.location_name,
         dt.geo_lat,
         dt.geo_lng,
+        dt.icon_url,
+        dt.banner_url,
         dt.platform_contract_id
     FROM deployed_tokens dt
     INNER JOIN platform_contracts pc ON pc.id = dt.platform_contract_id
@@ -131,7 +135,8 @@ upserted AS (
     INSERT INTO vouchers (
         chain_id, address, name, symbol, decimals, owner_address, voucher_type,
         description, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng,
-        email, website, phone, terms, contract_version, platform_contract_id
+        email, website, phone, terms, icon_url, banner_url, contract_version,
+        platform_contract_id
     )
     SELECT
         d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
@@ -141,6 +146,7 @@ upserted AS (
         'GIFTABLE',
         d.description, d.voucher_uoa, d.voucher_value, d.location_name,
         d.geo_lat, d.geo_lng, d.email, d.website, d.phone, d.terms,
+        d.icon_url, d.banner_url,
         NULLIF(d.contract_version, ''), d.platform_contract_id
     FROM deploy d
     ON CONFLICT (chain_id, lower(address)) DO UPDATE SET
@@ -159,6 +165,8 @@ upserted AS (
         website              = COALESCE(EXCLUDED.website,        vouchers.website),
         phone                = COALESCE(EXCLUDED.phone,          vouchers.phone),
         terms                = COALESCE(EXCLUDED.terms,          vouchers.terms),
+        icon_url             = COALESCE(EXCLUDED.icon_url,       vouchers.icon_url),
+        banner_url           = COALESCE(EXCLUDED.banner_url,     vouchers.banner_url),
         contract_version     = COALESCE(EXCLUDED.contract_version, vouchers.contract_version),
         platform_contract_id = EXCLUDED.platform_contract_id
     RETURNING id
@@ -186,7 +194,7 @@ INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
 --name: get-deployed-token-by-address
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
-       dt.location_name, dt.geo_lat, dt.geo_lng, dt.created_at, dt.updated_at, o.tracking_id,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
@@ -197,7 +205,7 @@ GROUP BY dt.id, o.tracking_id;
 --name: get-deployed-token-by-tracking-id
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
-       dt.location_name, dt.geo_lat, dt.geo_lng, dt.created_at, dt.updated_at, o.tracking_id,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
@@ -474,20 +482,20 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
 VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE blockchain_address = $1;
 
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -495,29 +503,34 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
--- location_name/geo_lat/geo_lng use COALESCE: a request that omits geo
--- (an older client, a partial edit) must not erase a previously captured
--- location. Pass the new value to overwrite, or NULL to leave it untouched.
+-- location_name/geo_lat/geo_lng/avatar_url use COALESCE: a request that omits
+-- them (an older client, a partial edit) must not erase what was captured
+-- before. Pass the new value to overwrite, or NULL to leave it untouched.
+--
+-- Clearing an avatar therefore needs a value, not an absence: '' is normalized to
+-- NULL, the same shape email and phone use above. An omitted key cannot mean both
+-- preserve and clear.
 UPDATE users
 SET name = $2, email = NULLIF($3, ''), phone = NULLIF($4, ''), country = $5,
-    location_name = COALESCE($6, location_name), geo_lat = COALESCE($7, geo_lat), geo_lng = COALESCE($8, geo_lng)
+    location_name = COALESCE($6, location_name), geo_lat = COALESCE($7, geo_lat), geo_lng = COALESCE($8, geo_lng),
+    avatar_url = CASE WHEN $9::TEXT IS NULL THEN avatar_url ELSE NULLIF($9, '') END
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 -- User deployments
 --name: count-user-tokens
@@ -840,6 +853,15 @@ GROUP BY p.id;
 -- omitting it. pools_geo_valid backstops the both-or-neither coordinate rule the
 -- handler checks first.
 --name: update-pool-profile
+-- Assign-all for everything the console has always sent, and COALESCE for the two
+-- image columns.
+--
+-- The distinction is not stylistic. Until now this statement did not touch
+-- image_url or banner_url at all, which is the only reason a pool's images survive
+-- an operator editing its description. Making them assign-all would have the
+-- already-deployed console — which sends no image fields — blank them on every
+-- save. Omitted therefore preserves, and '' clears, matching update-user-profile.
+-- Once every client sends the fields this can collapse to a plain assignment.
 UPDATE pools
 SET description     = $2,
     unit_of_account = $3,
@@ -849,7 +871,9 @@ SET description     = $2,
     terms           = $7,
     location_name   = $8,
     geo_lat         = $9,
-    geo_lng         = $10
+    geo_lng         = $10,
+    image_url       = CASE WHEN $11::TEXT IS NULL THEN image_url  ELSE NULLIF($11, '') END,
+    banner_url      = CASE WHEN $12::TEXT IS NULL THEN banner_url ELSE NULLIF($12, '') END
 WHERE lower(address) = lower($1)
 RETURNING id;
 

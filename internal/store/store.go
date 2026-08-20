@@ -62,7 +62,7 @@ type (
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
-		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string, *string, *float64, *float64) (User, error)
+		UpdateUserProfile(context.Context, pgx.Tx, string, string, string, string, string, *string, *float64, *float64, *string) (User, error)
 		ListUsersFiltered(context.Context, pgx.Tx, UserFilter, CatalogPage, uint64, uint64) ([]User, error)
 		AccountRelationshipCounts(context.Context, pgx.Tx, string) (AccountRelationshipCounts, error)
 		ListAccountPools(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Pool, error)

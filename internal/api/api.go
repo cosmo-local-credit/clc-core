@@ -158,6 +158,11 @@ func New(o APIOpts) *API {
 	profileAuthGroup := router.Group("/auth", a.flexibleAuthMiddleware(), a.requireUserAuth())
 	profileAuthGroup.GET("/profile", a.profileGetHandler)
 	profileAuthGroup.POST("/profile", a.profileUpdateHandler)
+	// A readable copy of the session token, for uploads to the image service.
+	// Mounted here rather than under /api/v2 because it is part of the session,
+	// and behind requireUserAuth because a service token has no browser to hand
+	// it to.
+	profileAuthGroup.POST("/storage-token", a.storageTokenHandler)
 
 	// Public market catalog. Registered on the root router, NOT on apiGroup:
 	// flexibleAuthMiddleware is mandatory authentication despite its name, and

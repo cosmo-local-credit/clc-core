@@ -182,6 +182,7 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 			"locationName": user.LocationName,
 			"geoLat":       user.GeoLat,
 			"geoLng":       user.GeoLng,
+			"avatarUrl":    user.AvatarURL,
 			"createdAt":    user.CreatedAt.Format(time.RFC3339),
 		},
 	})
@@ -214,7 +215,7 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	user, err := a.store.UpdateUserProfile(ctx, tx, addr, req.Name, req.Email, req.Phone, req.Country, req.LocationName, req.GeoLat, req.GeoLng)
+	user, err := a.store.UpdateUserProfile(ctx, tx, addr, req.Name, req.Email, req.Phone, req.Country, req.LocationName, req.GeoLat, req.GeoLng, req.AvatarURL)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
@@ -247,6 +248,7 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 			"locationName": user.LocationName,
 			"geoLat":       user.GeoLat,
 			"geoLng":       user.GeoLng,
+			"avatarUrl":    user.AvatarURL,
 		},
 	})
 }

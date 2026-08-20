@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +40,7 @@ func TestUpdateUserProfilePreservesGeoWhenOmitted(t *testing.T) {
 	lng := 36.8219
 	locName := "Nairobi"
 
-	set, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "", "KE", &locName, &lat, &lng)
+	set, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "", "KE", &locName, &lat, &lng, nil)
 	require.NoError(t, err)
 	require.NotNil(t, set.GeoLat)
 	require.NotNil(t, set.GeoLng)
@@ -51,7 +52,7 @@ func TestUpdateUserProfilePreservesGeoWhenOmitted(t *testing.T) {
 	// A later update that only touches an unrelated field (phone) and omits
 	// geo entirely must preserve the previously captured location, not null
 	// it out.
-	again, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "+254700000000", "KE", nil, nil, nil)
+	again, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "+254700000000", "KE", nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, again.GeoLat, "geo_lat must be preserved when omitted from an update")
 	require.NotNil(t, again.GeoLng, "geo_lng must be preserved when omitted from an update")
@@ -65,7 +66,7 @@ func TestUpdateUserProfilePreservesGeoWhenOmitted(t *testing.T) {
 	movedLat := 51.5072
 	movedLng := -0.1276
 	movedName := "London"
-	moved, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "+254700000000", "KE", &movedName, &movedLat, &movedLng)
+	moved, err := pg.UpdateUserProfile(ctx, tx, address, "Geo Test", email, "+254700000000", "KE", &movedName, &movedLat, &movedLng, nil)
 	require.NoError(t, err)
 	assert.Equal(t, movedLat, *moved.GeoLat)
 	assert.Equal(t, movedLng, *moved.GeoLng)
@@ -92,6 +93,65 @@ func TestUsersGeoValidRejectsPartialCoordinates(t *testing.T) {
 	require.NoError(t, err)
 
 	lat := 1.0
-	_, err = pg.UpdateUserProfile(ctx, tx, address, "Geo Partial Test", email, "", "KE", nil, &lat, nil)
+	_, err = pg.UpdateUserProfile(ctx, tx, address, "Geo Partial Test", email, "", "KE", nil, &lat, nil, nil)
 	require.Error(t, err, "users_geo_valid must reject a lat without a matching lng")
+}
+
+// The avatar is COALESCEd for the same reason the geo columns are: an older
+// client editing a name must not wipe a picture it knows nothing about.
+func TestUpdateUserProfilePreservesAvatarWhenOmitted(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	address, email := seedProfileUser(t, pg, tx)
+	avatar := "https://content.example/profile/abc_400_a3f91c2e.webp"
+
+	set, err := pg.UpdateUserProfile(ctx, tx, address, "Avatar Test", email, "", "KE", nil, nil, nil, &avatar)
+	require.NoError(t, err)
+	require.NotNil(t, set.AvatarURL)
+	assert.Equal(t, avatar, *set.AvatarURL)
+
+	again, err := pg.UpdateUserProfile(ctx, tx, address, "Avatar Test", email, "+254700000001", "KE", nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, again.AvatarURL, "an omitted avatar must not clear the stored one")
+	assert.Equal(t, avatar, *again.AvatarURL)
+
+	empty := ""
+	cleared, err := pg.UpdateUserProfile(ctx, tx, address, "Avatar Test", email, "+254700000001", "KE", nil, nil, nil, &empty)
+	require.NoError(t, err)
+	assert.Nil(t, cleared.AvatarURL, "an empty string must clear the avatar")
+}
+
+func TestUpdateUserProfileRejectsANonHttpAvatar(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	address, email := seedProfileUser(t, pg, tx)
+	dataURI := "data:image/jpeg;base64,/9j/4AAQSkZJRg"
+
+	_, err := pg.UpdateUserProfile(ctx, tx, address, "Avatar Test", email, "", "KE", nil, nil, nil, &dataURI)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "users_avatar_url_http")
+}
+
+// One approved account, addressed uniquely so two tests in one run cannot collide
+// on the users_blockchain_address_unique index.
+func seedProfileUser(t *testing.T, pg *Pg, tx pgx.Tx) (address, email string) {
+	t.Helper()
+
+	address = randomAddress(t, tx)
+	email = strings.ToLower(strings.TrimPrefix(address, "0x")) + "@example.com"
+	_, err := pg.InsertUser(context.Background(), tx, User{
+		EthereumAddress: address,
+		Name:            "Avatar Test",
+		Email:           email,
+		Role:            "USER",
+		Status:          "APPROVED",
+		MaxPools:        10,
+		MaxTokens:       20,
+	})
+	require.NoError(t, err)
+	return address, email
 }

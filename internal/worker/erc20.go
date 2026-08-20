@@ -51,6 +51,8 @@ type (
 		LocationName          string   `json:"locationName"`
 		GeoLat                *float64 `json:"geoLat"`
 		GeoLng                *float64 `json:"geoLng"`
+		IconURL               string   `json:"iconUrl"`
+		BannerURL             string   `json:"bannerUrl"`
 		Tags                  []string `json:"tags"`
 	}
 
@@ -157,6 +159,8 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		LocationName:       nilIfEmpty(args.LocationName),
 		GeoLat:             args.GeoLat,
 		GeoLng:             args.GeoLng,
+		IconURL:            nilIfEmpty(args.IconURL),
+		BannerURL:          nilIfEmpty(args.BannerURL),
 	})
 	if err != nil {
 		return err
