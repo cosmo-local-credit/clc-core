@@ -21,7 +21,10 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          # Pinned to what go.mod declares rather than tracking stable: Go 1.27
+          # ships a generic method in math/rand/v2 that golangci-lint v2.12 cannot
+          # typecheck, so `stable` broke every push the day 1.27 was promoted.
+          go-version: 1.26.x
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
