@@ -24,6 +24,9 @@
    - [POST /auth/siwe/nonce](#45-post-authsiwenonce)
    - [POST /auth/siwe/verify](#46-post-authsiweverify)
    - [GET /auth/session](#47-get-authsession)
+   - [GET /auth/profile](#48-get-authprofile)
+   - [POST /auth/profile](#49-post-authprofile)
+   - [POST /auth/storage-token](#410-post-authstorage-token)
 5. [Protected Endpoints (`/api/v2/*`)](#5-protected-endpoints-apiv2)
    - [GET /api/v2/system](#51-get-apiv2system)
    - [GET /api/v2/otx/track/:trackingId](#52-get-apiv2otxtracktrackingid)
@@ -45,16 +48,26 @@
    - [PUT /api/v2/admin/users/:address/approve](#72-put-apiv2adminusersaddressapprove)
    - [PUT /api/v2/admin/users/:address/reject](#73-put-apiv2adminusersaddressreject)
    - [PUT /api/v2/admin/users/:address/limits](#74-put-apiv2adminusersaddresslimits)
-   - [GET /api/v2/admin/tokens](#75-get-apiv2admintokens)
-   - [GET /api/v2/admin/pools](#76-get-apiv2adminpools)
-   - [GET /api/v2/admin/deployments](#77-get-apiv2admindeployments)
-   - [GET /api/v2/admin/dashboard/stats](#78-get-apiv2admindashboardstats)
+   - [PUT /api/v2/admin/users/:address/profile](#75-put-apiv2adminusersaddressprofile)
+   - [GET /api/v2/admin/users/:address/pools](#76-get-apiv2adminusersaddresspools)
+   - [GET /api/v2/admin/users/:address/stats](#77-get-apiv2adminusersaddressstats)
+   - [GET /api/v2/admin/tokens](#78-get-apiv2admintokens)
+   - [GET /api/v2/admin/pools](#79-get-apiv2adminpools)
+   - [GET /api/v2/admin/deployments](#710-get-apiv2admindeployments)
+   - [GET /api/v2/admin/dashboard/stats](#711-get-apiv2admindashboardstats)
 8. [SIWE Message Construction](#8-siwe-message-construction)
 9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
    - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
    - [9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)](#97-voucher-offerings-get-apiv2vouchersaddressofferings)
 10. [Pool offerings (`GET /api/v2/pools/:address/offerings`)](#10-pool-offerings-get-apiv2poolsaddressofferings)
-11. [Reports (`GET /api/v2/reports`)](#11-reports-get-apiv2reports)
+11. [Reports / Posts (`/api/v2/reports`)](#11-reports--posts-apiv2reports)
+   - [Feed (`GET /api/v2/reports`)](#111-feed-get-apiv2reports)
+   - [Detail (`GET /api/v2/reports/:id`)](#112-detail-get-apiv2reportsid)
+   - [Write contract](#113-write-contract)
+   - [Create (`POST /api/v2/reports`)](#114-create-post-apiv2reports)
+   - [Update (`PUT /api/v2/reports/:id`)](#115-update-put-apiv2reportsid)
+   - [Approve (`PUT /api/v2/reports/:id/approve`)](#116-approve-put-apiv2reportsidapprove)
+   - [Delete (`DELETE /api/v2/reports/:id`)](#117-delete-delete-apiv2reportsid)
 
 ---
 
@@ -424,7 +437,7 @@ No body is returned. Use this to redirect the user to a sign-in flow.
 ### 4.8 `GET /auth/profile`
 
 Returns the authenticated user's editable contact profile. A user JWT cookie is
-required. Location fields are nullable:
+required. Location fields and `avatarUrl` are nullable:
 
 ```json
 {
@@ -438,6 +451,7 @@ required. Location fields are nullable:
     "locationName": "Nairobi, Kenya",
     "geoLat": -1.286389,
     "geoLng": 36.817223,
+    "avatarUrl": "https://cdn.cosmolocal.credit/profile/ab12_400_a3f91c2e.webp",
     "createdAt": "2026-08-04T12:00:00Z"
   }
 }
@@ -445,10 +459,10 @@ required. Location fields are nullable:
 
 ### 4.9 `POST /auth/profile`
 
-Updates contact fields and, optionally, the saved location pin. Omitted location
-fields preserve their current values. Send `clearLocation: true` to remove the
-label and coordinates together. Supplying `clearLocation` with any location
-field is rejected.
+Updates contact fields and, optionally, the saved location pin and profile image.
+Omitted location fields preserve their current values. Send `clearLocation: true`
+to remove the label and coordinates together. Supplying `clearLocation` with any
+location field is rejected.
 
 ```json
 {
@@ -458,12 +472,68 @@ field is rejected.
   "country": "KE",
   "locationName": "Nairobi, Kenya",
   "geoLat": -1.286389,
-  "geoLng": 36.817223
+  "geoLng": 36.817223,
+  "avatarUrl": "https://cdn.cosmolocal.credit/profile/ab12_400_a3f91c2e.webp"
 }
 ```
 
 `geoLat` and `geoLng` must be supplied together and must be valid latitude and
 longitude values. A blank `locationName` is rejected.
+
+`avatarUrl` behaves like the location fields: omitted preserves the stored image,
+and `clearAvatar: true` removes it. Sending both is rejected. The URL must be
+`http` or `https` — `users_avatar_url_http` refuses anything else at the database,
+so the request is refused first. Upload the image to the storage service (§4.10)
+and send the URL it returns; bytes never reach this endpoint.
+
+The response carries the saved row, `avatarUrl` included, so a client can seed its
+cache instead of re-reading the profile.
+
+### 4.10 `POST /auth/storage-token`
+
+Returns a readable copy of the caller's own session token, for uploading images to
+the storage service.
+
+Requires an authenticated user — the session cookie, or the same user JWT as a
+bearer token. A service token is rejected with `403`: it has no browser to hand a
+token to, and it already holds its own credential.
+
+The storage service accepts an ordinary `clc-core` user JWT in an `Authorization`
+header. It reads no cookies and is served from another host, so the session cookie
+can neither be read by JavaScript nor be sent there. This endpoint bridges that
+gap, and it is needed even though `POST /auth/siwe/verify` already returns a token:
+the cookie survives a page reload and an in-memory token does not, so a signed-in
+user must be able to ask for one again.
+
+**Request body:** none
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Storage token issued",
+  "result": {
+    "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
+    "expiresAt": "2026-09-19T10:00:00Z"
+  }
+}
+```
+
+The response carries `Cache-Control: no-store`.
+
+**This is the full session token, not a scoped one.** It is echoed, never
+re-minted — minting here would issue a fresh 30-day token on every upload and roll
+the session forward indefinitely — so two calls in a row return the same string and
+the same `expiresAt`.
+
+Because it is the session itself, and because `flexibleAuthMiddleware` accepts a
+user JWT as a bearer token as well as in the cookie, a leaked copy is API access as
+that user until it expires; signing out clears the cookie but there is no token
+blocklist. Clients must therefore keep it in memory only — never `localStorage`,
+`sessionStorage`, a persisted cache, or a server-rendered payload — and drop it at
+every identity boundary. If that trade needs reversing, this endpoint is where a
+short-lived, audience-scoped token would be minted instead, with no client change.
 
 ---
 
@@ -670,6 +740,13 @@ Submits a request to deploy an ERC-20 token contract. The deployment is queued a
 | `decimals` | `string` (int) | Yes | Token decimal places (e.g. `"6"`) |
 | `owner` | `string` | Yes | Checksummed Ethereum address of the token owner |
 | `expiryTimestamp` | `string` (ISO 8601) | No | Optional expiry date for the token |
+| `iconUrl` | `string` (http/https URL) | No | Off-chain catalog image, carried to the voucher on confirmation |
+| `bannerUrl` | `string` (http/https URL) | No | Off-chain catalog header image, same path as `iconUrl` |
+
+Image URLs must be `http` or `https`. Other schemes — including `data:` — are
+rejected with `400` before the deploy is queued, because the catalog column that
+finally receives them is HTTP-only and by then the transaction would already be
+signed and its nonce spent.
 
 **Response `200`:**
 
@@ -725,7 +802,7 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 | `feesDecoupled` | `bool` | No | If `true`, fee policy executes independently of swaps (default: `false`) |
 | `feePolicyDefault` | `string` | No | Default fee policy identifier |
 | `baseCurrency` | `string` | Conditional | Checksummed non-zero token address; **required** when `quoterType` is `"oracle"` |
-| `imageUrl` | `string` | No | Optional pool image URL |
+| `imageUrl` | `string` (http/https URL) | No | Optional pool image URL |
 | `bannerUrl` | `string` | No | Optional pool banner image URL |
 
 **`quoterType` values:**
@@ -811,6 +888,7 @@ Returns **all confirmed** (on-chain) SwapPool contracts across all users — the
 | `tagMatch` | `any` \| `all` | `any` | Whether a pool must carry any or all selected tags |
 | `vouchers` | `string` or repeated | — | Comma-separated stable voucher references (`chainId:0xAddress`); at most `12` |
 | `voucherMatch` | `any` \| `all` | `any` | Whether a pool must contain any or all selected vouchers |
+| `author` | `string` | — | Only reports authored by this address. Compared case-insensitively; a malformed address is a `400` |
 | `facets` | `bool` | `false` | With `true` on the first page, include tag and voucher facet counts |
 
 Voucher membership uses allowed `pool_tokens` rows, matching the pool voucher
@@ -1204,32 +1282,58 @@ The baseline migration seeds an initial approved superadmin account. Additional 
 
 ### 7.1 `GET /api/v2/admin/users`
 
-Lists all registered users. Optionally filter by account status.
+Returns one page of the account directory, newest first, using cursor pagination that matches the catalog (`perPage`, `cursor`, `next`). Optionally narrowed by approval status and by a search term.
+
+> **Breaking change.** This endpoint previously ignored pagination and answered with every row. `users` is now at most `perPage` accounts and the response carries `first` / `last`. A client that pages or filters the directory locally must move both jobs to the server, or it will silently present a truncated directory as the whole one.
 
 **Query parameters:**
 
-| Parameter | Type | Required | Description |
+| Parameter | Type | Default | Description |
 |---|---|---|---|
-| `status` | `string` | No | Filter by status: `PENDING`, `APPROVED`, or `REJECTED` |
+| `q` | `string` | — | Search over name, email, phone and address. 2–64 characters; a shorter or longer term is rejected. Country and role are not searched |
+| `status` | `string` | — | Filter by status: `PENDING`, `APPROVED`, or `REJECTED` (case-insensitive) |
+| `perPage` | `int` | `100` | Results per page (max `100`) |
+| `next` | `bool` | `false` | When `true`, page toward newer records from `cursor` |
+| `cursor` | `int` | — | Use `last` to fetch older records or `first` with `next=true` to move back toward newer records |
+
+`q` matches as a prefix at two characters and as a substring above that, and the same rules and error messages apply as on the public catalog search.
 
 **Response `200`:**
 
-```/dev/null/admin-users-response.json#L1-14
+```/dev/null/admin-users-response.json#L1-20
 {
   "ok": true,
   "description": "Users list",
   "result": {
     "users": [
       {
-        "id":              "f47ac10b-...",
+        "id":              4210,
         "ethereumAddress": "0xd8dA6BF2...",
+        "name":            "Ada Lovelace",
+        "email":           "ada@example.com",
+        "phone":           "+254700000000",
+        "country":         "KE",
         "role":            "USER",
         "status":          "PENDING"
       }
-    ]
+    ],
+    "first": 4210,
+    "last": 4187
   }
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `users` | `array` | Current page of accounts |
+| `first` | `int` | Highest account ID in the current page |
+| `last` | `int` | Lowest account ID in the current page |
+
+**Errors:**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | `q` is shorter than 2 or longer than 64 characters, or `status` is not one of the three approval states |
 
 ---
 
@@ -1323,7 +1427,115 @@ Updates the deployment quotas for a specific user.
 
 ---
 
-### 7.5 `GET /api/v2/admin/tokens`
+### 7.5 `PUT /api/v2/admin/users/:address/profile`
+
+Corrects another account's identity and contact details. `PUT /auth/profile` edits only the signed-in account, so this is the operator equivalent; it takes the same body and applies the same validation.
+
+It cannot change status, role or limits — those have their own endpoints.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `address` | `string` | Ethereum address of the target user |
+
+**Request body:**
+
+```/dev/null/admin-profile-request.json#L1-8
+{
+  "name":         "Ada Lovelace",
+  "email":        "ada@example.com",
+  "phone":        "+254700000000",
+  "country":      "KE",
+  "locationName": "Nairobi",
+  "geoLat":       -1.2921,
+  "geoLng":       36.8219
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | No | Max 80 characters |
+| `email` | `string` | No | Must be a valid address, unique across accounts |
+| `phone` | `string` | No | Unique across accounts |
+| `country` | `string` | No | ISO 3166-1 alpha-2 code |
+| `locationName` | `string` | No | Max 200 characters |
+| `geoLat` | `number` | No | −90 to 90. Must be sent with `geoLng` |
+| `geoLng` | `number` | No | −180 to 180. Must be sent with `geoLat` |
+
+Omitted location fields preserve the stored values; they are not cleared.
+
+**Response `200`:**
+
+```/dev/null/admin-profile-response.json#L1-7
+{
+  "ok": true,
+  "description": "User profile updated",
+  "result": {
+    "user": { "..." : "..." }
+  }
+}
+```
+
+**Errors:**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | Validation failed, including `geoLat` sent without `geoLng` or vice versa |
+| `404` | `E03` | No account at that address |
+| `409` | `E17` / `E18` | `email` or `phone` already belongs to another account |
+
+---
+
+### 7.6 `GET /api/v2/admin/users/:address/pools`
+
+The pools an account belongs to, cursor paginated.
+
+Membership is **derived**, not stored: nothing records a user joining a pool, but the catalog records which vouchers a pool allows, so an account belongs to the pools that allow a voucher it owns. Pool ownership and deployment history are deliberately not part of this.
+
+**Query parameters:** `perPage`, `cursor`, `next`, as elsewhere.
+
+**Response `200`:** `{ "pools": [ … ], "first": 42, "last": 17 }` — pool rows in the same shape as [`GET /api/v2/pools`](#10-pool-offerings-get-apiv2poolsaddressofferings).
+
+---
+
+### 7.7 `GET /api/v2/admin/users/:address/stats`
+
+The figures behind one account.
+
+**Response `200`:**
+
+```/dev/null/admin-account-stats.json#L1-12
+{
+  "ok": true,
+  "description": "Account statistics",
+  "result": {
+    "reports":         3,
+    "vouchers":        2,
+    "poolMemberships": 1,
+    "transactions":    118,
+    "swaps":           4,
+    "partners":        9
+  }
+}
+```
+
+| Field | Source | Description |
+|---|---|---|
+| `reports` | catalog | Approved reports authored by the account |
+| `vouchers` | catalog | Vouchers the account owns that the public catalog can return (active, geolocated) |
+| `poolMemberships` | catalog | Distinct pools allowing a voucher the account owns |
+| `transactions` | federation | Successful transfers sent or received |
+| `swaps` | federation | Successful swaps the account initiated |
+| `partners` | federation | Distinct counterparties across successful transfers, excluding the account itself |
+
+The three catalog figures use the same visibility rules as the lists they sit beside, so a count and its list never disagree.
+
+**The three federation figures are `null` when the federation database is not configured or a read fails.** Null rather than zero, deliberately: a caller must be able to tell "none" from "no answer", and a zero reads as the first. The catalog half is still returned in that case.
+
+---
+
+### 7.8 `GET /api/v2/admin/tokens`
 
 Lists all confirmed token contracts deployed across all users.
 
@@ -1341,7 +1553,7 @@ Lists all confirmed token contracts deployed across all users.
 
 ---
 
-### 7.6 `GET /api/v2/admin/pools`
+### 7.9 `GET /api/v2/admin/pools`
 
 Lists all confirmed SwapPool contracts deployed across all users.
 
@@ -1359,7 +1571,7 @@ Lists all confirmed SwapPool contracts deployed across all users.
 
 ---
 
-### 7.7 `GET /api/v2/admin/deployments`
+### 7.10 `GET /api/v2/admin/deployments`
 
 Lists all deployment history entries across all users.
 
@@ -1377,7 +1589,7 @@ Lists all deployment history entries across all users.
 
 ---
 
-### 7.8 `GET /api/v2/admin/dashboard/stats`
+### 7.11 `GET /api/v2/admin/dashboard/stats`
 
 Dashboard aggregates. Mounted on the `/admin/dashboard` group, not mixed with user/token mutations.
 
@@ -1390,6 +1602,18 @@ Dashboard aggregates. Mounted on the `/admin/dashboard` group, not mixed with us
 | `until` | `string` | RFC3339 end, required when `range=custom` |
 
 `pools`, `vouchers`, and `accounts` are lifetime catalog stock. `reports` and `transactions` are counts inside the requested window. Two series feed the charts: catalog creations, and `chain_data_v2.tx` envelopes. `transactions` is `null` when federation is down.
+
+### 7.12 `GET /api/v2/admin/dashboard/transactions`
+
+Latest indexed envelopes from `chain_data_v2.tx`, classified from live event tables. Cursor pagination matches the catalog (`perPage`, `cursor`, `next`).
+
+| Parameter | Type | Description |
+|---|---|---|
+| `perPage` | `number` | Page size, default/max 100 |
+| `cursor` | `number` | Event or envelope id bound |
+| `next` | `boolean` | `true` pages forward (lower ids), `false` pages back |
+| `type` | `string` | `transfer`, `swap`, `mint`, `burn`, `deposit`, `faucet` |
+| `voucher` | `string` | Token or pool `0x` address (`contract_address`) |
 
 **Response `200`:**
 
@@ -1487,6 +1711,7 @@ GET /api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1
 | `cursor` | integer | – | A voucher `id` from a previous response's `first` / `last`. |
 | `next` | boolean | `false` | `true` pages forward (`id < cursor`); `false` with a cursor pages backward (`id > cursor`). |
 | `bbox` | string | – | Optional `minLng,minLat,maxLng,maxLat` viewport filter. |
+| `owner` | string | – | Only vouchers owned by this address. Compared case-insensitively; a malformed address is a `400`. |
 
 **Pagination** uses descending `id` keyset paging. Requests without a cursor
 return the newest IDs first. Responses always carry `first` and `last` as JSON
@@ -1776,14 +2001,22 @@ one belongs to. The response body is otherwise byte-identical in shape to
 
 ---
 
-## 11. Reports (`GET /api/v2/reports`)
+## 11. Reports / Posts (`/api/v2/reports`)
 
 The Posts feed. **Authentication required** — Posts is a private home tab, so
 these routes sit on the authenticated API group.
 
-Only `APPROVED` reports are returned. `DRAFT`, `SUBMITTED`, and `REJECTED` are
-invisible on both routes, and an unapproved id is a `404` rather than a `403`:
-whether a draft exists is not public information.
+| Operation | User JWT | Service JWT | `SUPERADMIN` user JWT |
+|---|---|---|---|
+| List and detail | Yes | Yes | Yes |
+| Create | Yes, as `SUBMITTED` | No | Yes, as `APPROVED` |
+| Update | Original author only | No | Any post |
+| Approve | No | No | Any post |
+| Delete | No | No | Any post |
+
+Only `APPROVED` reports are returned by the two read routes. `DRAFT`,
+`SUBMITTED`, and `REJECTED` are invisible there, and an unapproved id is a
+`404` rather than a `403`: whether a draft exists is not public information.
 
 ### 11.1 Feed (`GET /api/v2/reports`)
 
@@ -1844,8 +2077,9 @@ never a place name. Use `geoLat` / `geoLng`.
 GET /api/v2/reports/3182
 ```
 
-Returns one report under `result.report` with every feed field plus `body`,
-`images`, `attachments`, `hostName`, `participants`, and `timeTaken`.
+Returns one report under `result.report` with every feed field plus `status`
+(`APPROVED` on this read route), `body`, `images`, `attachments`, `hostName`,
+`participants`, and `timeTaken`.
 
 Since migration 010 **none of this is parsed at request time.** The editor
 document used to live in `reports.body` as JSONB and this route re-derived the
@@ -1895,3 +2129,186 @@ One gap remains at the column level: six approved reports store a base64
 `null` for those rather than the URI. They are not nulled in storage because
 four of the six have no other image, so the fix is a CDN re-upload, not a
 delete.
+
+### 11.3 Write contract
+
+`POST` and `PUT` use the same JSON document. `title` is the only required
+content field; every other scalar is optional. Collections may be omitted or
+sent as empty arrays.
+
+```json
+{
+  "title": "August community harvest",
+  "body": "## Harvest\n\nTwenty members took part.",
+  "description": "A summary shown in the Posts feed.",
+  "imageUrl": "https://content.example/posts/harvest-cover.jpg",
+  "geoLat": -1.2864,
+  "geoLng": 36.8172,
+  "periodFrom": "2026-08-01T08:00:00Z",
+  "periodTo": "2026-08-01T12:00:00Z",
+  "hostName": "Wendo Group",
+  "participants": "20",
+  "timeTaken": "4 hours",
+  "tags": ["Agriculture", "Youth"],
+  "vouchers": [
+    {
+      "chainId": 42220,
+      "address": "0x0000000000000000000000000000000000000001"
+    }
+  ],
+  "images": [
+    {
+      "url": "https://content.example/posts/harvest-1.jpg",
+      "width": 720,
+      "height": 1080,
+      "maxWidth": 1440,
+      "maxHeight": 2160,
+      "byteSize": 245761,
+      "caption": "Sorting the harvest"
+    }
+  ],
+  "attachments": [
+    {
+      "kind": "FILE",
+      "url": "https://content.example/posts/harvest-notes.pdf",
+      "filename": "harvest-notes.pdf",
+      "byteSize": 81920
+    }
+  ]
+}
+```
+
+| Field | Validation and storage rule |
+|---|---|
+| `title` | Required, non-blank, maximum 200 characters; surrounding whitespace is removed |
+| `body` | Markdown text, maximum 500,000 characters; never editor JSON |
+| `description` | Feed summary, maximum 10,000 characters |
+| `imageUrl` | Optional `http(s)` URL; `null` or omission clears it on `PUT` |
+| `geoLat`, `geoLng` | Must be sent together; latitude `-90..90`, longitude `-180..180` |
+| `periodFrom`, `periodTo` | RFC3339 timestamps; if both are set, `periodFrom <= periodTo` |
+| `hostName` | Optional issuer free text, maximum 200 characters |
+| `participants`, `timeTaken` | Optional issuer free text, maximum 100 characters each |
+| `tags` | At most 12 values from the existing `token_tag` vocabulary; duplicates are removed |
+| `vouchers` | At most 12 stable `{chainId,address}` references; every referenced voucher must exist |
+| `images` | At most 50, in document order; URLs must be unique within the post and use `http(s)` |
+| `attachments` | At most 20, in document order; `kind` is `FILE` or `EMBED`, and URLs use `http(s)` |
+
+`PUT` is **assign-all**, not patch semantics. It replaces every editable scalar
+and all four relation sets (`tags`, `vouchers`, `images`, `attachments`) in one
+transaction. Omitting an optional scalar clears it; omitting a collection
+replaces that collection with an empty set. A validation or database failure
+leaves the existing post unchanged.
+
+The client cannot send `authorAddress`, `modifierAddress`, `status`, `sourceId`,
+or timestamps. The server derives the immutable original author from the user
+JWT. An edit records the caller as the modifier but never transfers authorship
+or changes approval state. In particular, editing an `APPROVED` post leaves it
+`APPROVED`; no reapproval is required.
+
+### 11.4 Create (`POST /api/v2/reports`)
+
+Requires a user JWT; service JWTs receive `403 E10`. A normal user's new post is
+stored as `SUBMITTED` and remains absent from the feed and detail routes until a
+superadmin approves it. A `SUPERADMIN`-created post is stored as `APPROVED`
+immediately because that caller already holds approval authority.
+
+```http
+POST /api/v2/reports
+Content-Type: application/json
+Cookie: __clc_auth=<user-jwt>
+```
+
+Success is `201 Created` and returns the complete created report:
+
+```json
+{
+  "ok": true,
+  "description": "Report created",
+  "result": {
+    "report": {
+      "id": 4633,
+      "title": "August community harvest",
+      "authorAddress": "0x0000000000000000000000000000000000000011",
+      "status": "SUBMITTED",
+      "tags": ["Agriculture", "Youth"],
+      "vouchers": [],
+      "images": [],
+      "attachments": [],
+      "createdAt": "2026-08-20T10:00:00Z",
+      "updatedAt": "2026-08-20T10:00:00Z"
+    }
+  }
+}
+```
+
+### 11.5 Update (`PUT /api/v2/reports/:id`)
+
+Requires a user JWT. The caller must be either the report's immutable original
+author or a `SUPERADMIN`. The ownership row is locked and checked in the same
+transaction as the update, so authorization cannot race a concurrent delete or
+edit. Another user receives `403 E10`.
+
+```http
+PUT /api/v2/reports/4633
+Content-Type: application/json
+Cookie: __clc_auth=<author-or-admin-jwt>
+```
+
+The request body is the complete [write document](#113-write-contract).
+Success is `200 OK` with description `Report updated` and the complete report
+under `result.report`.
+
+An authorized edit always preserves the existing workflow status:
+
+- A `SUBMITTED`, `DRAFT`, or `REJECTED` post keeps that status and the normal
+  detail route continues to answer `404` until a superadmin approves it.
+- An `APPROVED` post stays approved after either an author or admin edit and is
+  still visible immediately; editing never sends it back for reapproval.
+
+The mutation response includes `status` and returns the row to its authorized
+caller even when the normal detail route hides it.
+
+### 11.6 Approve (`PUT /api/v2/reports/:id/approve`)
+
+Approval is `SUPERADMIN`-only. Normal users and service credentials receive
+`403 E10`. No request body is required.
+
+```http
+PUT /api/v2/reports/4633/approve
+Cookie: __clc_auth=<superadmin-jwt>
+```
+
+The endpoint changes only `status` to `APPROVED` and records the superadmin as
+the latest modifier. It does not rewrite the post body or any relation. Calling
+it for an already-approved post is idempotent in state and returns `200 OK` with
+description `Report approved` and the complete report under `result.report`.
+
+Once approved, the post appears in the feed and detail routes. Later author or
+admin edits preserve `APPROVED` and do not require this endpoint again.
+
+### 11.7 Delete (`DELETE /api/v2/reports/:id`)
+
+Deletion is `SUPERADMIN`-only. Original authors cannot delete their own posts;
+normal user and service credentials receive `403 E10`. Deleting the report also
+deletes its tags, voucher links, images, attachments, and verifiers through the
+existing foreign-key cascades.
+
+```http
+DELETE /api/v2/reports/4633
+Cookie: __clc_auth=<superadmin-jwt>
+```
+
+Success is `200 OK`:
+
+```json
+{
+  "ok": true,
+  "description": "Report deleted",
+  "result": { "id": 4633 }
+}
+```
+
+The mutation routes return `400 E02` for malformed JSON, `400 E04` for
+invalid fields or unknown tag/voucher references, `401 E06` without valid
+authentication, `403 E10` when the credential lacks permission, and `404 E03`
+when `:id` does not exist.

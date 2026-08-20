@@ -158,6 +158,11 @@ func New(o APIOpts) *API {
 	profileAuthGroup := router.Group("/auth", a.flexibleAuthMiddleware(), a.requireUserAuth())
 	profileAuthGroup.GET("/profile", a.profileGetHandler)
 	profileAuthGroup.POST("/profile", a.profileUpdateHandler)
+	// A readable copy of the session token, for uploads to the image service.
+	// Mounted here rather than under /api/v2 because it is part of the session,
+	// and behind requireUserAuth because a service token has no browser to hand
+	// it to.
+	profileAuthGroup.POST("/storage-token", a.storageTokenHandler)
 
 	// Public market catalog. Registered on the root router, NOT on apiGroup:
 	// flexibleAuthMiddleware is mandatory authentication despite its name, and
@@ -192,9 +197,14 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/pools/:address/offerings", a.poolOfferingsListHandler)
 
 	// Report feed for the Posts tab. Authenticated like the pool routes: Posts
-	// is a private home tab.
+	// is a private home tab. Reads also accept service credentials; mutations
+	// require a user JWT so authorship always names a user wallet.
 	apiGroup.GET("/reports", a.reportsListHandler)
 	apiGroup.GET("/reports/:id", a.reportByIDHandler)
+	apiGroup.POST("/reports", a.reportCreateHandler, a.requireUserAuth())
+	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
+	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
+	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
 
@@ -236,14 +246,27 @@ func New(o APIOpts) *API {
 	adminGroup.PUT("/users/:address/approve", a.adminApproveUserHandler)
 	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
 	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)
+	adminGroup.PUT("/users/:address/profile", a.adminUpdateUserProfileHandler)
+	adminGroup.GET("/users/:address/pools", a.adminAccountPoolsHandler)
+	adminGroup.GET("/users/:address/stats", a.adminAccountStatsHandler)
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
+	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 
 	// Dashboard aggregates are a separate group so catalog mutations and
 	// ops totals do not share a route prefix that invites accidental reuse.
 	dashboardGroup := adminGroup.Group("/dashboard")
 	dashboardGroup.GET("/stats", a.adminDashboardStatsHandler)
+
+	// Transaction pages. Three resources rather than one filtered list: the
+	// first two read the chain in the two shapes it comes in, and the third
+	// reads what this service signed, which is a different fact from what the
+	// chain did with it.
+	txGroup := adminGroup.Group("/transactions")
+	txGroup.GET("/vouchers", a.adminVoucherTransactionsHandler)
+	txGroup.GET("/pools", a.adminPoolTransactionsHandler)
+	txGroup.GET("/otx", a.adminOTXHandler)
 
 	// Federation data routes — only if federation store is available
 	if a.federationStore != nil {

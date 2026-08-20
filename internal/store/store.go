@@ -36,6 +36,12 @@ type (
 		ConfirmDeployedPool(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedPool(context.Context, pgx.Tx, uint64) error
 		UpsertPoolFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
+		UpdatePoolProfile(context.Context, pgx.Tx, string, PoolProfile) (uint64, error)
+		ReplacePoolTags(context.Context, pgx.Tx, uint64, []string) error
+		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
+		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
+		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string) (int64, error)
+		ClearPoolTokenOracle(context.Context, pgx.Tx, string, string) (int64, error)
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
@@ -45,6 +51,7 @@ type (
 		GetOTXByAccount(context.Context, pgx.Tx, string, uint64) ([]*OTX, error)
 		GetOTXByAccountNext(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
 		GetOTXByAccountPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
+		ListAdminOTX(context.Context, pgx.Tx, string, string, AdminTransactionSearch, CatalogPage, uint64, uint64) ([]AdminOTX, error)
 		PeekNonce(context.Context, pgx.Tx, string) (uint64, error)
 		CheckKeypair(context.Context, pgx.Tx, string) (bool, error)
 
@@ -56,10 +63,11 @@ type (
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
 		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)
-		ListUsers(context.Context, pgx.Tx) ([]User, error)
-		ListUsersByStatus(context.Context, pgx.Tx, string) ([]User, error)
 		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
 		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
+		ListUsersFiltered(context.Context, pgx.Tx, UserFilter, CatalogPage, uint64, uint64) ([]User, error)
+		AccountRelationshipCounts(context.Context, pgx.Tx, string) (AccountRelationshipCounts, error)
+		ListAccountPools(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Pool, error)
 		DashboardCatalogSnapshot(context.Context, pgx.Tx, time.Time, time.Time) (DashboardCatalogSnapshot, error)
 		DashboardCatalogSeries(context.Context, pgx.Tx, time.Time, time.Time, int64) ([]DashboardCatalogPoint, error)
 
@@ -102,6 +110,13 @@ type (
 		ListReportsFiltered(context.Context, pgx.Tx, CatalogFilter, ReportCursor, bool, uint64) ([]Report, error)
 		ListReportTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		GetReport(context.Context, pgx.Tx, uint64) (*Report, error)
+		GetReportForMutation(context.Context, pgx.Tx, uint64) (*Report, error)
+		CreateReport(context.Context, pgx.Tx, ReportWrite, string, string) (uint64, error)
+		LockReportAuthor(context.Context, pgx.Tx, uint64) (string, error)
+		UpdateReport(context.Context, pgx.Tx, uint64, ReportWrite, string) error
+		ApproveReport(context.Context, pgx.Tx, uint64, string) error
+		ReplaceReportRelations(context.Context, pgx.Tx, uint64, ReportWrite) error
+		DeleteReport(context.Context, pgx.Tx, uint64) error
 		ListMarketVouchers(context.Context, pgx.Tx, *MarketVoucherBounds, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersNext(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersPrevious(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)

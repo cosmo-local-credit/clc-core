@@ -41,12 +41,22 @@ type (
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
+		UpdatePoolProfile            string `query:"update-pool-profile"`
+		DeletePoolTags               string `query:"delete-pool-tags"`
+		InsertPoolTag                string `query:"insert-pool-tag"`
+		SetPoolTokenMembership       string `query:"set-pool-token-membership"`
+		SetPoolTokenLimit            string `query:"set-pool-token-limit"`
+		SetPoolTokenOracle           string `query:"set-pool-token-oracle"`
+		ClearPoolTokenOracle         string `query:"clear-pool-token-oracle"`
 		GetOracleFeedByName          string `query:"get-oracle-feed-by-name"`
 		ListOracleFeeds              string `query:"list-oracle-feeds"`
 		GetOTXByTrackingID           string `query:"get-otx-by-tracking-id"`
 		GetOTXByAccount              string `query:"get-otx-by-account"`
 		GetOTXByAccountNext          string `query:"get-otx-by-account-next"`
 		GetOTXByAccountPrev          string `query:"get-otx-by-account-prev"`
+		ListOTX                      string `query:"list-otx"`
+		ListOTXNext                  string `query:"list-otx-next"`
+		ListOTXPrev                  string `query:"list-otx-prev"`
 		PeekNonce                    string `query:"peek-nonce"`
 		CheckKeypair                 string `query:"check-keypair"`
 
@@ -58,10 +68,9 @@ type (
 		ApprovePendingUserByAddress   string `query:"approve-pending-user-by-address"`
 		UpdateUserLimits              string `query:"update-user-limits"`
 		UpdateUserProfile             string `query:"update-user-profile"`
-		ListUsers                     string `query:"list-users"`
-		ListUsersByStatus             string `query:"list-users-by-status"`
 		InsertUserShare               string `query:"insert-user-share"`
 		GetUserShareByTxHash          string `query:"get-user-share-by-tx-hash"`
+		AccountRelationshipCounts     string `query:"account-relationship-counts"`
 		CountUserTokens               string `query:"count-user-tokens"`
 		CountUserPools                string `query:"count-user-pools"`
 		InsertUserDeployment          string `query:"insert-user-deployment"`
@@ -110,6 +119,19 @@ type (
 		ListReports              string `query:"list-reports"`
 		ListReportsNext          string `query:"list-reports-next"`
 		GetReport                string `query:"get-report"`
+		CreateReport             string `query:"create-report"`
+		LockReportAuthor         string `query:"lock-report-author"`
+		UpdateReport             string `query:"update-report"`
+		ApproveReport            string `query:"approve-report"`
+		DeleteReport             string `query:"delete-report"`
+		DeleteReportTags         string `query:"delete-report-tags"`
+		InsertReportTag          string `query:"insert-report-tag"`
+		DeleteReportVouchers     string `query:"delete-report-vouchers"`
+		InsertReportVoucher      string `query:"insert-report-voucher"`
+		DeleteReportImages       string `query:"delete-report-images"`
+		InsertReportImage        string `query:"insert-report-image"`
+		DeleteReportAttachments  string `query:"delete-report-attachments"`
+		InsertReportAttachment   string `query:"insert-report-attachment"`
 
 		// Bounded and unbounded market pages are separate statements so the
 		// bbox predicate never hides behind a nullable OR, which would stop

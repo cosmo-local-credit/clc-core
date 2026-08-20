@@ -52,6 +52,11 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "015_deploy_catalog_promotion.sql")
 	assert.Contains(t, sqlFiles, "016_deploy_terms.sql")
 	assert.Contains(t, sqlFiles, "017_send_message_shares.sql")
+	assert.Contains(t, sqlFiles, "018_admin_user_search_indexes.sql")
+	assert.Contains(t, sqlFiles, "019_account_relationship_indexes.sql")
+	assert.Contains(t, sqlFiles, "020_admin_otx_indexes.sql")
+	assert.Contains(t, sqlFiles, "021_pool_quoter_type.sql")
+	assert.Contains(t, sqlFiles, "022_image_urls.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -70,7 +75,12 @@ func TestMigrationFiles(t *testing.T) {
 				name == "014_user_geo.sql" ||
 				name == "015_deploy_catalog_promotion.sql" ||
 				name == "016_deploy_terms.sql" ||
-				name == "017_send_message_shares.sql",
+				name == "017_send_message_shares.sql" ||
+				name == "018_admin_user_search_indexes.sql" ||
+				name == "019_account_relationship_indexes.sql" ||
+				name == "020_admin_otx_indexes.sql" ||
+				name == "021_pool_quoter_type.sql" ||
+				name == "022_image_urls.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -97,6 +107,11 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"015_deploy_catalog_promotion.sql",
 		"016_deploy_terms.sql",
 		"017_send_message_shares.sql",
+		"018_admin_user_search_indexes.sql",
+		"019_account_relationship_indexes.sql",
+		"020_admin_otx_indexes.sql",
+		"021_pool_quoter_type.sql",
+		"022_image_urls.sql",
 	}, files)
 }
 
@@ -128,6 +143,45 @@ func TestDeployTermsMigration(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(s, "ADD COLUMN IF NOT EXISTS terms TEXT"))
 }
 
+func TestPoolQuoterTypeMigration(t *testing.T) {
+	content, err := os.ReadFile("021_pool_quoter_type.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Both ends of the promotion: the deploy row records it, the catalog row
+	// serves it. Recording it on only one of the two would leave the API unable
+	// to report what the deploy already knew.
+	assert.Contains(t, s, "ALTER TABLE deployed_pools")
+	assert.Contains(t, s, "ALTER TABLE pools")
+	assert.Equal(t, 2, strings.Count(s, "ADD COLUMN IF NOT EXISTS quoter_type TEXT"))
+	// The same closed set the request validator enforces (pkg/api,
+	// oneof=decimal oracle relative), so a direct write cannot store a value the
+	// API would have rejected.
+	assert.Equal(t, 2, strings.Count(s, "IN ('decimal', 'oracle', 'relative')"))
+	// Re-running must be a no-op: the columns are guarded, and each constraint is
+	// dropped before it is added.
+	assert.Equal(t, 2, strings.Count(s, "DROP CONSTRAINT IF EXISTS"))
+	// Nullable and unbackfilled — NULL means unknown, not decimal.
+	assert.NotContains(t, s, "NOT NULL")
+	assert.NotContains(t, s, "DEFAULT")
+	assert.NotContains(t, s, "UPDATE pools")
+}
+
+func TestPoolQuoterTypeInBaseline(t *testing.T) {
+	// The usual fold: a fresh database gets the column from the baseline, and the
+	// ALTER above is the no-op catch-up for existing ones.
+	baseline, err := os.ReadFile("001_init.sql")
+	require.NoError(t, err)
+	catalog, err := os.ReadFile("006_network_catalog.sql")
+	require.NoError(t, err)
+
+	assert.Contains(t, string(baseline), "quoter_type                     TEXT,")
+	assert.Contains(t, string(baseline), "deployed_pools_quoter_type_valid")
+	assert.Contains(t, string(baseline), "pools_quoter_type_valid")
+	// 006 defines pools too, so the fold has to land in both files.
+	assert.Contains(t, string(catalog), "pools_quoter_type_valid")
+}
+
 func TestMarketVoucherIndexesMigration(t *testing.T) {
 	content, err := os.ReadFile("008_market_voucher_indexes.sql")
 	require.NoError(t, err)
@@ -150,6 +204,60 @@ func TestMarketVoucherIndexesMigration(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
 	// The primary key already drives the unbounded descending page scan.
 	assert.NotContains(t, s, "ON vouchers (id")
+}
+
+func TestAdminUserSearchIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("018_admin_user_search_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Trigram, not B-tree: a generic plan cannot range-scan a B-tree for
+	// `lower(col) LIKE lower($1) || '%'`.
+	assert.Contains(t, s, "CREATE EXTENSION IF NOT EXISTS pg_trgm")
+	// One index per column the directory search matches, and the expression must
+	// be the one the query emits or the planner cannot use it.
+	assert.Contains(t, s, "ON users USING gin (lower(name) gin_trgm_ops)")
+	assert.Contains(t, s, "ON users USING gin (lower(email) gin_trgm_ops)")
+	assert.Contains(t, s, "ON users USING gin (lower(phone) gin_trgm_ops)")
+	assert.Contains(t, s, "ON users USING gin (lower(blockchain_address) gin_trgm_ops)")
+	// Country and role are not searched, so indexing them would buy nothing.
+	assert.NotContains(t, s, "lower(country)")
+	assert.NotContains(t, s, "(role")
+	// Each statement ends at the operator class, so none of the four carries a
+	// partial predicate: an operator must be able to find a rejected account.
+	assert.Equal(t, 4, strings.Count(s, "gin_trgm_ops);"))
+	// Re-running the migration must be a no-op.
+	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	// Expression statistics do not exist until the index does.
+	assert.Contains(t, s, "ANALYZE users;")
+}
+
+func TestAccountRelationshipIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("019_account_relationship_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// The indexed expression must be the one the comparisons emit, or the planner
+	// cannot use it.
+	assert.Contains(t, s, "ON vouchers (lower(owner_address))")
+	assert.Contains(t, s, "ON reports (lower(author_address))")
+	assert.Equal(t, 2, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.Contains(t, s, "ANALYZE vouchers;")
+	assert.Contains(t, s, "ANALYZE reports;")
+}
+
+func TestAdminOTXIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("020_admin_otx_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "otx_type_id_idx")
+	assert.Contains(t, s, "dispatch_status_idx")
+	assert.Contains(t, s, "CREATE EXTENSION IF NOT EXISTS pg_trgm")
+	assert.Contains(t, s, "ON otx USING gin (lower(tracking_id::text) gin_trgm_ops)")
+	assert.Contains(t, s, "ON otx USING gin (lower(tx_hash) gin_trgm_ops)")
+	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.Contains(t, s, "ANALYZE otx;")
 }
 
 func TestBaselineMigrationContainsLegacySchema(t *testing.T) {
@@ -757,4 +865,40 @@ func TestDeployCatalogPromotionMigration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(catalog), "voucher_id INT UNIQUE REFERENCES vouchers(id)")
 	assert.Contains(t, string(catalog), "pool_id INT UNIQUE REFERENCES pools(id)")
+}
+
+func TestImageURLsMigration(t *testing.T) {
+	content, err := os.ReadFile("022_image_urls.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+
+	// The avatar column, and the deploy row that carries an icon and banner to
+	// catalog promotion. Only deployed_tokens: token_deploy_meta was folded into
+	// it and dropped by migration 002, so altering that table would fail.
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS avatar_url TEXT")
+	assert.Equal(t, 1, strings.Count(s, "ADD COLUMN IF NOT EXISTS icon_url TEXT"))
+	assert.Equal(t, 1, strings.Count(s, "ADD COLUMN IF NOT EXISTS banner_url TEXT"))
+	assert.NotContains(t, s, "ALTER TABLE token_deploy_meta")
+
+	// New columns are validated; existing catalog columns are not. Six approved
+	// reports still hold base64 data URIs that the feed nulls at read time, so a
+	// validated constraint on reports.image_url would fail on live data.
+	assert.Contains(t, s, "CONSTRAINT users_avatar_url_http")
+	assert.NotContains(t, s, "users_avatar_url_http\n        CHECK (avatar_url IS NULL OR avatar_url ~* '^https?://')\n        NOT VALID")
+	for _, constraint := range []string{
+		"vouchers_image_urls_http",
+		"pools_image_urls_http",
+		"reports_image_url_http",
+	} {
+		assert.Contains(t, s, constraint)
+	}
+	// The clause, not the word: the comment above these constraints explains the
+	// choice and mentions it too.
+	assert.Equal(t, 3, strings.Count(s, "\n        NOT VALID;"))
+
+	// Re-running must be a no-op: every column is guarded and every constraint is
+	// dropped before it is added.
+	assert.Equal(t, 5, strings.Count(s, "DROP CONSTRAINT IF EXISTS"))
+	assert.Equal(t, 5, strings.Count(s, "ADD CONSTRAINT"))
 }

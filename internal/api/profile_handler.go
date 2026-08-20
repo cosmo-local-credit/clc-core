@@ -41,10 +41,15 @@ func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) 
 		ClearLocation: req.ClearLocation,
 		GeoLat:        req.GeoLat,
 		GeoLng:        req.GeoLng,
+		ClearAvatar:   req.ClearAvatar,
+		AvatarURL:     req.AvatarURL,
 	}
 
 	if req.ClearLocation && (req.LocationName != nil || req.GeoLat != nil || req.GeoLng != nil) {
 		return update, errors.New("location fields and clearLocation cannot both be supplied")
+	}
+	if req.ClearAvatar && req.AvatarURL != nil {
+		return update, errors.New("avatarUrl and clearAvatar cannot both be supplied")
 	}
 	if (req.GeoLat == nil) != (req.GeoLng == nil) {
 		return update, errors.New("geoLat and geoLng must be provided together")
@@ -211,6 +216,7 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 			"locationName": user.LocationName,
 			"geoLat":       user.GeoLat,
 			"geoLng":       user.GeoLng,
+			"avatarUrl":    user.AvatarURL,
 			"createdAt":    user.CreatedAt.Format(time.RFC3339),
 		},
 	})
@@ -276,6 +282,7 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 			"locationName": user.LocationName,
 			"geoLat":       user.GeoLat,
 			"geoLng":       user.GeoLng,
+			"avatarUrl":    user.AvatarURL,
 		},
 	})
 }

@@ -28,7 +28,7 @@ import (
 const (
 	poolPageProjection = `
 SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
-    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,

@@ -69,8 +69,8 @@ WHERE chain_id = $1 AND contract_type = $2::contract_type;
 INSERT INTO deployed_tokens (
     otx_id, platform_contract_id, status, symbol, name, decimals, admin,
     description, website, email, phone, terms, voucher_uoa, voucher_value,
-    location_name, geo_lat, geo_lng
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    location_name, geo_lat, geo_lng, icon_url, banner_url
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 RETURNING id;
 
 --name: confirm-deployed-token
@@ -100,7 +100,9 @@ WHERE otx_id = $1 AND status = 'PENDING';
 --
 -- Merge policy: the deploy is the fresh, authoritative request, so its values
 -- win where present; a pre-existing catalog row keeps whatever the deploy has
--- no opinion about (icon/banner/sink, and active/internal state).
+-- no opinion about (sink, and active/internal state). The icon and banner are
+-- part of the request now, so they merge on the same COALESCE terms: a deploy
+-- that carried an image sets it, one that did not leaves an imported image alone.
 --name: upsert-voucher-from-deploy
 WITH deploy AS (
     SELECT
@@ -122,6 +124,8 @@ WITH deploy AS (
         dt.location_name,
         dt.geo_lat,
         dt.geo_lng,
+        dt.icon_url,
+        dt.banner_url,
         dt.platform_contract_id
     FROM deployed_tokens dt
     INNER JOIN platform_contracts pc ON pc.id = dt.platform_contract_id
@@ -131,7 +135,8 @@ upserted AS (
     INSERT INTO vouchers (
         chain_id, address, name, symbol, decimals, owner_address, voucher_type,
         description, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng,
-        email, website, phone, terms, contract_version, platform_contract_id
+        email, website, phone, terms, icon_url, banner_url, contract_version,
+        platform_contract_id
     )
     SELECT
         d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
@@ -141,6 +146,7 @@ upserted AS (
         'GIFTABLE',
         d.description, d.voucher_uoa, d.voucher_value, d.location_name,
         d.geo_lat, d.geo_lng, d.email, d.website, d.phone, d.terms,
+        d.icon_url, d.banner_url,
         NULLIF(d.contract_version, ''), d.platform_contract_id
     FROM deploy d
     ON CONFLICT (chain_id, lower(address)) DO UPDATE SET
@@ -159,6 +165,8 @@ upserted AS (
         website              = COALESCE(EXCLUDED.website,        vouchers.website),
         phone                = COALESCE(EXCLUDED.phone,          vouchers.phone),
         terms                = COALESCE(EXCLUDED.terms,          vouchers.terms),
+        icon_url             = COALESCE(EXCLUDED.icon_url,       vouchers.icon_url),
+        banner_url           = COALESCE(EXCLUDED.banner_url,     vouchers.banner_url),
         contract_version     = COALESCE(EXCLUDED.contract_version, vouchers.contract_version),
         platform_contract_id = EXCLUDED.platform_contract_id
     RETURNING id
@@ -186,7 +194,7 @@ INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
 --name: get-deployed-token-by-address
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
-       dt.location_name, dt.geo_lat, dt.geo_lng, dt.created_at, dt.updated_at, o.tracking_id,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
@@ -197,7 +205,7 @@ GROUP BY dt.id, o.tracking_id;
 --name: get-deployed-token-by-tracking-id
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
-       dt.location_name, dt.geo_lat, dt.geo_lng, dt.created_at, dt.updated_at, o.tracking_id,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
@@ -220,10 +228,10 @@ ON CONFLICT (key) DO UPDATE SET address = EXCLUDED.address, updated_at = CURRENT
 --name: insert-deployed-pool
 INSERT INTO deployed_pools (
     otx_id, platform_contract_id, status, name, symbol, decimals,
-    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address, quoter_type,
     protocol_fee_controller_address, fees_decoupled, admin,
     description, website, email, phone, terms, location_name, geo_lat, geo_lng, image_url, banner_url
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 RETURNING id;
 
 --name: confirm-deployed-pool
@@ -256,7 +264,7 @@ WITH deploy AS (
         dp.admin,
         dp.token_registry_address,
         dp.limiter_address,
-        dp.quoter_address,
+        dp.quoter_address, dp.quoter_type,
         dp.fee_policy_address,
         dp.protocol_fee_controller_address,
         dp.fees_decoupled,
@@ -278,14 +286,14 @@ WITH deploy AS (
 upserted AS (
     INSERT INTO pools (
         chain_id, address, name, symbol, decimals, owner_address,
-        token_registry_address, limiter_address, quoter_address, fee_policy_address,
+        token_registry_address, limiter_address, quoter_address, quoter_type, fee_policy_address,
         protocol_fee_controller_address, fees_decoupled, description,
         location_name, geo_lat, geo_lng, email, website, phone, terms,
         image_url, banner_url, platform_contract_id
     )
     SELECT
         d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
-        d.token_registry_address, d.limiter_address, d.quoter_address,
+        d.token_registry_address, d.limiter_address, d.quoter_address, d.quoter_type,
         d.fee_policy_address, d.protocol_fee_controller_address, d.fees_decoupled,
         d.description, d.location_name, d.geo_lat, d.geo_lng,
         d.email, d.website, d.phone, d.terms, d.image_url, d.banner_url,
@@ -299,6 +307,7 @@ upserted AS (
         token_registry_address          = COALESCE(EXCLUDED.token_registry_address, pools.token_registry_address),
         limiter_address                 = COALESCE(EXCLUDED.limiter_address, pools.limiter_address),
         quoter_address                  = COALESCE(EXCLUDED.quoter_address, pools.quoter_address),
+        quoter_type                     = COALESCE(EXCLUDED.quoter_type, pools.quoter_type),
         fee_policy_address              = COALESCE(EXCLUDED.fee_policy_address, pools.fee_policy_address),
         protocol_fee_controller_address = COALESCE(EXCLUDED.protocol_fee_controller_address, pools.protocol_fee_controller_address),
         fees_decoupled                  = COALESCE(EXCLUDED.fees_decoupled, pools.fees_decoupled),
@@ -337,7 +346,7 @@ INSERT INTO deployed_pool_tags (deployed_pool_id, tag_value) VALUES ($1, $2);
 
 --name: get-deployed-pool-by-address
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
-    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
     dp.description, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
@@ -350,7 +359,7 @@ GROUP BY dp.id, o.tracking_id;
 
 --name: get-deployed-pool-by-tracking-id
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
-    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
     dp.description, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
@@ -417,6 +426,50 @@ WHERE k.public_key = $1 AND otx.id < $2
 ORDER BY otx.id DESC
 LIMIT $3;
 
+-- The operator console's OTX page: every origin transaction the service signed,
+-- newest first, narrowed by an optional type and dispatch status. Unlike
+-- get-otx-by-account this is not scoped to one signer, and it omits raw_tx —
+-- a page of 100 raw transactions is a payload nothing on that screen reads.
+--
+-- The two filters are written as `$n = '' OR col = $n` so one statement serves
+-- the filtered and unfiltered reads. Both columns are indexed (migration 019);
+-- the ordering is the primary key, so an unfiltered page is a backward index
+-- scan.
+--name: list-otx
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE ($1 = '' OR otx.otx_type = $1) AND ($2 = '' OR d.status = $2)
+ORDER BY otx.id DESC
+LIMIT $3;
+
+--name: list-otx-next
+SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.tx_hash,
+    otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+FROM otx
+INNER JOIN dispatch d ON otx.id = d.otx_id
+INNER JOIN keystore k ON otx.signer_account = k.id
+WHERE ($1 = '' OR otx.otx_type = $1) AND ($2 = '' OR d.status = $2) AND otx.id < $3
+ORDER BY otx.id DESC
+LIMIT $4;
+
+-- Keyset window fetched ascending (the rows immediately above the cursor) then
+-- re-sorted descending in SQL, so the API never reorders rows in memory.
+--name: list-otx-prev
+SELECT * FROM (
+    SELECT otx.id, otx.tracking_id, otx.otx_type, k.public_key, otx.tx_hash,
+        otx.nonce, otx.replaced, otx.created_at, otx.updated_at, d.status
+    FROM otx
+    INNER JOIN dispatch d ON otx.id = d.otx_id
+    INNER JOIN keystore k ON otx.signer_account = k.id
+    WHERE ($1 = '' OR otx.otx_type = $1) AND ($2 = '' OR d.status = $2) AND otx.id > $3
+    ORDER BY otx.id ASC
+    LIMIT $4
+) page
+ORDER BY page.id DESC;
+
 --name: peek-nonce
 SELECT next_nonce FROM noncestore
 INNER JOIN keystore ON keystore.id = noncestore.keystore_id
@@ -429,21 +482,21 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
 VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE LOWER(blockchain_address) = LOWER($1)
 LIMIT 1;
 
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -451,23 +504,26 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
 -- Omitted location fields preserve their stored values. clearLocation overrides
--- them together so callers can explicitly remove a saved pin.
+-- them together so callers can explicitly remove a saved pin. The avatar follows
+-- the same shape for the same reason: an older client that sends no avatar must
+-- not erase one, so removing it is an explicit clearAvatar rather than a magic
+-- value that an absent field could be confused with.
 UPDATE users
 SET name = $2,
     email = NULLIF($3, ''),
@@ -475,20 +531,10 @@ SET name = $2,
     country = $5,
     location_name = CASE WHEN $6 THEN NULL ELSE COALESCE($7, location_name) END,
     geo_lat = CASE WHEN $6 THEN NULL ELSE COALESCE($8::DOUBLE PRECISION, geo_lat) END,
-    geo_lng = CASE WHEN $6 THEN NULL ELSE COALESCE($9::DOUBLE PRECISION, geo_lng) END
+    geo_lng = CASE WHEN $6 THEN NULL ELSE COALESCE($9::DOUBLE PRECISION, geo_lng) END,
+    avatar_url = CASE WHEN $10 THEN NULL ELSE COALESCE($11, avatar_url) END
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at;
-
---name: list-users
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
-FROM users
-ORDER BY created_at DESC;
-
---name: list-users-by-status
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, role, status, max_pools, max_tokens, created_at, updated_at
-FROM users
-WHERE status = $1::user_status
-ORDER BY created_at DESC;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 -- User shares
 --name: insert-user-share
@@ -590,7 +636,7 @@ LIMIT $3;
 
 --name: list-pools-by-user
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
-    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
     dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
@@ -607,7 +653,7 @@ LIMIT $2;
 --name: list-pools-by-user-next
 -- Same keyset direction as transfer history: next pages are older (id < cursor).
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
-    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
     dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
@@ -625,7 +671,7 @@ LIMIT $3;
 -- Previous pages move toward newer records (id > cursor).
 SELECT * FROM (
     SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
-        dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+        dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
         dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
         dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
         dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
@@ -649,7 +695,7 @@ ORDER BY created_at DESC;
 
 --name: list-all-pools
 SELECT id, otx_id, platform_contract_id, status, address, name, symbol, decimals,
-    token_registry_address, limiter_address, fee_policy_address, quoter_address,
+    token_registry_address, limiter_address, fee_policy_address, quoter_address, quoter_type,
     protocol_fee_controller_address, fees_decoupled, admin, image_url, banner_url, created_at, updated_at
 FROM deployed_pools
 WHERE status = 'CONFIRMED'
@@ -658,7 +704,7 @@ ORDER BY created_at DESC;
 -- Global confirmed pools (any user). Full metadata + tags for the app pools tab.
 --name: list-confirmed-pools
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
-    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
     dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
@@ -674,7 +720,7 @@ LIMIT $1;
 --name: list-confirmed-pools-next
 -- Next pages are older records (id < cursor).
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
-    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+    dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
     dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
@@ -691,7 +737,7 @@ LIMIT $2;
 -- Previous pages move toward newer records (id > cursor).
 SELECT * FROM (
     SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
-        dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address,
+        dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
         dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
         dp.description, dp.website, dp.email, dp.phone, dp.location_name, dp.geo_lat, dp.geo_lng,
         dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
@@ -766,7 +812,7 @@ WHERE lower(address) = ANY($1);
 -- tags aggregated from pool_tags.
 --name: list-pools
 SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
-    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
@@ -782,7 +828,7 @@ LIMIT $1;
 --name: list-pools-next
 -- Next pages are older records (id < cursor).
 SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
-    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
@@ -800,7 +846,7 @@ LIMIT $2;
 -- Previous pages move toward newer records (id > cursor).
 SELECT * FROM (
     SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
-        p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+        p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
         p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
         p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
         p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
@@ -820,7 +866,7 @@ ORDER BY id DESC;
 -- addresses are EIP-55, lookups may arrive in any casing).
 --name: get-pool-by-address
 SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
-    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address,
+    p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
@@ -831,6 +877,132 @@ FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
 WHERE lower(p.address) = lower($1)
 GROUP BY p.id;
+
+-- Operator edits to a pool's off-chain record (PUT /admin/pools/:address/profile).
+--
+-- Only catalog metadata: nothing here has an on-chain counterpart, so an edit
+-- cannot put the row out of step with the contract. Name, symbol, decimals and
+-- every dependency address are deliberately absent — those mirror SwapPool, and
+-- a catalog that disagrees with the chain about them is worse than one that
+-- cannot edit them.
+--
+-- Assign-all rather than patch: the caller sends the whole record and every
+-- column is written, so clearing a field is expressing it as empty rather than
+-- omitting it. pools_geo_valid backstops the both-or-neither coordinate rule the
+-- handler checks first.
+--name: update-pool-profile
+-- Assign-all for everything the console has always sent, and COALESCE for the two
+-- image columns.
+--
+-- The distinction is not stylistic. Until now this statement did not touch
+-- image_url or banner_url at all, which is the only reason a pool's images survive
+-- an operator editing its description. Making them assign-all would have the
+-- already-deployed console — which sends no image fields — blank them on every
+-- save. Omitted therefore preserves, and '' clears, matching update-user-profile.
+-- Once every client sends the fields this can collapse to a plain assignment.
+UPDATE pools
+SET description     = $2,
+    unit_of_account = $3,
+    email           = $4,
+    website         = $5,
+    phone           = $6,
+    terms           = $7,
+    location_name   = $8,
+    geo_lat         = $9,
+    geo_lng         = $10,
+    image_url       = CASE WHEN $11::TEXT IS NULL THEN image_url  ELSE NULLIF($11, '') END,
+    banner_url      = CASE WHEN $12::TEXT IS NULL THEN banner_url ELSE NULLIF($12, '') END
+WHERE lower(address) = lower($1)
+RETURNING id;
+
+-- Tags are a junction, so a replace is a clear and a re-insert. Both run inside
+-- the caller's transaction with the profile update, or an operator who mistypes
+-- one tag loses the rest.
+--name: delete-pool-tags
+DELETE FROM pool_tags WHERE pool_id = $1;
+
+--name: insert-pool-tag
+INSERT INTO pool_tags (pool_id, tag_value) VALUES ($1, $2)
+ON CONFLICT (pool_id, tag_value) DO NOTHING;
+
+-- Pool composition projected from chain events (TRACKER.* via internal/sub).
+--
+-- The chain is the source of truth for what a pool holds: nothing else writes
+-- pool_tokens, and clc-core is not always the party that signed the change — an
+-- operator console, a script, or another relayer can all move the same state.
+-- Each statement therefore resolves its own ids from addresses and upserts, so a
+-- redelivered NATS message is a no-op rather than a duplicate.
+--
+-- Ownership of columns is split along the contract that emits them, and no
+-- statement writes a column it did not hear about:
+--
+--   is_allowed     the token registry (INDEX_ADD / INDEX_REMOVE)
+--   token_limit    the limiter        (LIMIT_SET)
+--   oracle_feed_id the quoter         (ORACLE_UPDATED / ORACLE_REMOVED)
+--
+-- The two non-registry statements insert is_allowed = FALSE when they are the
+-- first to see a pair, because a cap or a price says nothing about membership;
+-- their ON CONFLICT clauses leave it alone so an INDEX_ADD that already landed
+-- is not undone by a later cap.
+
+--name: set-pool-token-membership
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, synced_at)
+SELECT p.id, v.id, $3, CURRENT_TIMESTAMP
+FROM pools p
+JOIN vouchers v ON v.chain_id = p.chain_id
+WHERE lower(p.token_registry_address) = lower($1)
+  AND lower(v.address) = lower($2)
+ON CONFLICT (pool_id, voucher_id) DO UPDATE
+SET is_allowed = EXCLUDED.is_allowed,
+    synced_at  = EXCLUDED.synced_at;
+
+--name: set-pool-token-limit
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, token_limit, synced_at)
+SELECT p.id, v.id, FALSE, $3::NUMERIC, CURRENT_TIMESTAMP
+FROM pools p
+JOIN vouchers v ON v.chain_id = p.chain_id
+WHERE lower(p.address) = lower($1)
+  AND lower(v.address) = lower($2)
+ON CONFLICT (pool_id, voucher_id) DO UPDATE
+SET token_limit = EXCLUDED.token_limit,
+    synced_at   = EXCLUDED.synced_at;
+
+-- An aggregator with no oracle_feeds row resolves to NULL: the mapping is real
+-- but this service cannot name the feed, which is a different fact from having
+-- no mapping and is why the join is outer rather than inner.
+--
+-- The lateral is not decoration. oracle_feeds is unique on name, not address, and
+-- some feeds share an aggregator — USDC and EURC both point at 0xc7A353Ba… — so a
+-- plain join returns two rows, the insert proposes the same (pool, voucher) pair
+-- twice, and Postgres aborts the whole statement with "ON CONFLICT DO UPDATE
+-- command cannot affect row a second time". Picking the lowest id keeps one
+-- deterministic answer; by address the two feeds are the same contract anyway.
+--name: set-pool-token-oracle
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, oracle_feed_id, synced_at)
+SELECT p.id, v.id, FALSE, f.id, CURRENT_TIMESTAMP
+FROM pools p
+JOIN vouchers v ON v.chain_id = p.chain_id
+LEFT JOIN LATERAL (
+    SELECT id FROM oracle_feeds WHERE lower(address) = lower($3) ORDER BY id LIMIT 1
+) f ON TRUE
+WHERE lower(p.quoter_address) = lower($1)
+  AND lower(v.address) = lower($2)
+ON CONFLICT (pool_id, voucher_id) DO UPDATE
+SET oracle_feed_id = EXCLUDED.oracle_feed_id,
+    synced_at      = EXCLUDED.synced_at;
+
+-- Removal only ever clears an existing pairing; it must not conjure a row for a
+-- pool that never priced the token.
+--name: clear-pool-token-oracle
+UPDATE pool_tokens pt
+SET oracle_feed_id = NULL,
+    synced_at      = CURRENT_TIMESTAMP
+FROM pools p, vouchers v
+WHERE pt.pool_id = p.id
+  AND pt.voucher_id = v.id
+  AND v.chain_id = p.chain_id
+  AND lower(p.quoter_address) = lower($1)
+  AND lower(v.address) = lower($2);
 
 -- Pool voucher composition (MIGRATION.md §3.4). Oracle feeds replace legacy
 -- fixed exchange rates; offering counts are local catalog facts.
@@ -1380,7 +1552,7 @@ LIMIT $3;
 SELECT r.id, r.title, r.body, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
     r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
-    r.created_at, r.updated_at,
+    r.status, r.created_at, r.updated_at,
     r.host_name, r.participants, r.time_taken,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
@@ -1415,7 +1587,93 @@ SELECT r.id, r.title, r.body, r.description,
         WHERE rv.report_id = r.id
     ), '[]'::JSONB) AS vouchers
 FROM reports r
-WHERE r.id = $1 AND r.status = 'APPROVED';
+WHERE r.id = $1 AND ($2 OR r.status = 'APPROVED');
+
+-- Report writes. author_address is set only by the insert and never appears in
+-- the update statement: the wallet that created a post remains its original
+-- author even when a superadmin later corrects it. A normal user's post starts
+-- SUBMITTED; a superadmin may create it already APPROVED because that caller
+-- has the same authority as the explicit approval endpoint.
+--name: create-report
+INSERT INTO reports (
+    title, body, description, image_url, geo_lat, geo_lng,
+    period_from, period_to, author_address, status,
+    host_name, participants, time_taken
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id;
+
+-- The ownership decision and the write share one transaction. Locking the row
+-- closes the gap in which a concurrent admin delete could otherwise happen
+-- between checking the author and applying the edit.
+--name: lock-report-author
+SELECT author_address
+FROM reports
+WHERE id = $1
+FOR UPDATE;
+
+-- Assign-all editing. source_id, author_address, status and created_at are
+-- deliberately absent: they are provenance/workflow state, not post content.
+--name: update-report
+UPDATE reports
+SET title = $2,
+    body = $3,
+    description = $4,
+    image_url = $5,
+    geo_lat = $6,
+    geo_lng = $7,
+    period_from = $8,
+    period_to = $9,
+    modifier_address = $10,
+    host_name = $11,
+    participants = $12,
+    time_taken = $13
+WHERE id = $1;
+
+-- Approval is separate from content editing. Neither an author edit nor an
+-- admin correction touches status, so an approved post stays approved and a
+-- submitted post stays submitted until a superadmin explicitly approves it.
+--name: approve-report
+UPDATE reports
+SET status = 'APPROVED', modifier_address = $2
+WHERE id = $1
+RETURNING id;
+
+--name: delete-report
+DELETE FROM reports
+WHERE id = $1
+RETURNING id;
+
+-- A post write replaces its small relation sets in the same transaction as
+-- the scalar row. Clear-and-insert makes omission mean empty and avoids a read
+-- whose only purpose would be to calculate a diff.
+--name: delete-report-tags
+DELETE FROM report_tags WHERE report_id = $1;
+
+--name: insert-report-tag
+INSERT INTO report_tags (report_id, tag_value) VALUES ($1, $2);
+
+--name: delete-report-vouchers
+DELETE FROM report_vouchers WHERE report_id = $1;
+
+--name: insert-report-voucher
+INSERT INTO report_vouchers (report_id, voucher_id) VALUES ($1, $2);
+
+--name: delete-report-images
+DELETE FROM report_images WHERE report_id = $1;
+
+--name: insert-report-image
+INSERT INTO report_images (
+    report_id, ordinal, url, width, height, max_width, max_height, byte_size, caption
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+
+--name: delete-report-attachments
+DELETE FROM report_attachments WHERE report_id = $1;
+
+--name: insert-report-attachment
+INSERT INTO report_attachments (report_id, ordinal, kind, url, filename, byte_size)
+VALUES ($1, $2, $3, $4, $5, $6);
 
 -- Returns the requested tag values that are not in the token_tag vocabulary, so
 -- a catalog filter can be rejected rather than silently narrowed. unnest keeps
@@ -1538,3 +1796,17 @@ LEFT JOIN reports r ON r.bucket_epoch = b.bucket_epoch
 LEFT JOIN vouchers v ON v.bucket_epoch = b.bucket_epoch
 LEFT JOIN pools p ON p.bucket_epoch = b.bucket_epoch
 ORDER BY b.bucket_epoch;
+
+--name: account-relationship-counts
+-- Visibility matches the lists these figures sit beside: approved reports, and
+-- vouchers the public catalog can return.
+SELECT
+    (SELECT COUNT(*) FROM reports r
+        WHERE r.status = 'APPROVED' AND lower(r.author_address) = lower($1)) AS reports,
+    (SELECT COUNT(*) FROM vouchers v
+        WHERE v.active AND v.geo_lat IS NOT NULL
+            AND lower(v.owner_address) = lower($1)) AS vouchers,
+    (SELECT COUNT(DISTINCT pt.pool_id)
+        FROM pool_tokens pt
+        INNER JOIN vouchers v ON v.id = pt.voucher_id
+        WHERE pt.is_allowed AND lower(v.owner_address) = lower($1)) AS pool_memberships;

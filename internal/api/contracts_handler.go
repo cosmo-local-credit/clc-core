@@ -314,6 +314,8 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		LocationName:          req.LocationName,
 		GeoLat:                req.GeoLat,
 		GeoLng:                req.GeoLng,
+		IconURL:               req.IconURL,
+		BannerURL:             req.BannerURL,
 		Tags:                  req.Tags,
 	}, &river.InsertOpts{MaxAttempts: 1})
 	if err != nil {

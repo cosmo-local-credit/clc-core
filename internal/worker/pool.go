@@ -366,6 +366,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		LimiterAddress:               limiterAddr.Hex(),
 		FeePolicyAddress:             feePolicyAddr.Hex(),
 		QuoterAddress:                quoterAddr.Hex(),
+		QuoterType:                   nilIfEmpty(args.QuoterType),
 		ProtocolFeeControllerAddress: args.ProtocolFeeController,
 		FeesDecoupled:                args.FeesDecoupled,
 		Admin:                        ownerAddress.Hex(),

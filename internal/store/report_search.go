@@ -156,6 +156,7 @@ func composeReportPage(
 		body := reportProjection +
 			whereClause(
 				"r.status = 'APPROVED'",
+				ownerPredicate(args, "r.author_address", filter),
 				reportTagPredicate(args, filter),
 				reportVoucherPredicate(args, filter),
 				reportCursorPredicate(args, cursor, hasCursor),
@@ -171,6 +172,7 @@ func composeReportPage(
 		"    FROM reports r" +
 		whereClause(
 			"r.status = 'APPROVED'",
+			ownerPredicate(args, "r.author_address", filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
@@ -241,6 +243,7 @@ func composeReportVoucherCounts(filter CatalogFilter) composed {
     FROM reports r` +
 		whereClause(
 			"r.status = 'APPROVED'",
+			ownerPredicate(args, "r.author_address", filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 		) + `

@@ -140,8 +140,12 @@ CREATE TABLE IF NOT EXISTS pools (
     terms                           TEXT,
     default_voucher_id              INT REFERENCES vouchers(id),
     platform_contract_id            INT REFERENCES platform_contracts(id),
+    quoter_type                     TEXT,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pools_quoter_type_valid
+        CHECK (quoter_type IS NULL
+            OR quoter_type IN ('decimal', 'oracle', 'relative')),
     CONSTRAINT pools_address_format
         CHECK (address ~ '^0x[0-9a-fA-F]{40}$'),
     CONSTRAINT pools_owner_format

@@ -16,6 +16,7 @@ type (
 		ListUserTokenHoldings               string `query:"list-user-token-holdings"`
 		ListUserTokenHoldingsNext           string `query:"list-user-token-holdings-next"`
 		ListUserTokenHoldingsPrevious       string `query:"list-user-token-holdings-prev"`
+		AccountActivityCounts               string `query:"account-activity-counts"`
 		ListUserTransferHistory             string `query:"list-user-transfer-history"`
 		ListUserTransferHistoryNext         string `query:"list-user-transfer-history-next"`
 		ListUserTransferHistoryPrevious     string `query:"list-user-transfer-history-prev"`
@@ -34,10 +35,13 @@ type (
 		ListUserTokenHoldings(context.Context, string, uint64) ([]FederationTokenBalance, error)
 		ListUserTokenHoldingsNext(context.Context, string, uint64, uint64) ([]FederationTokenBalance, error)
 		ListUserTokenHoldingsPrevious(context.Context, string, uint64, uint64) ([]FederationTokenBalance, error)
+		AccountActivityCounts(context.Context, string) (AccountActivityCounts, error)
 		ListUserTransferHistory(context.Context, string, uint64) ([]FederationTransfer, error)
 		ListUserTransferHistoryNext(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
 		ListUserTransferHistoryPrevious(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
 		DashboardTransactionSeries(context.Context, time.Time, time.Time, int64) ([]DashboardTransactionPoint, error)
+		ListAdminVoucherTransactions(context.Context, *uint64, uint64, bool, string, string, AdminTransactionSearch) ([]AdminVoucherTransaction, error)
+		ListAdminPoolTransactions(context.Context, *uint64, uint64, bool, string, string, AdminTransactionSearch) ([]AdminPoolTransaction, error)
 		Close()
 	}
 

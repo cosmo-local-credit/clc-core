@@ -311,3 +311,37 @@ SELECT to_timestamp(b.bucket_epoch) AS t,
 FROM buckets b
 LEFT JOIN counts c ON c.bucket_epoch = b.bucket_epoch
 ORDER BY b.bucket_epoch;
+
+-- The operator console's transaction pages are NOT here. Their SQL is assembled
+-- in internal/store/admin_transactions.go, one small query per event table, from
+-- literal table and column names held in that file. A named query per
+-- (table x direction x filter) combination would be eighteen near-identical
+-- statements for the voucher page alone; the arms differ only in their
+-- projection, so they are composed rather than copied. Only the keyset bounds
+-- and the contract filter are bound as parameters.
+
+--name: account-activity-counts
+-- Successful transactions only: a reverted transfer moved nothing, so counting it
+-- would overstate both the total and the partner list.
+SELECT
+    (SELECT COUNT(*)
+        FROM chain_data_v2.token_transfer tt
+        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        WHERE tx.success
+            AND (lower(tt.sender_address) = lower($1)
+                OR lower(tt.recipient_address) = lower($1))) AS transactions,
+    (SELECT COUNT(*)
+        FROM chain_data_v2.pool_swap ps
+        JOIN chain_data_v2.tx ON tx.id = ps.tx_id
+        WHERE tx.success AND lower(ps.initiator_address) = lower($1)) AS swaps,
+    (SELECT COUNT(*) FROM (
+        SELECT lower(tt.recipient_address) AS party
+        FROM chain_data_v2.token_transfer tt
+        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        WHERE tx.success AND lower(tt.sender_address) = lower($1)
+        UNION
+        SELECT lower(tt.sender_address)
+        FROM chain_data_v2.token_transfer tt
+        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        WHERE tx.success AND lower(tt.recipient_address) = lower($1)
+    ) parties WHERE party <> '' AND party <> lower($1)) AS partners;

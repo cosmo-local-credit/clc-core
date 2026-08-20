@@ -168,6 +168,9 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	if search.filter.Owner, err = addressFilterParam(c, "owner"); err != nil {
+		return respondCatalogSearchError(c, err)
+	}
 
 	pagination := normalizePaginationWithMax(req, marketMaxPerPage)
 

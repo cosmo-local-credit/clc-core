@@ -19,6 +19,7 @@ type (
 		LocationName    *string   `db:"location_name"    json:"locationName,omitempty"`
 		GeoLat          *float64  `db:"geo_lat"          json:"geoLat,omitempty"`
 		GeoLng          *float64  `db:"geo_lng"          json:"geoLng,omitempty"`
+		AvatarURL       *string   `db:"avatar_url"       json:"avatarUrl,omitempty"`
 		Role            string    `db:"role"             json:"role"`
 		Status          string    `db:"status"           json:"status"`
 		MaxPools        int       `db:"max_pools"        json:"maxPools"`
@@ -37,6 +38,11 @@ type (
 		LocationName  *string
 		GeoLat        *float64
 		GeoLng        *float64
+		// The avatar follows the same shape as the location: omitted preserves,
+		// and clearing is an explicit flag rather than a magic value, so a client
+		// that knows nothing about avatars cannot remove one.
+		ClearAvatar bool
+		AvatarURL   *string
 	}
 )
 
@@ -170,6 +176,8 @@ func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfi
 		update.LocationName,
 		update.GeoLat,
 		update.GeoLng,
+		update.ClearAvatar,
+		update.AvatarURL,
 	)
 	if err != nil {
 		return u, err
@@ -182,32 +190,6 @@ func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfi
 	return u, nil
 }
 
-func (pg *Pg) ListUsers(ctx context.Context, tx pgx.Tx) ([]User, error) {
-	var users []User
-
-	rows, err := tx.Query(ctx, pg.queries.ListUsers)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := pgxscan.ScanAll(&users, rows); err != nil {
-		return nil, err
-	}
-
-	return users, nil
-}
-
-func (pg *Pg) ListUsersByStatus(ctx context.Context, tx pgx.Tx, status string) ([]User, error) {
-	var users []User
-
-	rows, err := tx.Query(ctx, pg.queries.ListUsersByStatus, status)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := pgxscan.ScanAll(&users, rows); err != nil {
-		return nil, err
-	}
-
-	return users, nil
-}
+// Listing the directory lives in user_search.go: the endpoint that reads it now
+// pages and searches, and the whole-table statements this file used to hold had
+// no other caller.

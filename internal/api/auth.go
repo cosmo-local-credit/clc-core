@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
@@ -93,6 +94,67 @@ func (a *API) clearUserAuthCookie(c *echo.Context) {
 		Secure:   a.prod,
 		Path:     "/",
 		SameSite: a.authCookieSameSite(),
+	})
+}
+
+// storageTokenHandler hands the caller a readable copy of their own session
+// token.
+//
+// The image service takes a `clc-core` JWT in an Authorization header. It reads
+// no cookies, and it is served from another host, so the session cookie can
+// neither be read by JavaScript nor be sent there. Every sign-in path except
+// POST /auth/siwe/verify returns only { userId, role }, and putting the token in
+// those responses would still not help after a reload: the cookie survives one,
+// an in-memory token does not, and the user would find uploads broken with no
+// recovery but signing out and back in. So this endpoint exists to answer "give
+// me a token for the session I already have".
+//
+// It echoes the token that authenticated the request rather than minting a new
+// one. Calling generateUserToken here would issue a fresh 30-day token on every
+// upload, rolling the session forward for as long as someone keeps uploading —
+// a session that never expires.
+//
+// Nothing is scoped or shortened, which is a deliberate trade recorded here: this
+// is the full session token, flexibleAuthMiddleware accepts a user JWT in an
+// Authorization header as well as in the cookie, and there is no blocklist, so a
+// copy that leaks is API access as that user until it expires. The client is
+// required to keep it in memory only. If that trade needs reversing, this handler
+// is where a scoped, short-lived token would be minted instead, and no client
+// changes with it.
+func (a *API) storageTokenHandler(c *echo.Context) error {
+	tokenStr := ""
+	if cookie, err := c.Cookie(userAuthCookieName); err == nil {
+		tokenStr = cookie.Value
+	}
+	// A caller already authenticating by header gets that same token back, so the
+	// endpoint means one thing however the request arrived.
+	if tokenStr == "" {
+		if header := c.Request().Header.Get(echo.HeaderAuthorization); strings.HasPrefix(header, "Bearer ") {
+			tokenStr = strings.TrimPrefix(header, "Bearer ")
+		}
+	}
+
+	claims, err := a.parseUserJWT(tokenStr)
+	if err != nil || claims.ExpiresAt == nil {
+		// The middleware already authenticated this request, so reaching here
+		// means the credential was a service token or an unparseable user token.
+		return c.JSON(http.StatusUnauthorized, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrJWTAuth,
+			Description: "a user session is required",
+		})
+	}
+
+	// Never stored by a proxy or the browser cache: it is a bearer credential.
+	c.Response().Header().Set("Cache-Control", "no-store")
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Storage token issued",
+		Result: map[string]any{
+			"token":     tokenStr,
+			"expiresAt": claims.ExpiresAt.UTC().Format(time.RFC3339),
+		},
 	})
 }
 

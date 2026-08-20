@@ -519,6 +519,16 @@ func TestReportQueriesHideDataUriCoverImages(t *testing.T) {
 	ctx := context.Background()
 
 	id := seedReport(t, tx, "APPROVED", time.Date(2026, 7, 24, 8, 0, 0, 0, time.UTC), "")
+
+	// The six live rows predate migration 021's reports_image_url_http check, and
+	// that check is NOT VALID precisely so they survive it — but it still refuses
+	// a new data URI, which is the whole point of adding it. Dropping it inside
+	// this transaction is how the fixture reproduces a row that can no longer be
+	// created; the rollback puts it back.
+	if _, err := tx.Exec(ctx, `
+		ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_image_url_http`); err != nil {
+		t.Fatalf("drop url check for the legacy fixture: %v", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE reports SET image_url = 'data:image/jpeg;base64,/9j/4AAQSkZJRg'
 		WHERE id = $1`, id); err != nil {
