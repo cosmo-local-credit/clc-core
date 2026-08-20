@@ -58,6 +58,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "021_pool_quoter_type.sql")
 	assert.Contains(t, sqlFiles, "022_image_urls.sql")
 	assert.Contains(t, sqlFiles, "023_offering_crud.sql")
+	assert.Contains(t, sqlFiles, "024_pool_unit_of_account.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -82,7 +83,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "020_admin_otx_indexes.sql" ||
 				name == "021_pool_quoter_type.sql" ||
 				name == "022_image_urls.sql" ||
-				name == "023_offering_crud.sql",
+				name == "023_offering_crud.sql" ||
+				name == "024_pool_unit_of_account.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -115,7 +117,18 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"021_pool_quoter_type.sql",
 		"022_image_urls.sql",
 		"023_offering_crud.sql",
+		"024_pool_unit_of_account.sql",
 	}, files)
+}
+
+func TestPoolUnitOfAccountMigration(t *testing.T) {
+	content, err := os.ReadFile("024_pool_unit_of_account.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ALTER TABLE deployed_pools")
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS unit_of_account TEXT")
+	assert.Contains(t, s, "DROP COLUMN IF EXISTS unit_of_account")
 }
 
 func TestSendMessageSharesMigration(t *testing.T) {

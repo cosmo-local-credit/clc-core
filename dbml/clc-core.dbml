@@ -199,6 +199,7 @@ Table "deployed_pools" {
   "website" text
   "email" text
   "phone" text
+  "unit_of_account" text
   "location_name" text
   "geo_lat" float8
   "geo_lng" float8

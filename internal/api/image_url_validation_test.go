@@ -61,6 +61,7 @@ func TestImageURLFieldsAcceptOnlyHTTPSchemes(t *testing.T) {
 			return apiresp.DeployPoolRequest{
 				Name: "Pool", Symbol: "POL", Decimals: "6",
 				Owner:            owner,
+				UnitOfAccount:    "KES",
 				FeePolicyDefault: "0",
 			}
 		}

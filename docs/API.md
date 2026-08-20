@@ -785,6 +785,7 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
   "symbol":           "MYP",
   "decimals":         "6",
   "owner":            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+  "unitOfAccount":    "BAM",
   "quoterType":       "decimal",
   "feesDecoupled":    false,
   "feePolicyDefault": "",
@@ -798,6 +799,7 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 | `symbol` | `string` | Yes | Pool symbol |
 | `decimals` | `string` (int) | Yes | Decimal precision |
 | `owner` | `string` | Yes | Checksummed owner address |
+| `unitOfAccount` | `string` | Yes | Pool accounting unit: `KES`, `USD`, `HOUR`, or `BAM` |
 | `quoterType` | `string` | Yes | Pricing strategy — see below |
 | `feesDecoupled` | `bool` | No | If `true`, fee policy executes independently of swaps (default: `false`) |
 | `feePolicyDefault` | `string` | No | Default fee policy identifier |
@@ -812,6 +814,9 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 | `"decimal"` | Fixed decimal-based pricing *(default)* |
 | `"oracle"` | Price sourced from an on-chain oracle; `baseCurrency` must be set |
 | `"relative"` | Pricing relative to pool reserves |
+
+`BAM` supports `"relative"` and `"decimal"` pricing. Oracle pricing is
+rejected until an AggregatorV3-compatible BAM feed is configured.
 
 **Response `200`:**
 
@@ -829,7 +834,7 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | HTTP | `code` | Condition |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter) |
+| `400` | `E04` | Validation failure (missing fields, unsupported unit/oracle combination, or `baseCurrency` absent for oracle quoter) |
 | `403` | `E11` | User has reached their `maxPools` quota |
 
 ---

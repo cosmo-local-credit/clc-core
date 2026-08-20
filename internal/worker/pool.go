@@ -27,6 +27,7 @@ type (
 		PoolSymbol                 string   `json:"poolSymbol"`
 		PoolDecimals               string   `json:"poolDecimals"`
 		Owner                      string   `json:"owner"`
+		UnitOfAccount              string   `json:"unitOfAccount"`
 		QuoterType                 string   `json:"quoterType"`
 		FeesDecoupled              bool     `json:"feesDecoupled"`
 		FeePolicyDefaultFee        string   `json:"feePolicyDefaultFee"`
@@ -375,6 +376,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		Email:                        nilIfEmpty(args.Email),
 		Phone:                        nilIfEmpty(args.Phone),
 		Terms:                        nilIfEmpty(args.Terms),
+		UnitOfAccount:                nilIfEmpty(args.UnitOfAccount),
 		LocationName:                 nilIfEmpty(args.LocationName),
 		GeoLat:                       args.GeoLat,
 		GeoLng:                       args.GeoLng,

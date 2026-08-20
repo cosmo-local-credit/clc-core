@@ -22,6 +22,7 @@ type (
 		Symbol           string   `json:"symbol" validate:"required"`
 		Decimals         string   `json:"decimals" validate:"required"`
 		Owner            string   `json:"owner" validate:"required,eth_addr_checksum"`
+		UnitOfAccount    string   `json:"unitOfAccount" validate:"required,oneof=KES USD HOUR BAM"`
 		QuoterType       string   `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
 		FeesDecoupled    bool     `json:"feesDecoupled"`
 		FeePolicyDefault string   `json:"feePolicyDefault" validate:"required"`

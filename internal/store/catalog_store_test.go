@@ -98,7 +98,7 @@ func TestLoadCatalogQueries(t *testing.T) {
 	}
 }
 
-func TestDeployQueriesPersistTermsIntoCatalogs(t *testing.T) {
+func TestDeployQueriesPersistTermsAndPoolUnitIntoCatalogs(t *testing.T) {
 	queries, err := loadQueries("../../core_queries.sql")
 	if err != nil {
 		t.Fatalf("load core queries: %v", err)
@@ -112,6 +112,9 @@ func TestDeployQueriesPersistTermsIntoCatalogs(t *testing.T) {
 			t.Errorf("%s must persist terms", name)
 		}
 	}
+	if !strings.Contains(queries.InsertDeployedPool, "unit_of_account") {
+		t.Error("insert deployed pool must persist unit_of_account")
+	}
 
 	for name, query := range map[string]string{
 		"promote voucher": queries.UpsertVoucherFromDeploy,
@@ -123,6 +126,10 @@ func TestDeployQueriesPersistTermsIntoCatalogs(t *testing.T) {
 		if !strings.Contains(query, "COALESCE(EXCLUDED.terms") {
 			t.Errorf("%s must let non-empty deploy terms update the catalog", name)
 		}
+	}
+	if !strings.Contains(queries.UpsertPoolFromDeploy, "d.unit_of_account") ||
+		!strings.Contains(queries.UpsertPoolFromDeploy, "COALESCE(EXCLUDED.unit_of_account") {
+		t.Error("pool promotion must copy deploy unit_of_account into the catalog")
 	}
 }
 

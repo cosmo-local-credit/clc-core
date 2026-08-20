@@ -96,6 +96,13 @@ components:
           type: string
         owner:
           type: string
+        unitOfAccount:
+          enum:
+          - KES
+          - USD
+          - HOUR
+          - BAM
+          type: string
         quoterType:
           type: string
         symbol:
@@ -107,6 +114,7 @@ components:
       - owner
       - quoterType
       - symbol
+      - unitOfAccount
       type: object
     api.PoolDepositRequest:
       properties:

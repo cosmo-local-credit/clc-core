@@ -31,6 +31,7 @@ type (
 		Email                        *string   `db:"email"                           json:"email"`
 		Phone                        *string   `db:"phone"                           json:"phone"`
 		Terms                        *string   `db:"terms"                           json:"terms"`
+		UnitOfAccount                *string   `db:"unit_of_account"                 json:"unitOfAccount"`
 		LocationName                 *string   `db:"location_name"                   json:"locationName"`
 		GeoLat                       *float64  `db:"geo_lat"                         json:"geoLat"`
 		GeoLng                       *float64  `db:"geo_lng"                         json:"geoLng"`
@@ -67,6 +68,7 @@ func (pg *Pg) InsertDeployedPool(ctx context.Context, tx pgx.Tx, dp DeployedPool
 		dp.Email,
 		dp.Phone,
 		dp.Terms,
+		dp.UnitOfAccount,
 		dp.LocationName,
 		dp.GeoLat,
 		dp.GeoLng,

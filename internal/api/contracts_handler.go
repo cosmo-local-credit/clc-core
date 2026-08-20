@@ -31,6 +31,13 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 
 	if req.QuoterType == "oracle" {
+		if description := poolPricingValidationError(req.UnitOfAccount, req.QuoterType); description != "" {
+			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeValidationFailed,
+				Description: description,
+			})
+		}
 		if req.BaseCurrency == "" {
 			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 				Ok:          false,
@@ -154,6 +161,7 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		PoolSymbol:                 req.Symbol,
 		PoolDecimals:               req.Decimals,
 		Owner:                      req.Owner,
+		UnitOfAccount:              req.UnitOfAccount,
 		QuoterType:                 req.QuoterType,
 		FeesDecoupled:              req.FeesDecoupled,
 		FeePolicyDefaultFee:        req.FeePolicyDefault,
@@ -221,6 +229,20 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 			"trackingId": trackingID,
 		},
 	})
+}
+
+func poolUnitSupportsOracle(unitOfAccount string) bool {
+	return unitOfAccount == "KES" || unitOfAccount == "USD"
+}
+
+func poolPricingValidationError(unitOfAccount, quoterType string) string {
+	if quoterType != "oracle" || poolUnitSupportsOracle(unitOfAccount) {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Validation failed: oracle pricing is not available for %s; choose relative or decimal",
+		unitOfAccount,
+	)
 }
 
 func (a *API) deployTokenHandler(c *echo.Context) error {

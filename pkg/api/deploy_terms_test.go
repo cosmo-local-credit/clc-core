@@ -5,13 +5,19 @@ import (
 	"testing"
 )
 
-func TestDeployRequestsAcceptTermsURL(t *testing.T) {
+func TestDeployRequestsAcceptTermsURLAndPoolUnit(t *testing.T) {
 	var pool DeployPoolRequest
-	if err := json.Unmarshal([]byte(`{"terms":"https://example.org/terms"}`), &pool); err != nil {
+	if err := json.Unmarshal(
+		[]byte(`{"terms":"https://example.org/terms","unitOfAccount":"BAM"}`),
+		&pool,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if pool.Terms != "https://example.org/terms" {
 		t.Fatalf("pool terms = %q", pool.Terms)
+	}
+	if pool.UnitOfAccount != "BAM" {
+		t.Fatalf("pool unit of account = %q", pool.UnitOfAccount)
 	}
 
 	var token DeployTokenRequest
