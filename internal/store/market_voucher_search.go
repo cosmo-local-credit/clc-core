@@ -137,15 +137,26 @@ func composeMarketVoucherPage(
 // therefore does not zero every other tag's count, so the user can always
 // broaden their selection.
 //
-// The query drives from the candidate set outwards — candidates, then their
-// available offerings, then those offerings' tags — rather than from the tag
-// junction inwards. That is what keeps the trigram index driving the search:
-// starting from offering_tags made every plan a hash join over the whole
-// junction and the search collapsed into a row filter. The facet vocabulary is a
-// separate statement for the same reason (see mergeTagFacets).
+// Both tag sources are counted, matching voucherTagPredicate: a tag curated
+// directly on the voucher (voucher_tags, written by the deploy pipeline and the
+// admin profile write) and a tag derived from its available offerings
+// (offering_tags). Counting only the derived form left a facet reading zero for a
+// tag whose filter now returns rows, which is worse than either alone — the
+// operator would see a count of nothing next to a selection that works.
 //
-// COUNT(DISTINCT c.id) because the derived join fans out: one voucher with three
-// available offerings carrying the same tag is one match, not three.
+// Both branches drive from the candidate set outwards — candidates, then their
+// offerings or their tag rows — rather than from a tag junction inwards. That is
+// what keeps the trigram index driving the search: starting from offering_tags
+// made every plan a hash join over the whole junction and the search collapsed
+// into a row filter. The facet vocabulary is a separate statement for the same
+// reason (see mergeTagFacets).
+//
+// UNION rather than UNION ALL, then a plain COUNT(*): the set operation dedupes
+// (voucher, tag) pairs by hash, which is the same answer COUNT(DISTINCT c.id)
+// gives and a cheaper plan than it. The dedup is load-bearing twice over — one
+// voucher with three available offerings carrying the same tag is one match, and
+// a voucher carrying a tag both directly and through an offering is also one —
+// and COUNT(DISTINCT) over UNION ALL forced a sort of the whole junction.
 func composeMarketVoucherTagCounts(bounds *MarketVoucherBounds, filter CatalogFilter) composed {
 	args := &sqlArgs{}
 
@@ -160,12 +171,19 @@ func composeMarketVoucherTagCounts(bounds *MarketVoucherBounds, filter CatalogFi
 			searchPredicate(args, filter, "v"),
 		) + `
 )
-SELECT ot.tag_value AS tag_value,
-    COUNT(DISTINCT c.id) AS match_count
-FROM candidates c
-INNER JOIN offerings o ON o.voucher_id = c.id AND o.available
-INNER JOIN offering_tags ot ON ot.offering_id = o.id
-GROUP BY ot.tag_value;`
+SELECT tagged.tag_value AS tag_value,
+    COUNT(*) AS match_count
+FROM (
+    SELECT c.id, ot.tag_value
+    FROM candidates c
+    INNER JOIN offerings o ON o.voucher_id = c.id AND o.available
+    INNER JOIN offering_tags ot ON ot.offering_id = o.id
+    UNION
+    SELECT c.id, vt.tag_value
+    FROM candidates c
+    INNER JOIN voucher_tags vt ON vt.voucher_id = c.id
+) tagged
+GROUP BY tagged.tag_value;`
 
 	return composed{sql: sql, args: args.values}
 }

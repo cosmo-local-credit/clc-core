@@ -272,6 +272,36 @@ type (
 		Tags      []string `json:"tags,omitempty"`
 	}
 
+	// UpdateVoucherProfileRequest carries a voucher's editable off-chain record.
+	//
+	// Assign-all, exactly as UpdatePoolProfileRequest: every field is optional in
+	// the JSON and written unconditionally by the handler, so a caller sends the
+	// whole record and omitting a field clears it. Nothing here mirrors the
+	// deployed ERC20 — name, symbol, decimals and the owner all come from the
+	// chain and are not editable.
+	UpdateVoucherProfileRequest struct {
+		Description  *string  `json:"description,omitempty"  validate:"omitempty,max=500"`
+		VoucherUoa   *string  `json:"voucherUoa,omitempty"   validate:"omitempty,max=16"`
+		VoucherValue *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
+		Email        *string  `json:"email,omitempty"        validate:"omitempty,email"`
+		Website      *string  `json:"website,omitempty"      validate:"omitempty,url"`
+		Phone        *string  `json:"phone,omitempty"`
+		Terms        *string  `json:"terms,omitempty"        validate:"omitempty,url"`
+		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
+		GeoLat       *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
+		GeoLng       *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
+		// These two preserve on omission rather than clearing, for the reason
+		// UpdatePoolProfileRequest gives: update-voucher-profile COALESCEs them so
+		// a client that sends no image fields cannot blank a voucher's images.
+		// Send "" to clear one. `http_url|eq=` because omitempty does not skip a
+		// pointer to an empty string, and vouchers_image_urls_http would reject
+		// anything that is not http(s) at the database — after the request had
+		// already been accepted.
+		IconURL   *string  `json:"iconUrl,omitempty"   validate:"omitempty,http_url|eq="`
+		BannerURL *string  `json:"bannerUrl,omitempty" validate:"omitempty,http_url|eq="`
+		Tags      []string `json:"tags,omitempty"`
+	}
+
 	// UpdateProfileRequest carries optional profile fields. Omitted location
 	// values preserve stored data; ClearLocation explicitly removes the pin, and
 	// ClearAvatar does the same for the profile image.
@@ -336,7 +366,60 @@ type (
 		Images       []ReportImageRequest      `json:"images"      validate:"max=50,dive"`
 		Attachments  []ReportAttachmentRequest `json:"attachments" validate:"max=20,dive"`
 	}
+
+	// OfferingWriteRequest is the body of POST and assign-all PUT on an
+	// offering.
+	//
+	// The wire keeps the vocabulary the read path has always used --
+	// commodityName, commodityType, price -- so the item read, the mutation
+	// read-back and the existing list projection are one representation. A
+	// cleaner app-facing naming belongs to the shared TypeScript client, not to
+	// a second server shape a previous PWA bundle would not recognise.
+	//
+	// Absent on purpose: voucherId and sellerAddress. The voucher comes from the
+	// route and the seller is server-selected from the locked voucher owner, so
+	// there is no field here for a caller to try.
+	//
+	// `price` is a string because PostgreSQL NUMERIC holds decimals a float64
+	// silently rounds. The regexp admits plain decimal text only -- no exponent,
+	// no thousands separator, no sign -- and the handler rejects zero, which the
+	// pattern cannot express.
+	OfferingWriteRequest struct {
+		CommodityName string  `json:"commodityName" validate:"required,max=120"`
+		CommodityType string  `json:"commodityType" validate:"required,oneof=GOOD SERVICE"`
+		Description   string  `json:"description"   validate:"required,max=2000"`
+		Unit          string  `json:"unit"          validate:"required,max=32"`
+		Price         string  `json:"price"         validate:"required,max=64"`
+		ImageURL      *string `json:"imageUrl,omitempty"`
+	}
 )
+
+// OfferingUnits is the closed set a write may choose from.
+//
+// Duplicated from the offering_unit lookup that migrations/023_offering_crud.sql
+// seeds, on purpose. The database is the backstop, but it cannot be the primary
+// check: the unit foreign key is NOT VALID so imported free text survives, and a
+// foreign key's update trigger short-circuits when the column is unchanged — so
+// re-saving a row that already holds "50kg sack" would pass the constraint
+// untouched. The API therefore has to be what closes the set. When either side
+// moves, both move; TestOfferingUnitsMatchTheMigration fails if they drift.
+var OfferingUnits = []string{
+	"kg",
+	"g",
+	"litre",
+	"item",
+	"hour",
+	"day",
+	"bag",
+	"unit",
+	"bundle",
+	"piece",
+	"dozen",
+	"serving",
+	"trip",
+	"session",
+	"metre",
+}
 
 const (
 	ErrCodeInternalServerError = "E01"

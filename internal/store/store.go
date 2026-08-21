@@ -38,6 +38,8 @@ type (
 		UpsertPoolFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
 		UpdatePoolProfile(context.Context, pgx.Tx, string, PoolProfile) (uint64, error)
 		ReplacePoolTags(context.Context, pgx.Tx, uint64, []string) error
+		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)
+		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
 		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string) (int64, error)
@@ -105,6 +107,13 @@ type (
 		ListPoolOfferings(context.Context, pgx.Tx, string, uint64) ([]Offering, error)
 		ListPoolOfferingsNext(context.Context, pgx.Tx, string, uint64, uint64) ([]Offering, error)
 		ListPoolOfferingsPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]Offering, error)
+		GetVoucherOffering(context.Context, pgx.Tx, string, uint64) (*Offering, error)
+		GetOfferingForMutation(context.Context, pgx.Tx, uint64) (*Offering, error)
+		LockVoucherForOfferingCreate(context.Context, pgx.Tx, string) (*VoucherOfferingParent, error)
+		LockOfferingVoucherOwner(context.Context, pgx.Tx, uint64, string) (*OfferingParent, error)
+		CreateOffering(context.Context, pgx.Tx, uint64, string, OfferingWrite) (uint64, error)
+		UpdateOffering(context.Context, pgx.Tx, uint64, OfferingWrite) error
+		DeleteOffering(context.Context, pgx.Tx, uint64) (uint64, error)
 		ListReports(context.Context, pgx.Tx, uint64) ([]Report, error)
 		ListReportsNext(context.Context, pgx.Tx, ReportCursor, uint64) ([]Report, error)
 		ListReportsFiltered(context.Context, pgx.Tx, CatalogFilter, ReportCursor, bool, uint64) ([]Report, error)

@@ -52,9 +52,15 @@ type (
 		Email        *string  `db:"email"         json:"email"`
 		Website      *string  `db:"website"       json:"website"`
 		Phone        *string  `db:"phone"         json:"phone"`
+		Terms        *string  `db:"terms"         json:"terms"`
 		IconURL      *string  `db:"icon_url"      json:"iconUrl"`
 		BannerURL    *string  `db:"banner_url"    json:"bannerUrl"`
-		Kind         string   `db:"kind"          json:"kind"`
+		// Never null on the wire: the statement COALESCEs to an empty array, so a
+		// client can iterate without a nil check and an untagged voucher is
+		// distinguishable from one whose tags failed to load only by the request
+		// failing.
+		Tags []string `db:"tags" json:"tags"`
+		Kind string   `db:"kind" json:"kind"`
 	}
 
 	// MarketVoucherBounds is an optional viewport filter. A single box may never

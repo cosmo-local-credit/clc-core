@@ -31,8 +31,10 @@ type (
 		Email        *string  `json:"email"`
 		Website      *string  `json:"website"`
 		Phone        *string  `json:"phone"`
+		Terms        *string  `json:"terms"`
 		IconURL      *string  `json:"iconUrl"`
 		BannerURL    *string  `json:"bannerUrl"`
+		Tags         []string `json:"tags"`
 		Kind         string   `json:"kind"`
 	}
 )
@@ -155,4 +157,48 @@ func requestVoucherDetail(t *testing.T, a *API, address, remoteAddr string) *htt
 	res := httptest.NewRecorder()
 	a.router.ServeHTTP(res, req)
 	return res
+}
+
+// terms and tags are selected on the detail statement and not on the list ones,
+// so the field a console edits has to be present here or a save would clear
+// whatever it could not read back.
+func TestVoucherDetailCarriesTermsAndTags(t *testing.T) {
+	a := newMarketAPIWithStore(t)
+
+	var address string
+	row := a.store.Pool().QueryRow(t.Context(), `
+		SELECT v.address
+		FROM vouchers v
+		WHERE v.active AND EXISTS (SELECT 1 FROM voucher_tags vt WHERE vt.voucher_id = v.id)
+		LIMIT 1`)
+	if err := row.Scan(&address); err != nil {
+		t.Skipf("no tagged active voucher to test against: %v", err)
+	}
+
+	_, detail := getMarketVoucherDetail(t, a, address, "198.51.100.63:1234")
+
+	if len(detail.Tags) == 0 {
+		t.Error("tags is empty for a voucher that has tag rows")
+	}
+}
+
+// Never null on the wire: the statement COALESCEs to an empty array, so a client
+// can iterate the field without a nil check.
+func TestVoucherDetailTagsAreAnArrayWhenEmpty(t *testing.T) {
+	a := newMarketAPIWithStore(t)
+
+	var address string
+	row := a.store.Pool().QueryRow(t.Context(), `
+		SELECT v.address
+		FROM vouchers v
+		WHERE v.active AND NOT EXISTS (SELECT 1 FROM voucher_tags vt WHERE vt.voucher_id = v.id)
+		LIMIT 1`)
+	if err := row.Scan(&address); err != nil {
+		t.Skipf("no untagged active voucher to test against: %v", err)
+	}
+
+	res, _ := getMarketVoucherDetail(t, a, address, "198.51.100.64:1234")
+	if !strings.Contains(res.Body.String(), `"tags":[]`) {
+		t.Errorf("body does not carry an empty tags array: %s", res.Body.String())
+	}
 }

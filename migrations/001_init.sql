@@ -874,6 +874,27 @@ INSERT INTO commodity_type (value) VALUES
     ('SERVICE')
 ON CONFLICT (value) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS offering_unit (
+    value TEXT PRIMARY KEY
+);
+INSERT INTO offering_unit (value) VALUES
+    ('kg'),
+    ('g'),
+    ('litre'),
+    ('item'),
+    ('hour'),
+    ('day'),
+    ('bag'),
+    ('unit'),
+    ('bundle'),
+    ('piece'),
+    ('dozen'),
+    ('serving'),
+    ('trip'),
+    ('session'),
+    ('metre')
+ON CONFLICT (value) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS offering_frequency (
     value TEXT PRIMARY KEY
 );
@@ -913,7 +934,18 @@ CREATE TABLE IF NOT EXISTS offerings (
         ((geo_lat IS NULL) = (geo_lng IS NULL))
         AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90)
         AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)
-    )
+    ),
+    -- Validated here, unlike the NOT VALID form migration 023 could not use on
+    -- an existing table: a fresh database has no legacy data URI to grandfather,
+    -- and a CHECK is re-evaluated on every row update, so an unfixable row would
+    -- block the soft delete that unlists an offering.
+    CONSTRAINT offerings_image_url_http
+        CHECK (image_url IS NULL OR image_url ~* '^https?://'),
+    -- Named rather than inline: an inline column REFERENCES would be
+    -- offerings_unit_fkey here and offerings_unit_fk on a database upgraded
+    -- through 023, and the parity tests compare a schema by constraint name.
+    CONSTRAINT offerings_unit_fk
+        FOREIGN KEY (unit) REFERENCES offering_unit(value)
 );
 
 CREATE TRIGGER update_offerings_timestamp

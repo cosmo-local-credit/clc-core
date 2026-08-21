@@ -171,6 +171,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
@@ -207,6 +208,16 @@ func New(o APIOpts) *API {
 	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
+
+	// Offering writes. On apiGroup with requireUserAuth, like report mutations:
+	// a normal voucher owner needs this capability, so it is not an admin route.
+	// Mounting a second copy under /api/v2/admin would give the console its own
+	// handlers to drift from. The owner/superadmin decision happens inside the
+	// handler, from the voucher row it locks — middleware only establishes who is
+	// calling.
+	apiGroup.POST("/vouchers/:address/offerings", a.voucherOfferingCreateHandler, a.requireUserAuth())
+	apiGroup.PUT("/vouchers/:address/offerings/:id", a.voucherOfferingUpdateHandler, a.requireUserAuth())
+	apiGroup.DELETE("/vouchers/:address/offerings/:id", a.voucherOfferingDeleteHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")
@@ -252,6 +263,7 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
+	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 
 	// Dashboard aggregates are a separate group so catalog mutations and

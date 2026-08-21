@@ -925,6 +925,51 @@ DELETE FROM pool_tags WHERE pool_id = $1;
 INSERT INTO pool_tags (pool_id, tag_value) VALUES ($1, $2)
 ON CONFLICT (pool_id, tag_value) DO NOTHING;
 
+-- A superadmin's edits to a voucher's off-chain record.
+--
+-- Name, symbol, decimals and owner_address are deliberately absent: they mirror
+-- the deployed ERC20, and a catalog that disagrees with the chain about them is
+-- worse than one that cannot edit them. So are active, internal, voucher_type
+-- and the sink and redemption addresses — those are not catalog prose, and
+-- retiring a voucher is not the same operation as correcting its email.
+--
+-- Assign-all rather than patch, matching update-pool-profile: the caller sends
+-- the whole record and every column is written, so clearing a field is
+-- expressing it as empty rather than omitting it. vouchers_geo_valid backstops
+-- the both-or-neither coordinate rule the handler checks first.
+--
+-- The two image columns are the exception, for the reason update-pool-profile
+-- gives: NULL preserves and '' clears, so a client that sends no image fields
+-- cannot blank a voucher's images. vouchers_image_urls_http rejects anything
+-- that is not http(s), which is why '' has to become NULL rather than staying an
+-- empty string.
+--name: update-voucher-profile
+UPDATE vouchers
+SET description   = $2,
+    voucher_uoa   = $3,
+    voucher_value = $4,
+    email         = $5,
+    website       = $6,
+    phone         = $7,
+    terms         = $8,
+    location_name = $9,
+    geo_lat       = $10,
+    geo_lng       = $11,
+    icon_url      = CASE WHEN $12::TEXT IS NULL THEN icon_url   ELSE NULLIF($12, '') END,
+    banner_url    = CASE WHEN $13::TEXT IS NULL THEN banner_url ELSE NULLIF($13, '') END
+WHERE lower(address) = lower($1)
+RETURNING id;
+
+-- Tags are a junction, so a replace is a clear and a re-insert, both inside the
+-- caller's transaction with the profile update — as for pools, an operator who
+-- mistypes one tag must not lose the rest.
+--name: delete-voucher-tags
+DELETE FROM voucher_tags WHERE voucher_id = $1;
+
+--name: insert-voucher-tag
+INSERT INTO voucher_tags (voucher_id, tag_value) VALUES ($1, $2)
+ON CONFLICT (voucher_id, tag_value) DO NOTHING;
+
 -- Pool composition projected from chain events (TRACKER.* via internal/sub).
 --
 -- The chain is the source of truth for what a pool holds: nothing else writes
@@ -1262,6 +1307,111 @@ SELECT * FROM (
 ) page
 ORDER BY id DESC;
 
+-- Offering writes.
+--
+-- One offering belongs to exactly one voucher, and authority follows that
+-- relationship rather than the historical seller_address an import carried. Every
+-- write therefore locks the voucher (or the offering joined to it) and reads the
+-- owner from the locked row in the same transaction, so a caller cannot be
+-- authorized against a stale catalog copy.
+--
+-- The projection is deliberately the same one the list statements use: item read
+-- and mutation read-back return the identical wire shape, so a client never has
+-- to reconcile two representations of the row it just saved.
+--name: get-voucher-offering
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+    o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE((
+        SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+        FROM offering_tags ot
+        WHERE ot.offering_id = o.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+WHERE lower(v.address) = lower($1) AND o.id = $2 AND o.available AND v.active;
+
+-- The same projection ignoring availability and voucher activity. A write reads
+-- its own result back through this one: a row is still the caller's immediately
+-- after DELETE unlisted it, and the public statement above would return nothing.
+--name: get-offering-for-mutation
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
+    o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE((
+        SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+        FROM offering_tags ot
+        WHERE ot.offering_id = o.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+WHERE o.id = $1;
+
+-- Create authorizes against the voucher, so the voucher row is what gets locked.
+-- Returning owner_address and active lets one round trip answer 404 (no such
+-- voucher), 409 (retired) and 403 (not the owner).
+--name: lock-voucher-for-offering-create
+SELECT id, owner_address, active
+FROM vouchers
+WHERE lower(address) = lower($1)
+FOR UPDATE;
+
+-- Update and delete authorize against the offering's parent voucher. FOR UPDATE
+-- OF o locks the offering without locking the voucher: two sellers editing two
+-- offerings on one voucher must not serialize against each other.
+--
+-- The join to the named address is what makes an id belonging to another voucher
+-- a 404 rather than a cross-parent write.
+--name: lock-offering-voucher-owner
+SELECT o.id, o.voucher_id, o.available, v.owner_address, v.active
+FROM offerings o
+INNER JOIN vouchers v ON v.id = o.voucher_id
+WHERE o.id = $1 AND lower(v.address) = lower($2)
+FOR UPDATE OF o;
+
+-- The six product fields a caller owns, plus the compatibility values the legacy
+-- import columns still require. quantity is 1 because the column is NOT NULL and
+-- this product does not manage stock -- it must never be rendered as "1
+-- available". seller_address is server-selected from the locked voucher owner (or
+-- the authenticated superadmin for an ownerless voucher) and never read from JSON.
+--name: create-offering
+INSERT INTO offerings (
+    voucher_id, seller_address, commodity_name, commodity_type, description,
+    quantity, unit, frequency, price, available,
+    location_name, geo_lat, geo_lng, image_url
+)
+VALUES ($1, $2, $3, $4, $5, 1, $6, NULL, $7::NUMERIC, true, NULL, NULL, NULL, $8)
+RETURNING id;
+
+-- Assign-all editing of the product fields only. voucher_id, seller_address,
+-- source_id, quantity, frequency, location and geo are absent: they are the
+-- immutable relationship, provenance, or legacy import data, not offering
+-- content. available is absent too -- unlisting is DELETE, not an edit.
+--name: update-offering
+UPDATE offerings
+SET commodity_name = $2,
+    commodity_type = $3,
+    description = $4,
+    unit = $5,
+    price = $6::NUMERIC,
+    image_url = $7
+WHERE id = $1;
+
+-- An unlist, not a destruction. The row keeps its Sarafu source_id, timestamps
+-- and provenance so a later catalog import reconciles it instead of inserting a
+-- duplicate, and every public read already filters on available.
+--name: delete-offering
+UPDATE offerings
+SET available = false
+WHERE id = $1
+RETURNING id;
+
 --name: list-market-vouchers
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
@@ -1450,10 +1600,20 @@ ORDER BY page.id DESC;
 -- Visibility matches the list (`active`), but geolocation is not required: a
 -- voucher without coordinates still has a readable page, just no map.
 --name: get-market-voucher-by-address
+-- terms and tags are selected here and not in the list statements. A detail read
+-- is one row, so the tag subquery costs one index scan, and both fields are what
+-- an operator editing this voucher has to see before they can edit it: an
+-- update-voucher-profile that assigns every column needs the current values to
+-- send back, or a save silently clears whichever it could not read.
 SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
     v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
     v.location_name, v.geo_lat, v.geo_lng,
-    v.email, v.website, v.phone, v.icon_url, v.banner_url,
+    v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url,
+    COALESCE((
+        SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
+        FROM voucher_tags vt
+        WHERE vt.voucher_id = v.id
+    ), ARRAY[]::TEXT[]) AS tags,
     CASE dominant.commodity_type
         WHEN 'GOOD' THEN 'goods'
         WHEN 'SERVICE' THEN 'services'
@@ -1721,12 +1881,25 @@ ORDER BY v.id;
 -- sharing one statement made the planner abandon the trigram index for the
 -- search half.
 --name: list-voucher-tag-vocabulary
-SELECT DISTINCT ot.tag_value
-FROM offering_tags ot
-INNER JOIN offerings o ON o.id = ot.offering_id
-INNER JOIN vouchers v ON v.id = o.voucher_id
-WHERE o.available AND v.active AND v.geo_lat IS NOT NULL
-ORDER BY ot.tag_value;
+-- Both sources a voucher's tags come from, or the vocabulary would offer fewer
+-- filters than the counts beside it report. voucher_tags is curated directly (the
+-- deploy pipeline and the admin profile write); offering_tags is derived from
+-- available offerings. Same visibility rule on both branches: a tag reachable
+-- only through an invisible voucher offers a filter that can never match.
+SELECT tag_value
+FROM (
+    SELECT ot.tag_value
+    FROM offering_tags ot
+    INNER JOIN offerings o ON o.id = ot.offering_id
+    INNER JOIN vouchers v ON v.id = o.voucher_id
+    WHERE o.available AND v.active AND v.geo_lat IS NOT NULL
+    UNION
+    SELECT vt.tag_value
+    FROM voucher_tags vt
+    INNER JOIN vouchers v ON v.id = vt.voucher_id
+    WHERE v.active AND v.geo_lat IS NOT NULL
+) vocabulary
+ORDER BY tag_value;
 
 -- The pool tag facet vocabulary: the pool's own curated tags, which is what the
 -- pool list already returns per row.

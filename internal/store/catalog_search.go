@@ -495,18 +495,40 @@ func searchPredicate(args *sqlArgs, filter CatalogFilter, table string) string {
 		"\n            OR lower(" + table + ".symbol) LIKE '%' || lower(" + args.reuse() + ") || '%' ESCAPE '\\')"
 }
 
-// voucherTagPredicate returns the offering-derived voucher tag reducer.
+// voucherTagPredicate returns the voucher tag reducer, over both sources a
+// voucher's tags can come from.
 //
-// Voucher tags are derived from the tags on a voucher's available offerings,
-// not from voucher_tags: that table is empty, and copying offering tags into it
-// would invent a curated classification nobody curates. The derived form is an
-// EXISTS over the offering junction.
+// A voucher carries tags two ways, and a filter that reads one of them is broken
+// for the other:
 //
-// COUNT(DISTINCT ot.tag_value) in the all-tags form is load-bearing here, and
-// is the one place the derived semantics differ from a direct junction: a
-// voucher may publish several available offerings carrying the same tag, so a
-// plain COUNT(*) would reach cardinality($1) from repeats of a single tag and
-// match a voucher that carries only one of the requested tags.
+//   - **voucher_tags**, curated directly. The deploy pipeline fills it —
+//     `upsert-voucher-from-deploy` copies `deployed_token_tags` into it — and the
+//     admin console's `PUT /admin/vouchers/:address/profile` edits it.
+//   - **offering_tags**, derived from the tags on a voucher's *available*
+//     offerings.
+//
+// This used to read only the derived form, on the grounds that voucher_tags was
+// empty and filling it "would invent a curated classification nobody curates".
+// That stopped being true once deploys began populating it: a voucher published
+// with tags, or re-tagged by an operator, was stored correctly, read back
+// correctly on its detail endpoint, and then matched nothing here — the tag
+// control saved and changed nothing anybody could search by.
+//
+// The union is deliberately additive rather than a switch. Every voucher that
+// matched under the derived form still matches, because that branch is unchanged;
+// only directly-tagged vouchers are newly found. A straight move to voucher_tags
+// would have unfound every voucher tagged solely through its offerings, which is
+// most of the catalog.
+//
+// Both branches still drive from v.id outwards rather than from a tag junction
+// inwards, which is what keeps the trigram index driving a search: starting from
+// the junction made every plan a hash join over the whole table.
+//
+// COUNT(DISTINCT t.tag_value) over UNION ALL in the all-tags form is
+// load-bearing twice over. A voucher may publish several available offerings
+// carrying the same tag, and may also carry that tag directly, so a plain
+// COUNT(*) would reach cardinality($1) from repeats of one tag and match a
+// voucher holding only one of the requested tags.
 func voucherTagPredicate(args *sqlArgs, filter CatalogFilter) string {
 	if len(filter.Tags) == 0 {
 		return ""
@@ -515,20 +537,32 @@ func voucherTagPredicate(args *sqlArgs, filter CatalogFilter) string {
 	placeholder := args.bind(filter.Tags)
 	if filter.TagMatch == TagMatchAll {
 		return `(
-            SELECT COUNT(DISTINCT ot.tag_value)
-            FROM offerings o
-            INNER JOIN offering_tags ot ON ot.offering_id = o.id
-            WHERE o.voucher_id = v.id AND o.available
-                AND ot.tag_value = ANY(` + placeholder + `::TEXT[])
+            SELECT COUNT(DISTINCT t.tag_value)
+            FROM (
+                SELECT vt.tag_value
+                FROM voucher_tags vt
+                WHERE vt.voucher_id = v.id
+                UNION ALL
+                SELECT ot.tag_value
+                FROM offerings o
+                INNER JOIN offering_tags ot ON ot.offering_id = o.id
+                WHERE o.voucher_id = v.id AND o.available
+            ) t
+            WHERE t.tag_value = ANY(` + placeholder + `::TEXT[])
         ) = cardinality(` + args.reuse() + `::TEXT[])`
 	}
-	return `EXISTS (
+	return `(EXISTS (
+            SELECT 1
+            FROM voucher_tags vt
+            WHERE vt.voucher_id = v.id
+                AND vt.tag_value = ANY(` + placeholder + `::TEXT[])
+        ) OR EXISTS (
             SELECT 1
             FROM offerings o
             INNER JOIN offering_tags ot ON ot.offering_id = o.id
             WHERE o.voucher_id = v.id AND o.available
-                AND ot.tag_value = ANY(` + placeholder + `::TEXT[])
-        )`
+                AND ot.tag_value = ANY(` + args.reuse() + `::TEXT[])
+        ))`
 }
 
 // poolTagPredicate returns the direct pool_tags reducer. Pools filter on their

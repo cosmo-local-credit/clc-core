@@ -374,17 +374,33 @@ func TestComposeMarketVoucherPageEveryComposition(t *testing.T) {
 		// Tag mode selects between two constant fragments.
 		if len(tc.filter.Tags) > 0 {
 			wantAll := tc.filter.TagMatch == TagMatchAll
-			gotAll := strings.Contains(query.sql, "COUNT(DISTINCT ot.tag_value)")
+			gotAll := strings.Contains(query.sql, "COUNT(DISTINCT t.tag_value)")
 			if wantAll != gotAll {
 				t.Errorf("%s: all-tags fragment = %v, want %v:\n%s", name, gotAll, wantAll, query.sql)
 			}
-			// Derived tags fan out: one voucher with three offerings carrying
-			// the same tag is one match, so the all-tags count must be DISTINCT.
-			if wantAll && !strings.Contains(query.sql, "COUNT(DISTINCT ot.tag_value)") {
-				t.Errorf("%s: derived all-tags count must be DISTINCT:\n%s", name, query.sql)
+			// Tags fan out twice: one voucher with three available offerings
+			// carrying the same tag is one match, and a voucher carrying a tag
+			// both directly and through an offering is also one. So the all-tags
+			// count must be DISTINCT over the union of both sources.
+			if wantAll && !strings.Contains(query.sql, "COUNT(DISTINCT t.tag_value)") {
+				t.Errorf("%s: all-tags count must be DISTINCT over both sources:\n%s", name, query.sql)
+			}
+			// Both sources, in either mode. Reading one of them is the bug this
+			// pins: a voucher tagged only through voucher_tags — every deploy, and
+			// anything an operator re-tags — matched nothing, while a switch to
+			// voucher_tags alone would unfind most of the catalog.
+			for _, source := range []string{"voucher_tags vt", "offering_tags ot"} {
+				if !strings.Contains(query.sql, source) {
+					t.Errorf("%s: tag filter must read %s:\n%s", name, source, query.sql)
+				}
 			}
 			if !strings.Contains(query.sql, "o.available") {
 				t.Errorf("%s: derived tags must only read available offerings:\n%s", name, query.sql)
+			}
+			// The direct branch carries no availability condition of its own — a
+			// curated tag is not gated on an offering existing.
+			if !strings.Contains(query.sql, "WHERE vt.voucher_id = v.id") {
+				t.Errorf("%s: the direct branch must key straight off the voucher:\n%s", name, query.sql)
 			}
 		}
 
@@ -496,12 +512,26 @@ func TestComposeMarketVoucherTagCountsAreDisjunctive(t *testing.T) {
 
 	// Driving from the candidate set outwards is what keeps the trigram index
 	// driving the search; starting at the junction collapsed it into a filter.
-	if !strings.Contains(query.sql, "FROM candidates c\nINNER JOIN offerings o ON o.voucher_id = c.id AND o.available") {
-		t.Errorf("counts must drive from candidates outwards, not from the tag junction inwards:\n%s", query.sql)
+	// Both branches of the union must do it, not just the derived one.
+	for _, driver := range []string{
+		"FROM candidates c\n    INNER JOIN offerings o ON o.voucher_id = c.id AND o.available",
+		"FROM candidates c\n    INNER JOIN voucher_tags vt ON vt.voucher_id = c.id",
+	} {
+		if !strings.Contains(query.sql, driver) {
+			t.Errorf("counts must drive from candidates outwards, not from the tag junction inwards:\n%s", query.sql)
+		}
 	}
-	// Derived joins fan out; the count must be per voucher.
-	if !strings.Contains(query.sql, "COUNT(DISTINCT c.id)") {
-		t.Errorf("derived counts must be DISTINCT per voucher:\n%s", query.sql)
+	// A (voucher, tag) pair must be counted once however many ways it arrives.
+	// UNION does that dedup by hash; COUNT(DISTINCT) over UNION ALL gives the same
+	// answer but forced a sort of the whole junction.
+	if !strings.Contains(query.sql, "\n    UNION\n") {
+		t.Errorf("counts must dedupe (voucher, tag) pairs with UNION:\n%s", query.sql)
+	}
+	if strings.Contains(query.sql, "UNION ALL") {
+		t.Errorf("UNION ALL would double-count a voucher tagged both ways:\n%s", query.sql)
+	}
+	if !strings.Contains(query.sql, "COUNT(*)") {
+		t.Errorf("counts must be a plain COUNT(*) over the deduped pairs:\n%s", query.sql)
 	}
 	// The vocabulary is a separate, parameterless statement.
 	if strings.Contains(query.sql, "facet_vocabulary") || strings.Contains(query.sql, "token_tag") {

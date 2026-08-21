@@ -44,6 +44,9 @@ type (
 		UpdatePoolProfile            string `query:"update-pool-profile"`
 		DeletePoolTags               string `query:"delete-pool-tags"`
 		InsertPoolTag                string `query:"insert-pool-tag"`
+		UpdateVoucherProfile         string `query:"update-voucher-profile"`
+		DeleteVoucherTags            string `query:"delete-voucher-tags"`
+		InsertVoucherTag             string `query:"insert-voucher-tag"`
 		SetPoolTokenMembership       string `query:"set-pool-token-membership"`
 		SetPoolTokenLimit            string `query:"set-pool-token-limit"`
 		SetPoolTokenOracle           string `query:"set-pool-token-oracle"`
@@ -100,38 +103,45 @@ type (
 
 		ListVoucherMetadataByAddresses string `query:"list-voucher-metadata-by-addresses"`
 
-		ListPools                string `query:"list-pools"`
-		ListPoolsNext            string `query:"list-pools-next"`
-		ListPoolsPrev            string `query:"list-pools-prev"`
-		GetPoolByAddress         string `query:"get-pool-by-address"`
-		ListPoolVouchers         string `query:"list-pool-vouchers"`
-		ListPoolVouchersNext     string `query:"list-pool-vouchers-next"`
-		ListPoolVouchersPrev     string `query:"list-pool-vouchers-prev"`
-		ListOfferings            string `query:"list-offerings"`
-		ListOfferingsNext        string `query:"list-offerings-next"`
-		ListOfferingsPrev        string `query:"list-offerings-prev"`
-		ListVoucherOfferings     string `query:"list-voucher-offerings"`
-		ListVoucherOfferingsNext string `query:"list-voucher-offerings-next"`
-		ListVoucherOfferingsPrev string `query:"list-voucher-offerings-prev"`
-		ListPoolOfferings        string `query:"list-pool-offerings"`
-		ListPoolOfferingsNext    string `query:"list-pool-offerings-next"`
-		ListPoolOfferingsPrev    string `query:"list-pool-offerings-prev"`
-		ListReports              string `query:"list-reports"`
-		ListReportsNext          string `query:"list-reports-next"`
-		GetReport                string `query:"get-report"`
-		CreateReport             string `query:"create-report"`
-		LockReportAuthor         string `query:"lock-report-author"`
-		UpdateReport             string `query:"update-report"`
-		ApproveReport            string `query:"approve-report"`
-		DeleteReport             string `query:"delete-report"`
-		DeleteReportTags         string `query:"delete-report-tags"`
-		InsertReportTag          string `query:"insert-report-tag"`
-		DeleteReportVouchers     string `query:"delete-report-vouchers"`
-		InsertReportVoucher      string `query:"insert-report-voucher"`
-		DeleteReportImages       string `query:"delete-report-images"`
-		InsertReportImage        string `query:"insert-report-image"`
-		DeleteReportAttachments  string `query:"delete-report-attachments"`
-		InsertReportAttachment   string `query:"insert-report-attachment"`
+		ListPools                    string `query:"list-pools"`
+		ListPoolsNext                string `query:"list-pools-next"`
+		ListPoolsPrev                string `query:"list-pools-prev"`
+		GetPoolByAddress             string `query:"get-pool-by-address"`
+		ListPoolVouchers             string `query:"list-pool-vouchers"`
+		ListPoolVouchersNext         string `query:"list-pool-vouchers-next"`
+		ListPoolVouchersPrev         string `query:"list-pool-vouchers-prev"`
+		ListOfferings                string `query:"list-offerings"`
+		ListOfferingsNext            string `query:"list-offerings-next"`
+		ListOfferingsPrev            string `query:"list-offerings-prev"`
+		ListVoucherOfferings         string `query:"list-voucher-offerings"`
+		ListVoucherOfferingsNext     string `query:"list-voucher-offerings-next"`
+		ListVoucherOfferingsPrev     string `query:"list-voucher-offerings-prev"`
+		ListPoolOfferings            string `query:"list-pool-offerings"`
+		ListPoolOfferingsNext        string `query:"list-pool-offerings-next"`
+		ListPoolOfferingsPrev        string `query:"list-pool-offerings-prev"`
+		GetVoucherOffering           string `query:"get-voucher-offering"`
+		GetOfferingForMutation       string `query:"get-offering-for-mutation"`
+		LockVoucherForOfferingCreate string `query:"lock-voucher-for-offering-create"`
+		LockOfferingVoucherOwner     string `query:"lock-offering-voucher-owner"`
+		CreateOffering               string `query:"create-offering"`
+		UpdateOffering               string `query:"update-offering"`
+		DeleteOffering               string `query:"delete-offering"`
+		ListReports                  string `query:"list-reports"`
+		ListReportsNext              string `query:"list-reports-next"`
+		GetReport                    string `query:"get-report"`
+		CreateReport                 string `query:"create-report"`
+		LockReportAuthor             string `query:"lock-report-author"`
+		UpdateReport                 string `query:"update-report"`
+		ApproveReport                string `query:"approve-report"`
+		DeleteReport                 string `query:"delete-report"`
+		DeleteReportTags             string `query:"delete-report-tags"`
+		InsertReportTag              string `query:"insert-report-tag"`
+		DeleteReportVouchers         string `query:"delete-report-vouchers"`
+		InsertReportVoucher          string `query:"insert-report-voucher"`
+		DeleteReportImages           string `query:"delete-report-images"`
+		InsertReportImage            string `query:"insert-report-image"`
+		DeleteReportAttachments      string `query:"delete-report-attachments"`
+		InsertReportAttachment       string `query:"insert-report-attachment"`
 
 		// Bounded and unbounded market pages are separate statements so the
 		// bbox predicate never hides behind a nullable OR, which would stop

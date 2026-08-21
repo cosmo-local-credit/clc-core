@@ -101,6 +101,14 @@ func TestImageURLFieldsAcceptOnlyHTTPSchemes(t *testing.T) {
 		if err := v.Validate(apiresp.UpdatePoolProfileRequest{ImageURL: &empty, BannerURL: &empty}); err != nil {
 			t.Fatalf("empty pool images rejected: %v", err)
 		}
+		// The voucher request carries the same pair under the same rules, so it
+		// must behave identically rather than nearly so.
+		if err := v.Validate(apiresp.UpdateVoucherProfileRequest{IconURL: &empty, BannerURL: &empty}); err != nil {
+			t.Fatalf("empty voucher images rejected: %v", err)
+		}
+		if err := v.Validate(apiresp.UpdateVoucherProfileRequest{IconURL: &good, BannerURL: &good}); err != nil {
+			t.Fatalf("http(s) voucher images rejected: %v", err)
+		}
 		for _, url := range bad {
 			bad := url
 			if err := v.Validate(apiresp.UpdateProfileRequest{Name: "Owner", AvatarURL: &bad}); err == nil {
@@ -108,6 +116,12 @@ func TestImageURLFieldsAcceptOnlyHTTPSchemes(t *testing.T) {
 			}
 			if err := v.Validate(apiresp.UpdatePoolProfileRequest{ImageURL: &bad}); err == nil {
 				t.Errorf("pool imageUrl %q accepted", url)
+			}
+			if err := v.Validate(apiresp.UpdateVoucherProfileRequest{IconURL: &bad}); err == nil {
+				t.Errorf("voucher iconUrl %q accepted", url)
+			}
+			if err := v.Validate(apiresp.UpdateVoucherProfileRequest{BannerURL: &bad}); err == nil {
+				t.Errorf("voucher bannerUrl %q accepted", url)
 			}
 		}
 	})

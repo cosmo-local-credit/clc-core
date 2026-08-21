@@ -57,6 +57,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "020_admin_otx_indexes.sql")
 	assert.Contains(t, sqlFiles, "021_pool_quoter_type.sql")
 	assert.Contains(t, sqlFiles, "022_image_urls.sql")
+	assert.Contains(t, sqlFiles, "023_offering_crud.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -80,7 +81,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "019_account_relationship_indexes.sql" ||
 				name == "020_admin_otx_indexes.sql" ||
 				name == "021_pool_quoter_type.sql" ||
-				name == "022_image_urls.sql",
+				name == "022_image_urls.sql" ||
+				name == "023_offering_crud.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -112,6 +114,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"020_admin_otx_indexes.sql",
 		"021_pool_quoter_type.sql",
 		"022_image_urls.sql",
+		"023_offering_crud.sql",
 	}, files)
 }
 
@@ -901,4 +904,83 @@ func TestImageURLsMigration(t *testing.T) {
 	// dropped before it is added.
 	assert.Equal(t, 5, strings.Count(s, "DROP CONSTRAINT IF EXISTS"))
 	assert.Equal(t, 5, strings.Count(s, "ADD CONSTRAINT"))
+}
+
+func TestOfferingCRUDMigration(t *testing.T) {
+	content, err := os.ReadFile("023_offering_crud.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+
+	// A lookup table, like commodity_type and offering_frequency beside it, so a
+	// new unit is an INSERT rather than an ALTER TYPE.
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS offering_unit")
+	for _, unit := range []string{
+		"kg", "g", "litre", "item", "hour", "day", "bag", "unit",
+		"bundle", "piece", "dozen", "serving", "trip", "session", "metre",
+	} {
+		assert.Contains(t, s, "('"+unit+"')", "unit %s missing from the lookup seed", unit)
+	}
+
+	// The unit FK is NOT VALID: imported rows carry free text that must survive.
+	// The image CHECK is not, and that asymmetry is the point of this migration --
+	// PostgreSQL re-evaluates a CHECK on every row update, so a grandfathered data
+	// URI would block the soft delete that unlists an offering.
+	assert.Contains(t, s, "CONSTRAINT offerings_unit_fk")
+	assert.Equal(t, 1, strings.Count(s, "\n        NOT VALID;"))
+	assert.Contains(t, s, "CONSTRAINT offerings_image_url_http")
+	assert.NotContains(t, s, "offerings_image_url_http\n        CHECK (image_url IS NULL OR image_url ~* '^https?://')\n        NOT VALID")
+
+	// The legacy values are cleared before the constraint is added, or the
+	// validated ADD CONSTRAINT would fail on live data.
+	cleanup := strings.Index(s, "SET image_url = NULL")
+	constraint := strings.Index(s, "ADD CONSTRAINT\n        offerings_image_url_http")
+	if constraint == -1 {
+		constraint = strings.Index(s, "offerings_image_url_http\n        CHECK")
+	}
+	require.NotEqual(t, -1, cleanup, "expected the non-HTTP image_url cleanup")
+	require.NotEqual(t, -1, constraint, "expected the image_url check constraint")
+	assert.Less(t, cleanup, constraint, "the cleanup must run before the validated constraint")
+
+	// commodity_type is untouched: GOOD and SERVICE stay the only classifications
+	// so the eight market kind derivations keep their meaning.
+	assert.NotContains(t, s, "UNCLASSIFIED")
+	assert.NotContains(t, s, "INSERT INTO commodity_type")
+
+	// Re-running must be a no-op.
+	assert.Equal(t, 2, strings.Count(s, "DROP CONSTRAINT IF EXISTS"))
+	assert.Equal(t, 2, strings.Count(s, "ADD CONSTRAINT"))
+	assert.Contains(t, s, "ON CONFLICT (value) DO NOTHING")
+}
+
+// Fresh databases must reach the same shape as one upgraded through 023,
+// including the constraint names the parity checks compare.
+func TestBaselineCarriesOfferingWriteConstraints(t *testing.T) {
+	content, err := os.ReadFile("001_init.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS offering_unit")
+	for _, unit := range []string{
+		"('kg')", "('litre')", "('serving')", "('metre')",
+	} {
+		assert.Contains(t, s, unit)
+	}
+
+	// Named, not inline: an inline column REFERENCES would be offerings_unit_fkey
+	// here and offerings_unit_fk after 023.
+	assert.Contains(t, s, "CONSTRAINT offerings_unit_fk\n        FOREIGN KEY (unit) REFERENCES offering_unit(value)")
+	assert.NotContains(t, s, "unit             TEXT REFERENCES offering_unit(value)")
+	assert.Contains(t, s, "CONSTRAINT offerings_image_url_http")
+
+	// The lookup has to exist before the table that references it.
+	assert.Less(t,
+		strings.Index(s, "CREATE TABLE IF NOT EXISTS offering_unit"),
+		strings.Index(s, "CREATE TABLE IF NOT EXISTS offerings ("),
+		"offering_unit must be created before offerings references it")
+
+	// Still exactly two classifications.
+	assert.Contains(t, s, "INSERT INTO commodity_type (value) VALUES\n    ('GOOD'),\n    ('SERVICE')")
+	assert.NotContains(t, s, "UNCLASSIFIED")
 }

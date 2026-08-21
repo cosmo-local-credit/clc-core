@@ -12,33 +12,40 @@ func TestLoadCatalogQueries(t *testing.T) {
 	}
 
 	for name, query := range map[string]string{
-		"list-pool-vouchers":          queries.ListPoolVouchers,
-		"list-pool-vouchers-next":     queries.ListPoolVouchersNext,
-		"list-pool-vouchers-prev":     queries.ListPoolVouchersPrev,
-		"list-offerings":              queries.ListOfferings,
-		"list-offerings-next":         queries.ListOfferingsNext,
-		"list-offerings-prev":         queries.ListOfferingsPrev,
-		"list-voucher-offerings":      queries.ListVoucherOfferings,
-		"list-voucher-offerings-next": queries.ListVoucherOfferingsNext,
-		"list-voucher-offerings-prev": queries.ListVoucherOfferingsPrev,
-		"list-pool-offerings":         queries.ListPoolOfferings,
-		"list-pool-offerings-next":    queries.ListPoolOfferingsNext,
-		"list-pool-offerings-prev":    queries.ListPoolOfferingsPrev,
-		"dashboard-catalog-snapshot":  queries.DashboardCatalogSnapshot,
-		"dashboard-catalog-series":    queries.DashboardCatalogSeries,
-		"create-report":               queries.CreateReport,
-		"lock-report-author":          queries.LockReportAuthor,
-		"update-report":               queries.UpdateReport,
-		"approve-report":              queries.ApproveReport,
-		"delete-report":               queries.DeleteReport,
-		"delete-report-tags":          queries.DeleteReportTags,
-		"insert-report-tag":           queries.InsertReportTag,
-		"delete-report-vouchers":      queries.DeleteReportVouchers,
-		"insert-report-voucher":       queries.InsertReportVoucher,
-		"delete-report-images":        queries.DeleteReportImages,
-		"insert-report-image":         queries.InsertReportImage,
-		"delete-report-attachments":   queries.DeleteReportAttachments,
-		"insert-report-attachment":    queries.InsertReportAttachment,
+		"list-pool-vouchers":               queries.ListPoolVouchers,
+		"list-pool-vouchers-next":          queries.ListPoolVouchersNext,
+		"list-pool-vouchers-prev":          queries.ListPoolVouchersPrev,
+		"list-offerings":                   queries.ListOfferings,
+		"list-offerings-next":              queries.ListOfferingsNext,
+		"list-offerings-prev":              queries.ListOfferingsPrev,
+		"list-voucher-offerings":           queries.ListVoucherOfferings,
+		"list-voucher-offerings-next":      queries.ListVoucherOfferingsNext,
+		"list-voucher-offerings-prev":      queries.ListVoucherOfferingsPrev,
+		"list-pool-offerings":              queries.ListPoolOfferings,
+		"list-pool-offerings-next":         queries.ListPoolOfferingsNext,
+		"list-pool-offerings-prev":         queries.ListPoolOfferingsPrev,
+		"dashboard-catalog-snapshot":       queries.DashboardCatalogSnapshot,
+		"dashboard-catalog-series":         queries.DashboardCatalogSeries,
+		"create-report":                    queries.CreateReport,
+		"lock-report-author":               queries.LockReportAuthor,
+		"update-report":                    queries.UpdateReport,
+		"approve-report":                   queries.ApproveReport,
+		"delete-report":                    queries.DeleteReport,
+		"delete-report-tags":               queries.DeleteReportTags,
+		"insert-report-tag":                queries.InsertReportTag,
+		"delete-report-vouchers":           queries.DeleteReportVouchers,
+		"insert-report-voucher":            queries.InsertReportVoucher,
+		"delete-report-images":             queries.DeleteReportImages,
+		"insert-report-image":              queries.InsertReportImage,
+		"delete-report-attachments":        queries.DeleteReportAttachments,
+		"insert-report-attachment":         queries.InsertReportAttachment,
+		"get-voucher-offering":             queries.GetVoucherOffering,
+		"get-offering-for-mutation":        queries.GetOfferingForMutation,
+		"lock-voucher-for-offering-create": queries.LockVoucherForOfferingCreate,
+		"lock-offering-voucher-owner":      queries.LockOfferingVoucherOwner,
+		"create-offering":                  queries.CreateOffering,
+		"update-offering":                  queries.UpdateOffering,
+		"delete-offering":                  queries.DeleteOffering,
 	} {
 		if query == "" {
 			t.Errorf("expected %s query to be loaded", name)
@@ -116,5 +123,96 @@ func TestDeployQueriesPersistTermsIntoCatalogs(t *testing.T) {
 		if !strings.Contains(query, "COALESCE(EXCLUDED.terms") {
 			t.Errorf("%s must let non-empty deploy terms update the catalog", name)
 		}
+	}
+}
+
+// The offering write statements. Each assertion here stands for an authorization
+// or data-integrity property that has no other enforcement point: the SQL is
+// where "the caller cannot choose the seller" actually lives.
+func TestOfferingWriteQueries(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatalf("load core queries: %v", err)
+	}
+
+	// The public item read answers exactly as the public list does, so an unlisted
+	// row or a retired voucher is a 404 and never a readable object.
+	if !strings.Contains(queries.GetVoucherOffering, "o.available AND v.active") {
+		t.Error("get-voucher-offering must filter availability and voucher activity")
+	}
+	if !strings.Contains(queries.GetVoucherOffering, "lower(v.address) = lower($1)") {
+		t.Error("get-voucher-offering must scope the id to the named voucher")
+	}
+	// Same projection as the lists, so a client never reconciles two shapes.
+	for name, query := range map[string]string{
+		"get-voucher-offering":      queries.GetVoucherOffering,
+		"get-offering-for-mutation": queries.GetOfferingForMutation,
+	} {
+		for _, field := range []string{
+			"o.quantity::TEXT AS quantity", "o.price::TEXT AS price", "offering_tags",
+			"v.symbol AS voucher_symbol", "v.decimals AS voucher_decimals",
+		} {
+			if !strings.Contains(query, field) {
+				t.Errorf("%s must carry %s like the list projection", name, field)
+			}
+		}
+	}
+	// Read-back ignores availability: a row is still the caller's right after
+	// DELETE unlisted it.
+	if strings.Contains(queries.GetOfferingForMutation, "o.available AND") {
+		t.Error("get-offering-for-mutation must not filter availability")
+	}
+
+	// Authorization reads a locked row, never a request field.
+	if !strings.Contains(queries.LockVoucherForOfferingCreate, "FOR UPDATE") {
+		t.Error("lock-voucher-for-offering-create must lock the row it authorizes from")
+	}
+	if !strings.Contains(queries.LockVoucherForOfferingCreate, "owner_address") ||
+		!strings.Contains(queries.LockVoucherForOfferingCreate, "active") {
+		t.Error("lock-voucher-for-offering-create must report owner and activity")
+	}
+	// FOR UPDATE OF o, not a bare FOR UPDATE: two sellers editing two offerings on
+	// one voucher must not serialize against each other.
+	if !strings.Contains(queries.LockOfferingVoucherOwner, "FOR UPDATE OF o") {
+		t.Error("lock-offering-voucher-owner must lock only the offering")
+	}
+	if !strings.Contains(queries.LockOfferingVoucherOwner, "lower(v.address) = lower($2)") {
+		t.Error("lock-offering-voucher-owner must make a cross-voucher id a miss")
+	}
+
+	// The insert names every column it sets, so a column added later cannot be
+	// silently filled from a caller's JSON.
+	for _, fragment := range []string{
+		"voucher_id, seller_address, commodity_name, commodity_type, description",
+		"$7::NUMERIC",
+		"VALUES ($1, $2, $3, $4, $5, 1, $6, NULL, $7::NUMERIC, true, NULL, NULL, NULL, $8)",
+	} {
+		if !strings.Contains(queries.CreateOffering, fragment) {
+			t.Errorf("create-offering must contain %q", fragment)
+		}
+	}
+
+	// Assign-all editing of product fields only. These columns are the immutable
+	// relationship, provenance, or legacy import data.
+	for _, forbidden := range []string{
+		"voucher_id =", "seller_address =", "source_id =", "quantity =",
+		"frequency =", "location_name =", "geo_lat =", "available =",
+	} {
+		if strings.Contains(queries.UpdateOffering, forbidden) {
+			t.Errorf("update-offering must not set %s", forbidden)
+		}
+	}
+	if !strings.Contains(queries.UpdateOffering, "price = $6::NUMERIC") {
+		t.Error("update-offering must keep the price as decimal text bound to NUMERIC")
+	}
+
+	// Delete is an unlist. A physical DELETE would lose the Sarafu source_id a
+	// later import needs to reconcile.
+	if strings.Contains(queries.DeleteOffering, "DELETE FROM") {
+		t.Error("delete-offering must soft delete, not remove the row")
+	}
+	if !strings.Contains(queries.DeleteOffering, "SET available = false") ||
+		!strings.Contains(queries.DeleteOffering, "RETURNING id") {
+		t.Error("delete-offering must unlist the row and return its id")
 	}
 }
