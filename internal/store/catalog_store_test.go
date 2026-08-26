@@ -58,6 +58,15 @@ func TestLoadCatalogQueries(t *testing.T) {
 	if !strings.Contains(queries.ListPoolVouchers, "oracle_feeds") {
 		t.Fatal("expected pool vouchers to include their oracle feed")
 	}
+	if !strings.Contains(queries.ListOracleFeeds, "WHERE chain_id = $1") {
+		t.Fatal("oracle feed choices must be scoped to the requested chain")
+	}
+	if !strings.Contains(queries.GetOracleFeedByName, "chain_id = $1 AND name = $2") {
+		t.Fatal("oracle feed names must be looked up within one chain")
+	}
+	if !strings.Contains(queries.SetPoolTokenOracle, "chain_id = p.chain_id") {
+		t.Fatal("oracle events must resolve an aggregator on the pool's own chain")
+	}
 	if !strings.Contains(queries.ListPoolVouchers, "offer_count") {
 		t.Fatal("expected pool vouchers to include offering counts")
 	}

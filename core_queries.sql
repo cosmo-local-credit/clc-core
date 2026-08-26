@@ -373,13 +373,14 @@ LIMIT 1;
 
 -- Oracle feeds
 --name: get-oracle-feed-by-name
-SELECT id, name, address, created_at, updated_at
+SELECT id, chain_id, name, address, created_at, updated_at
 FROM oracle_feeds
-WHERE name = $1;
+WHERE chain_id = $1 AND name = $2;
 
 --name: list-oracle-feeds
-SELECT id, name, address, created_at, updated_at
+SELECT id, chain_id, name, address, created_at, updated_at
 FROM oracle_feeds
+WHERE chain_id = $1
 ORDER BY name;
 
 --name: get-otx-by-tracking-id
@@ -1028,7 +1029,9 @@ SELECT p.id, v.id, FALSE, f.id, CURRENT_TIMESTAMP
 FROM pools p
 JOIN vouchers v ON v.chain_id = p.chain_id
 LEFT JOIN LATERAL (
-    SELECT id FROM oracle_feeds WHERE lower(address) = lower($3) ORDER BY id LIMIT 1
+    SELECT id FROM oracle_feeds
+    WHERE chain_id = p.chain_id AND lower(address) = lower($3)
+    ORDER BY id LIMIT 1
 ) f ON TRUE
 WHERE lower(p.quoter_address) = lower($1)
   AND lower(v.address) = lower($2)

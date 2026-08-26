@@ -58,6 +58,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "021_pool_quoter_type.sql")
 	assert.Contains(t, sqlFiles, "022_image_urls.sql")
 	assert.Contains(t, sqlFiles, "023_offering_crud.sql")
+	assert.Contains(t, sqlFiles, "024_oracle_feed_chains.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -82,7 +83,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "020_admin_otx_indexes.sql" ||
 				name == "021_pool_quoter_type.sql" ||
 				name == "022_image_urls.sql" ||
-				name == "023_offering_crud.sql",
+				name == "023_offering_crud.sql" ||
+				name == "024_oracle_feed_chains.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -115,7 +117,22 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"021_pool_quoter_type.sql",
 		"022_image_urls.sql",
 		"023_offering_crud.sql",
+		"024_oracle_feed_chains.sql",
 	}, files)
+}
+
+func TestOracleFeedChainsMigration(t *testing.T) {
+	content, err := os.ReadFile("024_oracle_feed_chains.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS chain_id BIGINT")
+	assert.Contains(t, s, "SET chain_id = 42220")
+	assert.Contains(t, s, "UNIQUE (chain_id, name)")
+	assert.Contains(t, s, "oracle_feeds_chain_address_idx")
+	assert.Contains(t, s, "0x9a48d9b0AF457eF040281A9Af3867bc65522Fecd")
+	assert.Contains(t, s, "0x0826492a24b1dBd1d8fcB4701b38C557CE685e9D")
+	assert.Contains(t, s, "0x3D207061Dbe8E2473527611BFecB87Ff12b28dDa")
 }
 
 func TestSendMessageSharesMigration(t *testing.T) {

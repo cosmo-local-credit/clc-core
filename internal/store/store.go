@@ -47,8 +47,8 @@ type (
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
-		GetOracleFeedByName(context.Context, pgx.Tx, string) (OracleFeed, error)
-		ListOracleFeeds(context.Context, pgx.Tx) ([]OracleFeed, error)
+		GetOracleFeedByName(context.Context, pgx.Tx, int64, string) (OracleFeed, error)
+		ListOracleFeeds(context.Context, pgx.Tx, int64) ([]OracleFeed, error)
 		GetOTXByTrackingID(context.Context, pgx.Tx, string) ([]*OTX, error)
 		GetOTXByAccount(context.Context, pgx.Tx, string, uint64) ([]*OTX, error)
 		GetOTXByAccountNext(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)

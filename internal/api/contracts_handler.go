@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
@@ -371,4 +372,55 @@ func (a *API) tokenTagsHandler(c *echo.Context) error {
 			"tags": tags,
 		},
 	})
+}
+
+func (a *API) oracleFeedsHandler(c *echo.Context) error {
+	chainID, err := parseOracleFeedChainID(c.QueryParam("chainId"), a.chainID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "chainId must be a positive integer",
+		})
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	feeds, err := a.store.ListOracleFeeds(ctx, tx, chainID)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Available oracle feeds",
+		Result: map[string]any{
+			"feeds": feeds,
+		},
+	})
+}
+
+func parseOracleFeedChainID(raw string, fallback int64) (int64, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		if fallback <= 0 {
+			return 0, fmt.Errorf("invalid fallback chain id %d", fallback)
+		}
+		return fallback, nil
+	}
+
+	chainID, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || chainID <= 0 {
+		return 0, fmt.Errorf("invalid chain id %q", raw)
+	}
+	return chainID, nil
 }
