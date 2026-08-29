@@ -3,6 +3,7 @@ module github.com/cosmo-local-credit/clc-core
 go 1.26.0
 
 require (
+	github.com/SherClockHolmes/webpush-go v1.4.1-0.20260422052225-76cc00f5ac2d
 	github.com/cosmo-local-credit/protocol v0.5.5
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/georgysavva/scany/v2 v2.1.4

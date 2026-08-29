@@ -68,6 +68,7 @@
    - [Update (`PUT /api/v2/reports/:id`)](#115-update-put-apiv2reportsid)
    - [Approve (`PUT /api/v2/reports/:id/approve`)](#116-approve-put-apiv2reportsidapprove)
    - [Delete (`DELETE /api/v2/reports/:id`)](#117-delete-delete-apiv2reportsid)
+12. [Production Web Push (`/api/notifications`)](#12-production-web-push-apinotifications)
 
 ---
 
@@ -2312,3 +2313,29 @@ The mutation routes return `400 E02` for malformed JSON, `400 E04` for
 invalid fields or unknown tag/voucher references, `401 E06` without valid
 authentication, `403 E10` when the credential lacks permission, and `404 E03`
 when `:id` does not exist.
+
+## 12. Production Web Push (`/api/notifications`)
+
+The notification API deliberately keeps the unversioned path already shipped
+by clc-app. Successful responses use the browser client's raw JSON contract,
+not the normal `{ ok, result }` envelope.
+
+| Method and path | Access |
+|---|---|
+| `GET /api/notifications/vapid-public-key` | public |
+| `POST /api/notifications/devices/register` | user JWT |
+| `POST /api/notifications/devices/link-wallet` | user JWT |
+| `POST /api/notifications/devices/unlink-wallet` | user JWT |
+| `POST /api/notifications/devices/disable` | user JWT |
+| `POST /api/notifications/inbox/sync` | user JWT |
+| `POST /api/notifications/acks/delivery` | public capability write |
+| `POST /api/notifications/acks/click` | public capability write |
+
+For every user-authenticated operation, the server derives the wallet from the
+JWT. Client-supplied wallet fields are compatibility assertions only and must
+match that identity. Acknowledgements mutate a row only when both the opaque
+`deviceId` and `notificationId` match an existing delivery; they expose no inbox
+data.
+
+See [Production Web Push](NOTIFICATIONS.md) for request/response ownership,
+deployment variables, event mappings, retries, and verification.

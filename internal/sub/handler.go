@@ -2,15 +2,22 @@ package sub
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
+	"strings"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	custodialEvent "github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/uuid"
 	"github.com/grassrootseconomics/eth-tracker/pkg/event"
 	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
 )
 
 func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) error {
@@ -33,6 +40,9 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	// Gating it on the OTX lookup below would mean the catalog only tracked
 	// transactions clc-core happened to sign.
 	if err := s.projectPoolComposition(ctx, tx, chainEvent); err != nil {
+		return err
+	}
+	if err := s.projectNotification(ctx, tx, chainEvent); err != nil {
 		return err
 	}
 
@@ -89,6 +99,134 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	})
 
 	return tx.Commit(ctx)
+}
+
+const (
+	tokenTransferEvent = "TOKEN_TRANSFER"
+	poolSwapEvent      = "POOL_SWAP"
+)
+
+// projectNotification turns authoritative successful tracker events into one
+// logical notification plus one delivery per active device. River jobs are
+// inserted in the same PostgreSQL transaction, so a JetStream retry cannot
+// leave an event without its jobs (or jobs without their event).
+func (s *Sub) projectNotification(ctx context.Context, tx pgx.Tx, chainEvent event.Event) error {
+	if s.notificationQueue == nil {
+		return nil
+	}
+
+	notificationEvent, ok, err := notificationEventFromChainEvent(chainEvent)
+	if err != nil || !ok {
+		return err
+	}
+	refs, err := s.store.CreateNotificationDeliveries(ctx, tx, notificationEvent)
+	if err != nil {
+		return err
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+
+	params := make([]river.InsertManyParams, 0, len(refs))
+	for _, ref := range refs {
+		priority := 2
+		if notificationEvent.Priority == "high" {
+			priority = 1
+		}
+		params = append(params, river.InsertManyParams{
+			Args: worker.NotificationDeliveryArgs{RecordID: ref.RecordID},
+			InsertOpts: &river.InsertOpts{
+				MaxAttempts: 5,
+				Priority:    priority,
+			},
+		})
+	}
+	_, err = s.notificationQueue.InsertManyTx(ctx, tx, params)
+	return err
+}
+
+func notificationEventFromChainEvent(chainEvent event.Event) (store.NotificationEvent, bool, error) {
+	if !chainEvent.Success {
+		return store.NotificationEvent{}, false, nil
+	}
+
+	var notificationEvent store.NotificationEvent
+	switch chainEvent.TxType {
+	case tokenTransferEvent:
+		recipient, ok := payloadAddress(chainEvent, "to")
+		if !ok || !common.IsHexAddress(chainEvent.ContractAddress) {
+			return notificationEvent, false, nil
+		}
+		voucherID := common.HexToAddress(chainEvent.ContractAddress).Hex()
+		notificationEvent = store.NotificationEvent{
+			Kind:                "voucher.received",
+			Title:               "Voucher received",
+			Body:                "A voucher arrived in your wallet.",
+			TargetURL:           "/wallet",
+			WalletAddressTarget: common.HexToAddress(recipient).Hex(),
+			Priority:            "high",
+			VoucherID:           &voucherID,
+		}
+	case poolSwapEvent:
+		initiator, ok := payloadAddress(chainEvent, "initiator")
+		if !ok {
+			return notificationEvent, false, nil
+		}
+		swapID := chainEvent.TxHash
+		notificationEvent = store.NotificationEvent{
+			Kind:                "swap.completed",
+			Title:               "Swap completed",
+			Body:                "Your pool swap completed successfully.",
+			TargetURL:           "/wallet",
+			WalletAddressTarget: common.HexToAddress(initiator).Hex(),
+			Priority:            "normal",
+			SwapID:              &swapID,
+		}
+	default:
+		return notificationEvent, false, nil
+	}
+
+	createdAt := time.Unix(int64(chainEvent.Timestamp), 0).UTC()
+	if chainEvent.Timestamp == 0 {
+		createdAt = time.Now().UTC()
+	}
+	notificationEvent.NotificationID = uuid.NewString()
+	notificationEvent.CreatedAt = createdAt
+	sourceKey, err := notificationSourceKey(chainEvent, notificationEvent)
+	if err != nil {
+		return store.NotificationEvent{}, false, err
+	}
+	notificationEvent.SourceKey = sourceKey
+	return notificationEvent, true, nil
+}
+
+// notificationSourceKey uses every tracker field still available on the wire.
+// eth-tracker's Event.Index is deliberately not serialized, so identical logs
+// in one transaction cannot be distinguished until that upstream contract is
+// extended. The hash nevertheless makes ordinary JetStream redelivery stable.
+func notificationSourceKey(chainEvent event.Event, notificationEvent store.NotificationEvent) (string, error) {
+	canonical, err := json.Marshal(struct {
+		ContractAddress string         `json:"contractAddress"`
+		Index           uint           `json:"index"`
+		Kind            string         `json:"kind"`
+		Payload         map[string]any `json:"payload"`
+		Target          string         `json:"target"`
+		TxHash          string         `json:"txHash"`
+		TxType          string         `json:"txType"`
+	}{
+		ContractAddress: strings.ToLower(chainEvent.ContractAddress),
+		Index:           chainEvent.Index,
+		Kind:            notificationEvent.Kind,
+		Payload:         chainEvent.Payload,
+		Target:          strings.ToLower(notificationEvent.WalletAddressTarget),
+		TxHash:          strings.ToLower(chainEvent.TxHash),
+		TxType:          chainEvent.TxType,
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(canonical)
+	return fmt.Sprintf("tracker:%x", digest), nil
 }
 
 // confirmToken finalizes a token deploy and promotes it into the voucher

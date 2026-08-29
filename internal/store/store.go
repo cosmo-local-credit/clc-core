@@ -150,5 +150,17 @@ type (
 		UpsertWebAuthnCredential(context.Context, pgx.Tx, WebAuthnCredential) error
 		GetWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
 		SetNonceIfHigher(context.Context, pgx.Tx, string, uint64) error
+
+		UpsertNotificationDevice(context.Context, pgx.Tx, NotificationDevice, uint64) error
+		LinkNotificationWallet(context.Context, pgx.Tx, string, uint64, string) ([]string, error)
+		UnlinkNotificationWallet(context.Context, pgx.Tx, string, uint64) ([]string, error)
+		DisableNotificationDevice(context.Context, pgx.Tx, string, uint64, string) (string, error)
+		NotificationInboxCursor(context.Context, pgx.Tx, string, uint64) (uint64, error)
+		SyncNotificationInbox(context.Context, pgx.Tx, string, uint64, uint64) ([]NotificationInboxMessage, []string, uint64, error)
+		AcknowledgeNotificationDelivery(context.Context, pgx.Tx, NotificationDeliveryAck) (bool, error)
+		AcknowledgeNotificationClick(context.Context, pgx.Tx, NotificationClickAck) (bool, error)
+		CreateNotificationDeliveries(context.Context, pgx.Tx, NotificationEvent) ([]NotificationDeliveryRef, error)
+		GetNotificationDelivery(context.Context, pgx.Tx, string) (NotificationDelivery, error)
+		RecordNotificationDeliveryResult(context.Context, pgx.Tx, NotificationDeliveryResult) error
 	}
 )

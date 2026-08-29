@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
+	"github.com/cosmo-local-credit/clc-core/internal/notification"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -26,15 +27,16 @@ type (
 	infoHandler struct{ slog.Handler }
 
 	WorkerOpts struct {
-		MaxWorkers           int
-		GasOracle            gas.GasOracle
-		Store                store.Store
-		FederationStore      store.FederationStore
-		Logg                 *slog.Logger
-		ChainProvider        *ethutils.Provider
-		Pub                  *pub.Pub
-		Relayer              *relayer.Relayer
-		AccountIndexAddress  common.Address
+		MaxWorkers          int
+		GasOracle           gas.GasOracle
+		Store               store.Store
+		FederationStore     store.FederationStore
+		Logg                *slog.Logger
+		ChainProvider       *ethutils.Provider
+		Pub                 *pub.Pub
+		Relayer             *relayer.Relayer
+		AccountIndexAddress common.Address
+		NotificationSender  notification.Sender
 	}
 
 	WorkerContainer struct {
@@ -48,6 +50,7 @@ type (
 		pub                 *pub.Pub
 		relayer             *relayer.Relayer
 		accountIndexAddress common.Address
+		notificationSender  notification.Sender
 	}
 )
 
@@ -64,6 +67,7 @@ func New(o WorkerOpts) *WorkerContainer {
 		pub:                 o.Pub,
 		relayer:             o.Relayer,
 		accountIndexAddress: o.AccountIndexAddress,
+		notificationSender:  o.NotificationSender,
 	}
 }
 
@@ -155,6 +159,10 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 	}
 
 	if err := river.AddWorkerSafely(workers, &RegisterUserWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &NotificationDeliveryWorker{wc: wc}); err != nil {
 		return nil, err
 	}
 

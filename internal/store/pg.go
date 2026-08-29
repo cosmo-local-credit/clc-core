@@ -101,6 +101,20 @@ type (
 		GetWebAuthnCredential    string `query:"get-webauthn-credential"`
 		SetNonceIfHigher         string `query:"set-nonce-if-higher"`
 
+		UpsertNotificationDevice         string `query:"upsert-notification-device"`
+		LinkNotificationWallet           string `query:"link-notification-wallet"`
+		UnlinkNotificationWallet         string `query:"unlink-notification-wallet"`
+		ListNotificationWallets          string `query:"list-notification-wallets"`
+		DisableNotificationDevice        string `query:"disable-notification-device"`
+		NotificationInboxCursor          string `query:"notification-inbox-cursor"`
+		SyncNotificationInbox            string `query:"sync-notification-inbox"`
+		AcknowledgeNotificationDelivery  string `query:"acknowledge-notification-delivery"`
+		AcknowledgeNotificationClick     string `query:"acknowledge-notification-click"`
+		UpsertNotificationEvent          string `query:"upsert-notification-event"`
+		InsertNotificationDeliveries     string `query:"insert-notification-deliveries"`
+		GetNotificationDelivery          string `query:"get-notification-delivery"`
+		RecordNotificationDeliveryResult string `query:"record-notification-delivery-result"`
+
 		ListVoucherMetadataByAddresses string `query:"list-voucher-metadata-by-addresses"`
 
 		ListPools                    string `query:"list-pools"`

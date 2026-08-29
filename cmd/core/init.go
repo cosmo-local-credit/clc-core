@@ -11,6 +11,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/api"
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
 	internaljs "github.com/cosmo-local-credit/clc-core/internal/jetstream"
+	"github.com/cosmo-local-credit/clc-core/internal/notification"
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
@@ -20,6 +21,8 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
 )
 
 func notifyShutdown() (context.Context, context.CancelFunc) {
@@ -119,7 +122,28 @@ func loadRegistry(chainProvider *ethutils.Provider) common.Address {
 	return accountIndex
 }
 
-func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer, accountIndexAddress common.Address) *worker.WorkerContainer {
+func loadNotifications() *notification.Service {
+	if !ko.Bool("notifications.enabled") {
+		lo.Warn("notifications disabled: notifications.enabled is false")
+		return nil
+	}
+
+	service, err := notification.New(notification.Config{
+		PublicKey:  ko.MustString("notifications.public_key"),
+		PrivateKey: ko.MustString("notifications.private_key"),
+		Subscriber: ko.MustString("notifications.subscriber"),
+		KeyVersion: ko.MustString("notifications.key_version"),
+		TTLSeconds: ko.Int("notifications.ttl_seconds"),
+	})
+	if err != nil {
+		lo.Error("could not initialize notification service", "error", err)
+		os.Exit(1)
+	}
+	lo.Info("notifications enabled", "vapid_key_version", service.KeyVersion())
+	return service
+}
+
+func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer, accountIndexAddress common.Address, notificationService *notification.Service) *worker.WorkerContainer {
 	maxWorkers := ko.Int("workers.max")
 	if maxWorkers <= 0 {
 		maxWorkers = runtime.NumCPU() * 2
@@ -134,6 +158,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 		ChainProvider:       chainProvider,
 		Relayer:             relayerInst,
 		AccountIndexAddress: accountIndexAddress,
+		NotificationSender:  notificationService,
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)
@@ -143,7 +168,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 	return workerContainer
 }
 
-func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
+func loadSub(pgStore store.Store, queueClient *river.Client[pgx.Tx], notificationsEnabled bool) (*sub.Sub, *pub.Pub) {
 	endpoints := ko.MustStrings("jetstream.endpoints")
 	persistDuration := time.Duration(ko.MustInt("jetstream.persist_duration_hrs")) * time.Hour
 
@@ -173,6 +198,9 @@ func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
 	if err != nil {
 		lo.Error("could not initialize jetstream subscriber", "error", err)
 		os.Exit(1)
+	}
+	if notificationsEnabled {
+		subInst.SetNotificationQueue(queueClient)
 	}
 
 	return subInst, pubInst
@@ -222,7 +250,7 @@ func loadPretium() *pretium.PretiumClient {
 	return pretium.New(baseURL)
 }
 
-func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer, relayerInst *relayer.Relayer, pretiumClient *pretium.PretiumClient) *api.API {
+func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer, relayerInst *relayer.Relayer, pretiumClient *pretium.PretiumClient, notificationService *notification.Service) *api.API {
 	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
 	if err != nil {
 		lo.Error("could not load signing key", "error", err)
@@ -245,5 +273,6 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		QueueClient:     workerContainer.Client(),
 		Relayer:         relayerInst,
 		Pretium:         pretiumClient,
+		Notifications:   notificationService,
 	})
 }

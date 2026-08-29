@@ -58,6 +58,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "021_pool_quoter_type.sql")
 	assert.Contains(t, sqlFiles, "022_image_urls.sql")
 	assert.Contains(t, sqlFiles, "023_offering_crud.sql")
+	assert.Contains(t, sqlFiles, "024_notifications.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -82,7 +83,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "020_admin_otx_indexes.sql" ||
 				name == "021_pool_quoter_type.sql" ||
 				name == "022_image_urls.sql" ||
-				name == "023_offering_crud.sql",
+				name == "023_offering_crud.sql" ||
+				name == "024_notifications.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -115,7 +117,22 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"021_pool_quoter_type.sql",
 		"022_image_urls.sql",
 		"023_offering_crud.sql",
+		"024_notifications.sql",
 	}, files)
+}
+
+func TestNotificationsMigration(t *testing.T) {
+	content, err := os.ReadFile("024_notifications.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_devices")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_device_wallets")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_events")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_deliveries")
+	assert.Contains(t, s, "UNIQUE (notification_id, device_id)")
+	assert.Contains(t, s, "source_key")
+	assert.Contains(t, s, "TEXT NOT NULL UNIQUE")
 }
 
 func TestSendMessageSharesMigration(t *testing.T) {

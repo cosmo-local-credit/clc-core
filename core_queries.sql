@@ -1983,3 +1983,234 @@ SELECT
         FROM pool_tokens pt
         INNER JOIN vouchers v ON v.id = pt.voucher_id
         WHERE pt.is_allowed AND lower(v.owner_address) = lower($1)) AS pool_memberships;
+
+--name: upsert-notification-device
+INSERT INTO notification_devices (
+    device_id,
+    endpoint,
+    expiration_time_ms,
+    p256dh,
+    auth_secret,
+    vapid_key_version,
+    platform,
+    app_version,
+    service_worker_version,
+    permission_state,
+    subscription_status
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (device_id) DO UPDATE SET
+    endpoint = EXCLUDED.endpoint,
+    expiration_time_ms = EXCLUDED.expiration_time_ms,
+    p256dh = EXCLUDED.p256dh,
+    auth_secret = EXCLUDED.auth_secret,
+    vapid_key_version = EXCLUDED.vapid_key_version,
+    platform = EXCLUDED.platform,
+    app_version = EXCLUDED.app_version,
+    service_worker_version = EXCLUDED.service_worker_version,
+    permission_state = EXCLUDED.permission_state,
+    subscription_status = EXCLUDED.subscription_status
+WHERE notification_devices.endpoint = EXCLUDED.endpoint
+    OR EXISTS (
+        SELECT 1
+        FROM notification_device_wallets ndw
+        WHERE ndw.device_id = notification_devices.device_id
+            AND ndw.user_id = $12
+    )
+RETURNING device_id;
+
+--name: link-notification-wallet
+INSERT INTO notification_device_wallets (device_id, user_id, wallet_address)
+SELECT $1, $2, $3
+WHERE EXISTS (
+    SELECT 1 FROM notification_devices WHERE device_id = $1
+)
+ON CONFLICT (device_id, user_id) DO UPDATE SET
+    wallet_address = EXCLUDED.wallet_address;
+
+--name: unlink-notification-wallet
+DELETE FROM notification_device_wallets
+WHERE device_id = $1 AND user_id = $2;
+
+--name: list-notification-wallets
+SELECT wallet_address
+FROM notification_device_wallets
+WHERE device_id = $1 AND user_id = $2
+ORDER BY lower(wallet_address);
+
+--name: disable-notification-device
+UPDATE notification_devices nd
+SET subscription_status = 'disabled'
+WHERE nd.device_id = $1
+    AND EXISTS (
+        SELECT 1
+        FROM notification_device_wallets ndw
+        WHERE ndw.device_id = nd.device_id AND ndw.user_id = $2
+    )
+    AND ($3 = '' OR nd.endpoint = $3)
+RETURNING subscription_status;
+
+--name: notification-inbox-cursor
+SELECT COALESCE(MAX(delivery.revision), 0)::bigint
+FROM notification_device_wallets caller_link
+LEFT JOIN notification_deliveries delivery
+    ON delivery.device_id = caller_link.device_id
+LEFT JOIN notification_events event
+    ON event.notification_id = delivery.notification_id
+    AND lower(event.wallet_address_target) = lower(caller_link.wallet_address)
+WHERE caller_link.device_id = $1 AND caller_link.user_id = $2
+GROUP BY caller_link.device_id;
+
+--name: sync-notification-inbox
+SELECT
+    delivery.record_id::text AS record_id,
+    delivery.revision,
+    delivery.device_id,
+    delivery.push_status,
+    delivery.push_status_code,
+    delivery.push_error,
+    delivery.sent_at,
+    delivery.received_at,
+    delivery.shown_at,
+    delivery.clicked_at,
+    delivery.action_id,
+    event.notification_id::text AS notification_id,
+    event.kind,
+    event.title,
+    event.body,
+    event.created_at,
+    event.expires_at,
+    event.priority,
+    event.target_url,
+    event.wallet_address_target,
+    event.voucher_id,
+    event.swap_id,
+    event.offramp_reference,
+    event.actions,
+    delivery.deleted_at
+FROM notification_device_wallets caller_link
+INNER JOIN notification_deliveries delivery
+    ON delivery.device_id = caller_link.device_id
+INNER JOIN notification_events event
+    ON event.notification_id = delivery.notification_id
+    AND lower(event.wallet_address_target) = lower(caller_link.wallet_address)
+WHERE caller_link.device_id = $1
+    AND caller_link.user_id = $2
+    AND delivery.revision > $3
+ORDER BY delivery.revision
+LIMIT $4;
+
+--name: acknowledge-notification-delivery
+WITH accepted AS (
+    UPDATE notification_deliveries
+    SET received_at = COALESCE($3, received_at),
+        shown_at = COALESCE($4, shown_at)
+    WHERE device_id = $1 AND notification_id = $2::uuid
+    RETURNING device_id
+), updated_device AS (
+    UPDATE notification_devices nd
+    SET platform = COALESCE($5, nd.platform),
+        service_worker_version = COALESCE($6, nd.service_worker_version)
+    WHERE nd.device_id IN (SELECT device_id FROM accepted)
+)
+SELECT EXISTS (SELECT 1 FROM accepted);
+
+--name: acknowledge-notification-click
+WITH accepted AS (
+    UPDATE notification_deliveries
+    SET clicked_at = COALESCE($5, CURRENT_TIMESTAMP),
+        action_id = COALESCE($3, action_id)
+    WHERE device_id = $1
+        AND notification_id = $2::uuid
+        AND (
+            $4::text IS NULL
+            OR EXISTS (
+                SELECT 1
+                FROM notification_events event
+                WHERE event.notification_id = notification_deliveries.notification_id
+                    AND event.target_url = $4
+            )
+        )
+    RETURNING 1
+)
+SELECT EXISTS (SELECT 1 FROM accepted);
+
+--name: upsert-notification-event
+WITH inserted AS (
+    INSERT INTO notification_events (
+        notification_id,
+        source_key,
+        kind,
+        title,
+        body,
+        target_url,
+        wallet_address_target,
+        priority,
+        created_at,
+        expires_at,
+        actions,
+        voucher_id,
+        swap_id,
+        offramp_reference
+    )
+    VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    ON CONFLICT (source_key) DO NOTHING
+    RETURNING notification_id
+)
+SELECT notification_id::text, true AS inserted FROM inserted
+UNION ALL
+SELECT notification_id::text, false AS inserted
+FROM notification_events
+WHERE source_key = $2 AND NOT EXISTS (SELECT 1 FROM inserted)
+LIMIT 1;
+
+--name: insert-notification-deliveries
+INSERT INTO notification_deliveries (notification_id, device_id)
+SELECT $1::uuid, device.device_id
+FROM notification_devices device
+INNER JOIN notification_device_wallets wallet ON wallet.device_id = device.device_id
+WHERE lower(wallet.wallet_address) = lower($2)
+    AND device.permission_state = 'granted'
+    AND device.subscription_status = 'active'
+ON CONFLICT (notification_id, device_id) DO NOTHING
+RETURNING record_id::text AS record_id, revision, device_id;
+
+--name: get-notification-delivery
+SELECT
+    delivery.record_id::text AS record_id,
+    delivery.revision,
+    event.notification_id::text AS notification_id,
+    delivery.device_id,
+    device.endpoint,
+    device.auth_secret,
+    device.p256dh,
+    event.kind,
+    event.title,
+    event.body,
+    event.target_url,
+    event.wallet_address_target,
+    event.priority,
+    event.created_at,
+    event.expires_at,
+    event.actions,
+    event.voucher_id,
+    event.swap_id,
+    event.offramp_reference
+FROM notification_deliveries delivery
+INNER JOIN notification_events event ON event.notification_id = delivery.notification_id
+INNER JOIN notification_devices device ON device.device_id = delivery.device_id
+WHERE delivery.record_id = $1::uuid;
+
+--name: record-notification-delivery-result
+WITH updated_delivery AS (
+    UPDATE notification_deliveries
+    SET push_status = $2,
+        push_status_code = $3,
+        push_error = $4,
+        sent_at = CASE WHEN $2 = 'sent' THEN CURRENT_TIMESTAMP ELSE sent_at END
+    WHERE record_id = $1::uuid
+    RETURNING device_id
+)
+UPDATE notification_devices device
+SET subscription_status = 'stale'
+WHERE $5 AND device.device_id IN (SELECT device_id FROM updated_delivery);

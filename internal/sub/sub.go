@@ -8,7 +8,9 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/riverqueue/river"
 )
 
 type (
@@ -22,12 +24,13 @@ type (
 	}
 
 	Sub struct {
-		store  store.Store
-		js     jetstream.JetStream
-		jsIter jetstream.MessagesContext
-		pub    *pub.Pub
-		logg   *slog.Logger
-		done   chan struct{}
+		store             store.Store
+		js                jetstream.JetStream
+		jsIter            jetstream.MessagesContext
+		pub               *pub.Pub
+		logg              *slog.Logger
+		done              chan struct{}
+		notificationQueue *river.Client[pgx.Tx]
 	}
 )
 
@@ -79,6 +82,13 @@ func NewSub(o SubObts) (*Sub, error) {
 		logg:   o.Logg,
 		done:   make(chan struct{}),
 	}, nil
+}
+
+// SetNotificationQueue enables the optional notification projection after the
+// River client has bootstrapped. Keeping this explicit means a deployment with
+// notifications disabled neither stores deliveries nor enqueues dead jobs.
+func (s *Sub) SetNotificationQueue(queue *river.Client[pgx.Tx]) {
+	s.notificationQueue = queue
 }
 
 func (s *Sub) Close(ctx context.Context) error {

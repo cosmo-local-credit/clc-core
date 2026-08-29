@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/notification"
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -39,6 +40,7 @@ type (
 		ChainID         int64
 		Relayer         *relayer.Relayer
 		Pretium         *pretium.PretiumClient
+		Notifications   *notification.Service
 	}
 
 	API struct {
@@ -58,6 +60,7 @@ type (
 		chainID         int64
 		relayer         *relayer.Relayer
 		pretium         *pretium.PretiumClient
+		notifications   *notification.Service
 		trustProxy      bool
 		marketLimiter   *marketRateLimiter
 		marketFacets    *marketFacetCache
@@ -88,6 +91,7 @@ func New(o APIOpts) *API {
 		chainID:         o.ChainID,
 		relayer:         o.Relayer,
 		pretium:         o.Pretium,
+		notifications:   o.Notifications,
 		trustProxy:      o.TrustProxy,
 		marketLimiter:   newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
 		marketFacets:    newMarketFacetCache(time.Now),
@@ -163,6 +167,25 @@ func New(o APIOpts) *API {
 	// and behind requireUserAuth because a service token has no browser to hand
 	// it to.
 	profileAuthGroup.POST("/storage-token", a.storageTokenHandler)
+
+	// Web Push uses its original unversioned client contract. VAPID discovery
+	// and capability-style acknowledgements are public; device ownership and
+	// inbox reads are tied to the authenticated user session.
+	notificationGroup := router.Group("/api/notifications")
+	notificationGroup.GET("/vapid-public-key", a.notificationVAPIDPublicKeyHandler)
+	notificationGroup.POST("/acks/delivery", a.notificationDeliveryAckHandler)
+	notificationGroup.POST("/acks/click", a.notificationClickAckHandler)
+
+	protectedNotifications := notificationGroup.Group(
+		"",
+		a.flexibleAuthMiddleware(),
+		a.requireUserAuth(),
+	)
+	protectedNotifications.POST("/devices/register", a.notificationDeviceRegisterHandler)
+	protectedNotifications.POST("/devices/link-wallet", a.notificationLinkWalletHandler)
+	protectedNotifications.POST("/devices/unlink-wallet", a.notificationUnlinkWalletHandler)
+	protectedNotifications.POST("/devices/disable", a.notificationDisableDeviceHandler)
+	protectedNotifications.POST("/inbox/sync", a.notificationInboxSyncHandler)
 
 	// Public market catalog. Registered on the root router, NOT on apiGroup:
 	// flexibleAuthMiddleware is mandatory authentication despite its name, and
