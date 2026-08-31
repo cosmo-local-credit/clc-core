@@ -35,17 +35,19 @@ const (
 	legacyOfferingUnit = "50kg sack"
 )
 
-type offeringFixtures struct {
-	ownedAddress     string
-	ownedID          uint64
-	inactiveAddress  string
-	ownerlessAddress string
-	// An imported row whose unit is free text the canonical set does not contain
-	// and whose seller is nobody's current owner.
-	legacyOfferingID uint64
-	otherVoucherAddr string
-	otherOfferingID  uint64
-}
+type (
+	offeringFixtures struct {
+		ownedAddress     string
+		ownedID          uint64
+		inactiveAddress  string
+		ownerlessAddress string
+		// An imported row whose unit is free text the canonical set does not contain
+		// and whose seller is nobody's current owner.
+		legacyOfferingID uint64
+		otherVoucherAddr string
+		otherOfferingID  uint64
+	}
+)
 
 func newOfferingAPI(t *testing.T) (*API, ed25519.PrivateKey) {
 	t.Helper()
@@ -317,8 +319,8 @@ func TestOfferingCreateLinksTheVoucherAndSelectsTheSeller(t *testing.T) {
 	}
 
 	offering := offeringFrom(t, result)
-	if got := offering["voucherAddress"]; !strings.EqualFold(got.(string), fx.ownedAddress) {
-		t.Errorf("voucherAddress = %v, want %q", got, fx.ownedAddress)
+	if got, ok := offering["voucherAddress"].(string); !ok || !strings.EqualFold(got, fx.ownedAddress) {
+		t.Errorf("voucherAddress = %v, want %q", offering["voucherAddress"], fx.ownedAddress)
 	}
 	// Server-selected from the locked voucher owner, and never from JSON.
 	if got, _ := offering["sellerAddress"].(string); !strings.EqualFold(got, offeringOwnerAddress) {

@@ -17,7 +17,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const notificationTestWallet = "0x1234567890abcdef1234567890abcdef12345678"
+const (
+	notificationTestWallet = "0x1234567890abcdef1234567890abcdef12345678"
+)
 
 func TestNotificationRoutesAreRegistered(t *testing.T) {
 	a := newTestRouter(t)

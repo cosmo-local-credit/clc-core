@@ -18,7 +18,9 @@ import (
 // Fixtures are committed, because the requests under test open their own
 // connections and cannot see an uncommitted transaction, and every one carries a
 // marker unique to this file so cleanup cannot touch another suite's rows.
-const voucherProfileMarker = "Zqvoucherprofile"
+const (
+	voucherProfileMarker = "Zqvoucherprofile"
+)
 
 // seedEditableVoucher creates one active, geolocated voucher with two tags, and
 // returns its address. Two tags rather than one so a replace that keeps a subset

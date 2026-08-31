@@ -23,7 +23,9 @@ import (
 // float64 to check it would reintroduce exactly the rounding the string exists to
 // avoid. `1e3`, `1_000` and `+1` are rejected rather than normalised, because a
 // caller that meant one of those should say which.
-var offeringPricePattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+var (
+	offeringPricePattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+)
 
 // pgCheckViolation and pgForeignKeyViolation are the two constraint classes an
 // offering write can trip with a caller-fixable cause: a non-HTTP image URL and a

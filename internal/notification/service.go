@@ -18,44 +18,46 @@ const (
 	maxErrorBodyBytes = 4096
 )
 
-type Config struct {
-	PublicKey  string
-	PrivateKey string
-	Subscriber string
-	KeyVersion string
-	TTLSeconds int
-	HTTPClient webpush.HTTPClient
-}
+type (
+	Config struct {
+		PublicKey  string
+		PrivateKey string
+		Subscriber string
+		KeyVersion string
+		TTLSeconds int
+		HTTPClient webpush.HTTPClient
+	}
 
-type Message struct {
-	Endpoint string
-	Auth     string
-	P256dh   string
-	Payload  []byte
-	Priority string
-	Topic    string
-}
+	Message struct {
+		Endpoint string
+		Auth     string
+		P256dh   string
+		Payload  []byte
+		Priority string
+		Topic    string
+	}
 
-type SendResult struct {
-	Status     string
-	StatusCode int
-	Error      string
-	Retryable  bool
-	Stale      bool
-}
+	SendResult struct {
+		Status     string
+		StatusCode int
+		Error      string
+		Retryable  bool
+		Stale      bool
+	}
 
-type Sender interface {
-	Send(context.Context, Message) SendResult
-}
+	Sender interface {
+		Send(context.Context, Message) SendResult
+	}
 
-type Service struct {
-	publicKey  string
-	privateKey string
-	subscriber string
-	keyVersion string
-	ttlSeconds int
-	httpClient webpush.HTTPClient
-}
+	Service struct {
+		publicKey  string
+		privateKey string
+		subscriber string
+		keyVersion string
+		ttlSeconds int
+		httpClient webpush.HTTPClient
+	}
+)
 
 func New(config Config) (*Service, error) {
 	config.PublicKey = strings.TrimSpace(config.PublicKey)
@@ -130,7 +132,9 @@ func (s *Service) Send(ctx context.Context, message Message) SendResult {
 			Retryable: retryableTransportError(err),
 		}
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 
 	result := classifyStatus(response.StatusCode)
 	if response.StatusCode >= http.StatusBadRequest {

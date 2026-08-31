@@ -403,23 +403,25 @@ type (
 // re-saving a row that already holds "50kg sack" would pass the constraint
 // untouched. The API therefore has to be what closes the set. When either side
 // moves, both move; TestOfferingUnitsMatchTheMigration fails if they drift.
-var OfferingUnits = []string{
-	"kg",
-	"g",
-	"litre",
-	"item",
-	"hour",
-	"day",
-	"bag",
-	"unit",
-	"bundle",
-	"piece",
-	"dozen",
-	"serving",
-	"trip",
-	"session",
-	"metre",
-}
+var (
+	OfferingUnits = []string{
+		"kg",
+		"g",
+		"litre",
+		"item",
+		"hour",
+		"day",
+		"bag",
+		"unit",
+		"bundle",
+		"piece",
+		"dozen",
+		"serving",
+		"trip",
+		"session",
+		"metre",
+	}
+)
 
 const (
 	ErrCodeInternalServerError = "E01"

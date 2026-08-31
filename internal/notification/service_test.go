@@ -17,12 +17,14 @@ const (
 	testSubscriptionAuth   = "zqbxT6JKstKSY9JKibZLSQ"
 )
 
-type recordingHTTPClient struct {
-	body         []byte
-	request      *http.Request
-	responseBody string
-	statusCode   int
-}
+type (
+	recordingHTTPClient struct {
+		body         []byte
+		request      *http.Request
+		responseBody string
+		statusCode   int
+	}
+)
 
 func (client *recordingHTTPClient) Do(request *http.Request) (*http.Response, error) {
 	body, err := io.ReadAll(request.Body)

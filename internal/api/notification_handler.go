@@ -14,16 +14,18 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-type notificationRegistrationResponse struct {
-	CanonicalLinkedWalletAddresses []string `json:"canonicalLinkedWalletAddresses"`
-	DeviceID                       string   `json:"deviceId"`
-	InboxSyncCursor                string   `json:"inboxSyncCursor"`
-	NotificationSettings           struct {
-		Enabled bool `json:"enabled"`
-	} `json:"notificationSettings"`
-	Status             string `json:"status"`
-	SubscriptionStatus string `json:"subscriptionStatus"`
-}
+type (
+	notificationRegistrationResponse struct {
+		CanonicalLinkedWalletAddresses []string `json:"canonicalLinkedWalletAddresses"`
+		DeviceID                       string   `json:"deviceId"`
+		InboxSyncCursor                string   `json:"inboxSyncCursor"`
+		NotificationSettings           struct {
+			Enabled bool `json:"enabled"`
+		} `json:"notificationSettings"`
+		Status             string `json:"status"`
+		SubscriptionStatus string `json:"subscriptionStatus"`
+	}
+)
 
 func (a *API) notificationVAPIDPublicKeyHandler(c *echo.Context) error {
 	if a.notifications == nil {

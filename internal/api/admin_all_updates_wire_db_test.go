@@ -15,7 +15,34 @@ import (
 //
 //	CORE_TEST_DSN=postgres://postgres:postgres@127.0.0.1:5432/clc_core go test ./internal/api/
 
-const poolWireMarker = "Zqpoolwire"
+const (
+	poolWireMarker = "Zqpoolwire"
+
+	// Captured from EditPoolProfileSheet driven against the real admin client.
+	poolWireAddTag = `{
+  "description": "A neighbourhood pool.",
+  "unitOfAccount": "KES",
+  "email": "steward@example.test",
+  "website": null,
+  "phone": null,
+  "terms": null,
+  "locationName": "Zqpoolwire",
+  "geoLat": -1.2833,
+  "geoLng": 36.75,
+  "tags": ["Agriculture", "Care"]
+}`
+
+	// Captured from the account sheet: AdminUserProfile omits the location keys when
+	// there is no pin, and carries a clearAvatar flag rather than an empty string.
+	userWireProfile = `{
+  "name": "Zqwire Operator",
+  "email": "operator@example.test",
+  "phone": "+254700000000",
+  "country": "KE"
+}`
+
+	userWireLimits = `{"maxPools": 7, "maxTokens": 9}`
+)
 
 func putRaw(t *testing.T, a *API, token, path, body string) (int, string) {
 	t.Helper()
@@ -105,20 +132,6 @@ func storedPoolTags(t *testing.T, a *API, address string) []string {
 	return tags
 }
 
-// Captured from EditPoolProfileSheet driven against the real admin client.
-const poolWireAddTag = `{
-  "description": "A neighbourhood pool.",
-  "unitOfAccount": "KES",
-  "email": "steward@example.test",
-  "website": null,
-  "phone": null,
-  "terms": null,
-  "locationName": "Zqpoolwire",
-  "geoLat": -1.2833,
-  "geoLng": 36.75,
-  "tags": ["Agriculture", "Care"]
-}`
-
 func TestAdminPoolTagsFromTheConsolesOwnRequestBody(t *testing.T) {
 	a, token := newAdminAPI(t)
 	address, cleanup := seedEditablePoolFixture(t, a)
@@ -145,17 +158,6 @@ func TestAdminPoolTagsFromTheConsolesOwnRequestBody(t *testing.T) {
 		}
 	}
 }
-
-// Captured from the account sheet: AdminUserProfile omits the location keys when
-// there is no pin, and carries a clearAvatar flag rather than an empty string.
-const userWireProfile = `{
-  "name": "Zqwire Operator",
-  "email": "operator@example.test",
-  "phone": "+254700000000",
-  "country": "KE"
-}`
-
-const userWireLimits = `{"maxPools": 7, "maxTokens": 9}`
 
 // seedAccountFixtures builds the vouchers, pools and reports an account screen
 // reads but no `users` row, because the reads it was written for do not need one.

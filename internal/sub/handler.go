@@ -104,6 +104,14 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 const (
 	tokenTransferEvent = "TOKEN_TRANSFER"
 	poolSwapEvent      = "POOL_SWAP"
+
+	// Chain events that change what a pool holds. The names are eth-tracker's
+	// transaction types (pkg/event), one per emitting contract.
+	indexAddEvent      = "INDEX_ADD"
+	indexRemoveEvent   = "INDEX_REMOVE"
+	limitSetEvent      = "LIMIT_SET"
+	oracleUpdatedEvent = "ORACLE_UPDATED"
+	oracleRemovedEvent = "ORACLE_REMOVED"
 )
 
 // projectNotification turns authoritative successful tracker events into one
@@ -275,16 +283,6 @@ func (s *Sub) confirmPool(ctx context.Context, tx pgx.Tx, otxID uint64, contract
 		"otxId", otxID, "deployedPoolId", deployedPoolID, "poolId", poolID)
 	return nil
 }
-
-// Chain events that change what a pool holds. The names are eth-tracker's
-// transaction types (pkg/event), one per emitting contract.
-const (
-	indexAddEvent      = "INDEX_ADD"
-	indexRemoveEvent   = "INDEX_REMOVE"
-	limitSetEvent      = "LIMIT_SET"
-	oracleUpdatedEvent = "ORACLE_UPDATED"
-	oracleRemovedEvent = "ORACLE_REMOVED"
-)
 
 // projectPoolComposition maintains pool_tokens from the chain.
 //

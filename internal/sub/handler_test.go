@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const testNotificationWallet = "0x1234567890abcdef1234567890abcdef12345678"
+const (
+	testNotificationWallet = "0x1234567890abcdef1234567890abcdef12345678"
+)
 
 func TestProcessEventRevertedNoConfirm(t *testing.T) {
 	evt := trackerEvent.Event{

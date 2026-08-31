@@ -9,7 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const maxNotificationInboxPageSize = 500
+const (
+	maxNotificationInboxPageSize = 500
+)
 
 type (
 	NotificationDevice struct {
