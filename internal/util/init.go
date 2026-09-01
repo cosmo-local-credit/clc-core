@@ -35,6 +35,16 @@ func InitLogger() *slog.Logger {
 	return logg.NewLogg(loggOpts)
 }
 
+func StringSlice(ko *koanf.Koanf, path string) []string {
+	if values := ko.Strings(path); len(values) > 0 {
+		return values
+	}
+	if value := strings.TrimSpace(ko.String(path)); value != "" {
+		return []string{value}
+	}
+	return nil
+}
+
 func InitConfig(lo *slog.Logger, confFilePath string) *koanf.Koanf {
 	var (
 		ko = koanf.New(".")

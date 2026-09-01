@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -69,10 +70,15 @@ func loadFederationStore() store.FederationStore {
 }
 
 func loadChainProvider() *ethutils.Provider {
+	opts := []ethutils.Option{}
+	if divviConsumer := strings.TrimSpace(ko.String("chain.divvi_consumer")); divviConsumer != "" {
+		opts = append(opts, ethutils.WithDivviConsumerAddress(divviConsumer))
+	}
+
 	return ethutils.NewProvider(
 		ko.MustString("chain.rpc_endpoint"),
 		ko.MustInt64("chain.id"),
-		ethutils.WithDivviConsumerAddress(ko.MustString("chain.divvi_consumer")),
+		opts...,
 	)
 }
 
@@ -144,7 +150,11 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 }
 
 func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
-	endpoints := ko.MustStrings("jetstream.endpoints")
+	endpoints := util.StringSlice(ko, "jetstream.endpoints")
+	if len(endpoints) == 0 {
+		lo.Error("jetstream.endpoints is required")
+		os.Exit(1)
+	}
 	persistDuration := time.Duration(ko.MustInt("jetstream.persist_duration_hrs")) * time.Hour
 
 	natsConn, js, err := internaljs.NewJetStream(internaljs.JetStreamOpts{
