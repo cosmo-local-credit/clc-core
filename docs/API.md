@@ -990,6 +990,9 @@ Returns a single confirmed SwapPool by contract address. Address match is case-i
 
 These endpoints require a valid **user JWT** (`__clc_auth` cookie). Service JWTs are rejected with `403 Forbidden`.
 
+`GET /api/v2/users/me/reports` and `GET /api/v2/users/me/reports/:id` are on this
+group too and are documented with the rest of Posts, in [§11.8](#118-an-authors-own-posts).
+
 ---
 
 ### 6.1 `GET /api/v2/users/me`
@@ -1277,6 +1280,9 @@ contact/location fields remain off-chain.
 These endpoints require a caller with role `SUPERADMIN`. Any other caller (including service JWTs) receives `403 Forbidden` with error code `E10`.
 
 The baseline migration seeds an initial approved superadmin account. Additional superadmins must be granted directly in the `users` table by an operator with write access; public signup and SIWE verify create normal `USER` accounts only.
+
+`GET /api/v2/admin/reports` and `GET /api/v2/admin/reports/:id` are on this group
+too and are documented with the rest of Posts, in [§11.9](#119-global-moderation-reads).
 
 ---
 
@@ -2010,13 +2016,21 @@ these routes sit on the authenticated API group.
 |---|---|---|---|
 | List and detail | Yes | Yes | Yes |
 | Create | Yes, as `SUBMITTED` | No | Yes, as `APPROVED` |
-| Update | Original author only | No | Any post |
+| Update | Original author only, and it resubmits | No | Any post, status preserved |
 | Approve | No | No | Any post |
 | Delete | No | No | Any post |
+| Own posts in any status | Yes, own only | No | Yes, own only |
+| Any post in any status | No | No | Yes |
 
-Only `APPROVED` reports are returned by the two read routes. `DRAFT`,
-`SUBMITTED`, and `REJECTED` are invisible there, and an unapproved id is a
-`404` rather than a `403`: whether a draft exists is not public information.
+Only `APPROVED` reports are returned by the two read routes under
+`/api/v2/reports`. `DRAFT`, `SUBMITTED`, and `REJECTED` are invisible there, and
+an unapproved id is a `404` rather than a `403`: whether a draft exists is not
+public information.
+
+Those two routes are **not** widened for privileged callers. Every status is
+reachable through the separate management reads in [§11.8](#118-an-authors-own-posts)
+and [§11.9](#119-global-moderation-reads) instead, so one URL never returns
+different rows to different callers.
 
 ### 11.1 Feed (`GET /api/v2/reports`)
 
@@ -2188,10 +2202,19 @@ sent as empty arrays.
 | `periodFrom`, `periodTo` | RFC3339 timestamps; if both are set, `periodFrom <= periodTo` |
 | `hostName` | Optional issuer free text, maximum 200 characters |
 | `participants`, `timeTaken` | Optional issuer free text, maximum 100 characters each |
-| `tags` | At most 12 values from the existing `token_tag` vocabulary; duplicates are removed |
+| `tags` | At most 12 values from the existing `token_tag` vocabulary |
 | `vouchers` | At most 12 stable `{chainId,address}` references; every referenced voucher must exist |
-| `images` | At most 50, in document order; URLs must be unique within the post and use `http(s)` |
+| `images` | At most 50, in document order; URLs use `http(s)` |
 | `attachments` | At most 20, in document order; `kind` is `FILE` or `EMBED`, and URLs use `http(s)` |
+
+**All four collections reject duplicates with `400 E04`** after trimming and
+canonicalisation — a repeated tag value, a repeated voucher `(chainId, lowercase
+address)` identity, a repeated image URL, or a repeated attachment
+`(kind, URL)` pair. Tags and vouchers previously deduplicated silently while
+images failed and attachments were unchecked, so the same client mistake got
+three different answers. An attachment URL may appear twice if the two entries
+have different `kind` values: a `FILE` download and an `EMBED` player reference
+are two rows.
 
 `PUT` is **assign-all**, not patch semantics. It replaces every editable scalar
 and all four relation sets (`tags`, `vouchers`, `images`, `attachments`) in one
@@ -2201,9 +2224,8 @@ leaves the existing post unchanged.
 
 The client cannot send `authorAddress`, `modifierAddress`, `status`, `sourceId`,
 or timestamps. The server derives the immutable original author from the user
-JWT. An edit records the caller as the modifier but never transfers authorship
-or changes approval state. In particular, editing an `APPROVED` post leaves it
-`APPROVED`; no reapproval is required.
+JWT, and derives the resulting status from the caller's role. An edit records
+the caller as the modifier but never transfers authorship.
 
 ### 11.4 Create (`POST /api/v2/reports`)
 
@@ -2258,15 +2280,28 @@ The request body is the complete [write document](#113-write-contract).
 Success is `200 OK` with description `Report updated` and the complete report
 under `result.report`.
 
-An authorized edit always preserves the existing workflow status:
+The resulting workflow status depends on who edited:
 
-- A `SUBMITTED`, `DRAFT`, or `REJECTED` post keeps that status and the normal
-  detail route continues to answer `404` until a superadmin approves it.
-- An `APPROVED` post stays approved after either an author or admin edit and is
-  still visible immediately; editing never sends it back for reapproval.
+| Caller | Status after the edit |
+|---|---|
+| Original author, post is `DRAFT`, `SUBMITTED`, or `REJECTED` | `SUBMITTED` |
+| Original author, post is `APPROVED` | `SUBMITTED` — it leaves the feed until reapproved |
+| `SUPERADMIN` | Unchanged; an approved post stays approved and visible |
+
+An author's edit resubmits because approval is not reversible in this contract
+and editing is the only mutation an author holds: without it, one approved post
+is a slot the author can substitute unreviewed content into and have it served
+publicly. The cost is real — fixing a typo takes the post out of the feed until
+an operator approves it again — so both frontends warn before submit.
+
+A superadmin edit preserves status so that correcting an approved post does not
+unpublish it, and editing a submitted one does not approve it by accident.
+Approval remains the explicit action in [§11.6](#116-approve-put-apiv2reportsidapprove).
 
 The mutation response includes `status` and returns the row to its authorized
-caller even when the normal detail route hides it.
+caller even when the normal detail route hides it. An author whose post is no
+longer approved reads it back through
+[§11.8](#118-an-authors-own-posts).
 
 ### 11.6 Approve (`PUT /api/v2/reports/:id/approve`)
 
@@ -2283,8 +2318,12 @@ the latest modifier. It does not rewrite the post body or any relation. Calling
 it for an already-approved post is idempotent in state and returns `200 OK` with
 description `Report approved` and the complete report under `result.report`.
 
-Once approved, the post appears in the feed and detail routes. Later author or
-admin edits preserve `APPROVED` and do not require this endpoint again.
+Once approved, the post appears in the feed and detail routes. A later admin
+edit preserves `APPROVED`; a later **author** edit resubmits it and this
+endpoint is required again ([§11.5](#115-update-put-apiv2reportsid)).
+
+There is no unapprove transition. A console must therefore confirm before
+calling this.
 
 ### 11.7 Delete (`DELETE /api/v2/reports/:id`)
 
@@ -2312,3 +2351,75 @@ The mutation routes return `400 E02` for malformed JSON, `400 E04` for
 invalid fields or unknown tag/voucher references, `401 E06` without valid
 authentication, `403 E10` when the credential lacks permission, and `404 E03`
 when `:id` does not exist.
+
+### 11.8 An author's own posts
+
+```http
+GET /api/v2/users/me/reports?perPage=20&status=SUBMITTED
+GET /api/v2/users/me/reports/4633
+```
+
+Requires a user JWT; service credentials receive `403 E10`. Both routes return
+every status **authored by the caller**, whose address comes from the JWT and is
+not a parameter. `GET /users/me/reports/:id` naming another author's post is a
+`404`, not a `403` — a `403` would confirm the id exists.
+
+The list accepts the same `q`, `tags`, `tagMatch`, `vouchers`, and `voucherMatch`
+filters as the feed, plus:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | `uint` | `20` | Capped at `100`, as on the feed |
+| `status` | `DRAFT` \| `SUBMITTED` \| `APPROVED` \| `REJECTED` | — | Case-insensitive; an unknown value is a `400`, never a silently broadened queue |
+| `cursorUpdatedAt`, `cursorId` | keyset pair | — | Both or neither; one alone is a `400` |
+| `next` | `bool` | `true` with a cursor | Direction. Sending it without a cursor is a `400` |
+
+Rows are the feed's summary plus a required `status`; `body` stays off list rows
+as it does on the feed. Ordering is `updated_at DESC, id DESC`, so an approved
+post whose author has just edited it sorts to the top rather than back at its
+original creation position.
+
+The response carries **both** edge cursors rather than the feed's single `next`,
+because this list pages in both directions:
+
+```json
+{
+  "ok": true,
+  "description": "Reports",
+  "result": {
+    "reports": [{ "id": 4633, "status": "SUBMITTED", "...": "..." }],
+    "first": { "updatedAt": "2026-08-20T10:00:00Z", "id": 4633 },
+    "last":  { "updatedAt": "2026-08-02T09:12:41Z", "id": 4102 }
+  }
+}
+```
+
+Send `last` with `next=true` for the following page and `first` with
+`next=false` for the preceding one. Both are `null` on an empty page. The
+comparison is on the `(updatedAt, id)` pair, so paging stays duplicate-free
+across the tied timestamps the import produced in bulk.
+
+`Cache-Control: no-store` on both routes.
+
+### 11.9 Global moderation reads
+
+```http
+GET /api/v2/admin/reports?status=SUBMITTED&perPage=20
+GET /api/v2/admin/reports/4633
+```
+
+`SUPERADMIN`-only; every other credential receives `403 E10`. Same parameters,
+same page and cursor shape, and the same `no-store` as §11.8, over every author
+rather than one. One extra parameter:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `author` | address | Exact, case-insensitive `author_address`; unknown or malformed is a `400` |
+
+`author` is what lets a console's per-account panel and its global queue read one
+endpoint. `GET /admin/reports/:id` returns the complete post in any status,
+including `images`, `attachments`, and the field-report fields, which is what an
+assign-all editor needs to resubmit a legacy post without erasing anything.
+
+`status` is the moderation queue: a console defaults to `SUBMITTED` and offers
+the rest. There is no `ALL` value on the wire — omit the parameter.

@@ -59,6 +59,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "022_image_urls.sql")
 	assert.Contains(t, sqlFiles, "023_offering_crud.sql")
 	assert.Contains(t, sqlFiles, "024_oracle_feed_chains.sql")
+	assert.Contains(t, sqlFiles, "025_report_management_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -84,7 +85,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "021_pool_quoter_type.sql" ||
 				name == "022_image_urls.sql" ||
 				name == "023_offering_crud.sql" ||
-				name == "024_oracle_feed_chains.sql",
+				name == "024_oracle_feed_chains.sql" ||
+				name == "025_report_management_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -118,6 +120,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"022_image_urls.sql",
 		"023_offering_crud.sql",
 		"024_oracle_feed_chains.sql",
+		"025_report_management_indexes.sql",
 	}, files)
 }
 
@@ -1000,4 +1003,18 @@ func TestBaselineCarriesOfferingWriteConstraints(t *testing.T) {
 	// Still exactly two classifications.
 	assert.Contains(t, s, "INSERT INTO commodity_type (value) VALUES\n    ('GOOD'),\n    ('SERVICE')")
 	assert.NotContains(t, s, "UNCLASSIFIED")
+}
+
+func TestReportManagementIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("025_report_management_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// A missing index degrades a management page to a sequential scan, which no
+	// other test would notice.
+	assert.Contains(t, s, "reports_author_updated_idx")
+	assert.Contains(t, s, "reports_title_trgm_idx")
+	assert.Contains(t, s, "reports_description_trgm_idx")
+	assert.Contains(t, s, "lower(author_address)")
+	assert.NotContains(t, s, "WHERE status = 'APPROVED'")
 }

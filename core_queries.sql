@@ -1752,6 +1752,63 @@ SELECT r.id, r.title, r.body, r.description,
 FROM reports r
 WHERE r.id = $1 AND ($2 OR r.status = 'APPROVED');
 
+-- One post in any status, for its own author or for an operator.
+--
+-- A second statement rather than another boolean on get-report: that route's
+-- approved-only representation is cached as the public catalog, and widening it
+-- on a caller property would give one cache identity two meanings. This one is
+-- served no-store.
+--
+-- $2 is the author constraint — NULL for a superadmin read, an address for
+-- /users/me/reports/:id. A row owned by someone else returns nothing, which the
+-- handler answers as 404 rather than 403.
+--
+-- The projection must stay byte-identical to get-report's: an editor built on
+-- this read sends every field back on an assign-all PUT, so a column missing
+-- here is a field the editor erases.
+-- TestManagedReportDetailProjectionMatchesPublicDetail fails if they drift.
+--name: get-managed-report
+SELECT r.id, r.title, r.body, r.description,
+    CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.status, r.created_at, r.updated_at,
+    r.host_name, r.participants, r.time_taken,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'url', ri.url,
+            'width', ri.width, 'height', ri.height,
+            'maxWidth', ri.max_width, 'maxHeight', ri.max_height,
+            'byteSize', ri.byte_size, 'caption', ri.caption
+        ) ORDER BY ri.ordinal)
+        FROM report_images ri
+        WHERE ri.report_id = r.id
+    ), '[]'::JSONB) AS images,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'kind', ra.kind, 'url', ra.url,
+            'filename', ra.filename, 'byteSize', ra.byte_size
+        ) ORDER BY ra.ordinal)
+        FROM report_attachments ra
+        WHERE ra.report_id = r.id
+    ), '[]'::JSONB) AS attachments,
+    COALESCE((
+        SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
+        FROM report_tags rt
+        WHERE rt.report_id = r.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'id', v.id, 'chainId', v.chain_id, 'address', v.address,
+            'name', v.name, 'symbol', v.symbol
+        ) ORDER BY v.id)
+        FROM report_vouchers rv
+        INNER JOIN vouchers v ON v.id = rv.voucher_id
+        WHERE rv.report_id = r.id
+    ), '[]'::JSONB) AS vouchers
+FROM reports r
+WHERE r.id = $1
+    AND ($2::TEXT IS NULL OR lower(r.author_address) = lower($2::TEXT));
+
 -- Report writes. author_address is set only by the insert and never appears in
 -- the update statement: the wallet that created a post remains its original
 -- author even when a superadmin later corrects it. A normal user's post starts
@@ -1775,8 +1832,14 @@ FROM reports
 WHERE id = $1
 FOR UPDATE;
 
--- Assign-all editing. source_id, author_address, status and created_at are
--- deliberately absent: they are provenance/workflow state, not post content.
+-- Assign-all editing. source_id, author_address and created_at are deliberately
+-- absent: they are provenance, not post content.
+--
+-- status is a conditional write. $14 is NULL for a superadmin edit, so COALESCE
+-- keeps the row's current state; an author's edit passes 'SUBMITTED' so
+-- replacement content goes back through review. Assigning it here keeps the
+-- authorization decision, the content write and the workflow write inside the
+-- transaction already holding lock-report-author's row lock.
 --name: update-report
 UPDATE reports
 SET title = $2,
@@ -1790,7 +1853,8 @@ SET title = $2,
     modifier_address = $10,
     host_name = $11,
     participants = $12,
-    time_taken = $13
+    time_taken = $13,
+    status = COALESCE($14, status)
 WHERE id = $1;
 
 -- Approval is separate from content editing. Neither an author edit nor an

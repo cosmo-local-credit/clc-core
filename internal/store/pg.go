@@ -129,6 +129,7 @@ type (
 		ListReports                  string `query:"list-reports"`
 		ListReportsNext              string `query:"list-reports-next"`
 		GetReport                    string `query:"get-report"`
+		GetManagedReport             string `query:"get-managed-report"`
 		CreateReport                 string `query:"create-report"`
 		LockReportAuthor             string `query:"lock-report-author"`
 		UpdateReport                 string `query:"update-report"`

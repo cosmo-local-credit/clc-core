@@ -25,11 +25,13 @@ import (
 // Visibility is unchanged: approved reports only. The feed has never shown anything else and
 // search does not change that.
 
-// reportProjection is the SELECT list, byte-identical in output to the static statements so a
-// filtered page and an unfiltered page return the same fields.
+// reportSummaryColumns is the one report list projection, pulled out of the
+// SELECT so the management list (report_management.go) can return the same
+// summary plus `status` without a second copy. Byte-identical in output to the
+// static list-reports statements, so a filtered and an unfiltered page return
+// the same fields.
 const (
-	reportProjection = `
-SELECT r.id, r.title, r.description,
+	reportSummaryColumns = `r.id, r.title, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
     r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
     r.created_at, r.updated_at,
@@ -46,8 +48,9 @@ SELECT r.id, r.title, r.description,
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
         WHERE rv.report_id = r.id
-    ), '[]'::JSONB) AS vouchers
-FROM reports r`
+    ), '[]'::JSONB) AS vouchers`
+
+	reportProjection = "\nSELECT " + reportSummaryColumns + "\nFROM reports r"
 )
 
 // reportSearchPredicate matches the term against title and description.

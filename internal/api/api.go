@@ -252,6 +252,12 @@ func New(o APIOpts) *API {
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
 	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)
 
+	// An author's own posts in every status. /reports and /reports/:id stay
+	// approved-only; these are the reads that let an author find and reopen a
+	// post the public feed is hiding.
+	userGroup.GET("/me/reports", a.userReportsListHandler)
+	userGroup.GET("/me/reports/:id", a.userReportByIDHandler)
+
 	// Superadmin-only routes
 	adminGroup := apiGroup.Group("/admin", a.requireSuperAdmin())
 	adminGroup.GET("/users", a.adminListUsersHandler)
@@ -266,6 +272,11 @@ func New(o APIOpts) *API {
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
+
+	// Global post moderation reads. The write half stays on apiGroup with the
+	// other report mutations, where the role check is already per-handler.
+	adminGroup.GET("/reports", a.adminReportsListHandler)
+	adminGroup.GET("/reports/:id", a.adminReportByIDHandler)
 
 	// Dashboard aggregates are a separate group so catalog mutations and
 	// ops totals do not share a route prefix that invites accidental reuse.

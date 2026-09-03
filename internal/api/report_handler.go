@@ -50,15 +50,9 @@ const (
 func (a *API) reportsListHandler(c *echo.Context) error {
 	query := c.Request().URL.Query()
 
-	perPage := uint64(reportsDefaultPerPage)
-	if raw := query.Get("perPage"); raw != "" {
-		parsed, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil {
-			return reportValidationError(c, "perPage must be a non-negative integer")
-		}
-		if parsed > 0 {
-			perPage = min(parsed, reportsMaxPerPage)
-		}
+	perPage, handled, err := reportPerPageParam(c)
+	if handled || err != nil {
+		return err
 	}
 
 	cursor, hasCursor, err := parseReportCursor(query.Get("cursorUpdatedAt"), query.Get("cursorId"))
@@ -288,6 +282,9 @@ func (a *API) reportApproveHandler(c *echo.Context) error {
 // one atomic replacement. The immutable original author may edit their own
 // post, and a superadmin may edit any post. LockReportAuthor makes that decision
 // against the same row version the transaction updates.
+//
+// An author's edit resubmits the post; a superadmin's preserves its status. See
+// reportUpdateStatus for why.
 func (a *API) reportUpdateHandler(c *echo.Context) error {
 	id, handled, err := reportIDParam(c)
 	if handled || err != nil {
@@ -323,7 +320,7 @@ func (a *API) reportUpdateHandler(c *echo.Context) error {
 	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs); handled || err != nil {
 		return err
 	}
-	if err := a.store.UpdateReport(ctx, tx, id, report, callerAddress); err != nil {
+	if err := a.store.UpdateReport(ctx, tx, id, report, callerAddress, reportUpdateStatus(callerRole)); err != nil {
 		return handlePostgresError(c, err)
 	}
 	if err := a.store.ReplaceReportRelations(ctx, tx, id, report); err != nil {
@@ -403,6 +400,22 @@ func canUpdateReport(callerAddress, callerRole, authorAddress string) bool {
 		(callerAddress != "" && strings.EqualFold(callerAddress, authorAddress))
 }
 
+// reportUpdateStatus decides what an authorized edit does to workflow state.
+//
+// A superadmin returns nil, which update-report's COALESCE reads as "keep the
+// current status": correcting an approved post must not unpublish it, and
+// editing a submitted one must not approve it. Any other authorized caller is
+// the author, whose edit resubmits — otherwise an approved post is a slot an
+// author can substitute unreviewed content into, editing being the only
+// mutation they hold. Both frontends warn before submit.
+func reportUpdateStatus(callerRole string) *string {
+	if callerRole == "SUPERADMIN" {
+		return nil
+	}
+	resubmitted := store.ReportStatusSubmitted
+	return &resubmitted
+}
+
 // bindReportWrite performs request-shape validation first, then the cross-field
 // and normalisation rules validator tags cannot express. It reports handled=true
 // after writing a response, matching the catalog parsing helpers beside it.
@@ -441,6 +454,10 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 		return store.ReportWrite{}, nil, err
 	}
 
+	// All four collections reject duplicates after normalization. Tags and
+	// vouchers used to dedupe quietly while images failed and attachments were
+	// unchecked — one wire contract with three answers, which no client
+	// validator could mirror.
 	tagSet := make(map[string]struct{}, len(req.Tags))
 	tags := make([]string, 0, len(req.Tags))
 	for _, raw := range req.Tags {
@@ -449,7 +466,7 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 			return store.ReportWrite{}, nil, fmt.Errorf("tags must not contain blank values")
 		}
 		if _, duplicate := tagSet[tag]; duplicate {
-			continue
+			return store.ReportWrite{}, nil, fmt.Errorf("tags must not contain duplicate values")
 		}
 		tagSet[tag] = struct{}{}
 		tags = append(tags, tag)
@@ -466,7 +483,8 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 		address := common.HexToAddress(requested.Address).Hex()
 		key := strconv.FormatInt(requested.ChainID, 10) + ":" + strings.ToLower(address)
 		if _, duplicate := voucherSet[key]; duplicate {
-			continue
+			return store.ReportWrite{}, nil, fmt.Errorf(
+				"vouchers must not contain duplicate chainId and address pairs")
 		}
 		voucherSet[key] = struct{}{}
 		voucherRefs = append(voucherRefs, store.VoucherRef{
@@ -507,11 +525,20 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 	}
 
 	attachments := make([]store.ReportAttachment, 0, len(req.Attachments))
+	// Keyed on (kind, url): the same URL can be both a FILE download and an
+	// EMBED player reference, which are two rows.
+	attachmentSet := make(map[string]struct{}, len(req.Attachments))
 	for index, requested := range req.Attachments {
 		mediaURL, err := requiredHTTPURL(requested.URL, fmt.Sprintf("attachments[%d].url", index))
 		if err != nil {
 			return store.ReportWrite{}, nil, err
 		}
+		key := requested.Kind + "\x00" + mediaURL
+		if _, duplicate := attachmentSet[key]; duplicate {
+			return store.ReportWrite{}, nil, fmt.Errorf(
+				"attachments must not contain duplicate kind and URL pairs")
+		}
+		attachmentSet[key] = struct{}{}
 		attachments = append(attachments, store.ReportAttachment{
 			Kind:     requested.Kind,
 			URL:      mediaURL,

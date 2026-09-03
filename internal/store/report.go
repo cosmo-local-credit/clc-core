@@ -2,11 +2,42 @@ package store
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgx/v5"
 )
+
+// The closed set of workflow states a post can hold. DRAFT and REJECTED are
+// legacy — nothing in the current contract creates or rejects — but imported
+// rows hold them, so a management read has to be able to name them.
+const (
+	ReportStatusDraft     = "DRAFT"
+	ReportStatusSubmitted = "SUBMITTED"
+	ReportStatusApproved  = "APPROVED"
+	ReportStatusRejected  = "REJECTED"
+)
+
+// ReportStatuses is the vocabulary in workflow order.
+var ReportStatuses = []string{
+	ReportStatusDraft,
+	ReportStatusSubmitted,
+	ReportStatusApproved,
+	ReportStatusRejected,
+}
+
+// NormalizeReportStatus upper-cases and validates one requested status.
+// Case-insensitive in, canonical out, like tagMatch. An empty string means no
+// status filter and is not an error.
+func NormalizeReportStatus(raw string) (string, bool) {
+	trimmed := strings.ToUpper(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return "", true
+	}
+	return trimmed, slices.Contains(ReportStatuses, trimmed)
+}
 
 type (
 	// ReportVoucher names a voucher a report is linked to. Only what a list row
@@ -149,6 +180,31 @@ func (pg *Pg) getReport(ctx context.Context, tx pgx.Tx, id uint64, includeUnappr
 	return &reports[0], nil
 }
 
+// GetManagedReport reads one complete post in any status, optionally
+// constrained to one author. authorAddress is "" for a superadmin read and the
+// caller's own wallet for GET /users/me/reports/:id; another author's row comes
+// back nil, so the handler's 404 cannot be used to probe for it.
+func (pg *Pg) GetManagedReport(
+	ctx context.Context,
+	tx pgx.Tx,
+	id uint64,
+	authorAddress string,
+) (*Report, error) {
+	var owner *string
+	if authorAddress != "" {
+		owner = &authorAddress
+	}
+
+	var reports []Report
+	if err := pgxscan.Select(ctx, tx, &reports, pg.queries.GetManagedReport, id, owner); err != nil {
+		return nil, err
+	}
+	if len(reports) == 0 {
+		return nil, nil
+	}
+	return &reports[0], nil
+}
+
 // CreateReport inserts a post in the workflow state chosen from the caller's
 // verified role. authorAddress comes from the user JWT, never from the request
 // body, so a caller cannot create a post attributed to another wallet.
@@ -192,12 +248,17 @@ func (pg *Pg) LockReportAuthor(ctx context.Context, tx pgx.Tx, id uint64) (strin
 // UpdateReport assigns all editable scalar fields. Relations are replaced by
 // ReplaceReportRelations in the same transaction, and modifierAddress records
 // who made the latest edit without changing the original author.
+//
+// status is nil to preserve the row's current workflow state (a superadmin
+// edit) or a value from ReportStatuses to assign it (an author's edit
+// resubmits). Derived by the handler, which knows the verified caller.
 func (pg *Pg) UpdateReport(
 	ctx context.Context,
 	tx pgx.Tx,
 	id uint64,
 	report ReportWrite,
 	modifierAddress string,
+	status *string,
 ) error {
 	_, err := tx.Exec(
 		ctx,
@@ -215,6 +276,7 @@ func (pg *Pg) UpdateReport(
 		report.HostName,
 		report.Participants,
 		report.TimeTaken,
+		status,
 	)
 	return err
 }

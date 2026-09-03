@@ -122,7 +122,15 @@ type (
 		GetReportForMutation(context.Context, pgx.Tx, uint64) (*Report, error)
 		CreateReport(context.Context, pgx.Tx, ReportWrite, string, string) (uint64, error)
 		LockReportAuthor(context.Context, pgx.Tx, uint64) (string, error)
-		UpdateReport(context.Context, pgx.Tx, uint64, ReportWrite, string) error
+		UpdateReport(context.Context, pgx.Tx, uint64, ReportWrite, string, *string) error
+
+		// Post management reads. Deliberately separate from the four calls
+		// above, which serve the approved-only public catalog: these return
+		// every status and are authorized per caller, so sharing a signature
+		// with the catalog reads is how one of them would end up serving the
+		// other's audience.
+		ListManagedReports(context.Context, pgx.Tx, ManagedReportFilter, ReportCursor, CatalogPage, uint64) ([]Report, error)
+		GetManagedReport(context.Context, pgx.Tx, uint64, string) (*Report, error)
 		ApproveReport(context.Context, pgx.Tx, uint64, string) error
 		ReplaceReportRelations(context.Context, pgx.Tx, uint64, ReportWrite) error
 		DeleteReport(context.Context, pgx.Tx, uint64) error

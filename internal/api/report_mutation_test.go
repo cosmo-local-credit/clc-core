@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,9 +63,8 @@ func TestNormalizeReportWriteCanonicalisesRelations(t *testing.T) {
 		PeriodFrom:  &from,
 		PeriodTo:    &to,
 		HostName:    &blank,
-		Tags:        []string{"Youth", " Agriculture ", "Youth"},
+		Tags:        []string{"Youth", " Agriculture "},
 		Vouchers: []apiresp.ReportVoucherRefRequest{
-			{ChainID: 42220, Address: reportOtherAddress},
 			{ChainID: 42220, Address: reportOtherAddress},
 		},
 		Images: []apiresp.ReportImageRequest{
@@ -116,12 +116,50 @@ func TestNormalizeReportWriteRejectsCrossFieldViolations(t *testing.T) {
 		{name: "bad voucher", req: apiresp.ReportWriteRequest{Title: "Post", Vouchers: []apiresp.ReportVoucherRefRequest{{ChainID: 42220, Address: "nope"}}}},
 		{name: "duplicate image", req: apiresp.ReportWriteRequest{Title: "Post", Images: []apiresp.ReportImageRequest{{URL: "https://example.org/a.jpg"}, {URL: " https://example.org/a.jpg "}}}},
 		{name: "non-http attachment", req: apiresp.ReportWriteRequest{Title: "Post", Attachments: []apiresp.ReportAttachmentRequest{{Kind: "FILE", URL: "ftp://example.org/a.pdf"}}}},
+		// All four collections answer a duplicate the same way. They used to
+		// disagree: tags and vouchers deduped silently, images failed, and
+		// attachments were unchecked.
+		{name: "duplicate tag", req: apiresp.ReportWriteRequest{Title: "Post", Tags: []string{"Youth", " Youth "}}},
+		{name: "duplicate voucher", req: apiresp.ReportWriteRequest{Title: "Post", Vouchers: []apiresp.ReportVoucherRefRequest{
+			{ChainID: 42220, Address: reportOtherAddress},
+			{ChainID: 42220, Address: strings.ToUpper(reportOtherAddress)},
+		}}},
+		{name: "duplicate attachment", req: apiresp.ReportWriteRequest{Title: "Post", Attachments: []apiresp.ReportAttachmentRequest{
+			{Kind: "FILE", URL: "https://example.org/a.pdf"},
+			{Kind: "FILE", URL: " https://example.org/a.pdf "},
+		}}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			if _, _, err := normalizeReportWrite(testCase.req); err == nil {
 				t.Fatal("normalizeReportWrite() error = nil")
 			}
 		})
+	}
+}
+
+func TestNormalizeReportWriteKeepsAttachmentKindsApart(t *testing.T) {
+	report, _, err := normalizeReportWrite(apiresp.ReportWriteRequest{
+		Title: "Post",
+		Attachments: []apiresp.ReportAttachmentRequest{
+			{Kind: "FILE", URL: "https://example.org/clip.mp4"},
+			{Kind: "EMBED", URL: "https://example.org/clip.mp4"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalizeReportWrite() error = %v", err)
+	}
+	if len(report.Attachments) != 2 {
+		t.Fatalf("attachments = %+v, want both kinds", report.Attachments)
+	}
+}
+
+func TestReportUpdateStatusResubmitsForAuthorsOnly(t *testing.T) {
+	if reportUpdateStatus("SUPERADMIN") != nil {
+		t.Fatal("superadmin edit assigns a status, want the row's own preserved")
+	}
+	status := reportUpdateStatus("USER")
+	if status == nil || *status != store.ReportStatusSubmitted {
+		t.Fatalf("author edit status = %v, want SUBMITTED", status)
 	}
 }
 
@@ -292,25 +330,101 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 	} else if status := reportStatus(t, res); status != "APPROVED" {
 		t.Fatalf("approved status = %q, want APPROVED", status)
 	}
-	if res := call(http.MethodPut, path, authorToken, marker+" approved author edit"); res.Code != http.StatusOK {
-		t.Fatalf("approved author edit status = %d, body = %s", res.Code, res.Body.String())
-	} else if status := reportStatus(t, res); status != "APPROVED" {
-		t.Fatalf("status after approved author edit = %q, want APPROVED", status)
-	}
 	if res := call(http.MethodGet, path, authorToken, ""); res.Code != http.StatusOK {
 		t.Fatalf("approved detail status = %d, body = %s", res.Code, res.Body.String())
 	}
+
+	// An author's edit of an approved post resubmits it and it leaves the public
+	// feed until an operator approves it again. Without that, editing is a way
+	// to substitute unreviewed content for approved content.
+	if res := call(http.MethodPut, path, authorToken, marker+" approved author edit"); res.Code != http.StatusOK {
+		t.Fatalf("approved author edit status = %d, body = %s", res.Code, res.Body.String())
+	} else if status := reportStatus(t, res); status != "SUBMITTED" {
+		t.Fatalf("status after approved author edit = %q, want SUBMITTED", status)
+	}
+	if res := call(http.MethodGet, path, authorToken, ""); res.Code != http.StatusNotFound {
+		t.Fatalf("resubmitted detail status = %d, want 404; body = %s", res.Code, res.Body.String())
+	}
+
+	// The author can still reach their own resubmitted post, and so can an
+	// operator; another user cannot.
+	ownPath := "/api/v2/users/me/reports/" + strconv.FormatUint(id, 10)
+	if res := call(http.MethodGet, ownPath, authorToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("own detail status = %d, body = %s", res.Code, res.Body.String())
+	} else if status := reportStatus(t, res); status != "SUBMITTED" {
+		t.Fatalf("own detail status field = %q, want SUBMITTED", status)
+	}
+	if res := call(http.MethodGet, ownPath, otherToken, ""); res.Code != http.StatusNotFound {
+		t.Fatalf("other author own-detail status = %d, want 404", res.Code)
+	}
+	adminPath := "/api/v2/admin/reports/" + strconv.FormatUint(id, 10)
+	if res := call(http.MethodGet, adminPath, adminToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("admin detail status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if res := call(http.MethodGet, "/api/v2/admin/reports?status=submitted&perPage=100", adminToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("admin queue status = %d, body = %s", res.Code, res.Body.String())
+	} else if !managedListContains(t, res, id) {
+		t.Fatalf("admin SUBMITTED queue is missing report %d", id)
+	}
+	if res := call(http.MethodGet, "/api/v2/users/me/reports?perPage=100", authorToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("own list status = %d, body = %s", res.Code, res.Body.String())
+	} else if !managedListContains(t, res, id) {
+		t.Fatalf("author's own list is missing report %d", id)
+	}
+	if res := call(http.MethodGet, "/api/v2/users/me/reports?perPage=100", otherToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("other author list status = %d, body = %s", res.Code, res.Body.String())
+	} else if managedListContains(t, res, id) {
+		t.Fatalf("another author's list leaked report %d", id)
+	}
+
+	// An operator's edit preserves status, so a correction does not unpublish.
+	if res := call(http.MethodPut, path+"/approve", adminToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("reapprove status = %d, body = %s", res.Code, res.Body.String())
+	}
 	if res := call(http.MethodPut, path, adminToken, marker+" admin"); res.Code != http.StatusOK {
 		t.Fatalf("admin edit status = %d, body = %s", res.Code, res.Body.String())
+	} else if status := reportStatus(t, res); status != "APPROVED" {
+		t.Fatalf("status after admin edit = %q, want APPROVED", status)
+	}
+	if res := call(http.MethodGet, path, authorToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("detail after admin edit = %d, body = %s", res.Code, res.Body.String())
 	}
 	if res := call(http.MethodDelete, path, adminToken, ""); res.Code != http.StatusOK {
 		t.Fatalf("admin delete status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if res := call(http.MethodGet, adminPath, adminToken, ""); res.Code != http.StatusNotFound {
+		t.Fatalf("admin detail after delete = %d, want 404", res.Code)
 	}
 
 	adminCreated := call(http.MethodPost, "/api/v2/reports", adminToken, marker+" admin created")
 	if adminCreated.Code != http.StatusCreated || reportStatus(t, adminCreated) != "APPROVED" {
 		t.Fatalf("admin create status = %d, body = %s", adminCreated.Code, adminCreated.Body.String())
 	}
+}
+
+func managedListContains(t *testing.T, response *httptest.ResponseRecorder, id uint64) bool {
+	t.Helper()
+	var envelope struct {
+		Result struct {
+			Reports []struct {
+				ID     uint64 `json:"id"`
+				Status string `json:"status"`
+			} `json:"reports"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode managed list: %v", err)
+	}
+	for _, report := range envelope.Result.Reports {
+		if report.ID != id {
+			continue
+		}
+		if report.Status == "" {
+			t.Fatalf("managed summary %d carries no status", id)
+		}
+		return true
+	}
+	return false
 }
 
 func reportStatus(t *testing.T, response *httptest.ResponseRecorder) string {
