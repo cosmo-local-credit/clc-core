@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,8 +68,26 @@ func TestReconcilerIsUniquePerSigner(t *testing.T) {
 	opts := NonceReconcilerArgs{}.InsertOpts()
 
 	assert.True(t, opts.UniqueOpts.ByArgs, "must dedupe on the signer argument")
-	assert.NotEmpty(t, opts.UniqueOpts.ByState, "must dedupe against in-flight jobs, not just queued ones")
 	assert.Equal(t, 3, opts.MaxAttempts)
+
+	// River rejects a custom ByState that omits any of its required states,
+	// and the periodic enqueuer reports that as an internal error rather than
+	// failing loudly — so the sweep silently never runs. Observed in
+	// production: "UniqueOpts.ByState must contain all required states,
+	// missing: pending".
+	for _, required := range []rivertype.JobState{
+		rivertype.JobStateAvailable,
+		rivertype.JobStatePending,
+		rivertype.JobStateRunning,
+		rivertype.JobStateScheduled,
+	} {
+		assert.Contains(t, opts.UniqueOpts.ByState, required,
+			"River requires %q in a custom UniqueOpts.ByState", required)
+	}
+
+	// Completed must stay out, or one reconcile per signer would suppress
+	// every later sweep for the lifetime of the database.
+	assert.NotContains(t, opts.UniqueOpts.ByState, rivertype.JobStateCompleted)
 }
 
 func TestNonceReconcilerKind(t *testing.T) {
