@@ -1,0 +1,23 @@
+-- A btree index on otx.tracking_id.
+--
+-- get-otx-by-tracking-id filters `otx.tracking_id = $1::uuid`, and the only
+-- tracking_id index 001 creates is a GIN trigram index on
+-- lower(tracking_id::text) — built for admin substring search, unusable for an
+-- equality lookup on the uuid column. Every call therefore sequentially
+-- scanned otx:
+--
+--     Hash Join  (cost=6.41..7.94)
+--       ->  Seq Scan on dispatch d
+--       ->  Hash  ->  Seq Scan on otx
+--
+-- That is invisible on a small table and fatal on a large one. The deploy
+-- flows poll GET /api/v2/otx/track/:trackingId every couple of seconds until
+-- the chain settles, so the cost is paid per poll per client, and the endpoint
+-- sits behind a 15s ContextTimeout (util.SLATimeout) that a seq scan of a
+-- grown otx will exceed.
+--
+-- user_deployments.tracking_id already has a unique btree, so only otx needs
+-- this. Not unique here: a tracking ID legitimately fans out to several otx
+-- rows — a first relay writes RELAY_DELEGATE_EXEC and ACCOUNT_REGISTER under
+-- one ID, and a fee bump adds another row at the same nonce.
+CREATE INDEX IF NOT EXISTS otx_tracking_id_idx ON otx (tracking_id);

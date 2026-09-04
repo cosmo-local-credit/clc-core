@@ -137,46 +137,48 @@ func (NonceReconcilerArgs) InsertOpts() river.InsertOpts {
 // stored bytes. "already known" means the pool has it and the walk stops —
 // there is no point pushing transactions in behind a head that is already
 // queued.
+//
+// The pass runs in three phases so that no chain call happens while the signer
+// lock is held. The first cut held pg_advisory_xact_lock across up to
+// reconcileBatch sequential receipt lookups; every DISPATCH job blocks on that
+// same lock and holds a pool connection while it waits, so a slow RPC turned
+// into connection-pool exhaustion and unrelated endpoints timed out against
+// util.SLATimeout. Observed on 2026-09-04 as a 15s "context deadline exceeded"
+// on GET /api/v2/otx/track/:trackingId, whose own query costs well under a
+// millisecond.
 func (w *NonceReconcilerWorker) Work(ctx context.Context, job *river.Job[NonceReconcilerArgs]) error {
-	tx, err := w.wc.store.Pool().Begin(ctx)
+	// -- Phase 1: read the work list. No lock, committed immediately. -------
+	signer, candidates, err := w.loadCandidates(ctx, job.Args.Signer)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-
-	signer := job.Args.Signer
-	if signer == "" {
-		masterKey, err := w.wc.store.LoadMasterSignerKey(ctx, tx)
-		if err != nil {
-			return fmt.Errorf("reconciler: load master signer: %w", err)
-		}
-		signer = masterKey.Public
+	if len(candidates) == 0 {
+		return nil
 	}
 
-	// Serialise against the dispatcher and any concurrent reconcile. Held for
-	// the life of this transaction.
-	if err := w.wc.store.LockSigner(ctx, tx, signer); err != nil {
-		return fmt.Errorf("reconciler: lock signer: %w", err)
-	}
-
-	unsettled, err := w.wc.store.GetUnsettledOTXBySigner(ctx, tx, signer)
-	if err != nil {
-		return fmt.Errorf("reconciler: load unsettled otx: %w", err)
-	}
-	if len(unsettled) == 0 {
-		return tx.Commit(ctx)
-	}
-
-	signerAddr := common.HexToAddress(signer)
-
+	// -- Phase 2: every chain call, with no lock and no open transaction. ---
 	var chainNonce uint64
 	if err := w.wc.chainProvider.Client.CallCtx(ctx,
-		eth.Nonce(signerAddr, nil).Returns(&chainNonce),
+		eth.Nonce(common.HexToAddress(signer), nil).Returns(&chainNonce),
 	); err != nil {
 		return fmt.Errorf("reconciler: read chain nonce: %w", err)
 	}
 
-	head := unsettled[0]
+	// A receipt is immutable once mined, so a value read here is still true
+	// when phase 3 applies it. A row that is not mined yet simply is not
+	// settled this pass; the next sweep picks it up.
+	receipts := make(map[string]*types.Receipt, len(candidates))
+	for _, otx := range candidates {
+		receipt, err := w.receiptFor(ctx, otx.TxHash)
+		if err != nil {
+			return err
+		}
+		if receipt != nil {
+			receipts[strings.ToLower(otx.TxHash)] = receipt
+		}
+	}
+
+	head := candidates[0]
 	stuckFor := time.Since(head.CreatedAt)
 
 	// The gauge that would have caught this incident at 08:10 instead of
@@ -190,17 +192,78 @@ func (w *NonceReconcilerWorker) Work(ctx context.Context, job *river.Job[NonceRe
 			"headTxHash", head.TxHash,
 			"headStatus", head.DispatchStatus,
 			"stuckFor", stuckFor.Round(time.Second).String(),
-			"unsettled", len(unsettled),
+			"unsettled", len(candidates),
 		)
 	} else {
 		w.wc.logg.Debug("reconciling signer",
 			"signer", signer,
 			"chainNonce", chainNonce,
 			"headNonce", head.Nonce,
-			"unsettled", len(unsettled),
+			"unsettled", len(candidates),
 		)
 	}
 
+	// -- Phase 3: apply, under the lock. ------------------------------------
+	return w.apply(ctx, signer, chainNonce, receipts)
+}
+
+// loadCandidates resolves the signer and reads its unsettled transactions.
+// Read-only and unlocked: the list is re-read under the lock in phase 3, so a
+// row that changes in between is handled there, not here.
+func (w *NonceReconcilerWorker) loadCandidates(ctx context.Context, argSigner string) (string, []*store.OTX, error) {
+	tx, err := w.wc.store.Pool().Begin(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	signer := argSigner
+	if signer == "" {
+		masterKey, err := w.wc.store.LoadMasterSignerKey(ctx, tx)
+		if err != nil {
+			return "", nil, fmt.Errorf("reconciler: load master signer: %w", err)
+		}
+		signer = masterKey.Public
+	}
+
+	unsettled, err := w.wc.store.GetUnsettledOTXBySigner(ctx, tx, signer)
+	if err != nil {
+		return "", nil, fmt.Errorf("reconciler: load unsettled otx: %w", err)
+	}
+	if len(unsettled) > reconcileBatch {
+		unsettled = unsettled[:reconcileBatch]
+	}
+
+	return signer, unsettled, tx.Commit(ctx)
+}
+
+// apply takes the signer lock and acts on the pre-fetched chain state.
+//
+// The unsettled list is re-read here rather than reused from phase 1: the
+// dispatcher may have settled or added rows in between. Only the single
+// republish makes a chain call inside the lock, which is the one call that has
+// to be serialised — publishing out of nonce order is what reth's gapped-nonce
+// and reservation rules reject.
+func (w *NonceReconcilerWorker) apply(
+	ctx context.Context,
+	signer string,
+	chainNonce uint64,
+	receipts map[string]*types.Receipt,
+) error {
+	tx, err := w.wc.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := w.wc.store.LockSigner(ctx, tx, signer); err != nil {
+		return fmt.Errorf("reconciler: lock signer: %w", err)
+	}
+
+	unsettled, err := w.wc.store.GetUnsettledOTXBySigner(ctx, tx, signer)
+	if err != nil {
+		return fmt.Errorf("reconciler: reload unsettled otx: %w", err)
+	}
 	if len(unsettled) > reconcileBatch {
 		unsettled = unsettled[:reconcileBatch]
 	}
@@ -208,10 +271,7 @@ func (w *NonceReconcilerWorker) Work(ctx context.Context, job *river.Job[NonceRe
 	headTaken := false
 
 	for _, otx := range unsettled {
-		receipt, err := w.receiptFor(ctx, otx.TxHash)
-		if err != nil {
-			return err
-		}
+		receipt := receipts[strings.ToLower(otx.TxHash)]
 
 		switch decideReconcileAction(otx.Nonce, chainNonce, receipt != nil, headTaken) {
 		case actionSettle:
