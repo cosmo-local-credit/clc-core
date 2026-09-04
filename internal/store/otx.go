@@ -136,3 +136,38 @@ func (pg *Pg) GetOTXByAccountPrevious(ctx context.Context, tx pgx.Tx, address st
 
 	return otxs, nil
 }
+
+// GetUnsettledOTXBySigner returns the signer's transactions that have not
+// reached a settled dispatch status, oldest nonce first.
+func (pg *Pg) GetUnsettledOTXBySigner(ctx context.Context, tx pgx.Tx, publicKey string) ([]*OTX, error) {
+	var otxs []*OTX
+
+	rows, err := tx.Query(ctx, pg.queries.GetUnsettledOTXBySigner, publicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pgxscan.ScanAll(&otxs, rows); err != nil {
+		return nil, err
+	}
+
+	return otxs, nil
+}
+
+// SetOTXReplaced marks an OTX superseded by a replacement at the same nonce.
+func (pg *Pg) SetOTXReplaced(ctx context.Context, tx pgx.Tx, otxID uint64) error {
+	_, err := tx.Exec(ctx, pg.queries.SetOTXReplaced, otxID)
+	return err
+}
+
+// CountUndispatchedBelowNonce counts the signer's still-PENDING transactions
+// below nonce, i.e. predecessors that have not been sent yet.
+func (pg *Pg) CountUndispatchedBelowNonce(ctx context.Context, tx pgx.Tx, publicKey string, nonce uint64) (uint64, error) {
+	var count uint64
+
+	if err := tx.QueryRow(ctx, pg.queries.CountUndispatchedBelowNonce, publicKey, nonce).Scan(&count); err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}

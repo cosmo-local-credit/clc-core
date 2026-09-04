@@ -23,6 +23,10 @@ type (
 		GetOTXByTxHash               string `query:"get-otx-by-tx-hash"`
 		InsertDispatchTx             string `query:"insert-dispatch-tx"`
 		UpdateDispatchTxStatus       string `query:"update-dispatch-tx-status"`
+		GetUnsettledOTXBySigner      string `query:"get-unsettled-otx-by-signer"`
+		SetOTXReplaced               string `query:"set-otx-replaced"`
+		LockSigner                   string `query:"lock-signer"`
+		CountUndispatchedBelowNonce  string `query:"count-undispatched-below-nonce"`
 		GetPlatformContracts         string `query:"get-platform-contracts"`
 		InsertDeployedToken          string `query:"insert-deployed-token"`
 		ConfirmDeployedToken         string `query:"confirm-deployed-token"`
