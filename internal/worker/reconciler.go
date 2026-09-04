@@ -89,6 +89,17 @@ func decideReconcileAction(nonce, chainNonce uint64, hasReceipt, headTaken bool)
 
 func (NonceReconcilerArgs) Kind() string { return NonceReconcilerID }
 
+// reconcilerUniqueStates is the deduplication window for a reconcile request.
+func reconcilerUniqueStates() []rivertype.JobState {
+	return []rivertype.JobState{
+		rivertype.JobStateAvailable,
+		rivertype.JobStatePending,
+		rivertype.JobStateRunning,
+		rivertype.JobStateRetryable,
+		rivertype.JobStateScheduled,
+	}
+}
+
 // InsertOpts collapses concurrent reconcile requests for the same signer: the
 // dispatcher, a dying receipt poller and the periodic sweep all enqueue this,
 // and one pass per signer is enough.
@@ -97,12 +108,19 @@ func (NonceReconcilerArgs) InsertOpts() river.InsertOpts {
 		MaxAttempts: 3,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs: true,
-			ByState: []rivertype.JobState{
-				rivertype.JobStateAvailable,
-				rivertype.JobStateRunning,
-				rivertype.JobStateRetryable,
-				rivertype.JobStateScheduled,
-			},
+			// A custom ByState must contain every state in River's
+			// requiredV3states (insert_opts.go:193) — available, pending,
+			// running, scheduled — or the insert is rejected outright with
+			// "UniqueOpts.ByState must contain all required states". The
+			// periodic enqueuer swallows that as an internal error, so the
+			// sweep silently never runs.
+			//
+			// Retryable is added on top so a reconcile that errored and is
+			// waiting to retry also suppresses a duplicate. Completed is
+			// deliberately excluded: including it would dedupe against every
+			// reconcile that has ever finished, and the sweep would run once
+			// per signer for the lifetime of the database.
+			ByState: reconcilerUniqueStates(),
 		},
 	}
 }
