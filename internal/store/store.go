@@ -21,6 +21,10 @@ type (
 		GetOTXByTxHash(context.Context, pgx.Tx, string) (OTX, error)
 		InsertDispatchTx(context.Context, pgx.Tx, DispatchTx) error
 		UpdateDispatchTxStatus(context.Context, pgx.Tx, DispatchTx) error
+		GetUnsettledOTXBySigner(context.Context, pgx.Tx, string) ([]*OTX, error)
+		SetOTXReplaced(context.Context, pgx.Tx, uint64) error
+		CountUndispatchedBelowNonce(context.Context, pgx.Tx, string, uint64) (uint64, error)
+		LockSigner(context.Context, pgx.Tx, string) error
 		GetPlatformContracts(context.Context, pgx.Tx, int64, string) (PlatformContracts, error)
 		InsertDeployedToken(context.Context, pgx.Tx, DeployedToken) (uint64, error)
 		ConfirmDeployedToken(context.Context, pgx.Tx, uint64, string) (uint64, error)

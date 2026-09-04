@@ -33,3 +33,11 @@ func (pg *Pg) SetNonceIfHigher(ctx context.Context, tx pgx.Tx, publicKey string,
 	_, err := tx.Exec(ctx, pg.queries.SetNonceIfHigher, publicKey, newNonce)
 	return err
 }
+
+// LockSigner takes a transaction-scoped advisory lock on the signer's keystore
+// row, serialising the dispatcher, the fee bumper and the reconciler against
+// each other. Released on commit or rollback.
+func (pg *Pg) LockSigner(ctx context.Context, tx pgx.Tx, publicKey string) error {
+	_, err := tx.Exec(ctx, pg.queries.LockSigner, publicKey)
+	return err
+}

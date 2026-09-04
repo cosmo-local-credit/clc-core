@@ -2050,3 +2050,45 @@ SELECT
         FROM pool_tokens pt
         INNER JOIN vouchers v ON v.id = pt.voucher_id
         WHERE pt.is_allowed AND lower(v.owner_address) = lower($1)) AS pool_memberships;
+
+-- Unsettled transactions for one signer, oldest nonce first. The reconciler
+-- walks this list: receipts first, then republishes the lowest nonce the chain
+-- has not consumed. Dispatch statuses excluded here are the settled ones — see
+-- store.IsTerminalDispatchStatus.
+--name: get-unsettled-otx-by-signer
+SELECT otx.id, otx.tracking_id, otx.otx_type, otx.signer_account AS public_key, otx.raw_tx, otx.tx_hash, otx.nonce, otx.replaced, otx.created_at, otx.updated_at, dispatch.status
+FROM otx
+INNER JOIN dispatch ON otx.id = dispatch.otx_id
+WHERE otx.signer_account = (SELECT id FROM keystore WHERE public_key = $1)
+  AND otx.replaced = false
+  AND dispatch.status NOT IN ('SUCCESS', 'REVERTED', 'LOW_NONCE', 'INVALID_TX')
+ORDER BY otx.nonce ASC, otx.id ASC;
+
+-- Mark an OTX superseded by a replacement carrying the same nonce. The column
+-- has existed since migration 001 and was never written until the fee bumper
+-- landed; nothing enforces uniqueness on (signer_account, nonce) precisely so
+-- replacement rows are legal.
+--name: set-otx-replaced
+UPDATE otx SET replaced = true WHERE id = $1;
+
+-- Serialises everything that touches one signer's nonce sequence: the
+-- dispatcher, the fee bumper and the reconciler. Transaction-scoped, so it is
+-- released on commit or rollback. Two goroutines signing a pair of
+-- transactions in the same millisecond is how they got published out of nonce
+-- order in the first place.
+--name: lock-signer
+SELECT pg_advisory_xact_lock(
+    (SELECT id FROM keystore WHERE public_key = $1)::BIGINT
+);
+
+-- Highest nonce this signer has an unreplaced OTX for, and whether every
+-- lower nonce has left PENDING. Used by the dispatcher to hold a transaction
+-- back until its predecessors are in the pool.
+--name: count-undispatched-below-nonce
+SELECT count(*)
+FROM otx
+INNER JOIN dispatch ON otx.id = dispatch.otx_id
+WHERE otx.signer_account = (SELECT id FROM keystore WHERE public_key = $1)
+  AND otx.replaced = false
+  AND otx.nonce < $2
+  AND dispatch.status = 'PENDING';
