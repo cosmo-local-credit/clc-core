@@ -128,8 +128,11 @@ func TestRepublishable(t *testing.T) {
 
 // TestHandleNetworkErrorNeverSwallows — a send failure that is not a JSON-RPC
 // error object and not recognisably a transport fault must still surface.
+//
+// The input has to be a string nothing classifies: "connection reset by peer"
+// used to land here and is now correctly read as transport.
 func TestHandleNetworkErrorNeverSwallows(t *testing.T) {
-	err := handleNetworkError(errors.New("connection reset by peer"))
+	err := handleNetworkError(errors.New("something nobody has classified yet"))
 	require.Error(t, err)
 
 	var dispatchErr *DispatchError
