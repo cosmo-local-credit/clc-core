@@ -61,6 +61,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "024_oracle_feed_chains.sql")
 	assert.Contains(t, sqlFiles, "025_report_management_indexes.sql")
 	assert.Contains(t, sqlFiles, "026_dispatch_verdict_statuses.sql")
+	assert.Contains(t, sqlFiles, "027_gnosis_platform_contracts.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -88,7 +89,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "023_offering_crud.sql" ||
 				name == "024_oracle_feed_chains.sql" ||
 				name == "025_report_management_indexes.sql" ||
-				name == "026_dispatch_verdict_statuses.sql",
+				name == "026_dispatch_verdict_statuses.sql" ||
+				name == "027_gnosis_platform_contracts.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -124,6 +126,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"024_oracle_feed_chains.sql",
 		"025_report_management_indexes.sql",
 		"026_dispatch_verdict_statuses.sql",
+		"027_gnosis_platform_contracts.sql",
 	}, files)
 }
 
