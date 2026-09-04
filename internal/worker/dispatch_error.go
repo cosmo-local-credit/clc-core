@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // Verdict is what the dispatcher should do about a transaction the node would
@@ -130,6 +131,24 @@ func classifyRPCError(errMsg string) (Verdict, error) {
 	}
 
 	switch {
+	// -- The endpoint, not the transaction --------------------------------
+	// A provider may report rate limiting as a JSON-RPC error object rather
+	// than an HTTP status (allnodes returns -32005). Observed in production on
+	// 2026-09-04: the relayer was rate limited mid-relay and, before this
+	// case existed, the rejection classified as UNKNOWN.
+	case contains(
+		"rate limit",
+		"too many requests",
+		"request limit",
+		"exceeded its throughput",
+		"service unavailable",
+		"bad gateway",
+		"gateway timeout",
+		"connection reset",
+		"no backend available",
+	):
+		return VerdictNetwork, ErrNetwork
+
 	// -- Already held ------------------------------------------------------
 	// RpcPoolError::AlreadyKnown. "already imported" is the internal
 	// PoolErrorKind spelling, matched too in case a node surfaces it raw.
@@ -249,9 +268,29 @@ func dispatchStatus(err error) string {
 	}
 }
 
+// handleNetworkError classifies a send failure that did not arrive as a
+// JSON-RPC error object.
+//
+// This path carries more than timeouts. w3's CallCtx only wraps *rpc.jsonError
+// into CallErrors and returns every other error bare (client.go:113), so an
+// HTTP-level failure from the RPC endpoint — a 429, a 502 — never reaches the
+// JSON-RPC classifier at all and lands here instead.
 func handleNetworkError(err error) error {
 	if err == nil {
 		return nil
+	}
+
+	// A non-2xx response may still carry a JSON-RPC rejection in its body:
+	// some providers answer 400 with a real chain error. Read the body before
+	// writing the whole thing off as transport.
+	var httpErr rpc.HTTPError
+	if errors.As(err, &httpErr) {
+		if verdict, classified := classifyRPCError(string(httpErr.Body)); verdict != VerdictUnknown {
+			return &DispatchError{Err: classified, OriginalErr: err, Verdict: verdict}
+		}
+		// Otherwise an HTTP status is by definition a statement about the
+		// endpoint, not the transaction: retry the same bytes.
+		return &DispatchError{Err: ErrNetwork, OriginalErr: err, Verdict: VerdictNetwork}
 	}
 
 	var netErr net.Error
@@ -264,6 +303,12 @@ func handleNetworkError(err error) error {
 			OriginalErr: err,
 			Verdict:     VerdictNetwork,
 		}
+	}
+
+	// A bare error string is the last chance to recognise a transport fault
+	// before falling back to Unknown.
+	if verdict, classified := classifyRPCError(err.Error()); verdict == VerdictNetwork {
+		return &DispatchError{Err: classified, OriginalErr: err, Verdict: verdict}
 	}
 
 	// Not recognisably a transport failure, but the send did fail. Never let
