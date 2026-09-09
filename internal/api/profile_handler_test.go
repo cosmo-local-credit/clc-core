@@ -68,6 +68,29 @@ func TestProfileUpdateFromRequestClearsLocation(t *testing.T) {
 	}
 }
 
+func TestProfileUpdateFromRequestTrimsProfilePreferences(t *testing.T) {
+	currency := " kes "
+	bio := "  Neighbourhood organiser  "
+	website := "  https://alice.example  "
+	update, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{
+		PreferredCurrency: &currency,
+		Bio:               &bio,
+		Website:           &website,
+	})
+	if err != nil {
+		t.Fatalf("profileUpdateFromRequest() error = %v", err)
+	}
+	if update.PreferredCurrency == nil || *update.PreferredCurrency != "KES" {
+		t.Fatalf("preferred currency = %v, want KES", update.PreferredCurrency)
+	}
+	if update.Bio == nil || *update.Bio != "Neighbourhood organiser" {
+		t.Fatalf("bio = %v, want trimmed value", update.Bio)
+	}
+	if update.Website == nil || *update.Website != "https://alice.example" {
+		t.Fatalf("website = %v, want trimmed value", update.Website)
+	}
+}
+
 func TestProfileUpdateFromRequestRejectsConflictingLocationCommands(t *testing.T) {
 	locationName := "Sarajevo"
 	_, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{

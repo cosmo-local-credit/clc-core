@@ -306,14 +306,21 @@ type (
 	// values preserve stored data; ClearLocation explicitly removes the pin, and
 	// ClearAvatar does the same for the profile image.
 	UpdateProfileRequest struct {
-		Name          string   `json:"name"          validate:"omitempty,max=80"`
-		Email         string   `json:"email"         validate:"omitempty,email"`
-		Phone         string   `json:"phone"`
-		Country       string   `json:"country"       validate:"omitempty,len=2"`
-		LocationName  *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
-		GeoLat        *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
-		GeoLng        *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
-		ClearLocation bool     `json:"clearLocation,omitempty"`
+		Name    string `json:"name"          validate:"omitempty,max=80"`
+		Email   string `json:"email"         validate:"omitempty,email"`
+		Phone   string `json:"phone"`
+		Country string `json:"country"       validate:"omitempty,len=2"`
+		// Profile preferences are pointers because clients predating them must be
+		// able to update their contact details without clearing them. Website's
+		// explicit empty-string alternative clears a saved value; `omitempty` does
+		// not skip a pointer to an empty string.
+		PreferredCurrency *string  `json:"preferredCurrency,omitempty" validate:"omitempty,len=3,uppercase,alpha"`
+		Bio               *string  `json:"bio,omitempty"               validate:"omitempty,max=500"`
+		Website           *string  `json:"website,omitempty"           validate:"omitempty,http_url|eq="`
+		LocationName      *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
+		GeoLat            *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
+		GeoLng            *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
+		ClearLocation     bool     `json:"clearLocation,omitempty"`
 		// http_url, never url: the latter accepts ftp:, data: and javascript:,
 		// which users_avatar_url_http would then reject at the database — after
 		// the request had already been accepted.
