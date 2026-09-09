@@ -88,11 +88,24 @@ func TestImageURLFieldsAcceptOnlyHTTPSchemes(t *testing.T) {
 	// skip a pointer to an empty string.
 	t.Run("update payloads", func(t *testing.T) {
 		empty := ""
+		currency := "KES"
+		invalidCurrency := "KE1"
 		if err := v.Validate(apiresp.UpdateProfileRequest{Name: "Owner", AvatarURL: &good}); err != nil {
 			t.Fatalf("http(s) avatarUrl rejected: %v", err)
 		}
 		if err := v.Validate(apiresp.UpdateProfileRequest{Name: "Owner", ClearAvatar: true}); err != nil {
 			t.Fatalf("clearAvatar rejected: %v", err)
+		}
+		if err := v.Validate(apiresp.UpdateProfileRequest{
+			Name:              "Owner",
+			PreferredCurrency: &currency,
+			Bio:               &empty,
+			Website:           &empty,
+		}); err != nil {
+			t.Fatalf("valid profile preferences rejected: %v", err)
+		}
+		if err := v.Validate(apiresp.UpdateProfileRequest{PreferredCurrency: &invalidCurrency}); err == nil {
+			t.Error("non-letter preferred currency was accepted")
 		}
 		// "" is not a way to clear an avatar; the flag is.
 		if err := v.Validate(apiresp.UpdateProfileRequest{Name: "Owner", AvatarURL: &empty}); err == nil {
