@@ -87,6 +87,7 @@ const (
 SELECT u.id, u.blockchain_address AS ethereum_address, u.name,
     COALESCE(u.email, '') AS email, COALESCE(u.phone, '') AS phone,
     COALESCE(u.country, '') AS country,
+    u.preferred_currency, u.bio, u.website,
     u.location_name, u.geo_lat, u.geo_lng, u.avatar_url, u.role, u.status,
     u.max_pools, u.max_tokens, u.created_at, u.updated_at
 FROM page

@@ -10,34 +10,42 @@ import (
 
 type (
 	User struct {
-		ID              uint64    `db:"id"               json:"id"`
-		EthereumAddress string    `db:"ethereum_address" json:"ethereumAddress"`
-		Name            string    `db:"name"             json:"name"`
-		Email           string    `db:"email"            json:"email"`
-		Phone           string    `db:"phone"            json:"phone"`
-		Country         string    `db:"country"          json:"country"`
-		LocationName    *string   `db:"location_name"    json:"locationName,omitempty"`
-		GeoLat          *float64  `db:"geo_lat"          json:"geoLat,omitempty"`
-		GeoLng          *float64  `db:"geo_lng"          json:"geoLng,omitempty"`
-		AvatarURL       *string   `db:"avatar_url"       json:"avatarUrl,omitempty"`
-		Role            string    `db:"role"             json:"role"`
-		Status          string    `db:"status"           json:"status"`
-		MaxPools        int       `db:"max_pools"        json:"maxPools"`
-		MaxTokens       int       `db:"max_tokens"       json:"maxTokens"`
-		CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
-		UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
+		ID                uint64    `db:"id"               json:"id"`
+		EthereumAddress   string    `db:"ethereum_address" json:"ethereumAddress"`
+		Name              string    `db:"name"             json:"name"`
+		Email             string    `db:"email"            json:"email"`
+		Phone             string    `db:"phone"            json:"phone"`
+		Country           string    `db:"country"          json:"country"`
+		PreferredCurrency *string   `db:"preferred_currency" json:"preferredCurrency,omitempty"`
+		Bio               *string   `db:"bio"              json:"bio,omitempty"`
+		Website           *string   `db:"website"          json:"website,omitempty"`
+		LocationName      *string   `db:"location_name"    json:"locationName,omitempty"`
+		GeoLat            *float64  `db:"geo_lat"          json:"geoLat,omitempty"`
+		GeoLng            *float64  `db:"geo_lng"          json:"geoLng,omitempty"`
+		AvatarURL         *string   `db:"avatar_url"       json:"avatarUrl,omitempty"`
+		Role              string    `db:"role"             json:"role"`
+		Status            string    `db:"status"           json:"status"`
+		MaxPools          int       `db:"max_pools"        json:"maxPools"`
+		MaxTokens         int       `db:"max_tokens"       json:"maxTokens"`
+		CreatedAt         time.Time `db:"created_at"       json:"createdAt"`
+		UpdatedAt         time.Time `db:"updated_at"       json:"updatedAt"`
 	}
 
 	UserProfileUpdate struct {
-		Address       string
-		Name          string
-		Email         string
-		Phone         string
-		Country       string
-		ClearLocation bool
-		LocationName  *string
-		GeoLat        *float64
-		GeoLng        *float64
+		Address string
+		Name    string
+		Email   string
+		Phone   string
+		Country string
+		// These fields use patch semantics so an older app that omits them does
+		// not erase a newer profile. A non-nil empty bio or website clears it.
+		PreferredCurrency *string
+		Bio               *string
+		Website           *string
+		ClearLocation     bool
+		LocationName      *string
+		GeoLat            *float64
+		GeoLng            *float64
 		// The avatar follows the same shape as the location: omitted preserves,
 		// and clearing is an explicit flag rather than a magic value, so a client
 		// that knows nothing about avatars cannot remove one.
@@ -172,6 +180,9 @@ func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfi
 		update.Email,
 		update.Phone,
 		update.Country,
+		update.PreferredCurrency,
+		update.Bio,
+		update.Website,
 		update.ClearLocation,
 		update.LocationName,
 		update.GeoLat,
