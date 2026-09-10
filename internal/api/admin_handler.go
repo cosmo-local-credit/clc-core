@@ -176,7 +176,7 @@ func (a *API) adminUpdateUserLimitsHandler(c *echo.Context) error {
 }
 
 // adminUpdateUserProfileHandler lets a superadmin correct another account's
-// identity and contact details.
+// identity, contact details, and profile preferences.
 //
 // The self-service handler at PUT /auth/profile edits the signed-in account and
 // nothing else — it takes its address from the JWT claims — so an operator fixing

@@ -152,7 +152,10 @@ const userWireProfile = `{
   "name": "Zqwire Operator",
   "email": "operator@example.test",
   "phone": "+254700000000",
-  "country": "KE"
+  "country": "KE",
+  "preferredCurrency": "KES",
+  "bio": "Neighbourhood organiser",
+  "website": "https://operator.example"
 }`
 
 const userWireLimits = `{"maxPools": 7, "maxTokens": 9}`
@@ -194,8 +197,15 @@ func TestAdminUserWritesFromTheConsolesOwnRequestBodies(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("profile status = %d, body = %s", code, body)
 	}
-	if !strings.Contains(body, "Zqwire Operator") {
-		t.Errorf("profile response does not echo the saved name: %s", body)
+	for _, want := range []string{
+		"Zqwire Operator",
+		"KES",
+		"Neighbourhood organiser",
+		"https://operator.example",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("profile response does not echo %q: %s", want, body)
+		}
 	}
 
 	code, body = putRaw(t, a, token,

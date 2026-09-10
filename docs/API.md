@@ -1435,7 +1435,7 @@ Updates the deployment quotas for a specific user.
 
 ### 7.5 `PUT /api/v2/admin/users/:address/profile`
 
-Corrects another account's identity and contact details. `PUT /auth/profile` edits only the signed-in account, so this is the operator equivalent; it takes the same body and applies the same validation.
+Corrects another account's identity, contact details, and profile preferences. `PUT /auth/profile` edits only the signed-in account, so this is the operator equivalent; it takes the same body and applies the same validation.
 
 It cannot change status, role or limits — those have their own endpoints.
 
@@ -1453,6 +1453,9 @@ It cannot change status, role or limits — those have their own endpoints.
   "email":        "ada@example.com",
   "phone":        "+254700000000",
   "country":      "KE",
+  "preferredCurrency": "KES",
+  "bio":          "Community organiser",
+  "website":      "https://ada.example",
   "locationName": "Nairobi",
   "geoLat":       -1.2921,
   "geoLng":       36.8219
@@ -1465,6 +1468,9 @@ It cannot change status, role or limits — those have their own endpoints.
 | `email` | `string` | No | Must be a valid address, unique across accounts |
 | `phone` | `string` | No | Unique across accounts |
 | `country` | `string` | No | ISO 3166-1 alpha-2 code |
+| `preferredCurrency` | `string` | No | Three-letter uppercase ISO 4217 code. Omit to preserve a legacy value. |
+| `bio` | `string` | No | Max 500 characters. Send `""` to clear. |
+| `website` | `string` | No | HTTP(S) URL. Send `""` to clear. |
 | `locationName` | `string` | No | Max 200 characters |
 | `geoLat` | `number` | No | −90 to 90. Must be sent with `geoLng` |
 | `geoLng` | `number` | No | −180 to 180. Must be sent with `geoLat` |
