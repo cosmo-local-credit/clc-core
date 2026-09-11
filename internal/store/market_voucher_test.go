@@ -76,6 +76,9 @@ func TestLoadMarketVoucherQueries(t *testing.T) {
 		if !strings.Contains(query, "AS MATERIALIZED") {
 			t.Errorf("%s must limit the voucher page before deriving kinds", name)
 		}
+		if !strings.Contains(query, "COALESCE(v.display_name, v.name) AS name") {
+			t.Errorf("%s must use the owner-set display name when one exists", name)
+		}
 	}
 }
 
@@ -106,6 +109,12 @@ func TestLoadMarketVoucherDetailQuery(t *testing.T) {
 	}
 	if strings.Contains(query, "internal") {
 		t.Error("detail must not read the internal import artifact")
+	}
+	if !strings.Contains(query, "COALESCE(v.display_name, v.name) AS name") {
+		t.Error("detail must serve the display name when one exists")
+	}
+	if !strings.Contains(query, "v.name AS contract_name") {
+		t.Error("detail must retain the immutable contract name beside the display name")
 	}
 	for _, column := range []string{"v.icon_url", "v.banner_url", "v.email", "v.owner_address", "v.voucher_uoa"} {
 		if !strings.Contains(query, column) {
@@ -203,6 +212,7 @@ func TestMarketVoucherDetailJSONContract(t *testing.T) {
 		ChainID:      42220,
 		Address:      "0xAbC0000000000000000000000000000000000123",
 		Name:         text("Priscilah Malii"),
+		ContractName: text("Malii Community Voucher"),
 		Symbol:       text("MALII"),
 		Decimals:     &decimals,
 		OwnerAddress: text("0xDeF0000000000000000000000000000000000456"),
@@ -226,7 +236,8 @@ func TestMarketVoucherDetailJSONContract(t *testing.T) {
 	payload := string(encoded)
 	// Exactly the keys the card and the voucher page read.
 	for _, field := range []string{
-		`"id":2710`, `"chainId":42220`, `"name":"Priscilah Malii"`, `"symbol":"MALII"`,
+		`"id":2710`, `"chainId":42220`, `"name":"Priscilah Malii"`,
+		`"contractName":"Malii Community Voucher"`, `"symbol":"MALII"`,
 		`"decimals":6`, `"ownerAddress":"0xDeF0000000000000000000000000000000000456"`,
 		`"voucherUoa":"KSH"`, `"voucherValue":"10"`, `"locationName":"C96, KEN"`,
 		`"geoLat":-1.450979`, `"geoLng":38.235115`, `"email":"issuer@example.org"`,
@@ -268,7 +279,7 @@ func TestMarketVoucherDetailSerializesMissingFieldsAsNull(t *testing.T) {
 	payload := string(encoded)
 	for _, field := range []string{
 		`"iconUrl":null`, `"bannerUrl":null`, `"email":null`, `"ownerAddress":null`,
-		`"voucherUoa":null`, `"voucherValue":null`, `"geoLat":null`, `"geoLng":null`,
+		`"voucherUoa":null`, `"voucherValue":null`, `"contractName":null`, `"geoLat":null`, `"geoLng":null`,
 	} {
 		if !strings.Contains(payload, field) {
 			t.Errorf("expected %s, got %s", field, payload)

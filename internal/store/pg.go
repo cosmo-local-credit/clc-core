@@ -49,6 +49,7 @@ type (
 		DeletePoolTags               string `query:"delete-pool-tags"`
 		InsertPoolTag                string `query:"insert-pool-tag"`
 		UpdateVoucherProfile         string `query:"update-voucher-profile"`
+		UpdateVoucherDisplayName     string `query:"update-voucher-display-name"`
 		DeleteVoucherTags            string `query:"delete-voucher-tags"`
 		InsertVoucherTag             string `query:"insert-voucher-tag"`
 		SetPoolTokenMembership       string `query:"set-pool-token-membership"`

@@ -36,10 +36,13 @@ type (
 	// Coordinates are nullable: a voucher without them still has a readable page,
 	// it simply renders no map.
 	MarketVoucherDetail struct {
-		ID           uint64   `db:"id"            json:"id"`
-		ChainID      int64    `db:"chain_id"      json:"chainId"`
-		Address      string   `db:"address"       json:"address"`
-		Name         *string  `db:"name"          json:"name"`
+		ID      uint64  `db:"id"            json:"id"`
+		ChainID int64   `db:"chain_id"      json:"chainId"`
+		Address string  `db:"address"       json:"address"`
+		Name    *string `db:"name"          json:"name"`
+		// ContractName is the immutable ERC20 name. Name is the effective catalog
+		// label, which may be an owner-set display-name override.
+		ContractName *string  `db:"contract_name" json:"contractName"`
 		Symbol       *string  `db:"symbol"        json:"symbol"`
 		Decimals     *int     `db:"decimals"      json:"decimals"`
 		OwnerAddress *string  `db:"owner_address" json:"ownerAddress"`

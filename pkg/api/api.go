@@ -276,10 +276,14 @@ type (
 	//
 	// Assign-all, exactly as UpdatePoolProfileRequest: every field is optional in
 	// the JSON and written unconditionally by the handler, so a caller sends the
-	// whole record and omitting a field clears it. Nothing here mirrors the
-	// deployed ERC20 — name, symbol, decimals and the owner all come from the
-	// chain and are not editable.
+	// whole record and omitting a field clears it. Except for DisplayName,
+	// nothing here mirrors the deployed ERC20 — contract name, symbol, decimals
+	// and the owner all come from the chain and are not editable.
 	UpdateVoucherProfileRequest struct {
+		// DisplayName is an off-chain override for the deployed ERC20 name.
+		// Omitted preserves the existing override; an empty string clears it and
+		// makes catalog reads fall back to the immutable contract name.
+		DisplayName  *string  `json:"displayName,omitempty"  validate:"omitempty,max=120"`
 		Description  *string  `json:"description,omitempty"  validate:"omitempty,max=500"`
 		VoucherUoa   *string  `json:"voucherUoa,omitempty"   validate:"omitempty,max=16"`
 		VoucherValue *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
@@ -300,6 +304,13 @@ type (
 		IconURL   *string  `json:"iconUrl,omitempty"   validate:"omitempty,http_url|eq="`
 		BannerURL *string  `json:"bannerUrl,omitempty" validate:"omitempty,http_url|eq="`
 		Tags      []string `json:"tags,omitempty"`
+	}
+
+	// UpdateVoucherDisplayNameRequest is the narrow owner-facing mutation for a
+	// voucher's public label. Contract name, symbol, decimals and ownership stay
+	// outside it because they are chain facts.
+	UpdateVoucherDisplayNameRequest struct {
+		DisplayName string `json:"displayName" validate:"required,max=120"`
 	}
 
 	// UpdateProfileRequest carries optional profile fields. Omitted location

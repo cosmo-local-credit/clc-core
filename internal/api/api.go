@@ -219,6 +219,7 @@ func New(o APIOpts) *API {
 	apiGroup.POST("/vouchers/:address/offerings", a.voucherOfferingCreateHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/offerings/:id", a.voucherOfferingUpdateHandler, a.requireUserAuth())
 	apiGroup.DELETE("/vouchers/:address/offerings/:id", a.voucherOfferingDeleteHandler, a.requireUserAuth())
+	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")

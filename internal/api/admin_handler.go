@@ -538,12 +538,13 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 // importer fills the rest, so a mistyped issuer email, a wrong unit of account or
 // a missing pin could only be fixed in the database by hand.
 //
-// It edits catalog metadata and nothing else. Name, symbol, decimals and the
-// owner mirror the deployed ERC20, and letting an operator retype them here would
-// produce a catalog that disagrees with the chain — with the catalog winning on
-// every screen that reads it. `active` is absent too: retiring a voucher is a
-// different operation from correcting its prose, and folding the two together
-// would let a description edit hide a voucher by accident.
+// It edits catalog metadata and nothing else. DisplayName is the sole public
+// label an operator may correct; the deployed name, symbol, decimals and owner
+// remain chain facts. Letting an operator retype those facts here would produce a
+// catalog that disagrees with the chain — with the catalog winning on every screen
+// that reads it. `active` is absent too: retiring a voucher is a different
+// operation from correcting its prose, and folding the two together would let a
+// description edit hide a voucher by accident.
 //
 // Assign-all, like the pool handler above: the caller sends the whole record and
 // every column is written, so clearing a field means sending it empty. Tags are
@@ -589,6 +590,7 @@ func (a *API) adminUpdateVoucherProfileHandler(c *echo.Context) error {
 	}
 
 	voucherID, err := a.store.UpdateVoucherProfile(ctx, tx, address, store.VoucherProfile{
+		DisplayName:  req.DisplayName,
 		Description:  req.Description,
 		VoucherUOA:   req.VoucherUoa,
 		VoucherValue: req.VoucherValue,

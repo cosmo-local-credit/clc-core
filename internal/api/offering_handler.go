@@ -272,7 +272,7 @@ func (a *API) authorizeOfferingMutation(
 // manages every offering under it and a superadmin manages any. Letting a
 // historical seller write would half-enable a multi-seller marketplace through
 // import data instead of designing one.
-func canWriteVoucherOfferings(callerAddress, callerRole string, ownerAddress *string) bool {
+func canManageVoucher(callerAddress, callerRole string, ownerAddress *string) bool {
 	if callerRole == "SUPERADMIN" {
 		return true
 	}
@@ -280,6 +280,10 @@ func canWriteVoucherOfferings(callerAddress, callerRole string, ownerAddress *st
 		return false
 	}
 	return strings.EqualFold(callerAddress, *ownerAddress)
+}
+
+func canWriteVoucherOfferings(callerAddress, callerRole string, ownerAddress *string) bool {
+	return canManageVoucher(callerAddress, callerRole, ownerAddress)
 }
 
 // offeringSeller returns the address a new row records as its seller, and whether
@@ -291,7 +295,7 @@ func canWriteVoucherOfferings(callerAddress, callerRole string, ownerAddress *st
 // honest answer available.
 func offeringSeller(callerAddress, callerRole string, ownerAddress *string) (string, bool) {
 	if ownerAddress != nil && *ownerAddress != "" {
-		if !canWriteVoucherOfferings(callerAddress, callerRole, ownerAddress) {
+		if !canManageVoucher(callerAddress, callerRole, ownerAddress) {
 			return "", false
 		}
 		return *ownerAddress, true

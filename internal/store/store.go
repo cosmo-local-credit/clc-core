@@ -43,6 +43,7 @@ type (
 		UpdatePoolProfile(context.Context, pgx.Tx, string, PoolProfile) (uint64, error)
 		ReplacePoolTags(context.Context, pgx.Tx, uint64, []string) error
 		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)
+		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)

@@ -64,6 +64,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "027_gnosis_platform_contracts.sql")
 	assert.Contains(t, sqlFiles, "028_otx_tracking_id_index.sql")
 	assert.Contains(t, sqlFiles, "029_user_profile_preferences.sql")
+	assert.Contains(t, sqlFiles, "030_voucher_display_name.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -94,7 +95,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "026_dispatch_verdict_statuses.sql" ||
 				name == "027_gnosis_platform_contracts.sql" ||
 				name == "028_otx_tracking_id_index.sql" ||
-				name == "029_user_profile_preferences.sql",
+				name == "029_user_profile_preferences.sql" ||
+				name == "030_voucher_display_name.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -133,7 +135,23 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"027_gnosis_platform_contracts.sql",
 		"028_otx_tracking_id_index.sql",
 		"029_user_profile_preferences.sql",
+		"030_voucher_display_name.sql",
 	}, files)
+}
+
+func TestVoucherDisplayNameMigration(t *testing.T) {
+	content, err := os.ReadFile("030_voucher_display_name.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS display_name TEXT")
+	assert.Contains(t, s, "vouchers_display_name_valid")
+	assert.Contains(t, s, "display_name = btrim(display_name)")
+	assert.Contains(t, s, "char_length(display_name) BETWEEN 1 AND 120")
+	assert.Contains(t, s, "DROP INDEX IF EXISTS vouchers_active_name_trgm_idx")
+	assert.Contains(t, s, "vouchers_active_display_name_trgm_idx")
+	assert.Contains(t, s, "lower(COALESCE(display_name, name)) gin_trgm_ops")
+	assert.Contains(t, s, "WHERE active")
 }
 
 func TestOracleFeedChainsMigration(t *testing.T) {

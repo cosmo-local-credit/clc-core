@@ -150,13 +150,13 @@ func composePoolVoucherCounts(filter CatalogFilter) composed {
 			poolTagPredicate(args, filter),
 		) + `
 )
-SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol,
     COUNT(*) AS match_count
 FROM candidates c
 INNER JOIN pool_tokens pv ON pv.pool_id = c.id AND pv.is_allowed
 INNER JOIN vouchers v ON v.id = pv.voucher_id
-GROUP BY v.id, v.chain_id, v.address, v.name, v.symbol
-ORDER BY lower(v.name), v.id;`
+GROUP BY v.id, v.display_name, v.chain_id, v.address, v.name, v.symbol
+ORDER BY lower(COALESCE(v.display_name, v.name)), v.id;`
 
 	return composed{sql: sql, args: args.values}
 }
