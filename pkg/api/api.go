@@ -43,6 +43,10 @@ type (
 		Tags      []string `json:"tags,omitempty"`
 	}
 
+	// Terms is either a link to the issuer's terms or the terms themselves,
+	// written as Markdown. The column is TEXT with no format constraint, so the
+	// only rule is a size cap; clients tell the two apart by whether the value
+	// parses as an http(s) URL. Pools keep the URL rule.
 	DeployTokenRequest struct {
 		Name            string   `json:"name" validate:"required"`
 		Symbol          string   `json:"symbol" validate:"required"`
@@ -53,7 +57,7 @@ type (
 		Website         string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email           string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone           string   `json:"phone,omitempty"`
-		Terms           string   `json:"terms,omitempty" validate:"omitempty,url"`
+		Terms           string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
 		VoucherUoa      string   `json:"voucherUoa,omitempty"`
 		VoucherValue    *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
 		LocationName    string   `json:"locationName,omitempty"`
@@ -278,7 +282,8 @@ type (
 	// the JSON and written unconditionally by the handler, so a caller sends the
 	// whole record and omitting a field clears it. Except for DisplayName,
 	// nothing here mirrors the deployed ERC20 — contract name, symbol, decimals
-	// and the owner all come from the chain and are not editable.
+	// and the owner all come from the chain and are not editable. Terms is a link
+	// or the terms themselves as Markdown, as on DeployTokenRequest.
 	UpdateVoucherProfileRequest struct {
 		// DisplayName is an off-chain override for the deployed ERC20 name.
 		// Omitted preserves the existing override; an empty string clears it and
@@ -290,7 +295,7 @@ type (
 		Email        *string  `json:"email,omitempty"        validate:"omitempty,email"`
 		Website      *string  `json:"website,omitempty"      validate:"omitempty,url"`
 		Phone        *string  `json:"phone,omitempty"`
-		Terms        *string  `json:"terms,omitempty"        validate:"omitempty,url"`
+		Terms        *string  `json:"terms,omitempty"        validate:"omitempty,max=5000"`
 		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
 		GeoLat       *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
 		GeoLng       *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`

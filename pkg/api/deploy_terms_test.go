@@ -2,7 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/go-playground/validator/v10"
 )
 
 func TestDeployRequestsAcceptTermsURL(t *testing.T) {
@@ -20,5 +23,38 @@ func TestDeployRequestsAcceptTermsURL(t *testing.T) {
 	}
 	if token.Terms != "https://example.org/terms" {
 		t.Fatalf("token terms = %q", token.Terms)
+	}
+}
+
+// Voucher terms may be written in place as Markdown rather than linked to; the
+// pool request keeps its URL rule.
+func TestVoucherTermsAcceptMarkdown(t *testing.T) {
+	v := validator.New(validator.WithRequiredStructEnabled())
+	markdown := "# Terms\n\nRedeemable at our stall on market days."
+
+	if err := v.Struct(&DeployTokenRequest{
+		Name: "Kilifi Harvest", Symbol: "KHV", Decimals: "6",
+		Owner: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+		Terms: markdown,
+	}); err != nil {
+		t.Fatalf("deploy token markdown terms: %v", err)
+	}
+	if err := v.Struct(&DeployTokenRequest{
+		Name: "Kilifi Harvest", Symbol: "KHV", Decimals: "6",
+		Owner: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+		Terms: strings.Repeat("a", 5001),
+	}); err == nil {
+		t.Fatal("deploy token terms over 5000 characters should be rejected")
+	}
+
+	if err := v.Struct(&UpdateVoucherProfileRequest{Terms: &markdown}); err != nil {
+		t.Fatalf("update voucher markdown terms: %v", err)
+	}
+
+	if err := v.Struct(&DeployPoolRequest{
+		Name: "Kilifi Pool", Symbol: "KLP", Owner: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+		Terms: markdown,
+	}); err == nil {
+		t.Fatal("pool terms are still a URL")
 	}
 }
