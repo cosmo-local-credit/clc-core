@@ -26,11 +26,12 @@ type (
 		FeesDecoupled    bool     `json:"feesDecoupled"`
 		FeePolicyDefault string   `json:"feePolicyDefault" validate:"required"`
 		BaseCurrency     string   `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
+		UnitOfAccount    string   `json:"unitOfAccount" validate:"required,max=16"`
 		Description      string   `json:"description,omitempty"`
 		Website          string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email            string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone            string   `json:"phone,omitempty"`
-		Terms            string   `json:"terms,omitempty" validate:"omitempty,url"`
+		Terms            string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
 		LocationName     string   `json:"locationName,omitempty"`
 		GeoLat           *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
 		GeoLng           *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
@@ -43,10 +44,10 @@ type (
 		Tags      []string `json:"tags,omitempty"`
 	}
 
-	// Terms is either a link to the issuer's terms or the terms themselves,
+	// Terms is either a link to the publisher's terms or the terms themselves,
 	// written as Markdown. The column is TEXT with no format constraint, so the
 	// only rule is a size cap; clients tell the two apart by whether the value
-	// parses as an http(s) URL. Pools keep the URL rule.
+	// parses as an http(s) URL.
 	DeployTokenRequest struct {
 		Name            string   `json:"name" validate:"required"`
 		Symbol          string   `json:"symbol" validate:"required"`
@@ -262,7 +263,7 @@ type (
 		Email         *string  `json:"email,omitempty"         validate:"omitempty,email"`
 		Website       *string  `json:"website,omitempty"       validate:"omitempty,url"`
 		Phone         *string  `json:"phone,omitempty"`
-		Terms         *string  `json:"terms,omitempty"         validate:"omitempty,url"`
+		Terms         *string  `json:"terms,omitempty"         validate:"omitempty,max=5000"`
 		LocationName  *string  `json:"locationName,omitempty"  validate:"omitempty,max=200"`
 		GeoLat        *float64 `json:"geoLat,omitempty"        validate:"omitempty,min=-90,max=90"`
 		GeoLng        *float64 `json:"geoLng,omitempty"        validate:"omitempty,min=-180,max=180"`

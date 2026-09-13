@@ -785,10 +785,11 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
   "symbol":           "MYP",
   "decimals":         "6",
   "owner":            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-  "quoterType":       "decimal",
+  "quoterType":       "relative",
   "feesDecoupled":    false,
   "feePolicyDefault": "",
-  "baseCurrency":     ""
+  "baseCurrency":     "",
+  "unitOfAccount":    "KES"
 }
 ```
 
@@ -802,6 +803,8 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 | `feesDecoupled` | `bool` | No | If `true`, fee policy executes independently of swaps (default: `false`) |
 | `feePolicyDefault` | `string` | No | Default fee policy identifier |
 | `baseCurrency` | `string` | Conditional | Checksummed non-zero token address; **required** when `quoterType` is `"oracle"` |
+| `unitOfAccount` | `string` | Yes | ISO 4217 currency code (or another supported unit) used to describe pool values |
+| `terms` | `string` | No | HTTP(S) link or Markdown terms, up to 5,000 characters |
 | `imageUrl` | `string` (http/https URL) | No | Optional pool image URL |
 | `bannerUrl` | `string` | No | Optional pool banner image URL |
 
@@ -809,9 +812,9 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | Value | Description |
 |---|---|
-| `"decimal"` | Fixed decimal-based pricing *(default)* |
+| `"decimal"` | Equal-value pricing adjusted only for token decimals |
 | `"oracle"` | Price sourced from an on-chain oracle; `baseCurrency` must be set |
-| `"relative"` | Pricing relative to pool reserves |
+| `"relative"` | Per-voucher rates relative to a common unit *(default)* |
 
 **Response `200`:**
 

@@ -234,8 +234,8 @@ INSERT INTO deployed_pools (
     otx_id, platform_contract_id, status, name, symbol, decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address, quoter_type,
     protocol_fee_controller_address, fees_decoupled, admin,
-    description, website, email, phone, terms, location_name, geo_lat, geo_lng, image_url, banner_url
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+    description, unit_of_account, website, email, phone, terms, location_name, geo_lat, geo_lng, image_url, banner_url
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 RETURNING id;
 
 --name: confirm-deployed-pool
@@ -254,7 +254,7 @@ WHERE otx_id = $1 AND status = 'PENDING';
 -- catalog on lower(address), let the fresh deploy win field by field, and link
 -- the pipeline row — all inside the confirming transaction.
 --
--- fee_ppm / fee_address / unit_of_account / default_voucher_id have no
+-- fee_ppm / fee_address / default_voucher_id have no
 -- counterpart on the deploy row and are left to the importer and pool sync.
 --name: upsert-pool-from-deploy
 WITH deploy AS (
@@ -273,6 +273,7 @@ WITH deploy AS (
         dp.protocol_fee_controller_address,
         dp.fees_decoupled,
         dp.description,
+        dp.unit_of_account,
         dp.website,
         dp.email,
         dp.phone,
@@ -291,7 +292,7 @@ upserted AS (
     INSERT INTO pools (
         chain_id, address, name, symbol, decimals, owner_address,
         token_registry_address, limiter_address, quoter_address, quoter_type, fee_policy_address,
-        protocol_fee_controller_address, fees_decoupled, description,
+        protocol_fee_controller_address, fees_decoupled, description, unit_of_account,
         location_name, geo_lat, geo_lng, email, website, phone, terms,
         image_url, banner_url, platform_contract_id
     )
@@ -299,7 +300,7 @@ upserted AS (
         d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
         d.token_registry_address, d.limiter_address, d.quoter_address, d.quoter_type,
         d.fee_policy_address, d.protocol_fee_controller_address, d.fees_decoupled,
-        d.description, d.location_name, d.geo_lat, d.geo_lng,
+        d.description, d.unit_of_account, d.location_name, d.geo_lat, d.geo_lng,
         d.email, d.website, d.phone, d.terms, d.image_url, d.banner_url,
         d.platform_contract_id
     FROM deploy d
@@ -316,6 +317,7 @@ upserted AS (
         protocol_fee_controller_address = COALESCE(EXCLUDED.protocol_fee_controller_address, pools.protocol_fee_controller_address),
         fees_decoupled                  = COALESCE(EXCLUDED.fees_decoupled, pools.fees_decoupled),
         description                     = COALESCE(EXCLUDED.description, pools.description),
+        unit_of_account                 = COALESCE(EXCLUDED.unit_of_account, pools.unit_of_account),
         location_name                   = COALESCE(EXCLUDED.location_name, pools.location_name),
         geo_lat                         = COALESCE(EXCLUDED.geo_lat, pools.geo_lat),
         geo_lng                         = COALESCE(EXCLUDED.geo_lng, pools.geo_lng),
@@ -352,7 +354,7 @@ INSERT INTO deployed_pool_tags (deployed_pool_id, tag_value) VALUES ($1, $2);
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
-    dp.description, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.description, dp.unit_of_account, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
     COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp
@@ -365,7 +367,7 @@ GROUP BY dp.id, o.tracking_id;
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
     dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
-    dp.description, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.description, dp.unit_of_account, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
     COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp

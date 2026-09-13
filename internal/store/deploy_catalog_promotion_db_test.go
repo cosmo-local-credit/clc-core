@@ -334,6 +334,7 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	feeController := randomAddress(t, tx)
 	desc, site, mail, phone := "A test pool", "https://pool.example.org", "p@example.org", "+254701"
 	terms := "https://pool.example.org/terms"
+	unitOfAccount := "KES"
 	locName := "Kisumu"
 	lat, lng := -0.0917, 34.7680
 	image, banner := "https://img", "https://banner"
@@ -354,6 +355,7 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		FeesDecoupled:                true,
 		Admin:                        admin,
 		Description:                  &desc,
+		UnitOfAccount:                &unitOfAccount,
 		Website:                      &site,
 		Email:                        &mail,
 		Phone:                        &phone,
@@ -436,9 +438,11 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	require.NotNil(t, gotPlatformID)
 
 	// Columns with no counterpart on the deploy row are left for the importer
-	// and pool sync to own.
+	// and pool sync to own. Unit of account is publish metadata and must already
+	// be present when this fresh deploy becomes visible in the catalog.
 	assert.Nil(t, gotFeePPM, "fee_ppm has no deploy-side source")
-	assert.Nil(t, gotUoa, "unit_of_account has no deploy-side source")
+	require.NotNil(t, gotUoa)
+	assert.Equal(t, unitOfAccount, *gotUoa)
 	require.NotNil(t, gotTerms)
 	assert.Equal(t, terms, *gotTerms)
 	assert.Nil(t, gotDefaultVoucherID, "default_voucher_id has no deploy-side source")

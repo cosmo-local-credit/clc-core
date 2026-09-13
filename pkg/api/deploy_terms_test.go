@@ -26,8 +26,7 @@ func TestDeployRequestsAcceptTermsURL(t *testing.T) {
 	}
 }
 
-// Voucher terms may be written in place as Markdown rather than linked to; the
-// pool request keeps its URL rule.
+// Voucher and pool terms may be written in place as Markdown rather than linked.
 func TestVoucherTermsAcceptMarkdown(t *testing.T) {
 	v := validator.New(validator.WithRequiredStructEnabled())
 	markdown := "# Terms\n\nRedeemable at our stall on market days."
@@ -52,9 +51,22 @@ func TestVoucherTermsAcceptMarkdown(t *testing.T) {
 	}
 
 	if err := v.Struct(&DeployPoolRequest{
-		Name: "Kilifi Pool", Symbol: "KLP", Owner: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+		Name: "Kilifi Pool", Symbol: "KLP", Decimals: "6",
+		Owner:            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+		FeePolicyDefault: "0", UnitOfAccount: "KES",
 		Terms: markdown,
+	}); err != nil {
+		t.Fatalf("deploy pool markdown terms: %v", err)
+	}
+	if err := v.Struct(&UpdatePoolProfileRequest{Terms: &markdown}); err != nil {
+		t.Fatalf("update pool markdown terms: %v", err)
+	}
+	if err := v.Struct(&DeployPoolRequest{
+		Name: "Kilifi Pool", Symbol: "KLP", Decimals: "6",
+		Owner:            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+		FeePolicyDefault: "0", UnitOfAccount: "KES",
+		Terms: strings.Repeat("a", 5001),
 	}); err == nil {
-		t.Fatal("pool terms are still a URL")
+		t.Fatal("deploy pool terms over 5000 characters should be rejected")
 	}
 }

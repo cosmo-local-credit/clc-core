@@ -28,7 +28,7 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 
 	if req.QuoterType == "" {
-		req.QuoterType = "decimal"
+		req.QuoterType = "relative"
 	}
 
 	if req.QuoterType == "oracle" {
@@ -159,6 +159,7 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		FeesDecoupled:              req.FeesDecoupled,
 		FeePolicyDefaultFee:        req.FeePolicyDefault,
 		BaseCurrency:               req.BaseCurrency,
+		UnitOfAccount:              req.UnitOfAccount,
 		FactoryAddress:             swapPoolPC.FactoryAddress,
 		SwapPoolImplAddress:        swapPoolPC.ImplementationAddress,
 		TokenIndexImplAddress:      tokenIndexPC.ImplementationAddress,

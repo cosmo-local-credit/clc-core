@@ -62,6 +62,7 @@ func TestImageURLFieldsAcceptOnlyHTTPSchemes(t *testing.T) {
 				Name: "Pool", Symbol: "POL", Decimals: "6",
 				Owner:            owner,
 				FeePolicyDefault: "0",
+				UnitOfAccount:    "KES",
 			}
 		}
 		req := base()

@@ -65,6 +65,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "028_otx_tracking_id_index.sql")
 	assert.Contains(t, sqlFiles, "029_user_profile_preferences.sql")
 	assert.Contains(t, sqlFiles, "030_voucher_display_name.sql")
+	assert.Contains(t, sqlFiles, "031_pool_deploy_unit_of_account.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -96,7 +97,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "027_gnosis_platform_contracts.sql" ||
 				name == "028_otx_tracking_id_index.sql" ||
 				name == "029_user_profile_preferences.sql" ||
-				name == "030_voucher_display_name.sql",
+				name == "030_voucher_display_name.sql" ||
+				name == "031_pool_deploy_unit_of_account.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -136,7 +138,15 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"028_otx_tracking_id_index.sql",
 		"029_user_profile_preferences.sql",
 		"030_voucher_display_name.sql",
+		"031_pool_deploy_unit_of_account.sql",
 	}, files)
+}
+
+func TestPoolDeployUnitOfAccountMigration(t *testing.T) {
+	content, err := os.ReadFile("031_pool_deploy_unit_of_account.sql")
+	require.NoError(t, err)
+
+	assert.Contains(t, string(content), "ADD COLUMN IF NOT EXISTS unit_of_account TEXT")
 }
 
 func TestVoucherDisplayNameMigration(t *testing.T) {

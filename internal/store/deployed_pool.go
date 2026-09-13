@@ -27,6 +27,7 @@ type (
 		FeesDecoupled                bool      `db:"fees_decoupled"                  json:"feesDecoupled"`
 		Admin                        string    `db:"admin"                           json:"admin"`
 		Description                  *string   `db:"description"                     json:"description"`
+		UnitOfAccount                *string   `db:"unit_of_account"                 json:"unitOfAccount"`
 		Website                      *string   `db:"website"                         json:"website"`
 		Email                        *string   `db:"email"                           json:"email"`
 		Phone                        *string   `db:"phone"                           json:"phone"`
@@ -63,6 +64,7 @@ func (pg *Pg) InsertDeployedPool(ctx context.Context, tx pgx.Tx, dp DeployedPool
 		dp.FeesDecoupled,
 		dp.Admin,
 		dp.Description,
+		dp.UnitOfAccount,
 		dp.Website,
 		dp.Email,
 		dp.Phone,

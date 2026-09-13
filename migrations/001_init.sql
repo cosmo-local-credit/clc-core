@@ -327,6 +327,7 @@ CREATE TABLE IF NOT EXISTS pool_deploy_meta (
     fees_decoupled                  BOOLEAN NOT NULL DEFAULT false,
     admin                           TEXT NOT NULL,
     description                     TEXT,
+    unit_of_account                 TEXT,
     website                         TEXT,
     email                           TEXT,
     phone                           TEXT,

@@ -31,6 +31,7 @@ type (
 		FeesDecoupled              bool     `json:"feesDecoupled"`
 		FeePolicyDefaultFee        string   `json:"feePolicyDefaultFee"`
 		BaseCurrency               string   `json:"baseCurrency"`
+		UnitOfAccount              string   `json:"unitOfAccount"`
 		FactoryAddress             string   `json:"factoryAddress"`
 		SwapPoolImplAddress        string   `json:"swapPoolImplAddress"`
 		TokenIndexImplAddress      string   `json:"tokenIndexImplAddress"`
@@ -371,6 +372,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		FeesDecoupled:                args.FeesDecoupled,
 		Admin:                        ownerAddress.Hex(),
 		Description:                  nilIfEmpty(args.Description),
+		UnitOfAccount:                nilIfEmpty(args.UnitOfAccount),
 		Website:                      nilIfEmpty(args.Website),
 		Email:                        nilIfEmpty(args.Email),
 		Phone:                        nilIfEmpty(args.Phone),
