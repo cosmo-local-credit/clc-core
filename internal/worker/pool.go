@@ -29,6 +29,7 @@ type (
 		Owner                      string   `json:"owner"`
 		QuoterType                 string   `json:"quoterType"`
 		FeesDecoupled              bool     `json:"feesDecoupled"`
+		FeeAddress                 string   `json:"feeAddress"`
 		FeePolicyDefaultFee        string   `json:"feePolicyDefaultFee"`
 		BaseCurrency               string   `json:"baseCurrency"`
 		UnitOfAccount              string   `json:"unitOfAccount"`
@@ -312,13 +313,19 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	}
 
 	// 5. SwapPool
+	// Decoupled fees go to the account the request named; jobs queued before
+	// the field existed carry none and keep paying the owner, as they always did.
+	feeAddress := ownerAddress
+	if args.FeeAddress != "" {
+		feeAddress = common.HexToAddress(args.FeeAddress)
+	}
 	swapPoolInit, err := swappool.EncodeInit(swappool.InitArgs{
 		Name:                  args.PoolName,
 		Symbol:                args.PoolSymbol,
 		Decimals:              uint8(poolDecimals),
 		Owner:                 ownerAddress,
 		FeePolicy:             feePolicyAddr,
-		FeeAddress:            ownerAddress,
+		FeeAddress:            feeAddress,
 		TokenRegistry:         tokenIndexAddr,
 		TokenLimiter:          limiterAddr,
 		Quoter:                quoterAddr,

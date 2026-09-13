@@ -18,12 +18,16 @@ type (
 	}
 
 	DeployPoolRequest struct {
-		Name             string   `json:"name" validate:"required"`
-		Symbol           string   `json:"symbol" validate:"required"`
-		Decimals         string   `json:"decimals" validate:"required"`
-		Owner            string   `json:"owner" validate:"required,eth_addr_checksum"`
-		QuoterType       string   `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
-		FeesDecoupled    bool     `json:"feesDecoupled"`
+		Name          string `json:"name" validate:"required"`
+		Symbol        string `json:"symbol" validate:"required"`
+		Decimals      string `json:"decimals" validate:"required"`
+		Owner         string `json:"owner" validate:"required,eth_addr_checksum"`
+		QuoterType    string `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
+		FeesDecoupled bool   `json:"feesDecoupled"`
+		// Where decoupled fees are paid. Defaults to the owner, which is what every
+		// deploy did before the field existed; meaningful only with FeesDecoupled,
+		// since coupled fees stay in the pool's own liquidity.
+		FeeAddress       string   `json:"feeAddress,omitempty" validate:"omitempty,eth_addr_checksum"`
 		FeePolicyDefault string   `json:"feePolicyDefault" validate:"required"`
 		BaseCurrency     string   `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
 		UnitOfAccount    string   `json:"unitOfAccount" validate:"required,max=16"`

@@ -64,6 +64,17 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		})
 	}
 
+	// A recipient for fees that never leave the pool is a contradiction, and
+	// most likely a client that forgot to clear the field when the box was
+	// unticked. Say so before a transaction is signed for it.
+	if req.FeeAddress != "" && !req.FeesDecoupled {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "feeAddress requires feesDecoupled",
+		})
+	}
+
 	callerType, _ := c.Get("callerType").(string)
 	callerUserID, _ := c.Get("callerUserID").(uint64)
 
@@ -157,6 +168,7 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		Owner:                      req.Owner,
 		QuoterType:                 req.QuoterType,
 		FeesDecoupled:              req.FeesDecoupled,
+		FeeAddress:                 req.FeeAddress,
 		FeePolicyDefaultFee:        req.FeePolicyDefault,
 		BaseCurrency:               req.BaseCurrency,
 		UnitOfAccount:              req.UnitOfAccount,
