@@ -11,8 +11,8 @@ import (
 )
 
 // updateVoucherDisplayNameHandler lets the current voucher owner correct the
-// catalog label without redeploying the ERC20. It deliberately owns one field:
-// broader metadata edits remain a steward capability on the admin route.
+// catalog label without redeploying the ERC20. It owns one field; the whole
+// record is edited through updateVoucherProfileHandler.
 func (a *API) updateVoucherDisplayNameHandler(c *echo.Context) error {
 	address, handled, err := offeringVoucherParam(c)
 	if handled || err != nil {
