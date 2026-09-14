@@ -185,8 +185,8 @@ func (a *API) reportByIDHandler(c *echo.Context) error {
 // reportCreateHandler creates a post attributed to the authenticated wallet.
 // authorAddress is never accepted from JSON: the JWT identity is the provenance
 // record, and allowing a caller to supply it would defeat the owner check on
-// later edits. Normal-user posts start SUBMITTED; a superadmin can create an
-// APPROVED post because that role already holds the approval authority.
+// later edits. Every post is published as it is created: there is no review
+// queue, and a superadmin's remaining levers are reject and delete.
 func (a *API) reportCreateHandler(c *echo.Context) error {
 	report, voucherRefs, handled, err := a.bindReportWrite(c)
 	if handled || err != nil {
@@ -194,10 +194,6 @@ func (a *API) reportCreateHandler(c *echo.Context) error {
 	}
 
 	_, callerAddress, callerRole := getUserClaims(c)
-	status := "SUBMITTED"
-	if callerRole == "SUPERADMIN" {
-		status = "APPROVED"
-	}
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
@@ -205,11 +201,11 @@ func (a *API) reportCreateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs); handled || err != nil {
+	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs, callerAddress, callerRole); handled || err != nil {
 		return err
 	}
 
-	id, err := a.store.CreateReport(ctx, tx, report, callerAddress, status)
+	id, err := a.store.CreateReport(ctx, tx, report, callerAddress, store.ReportStatusApproved)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -283,8 +279,8 @@ func (a *API) reportApproveHandler(c *echo.Context) error {
 // post, and a superadmin may edit any post. LockReportAuthor makes that decision
 // against the same row version the transaction updates.
 //
-// An author's edit resubmits the post; a superadmin's preserves its status. See
-// reportUpdateStatus for why.
+// An author's edit publishes the post again; a superadmin's preserves its
+// status. See reportUpdateStatus for why.
 func (a *API) reportUpdateHandler(c *echo.Context) error {
 	id, handled, err := reportIDParam(c)
 	if handled || err != nil {
@@ -317,7 +313,7 @@ func (a *API) reportUpdateHandler(c *echo.Context) error {
 
 	// Database-backed relation validation follows authorization, so a caller
 	// who cannot edit this row cannot use it to probe tag or voucher existence.
-	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs); handled || err != nil {
+	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs, callerAddress, callerRole); handled || err != nil {
 		return err
 	}
 	if err := a.store.UpdateReport(ctx, tx, id, report, callerAddress, reportUpdateStatus(callerRole)); err != nil {
@@ -403,17 +399,17 @@ func canUpdateReport(callerAddress, callerRole, authorAddress string) bool {
 // reportUpdateStatus decides what an authorized edit does to workflow state.
 //
 // A superadmin returns nil, which update-report's COALESCE reads as "keep the
-// current status": correcting an approved post must not unpublish it, and
-// editing a submitted one must not approve it. Any other authorized caller is
-// the author, whose edit resubmits — otherwise an approved post is a slot an
-// author can substitute unreviewed content into, editing being the only
-// mutation they hold. Both frontends warn before submit.
+// current status": a moderator's correction must not flip a rejected post back
+// to published. Any other authorized caller is the author, and posts are
+// auto-approved, so an author's edit publishes the result the same way their
+// create did — including a legacy SUBMITTED post, which would otherwise wait in
+// a queue nobody works any more.
 func reportUpdateStatus(callerRole string) *string {
 	if callerRole == "SUPERADMIN" {
 		return nil
 	}
-	resubmitted := store.ReportStatusSubmitted
-	return &resubmitted
+	approved := store.ReportStatusApproved
+	return &approved
 }
 
 // bindReportWrite performs request-shape validation first, then the cross-field
@@ -598,11 +594,17 @@ func requiredHTTPURL(value, field string) (string, error) {
 
 // resolveReportWriteRelations validates vocabulary-backed fields and replaces
 // stable voucher references with internal IDs before anything is persisted.
+// resolveReportWriteRelations turns the write's tag and voucher references into
+// the rows they name. A superadmin may link any catalog voucher; anyone else may
+// only link vouchers they own, so a post cannot speak for a voucher its author
+// does not issue. That rule lives here rather than in the client because the
+// client's picker is a convenience, not a gate.
 func (a *API) resolveReportWriteRelations(
 	c *echo.Context,
 	tx pgx.Tx,
 	report *store.ReportWrite,
 	voucherRefs []store.VoucherRef,
+	callerAddress, callerRole string,
 ) (bool, error) {
 	if handled, err := a.rejectUnknownTags(c, tx, report.Tags); handled || err != nil {
 		return handled, err
@@ -617,6 +619,15 @@ func (a *API) resolveReportWriteRelations(
 	}
 	if len(ids) != len(voucherRefs) {
 		return true, respondCatalogSearchError(c, errUnknownVoucherRef)
+	}
+	if callerRole != "SUPERADMIN" {
+		owned, err := a.store.CountVouchersOwnedBy(c.Request().Context(), tx, ids, callerAddress)
+		if err != nil {
+			return true, handlePostgresError(c, err)
+		}
+		if owned != len(ids) {
+			return true, handleForbiddenError(c, "only vouchers you own can be linked to a post")
+		}
 	}
 	report.VoucherIDs = ids
 	return false, nil

@@ -2024,8 +2024,8 @@ these routes sit on the authenticated API group.
 | Operation | User JWT | Service JWT | `SUPERADMIN` user JWT |
 |---|---|---|---|
 | List and detail | Yes | Yes | Yes |
-| Create | Yes, as `SUBMITTED` | No | Yes, as `APPROVED` |
-| Update | Original author only, and it resubmits | No | Any post, status preserved |
+| Create | Yes, as `APPROVED` | No | Yes, as `APPROVED` |
+| Update | Original author only, stays `APPROVED` | No | Any post, status preserved |
 | Approve | No | No | Any post |
 | Delete | No | No | Any post |
 | Own posts in any status | Yes, own only | No | Yes, own only |
@@ -2238,10 +2238,14 @@ the caller as the modifier but never transfers authorship.
 
 ### 11.4 Create (`POST /api/v2/reports`)
 
-Requires a user JWT; service JWTs receive `403 E10`. A normal user's new post is
-stored as `SUBMITTED` and remains absent from the feed and detail routes until a
-superadmin approves it. A `SUPERADMIN`-created post is stored as `APPROVED`
-immediately because that caller already holds approval authority.
+Requires a user JWT; service JWTs receive `403 E10`. Posts are auto-approved:
+every new post is stored as `APPROVED` and appears in the feed and detail
+routes at once, whoever created it.
+
+`vouchers` is restricted by role. A `SUPERADMIN` may link any catalog voucher;
+any other caller may only link vouchers whose `owner_address` is their own
+address, and a write naming someone else's voucher is a `403 E10`. A voucher
+with no recorded owner is owned by nobody for this purpose.
 
 ```http
 POST /api/v2/reports
@@ -2260,7 +2264,7 @@ Success is `201 Created` and returns the complete created report:
       "id": 4633,
       "title": "August community harvest",
       "authorAddress": "0x0000000000000000000000000000000000000011",
-      "status": "SUBMITTED",
+      "status": "APPROVED",
       "tags": ["Agriculture", "Youth"],
       "vouchers": [],
       "images": [],
@@ -2293,19 +2297,15 @@ The resulting workflow status depends on who edited:
 
 | Caller | Status after the edit |
 |---|---|
-| Original author, post is `DRAFT`, `SUBMITTED`, or `REJECTED` | `SUBMITTED` |
-| Original author, post is `APPROVED` | `SUBMITTED` — it leaves the feed until reapproved |
-| `SUPERADMIN` | Unchanged; an approved post stays approved and visible |
+| Original author, any status | `APPROVED` |
+| `SUPERADMIN` | Unchanged; a rejected post stays rejected |
 
-An author's edit resubmits because approval is not reversible in this contract
-and editing is the only mutation an author holds: without it, one approved post
-is a slot the author can substitute unreviewed content into and have it served
-publicly. The cost is real — fixing a typo takes the post out of the feed until
-an operator approves it again — so both frontends warn before submit.
-
-A superadmin edit preserves status so that correcting an approved post does not
-unpublish it, and editing a submitted one does not approve it by accident.
-Approval remains the explicit action in [§11.6](#116-approve-put-apiv2reportsidapprove).
+Posts are auto-approved, so an author's edit publishes the result the same way
+their create did. That also lifts a legacy `SUBMITTED` post out of a queue that
+is no longer worked. A superadmin edit preserves status so that a moderator's
+correction of a rejected post does not republish it by accident; rejecting and
+deleting are the moderation levers, and approval
+([§11.6](#116-approve-put-apiv2reportsidapprove)) remains for legacy rows.
 
 The mutation response includes `status` and returns the row to its authorized
 caller even when the normal detail route hides it. An author whose post is no
@@ -2327,9 +2327,10 @@ the latest modifier. It does not rewrite the post body or any relation. Calling
 it for an already-approved post is idempotent in state and returns `200 OK` with
 description `Report approved` and the complete report under `result.report`.
 
-Once approved, the post appears in the feed and detail routes. A later admin
-edit preserves `APPROVED`; a later **author** edit resubmits it and this
-endpoint is required again ([§11.5](#115-update-put-apiv2reportsid)).
+Once approved, the post appears in the feed and detail routes. Both an admin
+edit and an author edit keep it `APPROVED`
+([§11.5](#115-update-put-apiv2reportsid)); with auto-approval this endpoint is
+needed only for rows that predate it.
 
 There is no unapprove transition. A console must therefore confirm before
 calling this.
@@ -2358,8 +2359,8 @@ Success is `200 OK`:
 
 The mutation routes return `400 E02` for malformed JSON, `400 E04` for
 invalid fields or unknown tag/voucher references, `401 E06` without valid
-authentication, `403 E10` when the credential lacks permission, and `404 E03`
-when `:id` does not exist.
+authentication, `403 E10` when the credential lacks permission or a non-superadmin
+links a voucher they do not own, and `404 E03` when `:id` does not exist.
 
 ### 11.8 An author's own posts
 

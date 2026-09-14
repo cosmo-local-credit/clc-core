@@ -457,6 +457,22 @@ func (pg *Pg) ResolveVoucherRefs(
 	return ids, nil
 }
 
+// CountVouchersOwnedBy answers how many of the given voucher rows list owner as
+// their owner_address, compared case-insensitively. A count rather than a list
+// because the caller only needs to know whether every id passed; ids not in
+// the table simply do not count, so an unknown id reads the same as one owned
+// by someone else.
+func (pg *Pg) CountVouchersOwnedBy(ctx context.Context, tx pgx.Tx, ids []uint64, owner string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	var count int
+	if err := tx.QueryRow(ctx, pg.queries.CountVouchersOwnedBy, ids, owner).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (a *sqlArgs) bind(value any) string {
 	a.values = append(a.values, value)
 	return "$" + strconv.Itoa(len(a.values))

@@ -153,6 +153,7 @@ type (
 		ListReportVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
 		ResolveVoucherRefs(context.Context, pgx.Tx, []VoucherRef) ([]uint64, error)
+		CountVouchersOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)

@@ -153,13 +153,13 @@ func TestNormalizeReportWriteKeepsAttachmentKindsApart(t *testing.T) {
 	}
 }
 
-func TestReportUpdateStatusResubmitsForAuthorsOnly(t *testing.T) {
+func TestReportUpdateStatusPublishesForAuthorsOnly(t *testing.T) {
 	if reportUpdateStatus("SUPERADMIN") != nil {
 		t.Fatal("superadmin edit assigns a status, want the row's own preserved")
 	}
 	status := reportUpdateStatus("USER")
-	if status == nil || *status != store.ReportStatusSubmitted {
-		t.Fatalf("author edit status = %v, want SUBMITTED", status)
+	if status == nil || *status != store.ReportStatusApproved {
+		t.Fatalf("author edit status = %v, want APPROVED", status)
 	}
 }
 
@@ -305,8 +305,9 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 		t.Fatalf("decode create: %v", err)
 	}
 	id := createEnvelope.Result.Report.ID
+	// Posts are auto-approved: a normal user's create is published at once.
 	if id == 0 || createEnvelope.Result.Report.AuthorAddress != reportAuthorAddress ||
-		createEnvelope.Result.Report.Status != "SUBMITTED" {
+		createEnvelope.Result.Report.Status != "APPROVED" {
 		t.Fatalf("created report = %+v", createEnvelope.Result.Report)
 	}
 	path := "/api/v2/reports/" + strconv.FormatUint(id, 10)
@@ -314,13 +315,13 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 	if res := call(http.MethodPut, path, otherToken, marker+" other"); res.Code != http.StatusForbidden {
 		t.Fatalf("other edit status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if res := call(http.MethodPut, path, authorToken, marker+" pending"); res.Code != http.StatusOK {
+	if res := call(http.MethodPut, path, authorToken, marker+" author edit"); res.Code != http.StatusOK {
 		t.Fatalf("author edit status = %d, body = %s", res.Code, res.Body.String())
-	} else if status := reportStatus(t, res); status != "SUBMITTED" {
-		t.Fatalf("status after pending author edit = %q, want SUBMITTED", status)
+	} else if status := reportStatus(t, res); status != "APPROVED" {
+		t.Fatalf("status after author edit = %q, want APPROVED", status)
 	}
-	if res := call(http.MethodGet, path, authorToken, ""); res.Code != http.StatusNotFound {
-		t.Fatalf("submitted detail status = %d, want 404; body = %s", res.Code, res.Body.String())
+	if res := call(http.MethodGet, path, authorToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("detail after author edit = %d, body = %s", res.Code, res.Body.String())
 	}
 	if res := call(http.MethodDelete, path, authorToken, ""); res.Code != http.StatusForbidden {
 		t.Fatalf("author delete status = %d, body = %s", res.Code, res.Body.String())
@@ -330,29 +331,25 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 	} else if status := reportStatus(t, res); status != "APPROVED" {
 		t.Fatalf("approved status = %q, want APPROVED", status)
 	}
-	if res := call(http.MethodGet, path, authorToken, ""); res.Code != http.StatusOK {
-		t.Fatalf("approved detail status = %d, body = %s", res.Code, res.Body.String())
-	}
 
-	// An author's edit of an approved post resubmits it and it leaves the public
-	// feed until an operator approves it again. Without that, editing is a way
-	// to substitute unreviewed content for approved content.
+	// An author's edit keeps the post published: there is no review queue for
+	// an edit to fall back into.
 	if res := call(http.MethodPut, path, authorToken, marker+" approved author edit"); res.Code != http.StatusOK {
 		t.Fatalf("approved author edit status = %d, body = %s", res.Code, res.Body.String())
-	} else if status := reportStatus(t, res); status != "SUBMITTED" {
-		t.Fatalf("status after approved author edit = %q, want SUBMITTED", status)
+	} else if status := reportStatus(t, res); status != "APPROVED" {
+		t.Fatalf("status after approved author edit = %q, want APPROVED", status)
 	}
-	if res := call(http.MethodGet, path, authorToken, ""); res.Code != http.StatusNotFound {
-		t.Fatalf("resubmitted detail status = %d, want 404; body = %s", res.Code, res.Body.String())
+	if res := call(http.MethodGet, path, authorToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("detail after approved author edit = %d, body = %s", res.Code, res.Body.String())
 	}
 
-	// The author can still reach their own resubmitted post, and so can an
-	// operator; another user cannot.
+	// The author can reach their own post through the management read, and so
+	// can an operator; another user cannot.
 	ownPath := "/api/v2/users/me/reports/" + strconv.FormatUint(id, 10)
 	if res := call(http.MethodGet, ownPath, authorToken, ""); res.Code != http.StatusOK {
 		t.Fatalf("own detail status = %d, body = %s", res.Code, res.Body.String())
-	} else if status := reportStatus(t, res); status != "SUBMITTED" {
-		t.Fatalf("own detail status field = %q, want SUBMITTED", status)
+	} else if status := reportStatus(t, res); status != "APPROVED" {
+		t.Fatalf("own detail status field = %q, want APPROVED", status)
 	}
 	if res := call(http.MethodGet, ownPath, otherToken, ""); res.Code != http.StatusNotFound {
 		t.Fatalf("other author own-detail status = %d, want 404", res.Code)
@@ -361,10 +358,10 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 	if res := call(http.MethodGet, adminPath, adminToken, ""); res.Code != http.StatusOK {
 		t.Fatalf("admin detail status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if res := call(http.MethodGet, "/api/v2/admin/reports?status=submitted&perPage=100", adminToken, ""); res.Code != http.StatusOK {
-		t.Fatalf("admin queue status = %d, body = %s", res.Code, res.Body.String())
+	if res := call(http.MethodGet, "/api/v2/admin/reports?status=approved&perPage=100", adminToken, ""); res.Code != http.StatusOK {
+		t.Fatalf("admin list status = %d, body = %s", res.Code, res.Body.String())
 	} else if !managedListContains(t, res, id) {
-		t.Fatalf("admin SUBMITTED queue is missing report %d", id)
+		t.Fatalf("admin APPROVED list is missing report %d", id)
 	}
 	if res := call(http.MethodGet, "/api/v2/users/me/reports?perPage=100", authorToken, ""); res.Code != http.StatusOK {
 		t.Fatalf("own list status = %d, body = %s", res.Code, res.Body.String())
@@ -458,4 +455,85 @@ func mintReportToken(t *testing.T, private ed25519.PrivateKey, address, role str
 		t.Fatalf("sign user token: %v", err)
 	}
 	return token
+}
+
+// A post may only link vouchers its author owns unless the author is a
+// superadmin. Live because ownership is a column on the vouchers table, and the
+// rule is only as good as the query that reads it. Skipped without CORE_TEST_DSN.
+func TestReportVoucherLinksRequireOwnershipThroughRoutes(t *testing.T) {
+	dsn := os.Getenv("CORE_TEST_DSN")
+	if dsn == "" {
+		t.Skip("CORE_TEST_DSN not set; skipping live report voucher ownership tests")
+	}
+
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate signing key: %v", err)
+	}
+	pgStore, err := store.NewPgStore(store.PgOpts{
+		Logg:                 slog.New(slog.DiscardHandler),
+		DSN:                  dsn,
+		MigrationsFolderPath: "../../migrations",
+		QueriesFolderPath:    "../../core_queries.sql",
+	})
+	if err != nil {
+		t.Fatalf("connect store: %v", err)
+	}
+	defer pgStore.Pool().Close()
+
+	a := New(APIOpts{
+		Logg:         slog.New(slog.DiscardHandler),
+		CORS:         []string{"https://app.example"},
+		Store:        pgStore,
+		SigningKey:   private,
+		VerifyingKey: public,
+	})
+	authorToken := mintReportToken(t, private, reportAuthorAddress, "USER")
+	otherToken := mintReportToken(t, private, reportOtherAddress, "USER")
+	adminToken := mintReportToken(t, private, reportAdminAddress, "SUPERADMIN")
+	marker := "Zqreportowner" + strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	ctx := context.Background()
+	var voucherID uint64
+	var voucherAddress string
+	if err := pgStore.Pool().QueryRow(ctx, `
+		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, owner_address, active)
+		VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
+			$1, 'ZQO', 6, $2, TRUE)
+		RETURNING id, address`, marker+" Voucher", reportAuthorAddress).
+		Scan(&voucherID, &voucherAddress); err != nil {
+		t.Fatalf("seed voucher: %v", err)
+	}
+	defer func() {
+		_, _ = pgStore.Pool().Exec(ctx, `DELETE FROM reports WHERE title LIKE $1`, marker+"%")
+		_, _ = pgStore.Pool().Exec(ctx, `DELETE FROM vouchers WHERE id = $1`, voucherID)
+	}()
+
+	create := func(token, title string) *httptest.ResponseRecorder {
+		body, err := json.Marshal(apiresp.ReportWriteRequest{
+			Title:    title,
+			Vouchers: []apiresp.ReportVoucherRefRequest{{ChainID: 42220, Address: voucherAddress}},
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v2/reports", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		a.router.ServeHTTP(res, req)
+		return res
+	}
+
+	if res := create(authorToken, marker+" owner"); res.Code != http.StatusCreated {
+		t.Fatalf("owner create status = %d, body = %s", res.Code, res.Body.String())
+	} else if status := reportStatus(t, res); status != "APPROVED" {
+		t.Fatalf("owner create status field = %q, want APPROVED", status)
+	}
+	if res := create(otherToken, marker+" other"); res.Code != http.StatusForbidden {
+		t.Fatalf("non-owner create status = %d, want 403; body = %s", res.Code, res.Body.String())
+	}
+	if res := create(adminToken, marker+" admin"); res.Code != http.StatusCreated {
+		t.Fatalf("superadmin create status = %d, body = %s", res.Code, res.Body.String())
+	}
 }

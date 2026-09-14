@@ -1960,6 +1960,16 @@ INNER JOIN vouchers v
     AND lower(v.address) = lower(ref.address)
 ORDER BY v.id;
 
+-- How many of the given voucher ids belong to one address. Posts link vouchers
+-- by id after resolve-voucher-refs, and a non-superadmin author may only link
+-- vouchers they own; comparing the count against the number of ids is the
+-- whole check. A voucher with no recorded owner is owned by nobody here.
+--name: count-vouchers-owned-by
+SELECT count(*)
+FROM vouchers v
+WHERE v.id = ANY($1::BIGINT[])
+    AND lower(v.owner_address) = lower($2);
+
 -- The voucher tag facet vocabulary: every tag that appears on an available
 -- offering of a visible voucher. Deliberately independent of the caller's
 -- search, so the filter list does not collapse as the user types, and of the

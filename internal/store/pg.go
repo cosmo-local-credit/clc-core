@@ -169,6 +169,7 @@ type (
 		UnknownTokenTags           string `query:"unknown-token-tags"`
 		SetCatalogStatementTimeout string `query:"set-catalog-statement-timeout"`
 		ResolveVoucherRefs         string `query:"resolve-voucher-refs"`
+		CountVouchersOwnedBy       string `query:"count-vouchers-owned-by"`
 
 		// Facet vocabularies are parameterless and request-independent; only
 		// the count half varies with the search, and it is composed.
