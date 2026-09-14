@@ -496,9 +496,9 @@ func voucherIDsParam(ids []uint64) []int64 {
 }
 
 // searchPredicate returns the displayed name/symbol match for the filter's term,
-// or "" if there is no term. Voucher labels may override their immutable
-// contract names; pool names have no such override. Both fragments are constant
-// text; only the term is bound.
+// or "" if there is no term. Voucher and pool labels may override their
+// immutable contract names. Both fragments are constant text; only the term is
+// bound.
 func searchPredicate(args *sqlArgs, filter CatalogFilter, table string) string {
 	if filter.Term == "" {
 		return ""
@@ -506,8 +506,8 @@ func searchPredicate(args *sqlArgs, filter CatalogFilter, table string) string {
 
 	placeholder := args.bind(filter.likeTerm())
 	name := table + ".name"
-	if table == "v" {
-		name = "COALESCE(v.display_name, v.name)"
+	if table == "v" || table == "p" {
+		name = "COALESCE(" + table + ".display_name, " + table + ".name)"
 	}
 	if filter.prefixOnly() {
 		return "(lower(" + name + ") LIKE lower(" + placeholder + ") || '%' ESCAPE '\\'" +

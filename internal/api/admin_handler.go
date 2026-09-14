@@ -448,24 +448,9 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 	if handled || err != nil {
 		return err
 	}
-
-	var req apiresp.UpdatePoolProfileRequest
-	if err := c.Bind(&req); err != nil {
-		return handleBindError(c, err)
-	}
-	if err := c.Validate(req); err != nil {
-		return a.handleValidateError(c, err)
-	}
-
-	// A label without coordinates, or coordinates without a label, describes a
-	// place nobody can point at. pools_geo_valid backstops this at the database,
-	// but a 400 names the field the caller got wrong.
-	if (req.GeoLat == nil) != (req.GeoLng == nil) {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "Validation failed: geoLat and geoLng must be provided together",
-		})
+	req, handled, err := a.bindPoolProfileRequest(c)
+	if handled || err != nil {
+		return err
 	}
 
 	ctx := c.Request().Context()
@@ -476,58 +461,16 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Same vocabulary check the catalog search applies, so a tag cannot enter
-	// through this endpoint that no filter could ever select.
-	if rejected, err := a.rejectUnknownTags(c, tx, req.Tags); rejected || err != nil {
+	pool, handled, err := a.savePoolProfile(c, ctx, tx, address, req)
+	if handled || err != nil {
 		return err
-	}
-
-	poolID, err := a.store.UpdatePoolProfile(ctx, tx, address, store.PoolProfile{
-		Description:   req.Description,
-		UnitOfAccount: req.UnitOfAccount,
-		Email:         req.Email,
-		Website:       req.Website,
-		Phone:         req.Phone,
-		Terms:         req.Terms,
-		LocationName:  req.LocationName,
-		ImageURL:      req.ImageURL,
-		BannerURL:     req.BannerURL,
-		GeoLat:        req.GeoLat,
-		GeoLng:        req.GeoLng,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeNotFound,
-				Description: "pool not found",
-			})
-		}
-		return handlePostgresError(c, err)
-	}
-
-	if err := a.store.ReplacePoolTags(ctx, tx, poolID, req.Tags); err != nil {
-		return handlePostgresError(c, err)
-	}
-
-	pool, err := a.store.GetPoolByAddress(ctx, tx, address)
-	if err != nil {
-		return handlePostgresError(c, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 
-	// The whole row, so a console can write the response straight into its cache
-	// rather than refetching what it just sent.
-	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok:          true,
-		Description: "Pool profile updated",
-		Result: map[string]any{
-			"pool": pool,
-		},
-	})
+	return respondPoolProfile(c, pool)
 }
 
 // adminUpdateVoucherProfileHandler lets a superadmin correct a voucher's

@@ -45,6 +45,7 @@ type (
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
+		LockPoolForProfileUpdate     string `query:"lock-pool-for-profile-update"`
 		UpdatePoolProfile            string `query:"update-pool-profile"`
 		DeletePoolTags               string `query:"delete-pool-tags"`
 		InsertPoolTag                string `query:"insert-pool-tag"`

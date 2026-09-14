@@ -264,15 +264,9 @@ func (a *API) authorizeOfferingMutation(
 	return parent, false, nil
 }
 
-// canWriteVoucherOfferings decides authority from the voucher relationship.
-//
-// Not from `offerings.seller_address`: on imported rows that column holds the
-// historical Sarafu seller, which may be an address no longer connected to the
-// voucher. In this slice a voucher is one issuer's catalog, so the current owner
-// manages every offering under it and a superadmin manages any. Letting a
-// historical seller write would half-enable a multi-seller marketplace through
-// import data instead of designing one.
-func canManageVoucher(callerAddress, callerRole string, ownerAddress *string) bool {
+// canManageCatalogRecord is the owner-or-superadmin rule shared by mutable pool
+// and voucher catalog records. A nil owner remains operator-only.
+func canManageCatalogRecord(callerAddress, callerRole string, ownerAddress *string) bool {
 	if callerRole == "SUPERADMIN" {
 		return true
 	}
@@ -282,6 +276,13 @@ func canManageVoucher(callerAddress, callerRole string, ownerAddress *string) bo
 	return strings.EqualFold(callerAddress, *ownerAddress)
 }
 
+func canManageVoucher(callerAddress, callerRole string, ownerAddress *string) bool {
+	return canManageCatalogRecord(callerAddress, callerRole, ownerAddress)
+}
+
+// canWriteVoucherOfferings decides authority from the voucher relationship,
+// not from offerings.seller_address. Imported seller history must not grant
+// current catalog authority.
 func canWriteVoucherOfferings(callerAddress, callerRole string, ownerAddress *string) bool {
 	return canManageVoucher(callerAddress, callerRole, ownerAddress)
 }

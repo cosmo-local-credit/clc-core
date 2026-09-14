@@ -66,6 +66,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "029_user_profile_preferences.sql")
 	assert.Contains(t, sqlFiles, "030_voucher_display_name.sql")
 	assert.Contains(t, sqlFiles, "031_pool_deploy_unit_of_account.sql")
+	assert.Contains(t, sqlFiles, "032_pool_display_name.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -98,7 +99,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "028_otx_tracking_id_index.sql" ||
 				name == "029_user_profile_preferences.sql" ||
 				name == "030_voucher_display_name.sql" ||
-				name == "031_pool_deploy_unit_of_account.sql",
+				name == "031_pool_deploy_unit_of_account.sql" ||
+				name == "032_pool_display_name.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -139,7 +141,21 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"029_user_profile_preferences.sql",
 		"030_voucher_display_name.sql",
 		"031_pool_deploy_unit_of_account.sql",
+		"032_pool_display_name.sql",
 	}, files)
+}
+
+func TestPoolDisplayNameMigration(t *testing.T) {
+	content, err := os.ReadFile("032_pool_display_name.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS display_name TEXT")
+	assert.Contains(t, s, "pools_display_name_valid")
+	assert.Contains(t, s, "display_name = btrim(display_name)")
+	assert.Contains(t, s, "char_length(display_name) BETWEEN 1 AND 80")
+	assert.Contains(t, s, "pools_display_name_trgm_idx")
+	assert.Contains(t, s, "lower(COALESCE(display_name, name)) gin_trgm_ops")
 }
 
 func TestPoolDeployUnitOfAccountMigration(t *testing.T) {

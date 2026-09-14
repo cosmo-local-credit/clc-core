@@ -27,7 +27,8 @@ import (
 // match the static statements exactly.
 const (
 	poolPageProjection = `
-SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+    p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
     p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,

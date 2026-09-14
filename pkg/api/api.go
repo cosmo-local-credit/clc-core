@@ -257,11 +257,16 @@ type (
 
 	// UpdatePoolProfileRequest carries a pool's editable off-chain record.
 	//
-	// Every field is optional in the JSON but assigned unconditionally by the
-	// handler, so a caller sends the whole record and omitting a field clears
-	// it. Nothing here mirrors SwapPool: name, symbol, decimals and the
-	// dependency addresses all come from the chain and are not editable.
+	// Every ordinary metadata field is optional in the JSON but assigned
+	// unconditionally by the handler, so a caller sends the whole record and
+	// omitting one clears it. DisplayName and the images preserve on omission.
+	// Nothing here mirrors SwapPool: name, symbol, decimals and the dependency
+	// addresses all come from the chain and are not editable.
 	UpdatePoolProfileRequest struct {
+		// DisplayName is an off-chain override for the deployed SwapPool name.
+		// Omitted preserves the existing override; an empty string clears it and
+		// makes catalog reads fall back to the immutable contract name.
+		DisplayName   *string  `json:"displayName,omitempty"  validate:"omitempty,max=80"`
 		Description   *string  `json:"description,omitempty"   validate:"omitempty,max=500"`
 		UnitOfAccount *string  `json:"unitOfAccount,omitempty" validate:"omitempty,max=16"`
 		Email         *string  `json:"email,omitempty"         validate:"omitempty,email"`
@@ -271,8 +276,8 @@ type (
 		LocationName  *string  `json:"locationName,omitempty"  validate:"omitempty,max=200"`
 		GeoLat        *float64 `json:"geoLat,omitempty"        validate:"omitempty,min=-90,max=90"`
 		GeoLng        *float64 `json:"geoLng,omitempty"        validate:"omitempty,min=-180,max=180"`
-		// Unlike every other field here, these two preserve on omission rather
-		// than clearing: update-pool-profile COALESCEs them so a client that does
+		// Like DisplayName, these two preserve on omission rather than clearing:
+		// update-pool-profile COALESCEs them so a client that does
 		// not send images cannot blank a pool's images. Send "" to clear one.
 		// `http_url|eq=`: an http(s) URL to set, "" to clear. The alternation is
 		// required because omitempty does not skip a pointer to an empty string.

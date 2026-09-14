@@ -40,6 +40,7 @@ type (
 		ConfirmDeployedPool(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedPool(context.Context, pgx.Tx, uint64) error
 		UpsertPoolFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
+		LockPoolForProfileUpdate(context.Context, pgx.Tx, string) (PoolProfileOwner, error)
 		UpdatePoolProfile(context.Context, pgx.Tx, string, PoolProfile) (uint64, error)
 		ReplacePoolTags(context.Context, pgx.Tx, uint64, []string) error
 		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)

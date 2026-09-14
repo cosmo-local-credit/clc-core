@@ -210,15 +210,17 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
 
-	// Offering writes. On apiGroup with requireUserAuth, like report mutations:
-	// a normal voucher owner needs this capability, so it is not an admin route.
+	// Owner catalog writes. On apiGroup with requireUserAuth, like report
+	// mutations: a normal pool or voucher owner needs these capabilities, so they
+	// are not admin-only routes.
 	// Mounting a second copy under /api/v2/admin would give the console its own
-	// handlers to drift from. The owner/superadmin decision happens inside the
-	// handler, from the voucher row it locks — middleware only establishes who is
+	// handlers to drift from. Each owner/superadmin decision happens inside the
+	// handler, from the catalog row it locks — middleware only establishes who is
 	// calling.
 	apiGroup.POST("/vouchers/:address/offerings", a.voucherOfferingCreateHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/offerings/:id", a.voucherOfferingUpdateHandler, a.requireUserAuth())
 	apiGroup.DELETE("/vouchers/:address/offerings/:id", a.voucherOfferingDeleteHandler, a.requireUserAuth())
+	apiGroup.PUT("/pools/:address/profile", a.updatePoolProfileHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/profile", a.updateVoucherProfileHandler, a.requireUserAuth())
 

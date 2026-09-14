@@ -805,13 +805,31 @@ func TestPoolSearchAndTagFilters(t *testing.T) {
 	both := seedPool(searchToken+" Both Pool", "QBP", "Art", "Culture")
 	untagged := seedPool(searchToken+" Plain Pool", "QPP")
 	bySymbol := seedPool("Unrelated Pool", searchToken+"SYM")
+	renamed := seedPool("Immutable Contract Pool", "RNP")
+	if _, err := tx.Exec(ctx, `UPDATE pools SET display_name = $2 WHERE id = $1`,
+		renamed, searchToken+" Renamed Pool"); err != nil {
+		t.Fatalf("set pool display name: %v", err)
+	}
 
 	t.Run("matches names and symbols", func(t *testing.T) {
 		got := poolIDs(list(mustFilter(t, searchToken, nil, TagMatchAny)))
-		want := []uint64{art, culture, both, untagged, bySymbol}
+		want := []uint64{art, culture, both, untagged, bySymbol, renamed}
 		slices.Sort(want)
 		if !slices.Equal(got, want) {
 			t.Errorf("ids = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("matches and returns the effective display name", func(t *testing.T) {
+		pools := list(mustFilter(t, searchToken+" Renamed", nil, TagMatchAny))
+		if len(pools) != 1 || pools[0].ID != renamed {
+			t.Fatalf("display-name search returned %#v, want pool %d", poolIDs(pools), renamed)
+		}
+		if pools[0].Name == nil || *pools[0].Name != searchToken+" Renamed Pool" {
+			t.Errorf("effective name = %#v, want %q", pools[0].Name, searchToken+" Renamed Pool")
+		}
+		if pools[0].ContractName == nil || *pools[0].ContractName != "Immutable Contract Pool" {
+			t.Errorf("contract name = %#v, want Immutable Contract Pool", pools[0].ContractName)
 		}
 	})
 
@@ -843,7 +861,9 @@ func TestPoolSearchAndTagFilters(t *testing.T) {
 
 	t.Run("paging applies the filter in every direction", func(t *testing.T) {
 		filter := mustFilter(t, searchToken, nil, TagMatchAny)
-		allowed := map[uint64]bool{art: true, culture: true, both: true, untagged: true, bySymbol: true}
+		allowed := map[uint64]bool{
+			art: true, culture: true, both: true, untagged: true, bySymbol: true, renamed: true,
+		}
 
 		first, err := pg.ListPoolsFiltered(ctx, tx, filter, CatalogFirstPage, 0, 2)
 		if err != nil {

@@ -828,7 +828,8 @@ WHERE lower(address) = ANY($1);
 -- catalog, not the deploy pipeline. Cursor-paginated newest-first by id,
 -- tags aggregated from pool_tags.
 --name: list-pools
-SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+    p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
     p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -844,7 +845,8 @@ LIMIT $1;
 
 --name: list-pools-next
 -- Next pages are older records (id < cursor).
-SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+    p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
     p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -862,7 +864,8 @@ LIMIT $2;
 --name: list-pools-prev
 -- Previous pages move toward newer records (id > cursor).
 SELECT * FROM (
-    SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+    SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+        p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
         p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
         p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
         p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -882,7 +885,8 @@ ORDER BY id DESC;
 -- Single pool catalog row by contract address (case-insensitive; stored
 -- addresses are EIP-55, lookups may arrive in any casing).
 --name: get-pool-by-address
-SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+    p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
     p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -895,7 +899,16 @@ LEFT JOIN pool_tags pt ON pt.pool_id = p.id
 WHERE lower(p.address) = lower($1)
 GROUP BY p.id;
 
--- Operator edits to a pool's off-chain record (PUT /admin/pools/:address/profile).
+-- The owner profile route authorizes from this row and writes it in the same
+-- transaction. Imported pools may have no owner; only a superadmin may manage
+-- those through the admin route.
+--name: lock-pool-for-profile-update
+SELECT id, owner_address
+FROM pools
+WHERE lower(address) = lower($1)
+FOR UPDATE;
+
+-- Owner or operator edits to a pool's off-chain record.
 --
 -- Only catalog metadata: nothing here has an on-chain counterpart, so an edit
 -- cannot put the row out of step with the contract. Name, symbol, decimals and
@@ -908,8 +921,8 @@ GROUP BY p.id;
 -- omitting it. pools_geo_valid backstops the both-or-neither coordinate rule the
 -- handler checks first.
 --name: update-pool-profile
--- Assign-all for everything the console has always sent, and COALESCE for the two
--- image columns.
+-- Assign-all for everything the console has always sent, and preserve-on-omit
+-- semantics for display_name and the two image columns.
 --
 -- The distinction is not stylistic. Until now this statement did not touch
 -- image_url or banner_url at all, which is the only reason a pool's images survive
@@ -918,17 +931,18 @@ GROUP BY p.id;
 -- save. Omitted therefore preserves, and '' clears, matching update-user-profile.
 -- Once every client sends the fields this can collapse to a plain assignment.
 UPDATE pools
-SET description     = $2,
-    unit_of_account = $3,
-    email           = $4,
-    website         = $5,
-    phone           = $6,
-    terms           = $7,
-    location_name   = $8,
-    geo_lat         = $9,
-    geo_lng         = $10,
-    image_url       = CASE WHEN $11::TEXT IS NULL THEN image_url  ELSE NULLIF($11, '') END,
-    banner_url      = CASE WHEN $12::TEXT IS NULL THEN banner_url ELSE NULLIF($12, '') END
+SET display_name    = CASE WHEN $2::TEXT IS NULL THEN display_name ELSE NULLIF(btrim($2), '') END,
+    description     = $3,
+    unit_of_account = $4,
+    email           = $5,
+    website         = $6,
+    phone           = $7,
+    terms           = $8,
+    location_name   = $9,
+    geo_lat         = $10,
+    geo_lng         = $11,
+    image_url       = CASE WHEN $12::TEXT IS NULL THEN image_url  ELSE NULLIF($12, '') END,
+    banner_url      = CASE WHEN $13::TEXT IS NULL THEN banner_url ELSE NULLIF($13, '') END
 WHERE lower(address) = lower($1)
 RETURNING id;
 

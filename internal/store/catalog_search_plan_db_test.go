@@ -357,7 +357,7 @@ func TestPoolSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 
 	// The local catalog holds two pools, which cannot produce a representative
 	// plan, so seed a representative pool count before asserting.
-	rebuild := dropIndexesForScaleSeeding(t, tx, "pools_name_trgm_idx", "pools_symbol_trgm_idx")
+	rebuild := dropIndexesForScaleSeeding(t, tx, "pools_display_name_trgm_idx", "pools_symbol_trgm_idx")
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO pools (chain_id, address, name, symbol, decimals)
 		SELECT 42220,
@@ -381,7 +381,7 @@ func TestPoolSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 		query := composePoolPage(CatalogFilter{Term: "sarafu"}, page, 2500, 100)
 		plan := explainGenericPlan(t, tx, query.sql)
 
-		assertIndexDrives(t, "pool search "+label, plan, "pools_name_trgm_idx")
+		assertIndexDrives(t, "pool search "+label, plan, "pools_display_name_trgm_idx")
 
 		// The paged rows are fetched by primary key, so the wide pool projection
 		// is read for one page rather than for every candidate.

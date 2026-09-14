@@ -225,3 +225,20 @@ func TestOfferingWriteQueries(t *testing.T) {
 		t.Error("delete-offering must unlist the row and return its id")
 	}
 }
+
+func TestPoolProfileAuthorizationQuery(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatalf("load core queries: %v", err)
+	}
+
+	if !strings.Contains(queries.LockPoolForProfileUpdate, "owner_address") {
+		t.Error("lock-pool-for-profile-update must report the relationship it authorizes from")
+	}
+	if !strings.Contains(queries.LockPoolForProfileUpdate, "FOR UPDATE") {
+		t.Error("lock-pool-for-profile-update must lock the row it authorizes from")
+	}
+	if !strings.Contains(queries.LockPoolForProfileUpdate, "lower(address) = lower($1)") {
+		t.Error("lock-pool-for-profile-update must match the catalog address case-insensitively")
+	}
+}
