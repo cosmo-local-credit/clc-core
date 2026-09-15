@@ -67,6 +67,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "030_voucher_display_name.sql")
 	assert.Contains(t, sqlFiles, "031_pool_deploy_unit_of_account.sql")
 	assert.Contains(t, sqlFiles, "032_pool_display_name.sql")
+	assert.Contains(t, sqlFiles, "033_pool_owner_index.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -100,7 +101,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "029_user_profile_preferences.sql" ||
 				name == "030_voucher_display_name.sql" ||
 				name == "031_pool_deploy_unit_of_account.sql" ||
-				name == "032_pool_display_name.sql",
+				name == "032_pool_display_name.sql" ||
+				name == "033_pool_owner_index.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -142,6 +144,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"030_voucher_display_name.sql",
 		"031_pool_deploy_unit_of_account.sql",
 		"032_pool_display_name.sql",
+		"033_pool_owner_index.sql",
 	}, files)
 }
 
@@ -1073,4 +1076,15 @@ func TestReportManagementIndexesMigration(t *testing.T) {
 	assert.Contains(t, s, "reports_description_trgm_idx")
 	assert.Contains(t, s, "lower(author_address)")
 	assert.NotContains(t, s, "WHERE status = 'APPROVED'")
+}
+
+func TestPoolOwnerIndexMigration(t *testing.T) {
+	content, err := os.ReadFile("033_pool_owner_index.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "pools_owner_lower_idx")
+	// The expression has to match ownerPredicate's comparison exactly, or the
+	// index exists and the planner cannot use it.
+	assert.Contains(t, s, "ON pools (lower(owner_address))")
 }

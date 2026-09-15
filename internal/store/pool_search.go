@@ -58,6 +58,7 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 			"    SELECT p.id\n" +
 			"    FROM pools p" +
 			whereClause(
+				ownerPredicate(args, "p.owner_address", filter),
 				poolTagPredicate(args, filter),
 				poolVoucherPredicate(args, filter),
 				cursorPredicate(args, "p.id", page, cursor),
@@ -73,6 +74,7 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 		"    FROM pools p" +
 		whereClause(
 			searchPredicate(args, filter, "p"),
+			ownerPredicate(args, "p.owner_address", filter),
 			poolTagPredicate(args, filter),
 			poolVoucherPredicate(args, filter),
 		) +
@@ -98,6 +100,7 @@ func composePoolTagCounts(filter CatalogFilter) composed {
     FROM pools p` +
 		whereClause(
 			searchPredicate(args, filter, "p"),
+			ownerPredicate(args, "p.owner_address", filter),
 			poolVoucherPredicate(args, filter),
 		) + `
 )
@@ -148,6 +151,7 @@ func composePoolVoucherCounts(filter CatalogFilter) composed {
     FROM pools p` +
 		whereClause(
 			searchPredicate(args, filter, "p"),
+			ownerPredicate(args, "p.owner_address", filter),
 			poolTagPredicate(args, filter),
 		) + `
 )
