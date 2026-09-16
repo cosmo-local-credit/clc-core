@@ -291,9 +291,9 @@ ON CONFLICT (key) DO UPDATE SET address = EXCLUDED.address, updated_at = CURRENT
 INSERT INTO deployed_pools (
     otx_id, platform_contract_id, status, name, symbol, decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address, quoter_type,
-    protocol_fee_controller_address, fees_decoupled, admin,
+    protocol_fee_controller_address, fees_decoupled, fee_ppm, fee_address, admin,
     description, unit_of_account, website, email, phone, terms, location_name, geo_lat, geo_lng, image_url, banner_url
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
 RETURNING id;
 
 --name: confirm-deployed-pool
@@ -312,8 +312,11 @@ WHERE otx_id = $1 AND status = 'PENDING';
 -- catalog on lower(address), let the fresh deploy win field by field, and link
 -- the pipeline row — all inside the confirming transaction.
 --
--- fee_ppm / fee_address / default_voucher_id have no
--- counterpart on the deploy row and are left to the importer and pool sync.
+-- default_voucher_id has no counterpart on the deploy row and is left to the
+-- importer and pool sync. fee_ppm and fee_address do: they are what the deploy
+-- initialized FeePolicy and SwapPool with, and a later on-chain setDefaultFee or
+-- setFeeAddress is the indexer's to project — COALESCE keeps a projected value
+-- rather than resetting it to the deploy's.
 --name: upsert-pool-from-deploy
 WITH deploy AS (
     SELECT
@@ -330,6 +333,8 @@ WITH deploy AS (
         dp.fee_policy_address,
         dp.protocol_fee_controller_address,
         dp.fees_decoupled,
+        dp.fee_ppm,
+        dp.fee_address,
         dp.description,
         dp.unit_of_account,
         dp.website,
@@ -350,7 +355,8 @@ upserted AS (
     INSERT INTO pools (
         chain_id, address, name, symbol, decimals, owner_address,
         token_registry_address, limiter_address, quoter_address, quoter_type, fee_policy_address,
-        protocol_fee_controller_address, fees_decoupled, description, unit_of_account,
+        protocol_fee_controller_address, fees_decoupled, fee_ppm, fee_address,
+        description, unit_of_account,
         location_name, geo_lat, geo_lng, email, website, phone, terms,
         image_url, banner_url, platform_contract_id
     )
@@ -358,6 +364,7 @@ upserted AS (
         d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
         d.token_registry_address, d.limiter_address, d.quoter_address, d.quoter_type,
         d.fee_policy_address, d.protocol_fee_controller_address, d.fees_decoupled,
+        d.fee_ppm, d.fee_address,
         d.description, d.unit_of_account, d.location_name, d.geo_lat, d.geo_lng,
         d.email, d.website, d.phone, d.terms, d.image_url, d.banner_url,
         d.platform_contract_id
@@ -374,6 +381,8 @@ upserted AS (
         fee_policy_address              = COALESCE(EXCLUDED.fee_policy_address, pools.fee_policy_address),
         protocol_fee_controller_address = COALESCE(EXCLUDED.protocol_fee_controller_address, pools.protocol_fee_controller_address),
         fees_decoupled                  = COALESCE(EXCLUDED.fees_decoupled, pools.fees_decoupled),
+        fee_ppm                         = COALESCE(pools.fee_ppm, EXCLUDED.fee_ppm),
+        fee_address                     = COALESCE(pools.fee_address, EXCLUDED.fee_address),
         description                     = COALESCE(EXCLUDED.description, pools.description),
         unit_of_account                 = COALESCE(EXCLUDED.unit_of_account, pools.unit_of_account),
         location_name                   = COALESCE(EXCLUDED.location_name, pools.location_name),
@@ -411,7 +420,7 @@ INSERT INTO deployed_pool_tags (deployed_pool_id, tag_value) VALUES ($1, $2);
 --name: get-deployed-pool-by-address
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
-    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.fee_ppm, dp.fee_address, dp.admin,
     dp.description, dp.unit_of_account, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
     COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
@@ -424,7 +433,7 @@ GROUP BY dp.id, o.tracking_id;
 --name: get-deployed-pool-by-tracking-id
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
-    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.fee_ppm, dp.fee_address, dp.admin,
     dp.description, dp.unit_of_account, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
     COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags

@@ -10,37 +10,43 @@ import (
 
 type (
 	DeployedPool struct {
-		ID                           uint64    `db:"id"                              json:"id"`
-		OTXID                        uint64    `db:"otx_id"                          json:"otxId"`
-		PlatformContractID           uint64    `db:"platform_contract_id"            json:"platformContractId"`
-		Status                       string    `db:"status"                          json:"status"`
-		Address                      *string   `db:"address"                         json:"address"`
-		Name                         string    `db:"name"                            json:"name"`
-		Symbol                       string    `db:"symbol"                          json:"symbol"`
-		Decimals                     uint8     `db:"decimals"                        json:"decimals"`
-		TokenRegistryAddress         string    `db:"token_registry_address"          json:"tokenRegistryAddress"`
-		LimiterAddress               string    `db:"limiter_address"                 json:"limiterAddress"`
-		FeePolicyAddress             string    `db:"fee_policy_address"              json:"feePolicyAddress"`
-		QuoterAddress                string    `db:"quoter_address"                  json:"quoterAddress"`
-		QuoterType                   *string   `db:"quoter_type"                     json:"quoterType"`
-		ProtocolFeeControllerAddress string    `db:"protocol_fee_controller_address" json:"protocolFeeControllerAddress"`
-		FeesDecoupled                bool      `db:"fees_decoupled"                  json:"feesDecoupled"`
-		Admin                        string    `db:"admin"                           json:"admin"`
-		Description                  *string   `db:"description"                     json:"description"`
-		UnitOfAccount                *string   `db:"unit_of_account"                 json:"unitOfAccount"`
-		Website                      *string   `db:"website"                         json:"website"`
-		Email                        *string   `db:"email"                           json:"email"`
-		Phone                        *string   `db:"phone"                           json:"phone"`
-		Terms                        *string   `db:"terms"                           json:"terms"`
-		LocationName                 *string   `db:"location_name"                   json:"locationName"`
-		GeoLat                       *float64  `db:"geo_lat"                         json:"geoLat"`
-		GeoLng                       *float64  `db:"geo_lng"                         json:"geoLng"`
-		ImageURL                     *string   `db:"image_url"                       json:"imageUrl"`
-		BannerURL                    *string   `db:"banner_url"                      json:"bannerUrl"`
-		Tags                         []string  `db:"tags"                            json:"tags"`
-		TrackingID                   string    `db:"tracking_id"                     json:"trackingId"`
-		CreatedAt                    time.Time `db:"created_at"                      json:"createdAt"`
-		UpdatedAt                    time.Time `db:"updated_at"                      json:"updatedAt"`
+		ID                           uint64  `db:"id"                              json:"id"`
+		OTXID                        uint64  `db:"otx_id"                          json:"otxId"`
+		PlatformContractID           uint64  `db:"platform_contract_id"            json:"platformContractId"`
+		Status                       string  `db:"status"                          json:"status"`
+		Address                      *string `db:"address"                         json:"address"`
+		Name                         string  `db:"name"                            json:"name"`
+		Symbol                       string  `db:"symbol"                          json:"symbol"`
+		Decimals                     uint8   `db:"decimals"                        json:"decimals"`
+		TokenRegistryAddress         string  `db:"token_registry_address"          json:"tokenRegistryAddress"`
+		LimiterAddress               string  `db:"limiter_address"                 json:"limiterAddress"`
+		FeePolicyAddress             string  `db:"fee_policy_address"              json:"feePolicyAddress"`
+		QuoterAddress                string  `db:"quoter_address"                  json:"quoterAddress"`
+		QuoterType                   *string `db:"quoter_type"                     json:"quoterType"`
+		ProtocolFeeControllerAddress string  `db:"protocol_fee_controller_address" json:"protocolFeeControllerAddress"`
+		FeesDecoupled                bool    `db:"fees_decoupled"                  json:"feesDecoupled"`
+		// What the pool's FeePolicy was initialized with, in PPM, and the
+		// account SwapPool was initialized to pay collected fees to. Both are
+		// copied into the catalog on promotion; without them pools.fee_ppm and
+		// pools.fee_address stay NULL for every pool this service publishes.
+		FeePPM        *float64  `db:"fee_ppm"                         json:"feePpm"`
+		FeeAddress    *string   `db:"fee_address"                     json:"feeAddress"`
+		Admin         string    `db:"admin"                           json:"admin"`
+		Description   *string   `db:"description"                     json:"description"`
+		UnitOfAccount *string   `db:"unit_of_account"                 json:"unitOfAccount"`
+		Website       *string   `db:"website"                         json:"website"`
+		Email         *string   `db:"email"                           json:"email"`
+		Phone         *string   `db:"phone"                           json:"phone"`
+		Terms         *string   `db:"terms"                           json:"terms"`
+		LocationName  *string   `db:"location_name"                   json:"locationName"`
+		GeoLat        *float64  `db:"geo_lat"                         json:"geoLat"`
+		GeoLng        *float64  `db:"geo_lng"                         json:"geoLng"`
+		ImageURL      *string   `db:"image_url"                       json:"imageUrl"`
+		BannerURL     *string   `db:"banner_url"                      json:"bannerUrl"`
+		Tags          []string  `db:"tags"                            json:"tags"`
+		TrackingID    string    `db:"tracking_id"                     json:"trackingId"`
+		CreatedAt     time.Time `db:"created_at"                      json:"createdAt"`
+		UpdatedAt     time.Time `db:"updated_at"                      json:"updatedAt"`
 	}
 )
 
@@ -62,6 +68,8 @@ func (pg *Pg) InsertDeployedPool(ctx context.Context, tx pgx.Tx, dp DeployedPool
 		dp.QuoterType,
 		dp.ProtocolFeeControllerAddress,
 		dp.FeesDecoupled,
+		dp.FeePPM,
+		dp.FeeAddress,
 		dp.Admin,
 		dp.Description,
 		dp.UnitOfAccount,

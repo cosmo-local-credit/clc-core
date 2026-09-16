@@ -225,6 +225,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		return err
 	}
 	feePolicyDefaultFee := uint64(feePolicyPercent * 10_000)
+	feePolicyPPM := float64(feePolicyDefaultFee)
 
 	feePolicyInit, err := feepolicy.EncodeInit(feepolicy.InitArgs{
 		Owner:      ownerAddress,
@@ -319,6 +320,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	if args.FeeAddress != "" {
 		feeAddress = common.HexToAddress(args.FeeAddress)
 	}
+	feeAddressHex := feeAddress.Hex()
 	swapPoolInit, err := swappool.EncodeInit(swappool.InitArgs{
 		Name:                  args.PoolName,
 		Symbol:                args.PoolSymbol,
@@ -377,18 +379,24 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 		QuoterType:                   nilIfEmpty(args.QuoterType),
 		ProtocolFeeControllerAddress: args.ProtocolFeeController,
 		FeesDecoupled:                args.FeesDecoupled,
-		Admin:                        ownerAddress.Hex(),
-		Description:                  nilIfEmpty(args.Description),
-		UnitOfAccount:                nilIfEmpty(args.UnitOfAccount),
-		Website:                      nilIfEmpty(args.Website),
-		Email:                        nilIfEmpty(args.Email),
-		Phone:                        nilIfEmpty(args.Phone),
-		Terms:                        nilIfEmpty(args.Terms),
-		LocationName:                 nilIfEmpty(args.LocationName),
-		GeoLat:                       args.GeoLat,
-		GeoLng:                       args.GeoLng,
-		ImageURL:                     nilIfEmpty(args.ImageURL),
-		BannerURL:                    nilIfEmpty(args.BannerURL),
+		// Recorded so the catalog promotion has a fee and a recipient to copy.
+		// feeAddress is the resolved one, not args.FeeAddress: a request that
+		// named none still pays the owner, and the catalog should say so rather
+		// than report the pool as having no recipient.
+		FeePPM:        &feePolicyPPM,
+		FeeAddress:    &feeAddressHex,
+		Admin:         ownerAddress.Hex(),
+		Description:   nilIfEmpty(args.Description),
+		UnitOfAccount: nilIfEmpty(args.UnitOfAccount),
+		Website:       nilIfEmpty(args.Website),
+		Email:         nilIfEmpty(args.Email),
+		Phone:         nilIfEmpty(args.Phone),
+		Terms:         nilIfEmpty(args.Terms),
+		LocationName:  nilIfEmpty(args.LocationName),
+		GeoLat:        args.GeoLat,
+		GeoLng:        args.GeoLng,
+		ImageURL:      nilIfEmpty(args.ImageURL),
+		BannerURL:     nilIfEmpty(args.BannerURL),
 	})
 	if err != nil {
 		return err

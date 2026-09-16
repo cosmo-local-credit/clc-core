@@ -64,14 +64,16 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		})
 	}
 
-	// A recipient for fees that never leave the pool is a contradiction, and
-	// most likely a client that forgot to clear the field when the box was
-	// unticked. Say so before a transaction is signed for it.
-	if req.FeeAddress != "" && !req.FeesDecoupled {
+	// feeAddress is deliberately not tied to feesDecoupled. SwapPool credits
+	// fees[token] and settles withdraw() to feeAddress in both modes; decoupling
+	// only reserves the accrued balance from withdrawable liquidity. Refusing a
+	// recipient on a coupled pool left its fees going to whoever deployed it,
+	// with no way for the client to say otherwise.
+	if req.FeeAddress != "" && feePercent == 0 {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "feeAddress requires feesDecoupled",
+			Description: "feeAddress requires a non-zero feePolicyDefault",
 		})
 	}
 
