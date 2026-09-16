@@ -221,6 +221,64 @@ LIMIT 1;
 --name: list-token-tags
 SELECT value FROM token_tag ORDER BY value;
 
+-- A symbol is occupied by a catalog row or by a deployment which may still
+-- land on-chain. FAILED deployments are deliberately reusable. The suffix
+-- predicate mirrors the client's bare-stem plus numeric-suffix candidates;
+-- unrelated symbols which merely share the prefix do not occupy it.
+--name: list-taken-voucher-symbols
+SELECT symbol
+FROM (
+    SELECT upper(symbol) AS symbol
+    FROM vouchers
+    WHERE upper(symbol) = $1
+       OR (
+            length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
+            AND starts_with(upper(symbol), $1)
+            AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
+       )
+    UNION
+    SELECT upper(symbol) AS symbol
+    FROM deployed_tokens
+    WHERE status IN ('PENDING', 'CONFIRMED')
+      AND (
+            upper(symbol) = $1
+            OR (
+                length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
+                AND starts_with(upper(symbol), $1)
+                AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
+            )
+      )
+) occupied
+ORDER BY symbol
+LIMIT 128;
+
+--name: list-taken-pool-symbols
+SELECT symbol
+FROM (
+    SELECT upper(symbol) AS symbol
+    FROM pools
+    WHERE upper(symbol) = $1
+       OR (
+            length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
+            AND starts_with(upper(symbol), $1)
+            AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
+       )
+    UNION
+    SELECT upper(symbol) AS symbol
+    FROM deployed_pools
+    WHERE status IN ('PENDING', 'CONFIRMED')
+      AND (
+            upper(symbol) = $1
+            OR (
+                length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
+                AND starts_with(upper(symbol), $1)
+                AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
+            )
+      )
+) occupied
+ORDER BY symbol
+LIMIT 128;
+
 --name: get-protocol-address
 SELECT address FROM protocol_addresses WHERE key = $1;
 

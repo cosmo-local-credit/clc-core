@@ -68,6 +68,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "031_pool_deploy_unit_of_account.sql")
 	assert.Contains(t, sqlFiles, "032_pool_display_name.sql")
 	assert.Contains(t, sqlFiles, "033_pool_owner_index.sql")
+	assert.Contains(t, sqlFiles, "034_symbol_occupancy_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -102,7 +103,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "030_voucher_display_name.sql" ||
 				name == "031_pool_deploy_unit_of_account.sql" ||
 				name == "032_pool_display_name.sql" ||
-				name == "033_pool_owner_index.sql",
+				name == "033_pool_owner_index.sql" ||
+				name == "034_symbol_occupancy_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -145,7 +147,31 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"031_pool_deploy_unit_of_account.sql",
 		"032_pool_display_name.sql",
 		"033_pool_owner_index.sql",
+		"034_symbol_occupancy_indexes.sql",
 	}, files)
+}
+
+func TestSymbolOccupancyIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("034_symbol_occupancy_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	for _, want := range []string{
+		"vouchers_symbol_upper_idx",
+		"ON vouchers (upper(symbol))",
+		"pools_symbol_upper_idx",
+		"ON pools (upper(symbol))",
+		"deployed_tokens_open_symbol_upper_idx",
+		"ON deployed_tokens (upper(symbol))",
+		"deployed_pools_open_symbol_upper_idx",
+		"ON deployed_pools (upper(symbol))",
+	} {
+		assert.Contains(t, s, want)
+	}
+	assert.Equal(t, 2, strings.Count(s, "WHERE status IN ('PENDING', 'CONFIRMED')"))
+	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.NotContains(t, s, "CREATE UNIQUE INDEX")
+	assert.NotContains(t, s, "CREATE INDEX CONCURRENTLY")
 }
 
 func TestPoolDisplayNameMigration(t *testing.T) {

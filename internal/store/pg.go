@@ -35,6 +35,7 @@ type (
 		InsertDeployedTokenTag       string `query:"insert-deployed-token-tag"`
 		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
+		ListTakenVoucherSymbols      string `query:"list-taken-voucher-symbols"`
 		ListTokenTags                string `query:"list-token-tags"`
 		GetProtocolAddress           string `query:"get-protocol-address"`
 		SetProtocolAddress           string `query:"set-protocol-address"`
@@ -44,6 +45,7 @@ type (
 		UpsertPoolFromDeploy         string `query:"upsert-pool-from-deploy"`
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
+		ListTakenPoolSymbols         string `query:"list-taken-pool-symbols"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
 		LockPoolForProfileUpdate     string `query:"lock-pool-for-profile-update"`
 		UpdatePoolProfile            string `query:"update-pool-profile"`

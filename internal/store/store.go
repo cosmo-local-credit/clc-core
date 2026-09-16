@@ -33,6 +33,7 @@ type (
 		InsertDeployedTokenTag(context.Context, pgx.Tx, uint64, string) error
 		GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
+		ListTakenVoucherSymbols(context.Context, pgx.Tx, string) ([]string, error)
 		ListTokenTags(context.Context, pgx.Tx) ([]string, error)
 		GetProtocolAddress(context.Context, pgx.Tx, string) (string, error)
 		SetProtocolAddress(context.Context, pgx.Tx, string, string) error
@@ -52,6 +53,7 @@ type (
 		ClearPoolTokenOracle(context.Context, pgx.Tx, string, string) (int64, error)
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
+		ListTakenPoolSymbols(context.Context, pgx.Tx, string) ([]string, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
 		GetOracleFeedByName(context.Context, pgx.Tx, int64, string) (OracleFeed, error)
 		ListOracleFeeds(context.Context, pgx.Tx, int64) ([]OracleFeed, error)
