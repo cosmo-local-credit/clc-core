@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -120,6 +119,11 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 		return handleForbiddenError(c,
 			"only the voucher owner or a superadmin may publish offerings for this voucher")
 	}
+	unit, handled, err := a.ensureOfferingUnit(c, tx, write.Unit)
+	if handled || err != nil {
+		return err
+	}
+	write.Unit = unit
 
 	id, err := a.store.CreateOffering(ctx, tx, voucher.ID, seller, write)
 	if err != nil {
@@ -166,6 +170,11 @@ func (a *API) voucherOfferingUpdateHandler(c *echo.Context) error {
 	if handled || err != nil {
 		return err
 	}
+	unit, handled, err := a.ensureOfferingUnit(c, tx, write.Unit)
+	if handled || err != nil {
+		return err
+	}
+	write.Unit = unit
 
 	if err := a.store.UpdateOffering(ctx, tx, parent.ID, write); err != nil {
 		return handleOfferingWriteError(c, err)
@@ -338,12 +347,6 @@ func (a *API) bindOfferingWrite(c *echo.Context) (store.OfferingWrite, bool, err
 		return store.OfferingWrite{}, true, offeringValidationError(c, "price must be greater than zero")
 	}
 
-	unit := strings.ToLower(req.Unit)
-	if !slices.Contains(apiresp.OfferingUnits, unit) {
-		return store.OfferingWrite{}, true, offeringValidationError(c,
-			"unit must be one of the supported offering units")
-	}
-
 	imageURL, ok := normalizeOfferingImageURL(req.ImageURL)
 	if !ok {
 		return store.OfferingWrite{}, true, offeringValidationError(c, "imageUrl must be an http or https URL")
@@ -353,7 +356,7 @@ func (a *API) bindOfferingWrite(c *echo.Context) (store.OfferingWrite, bool, err
 		CommodityName: req.CommodityName,
 		CommodityType: req.CommodityType,
 		Description:   req.Description,
-		Unit:          unit,
+		Unit:          req.Unit,
 		Price:         req.Price,
 		ImageURL:      imageURL,
 	}, false, nil

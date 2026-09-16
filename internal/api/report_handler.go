@@ -606,9 +606,11 @@ func (a *API) resolveReportWriteRelations(
 	voucherRefs []store.VoucherRef,
 	callerAddress, callerRole string,
 ) (bool, error) {
-	if handled, err := a.rejectUnknownTags(c, tx, report.Tags); handled || err != nil {
+	tags, handled, err := a.ensureTokenTags(c, tx, report.Tags)
+	if handled || err != nil {
 		return handled, err
 	}
+	report.Tags = tags
 	if len(voucherRefs) == 0 {
 		return false, nil
 	}

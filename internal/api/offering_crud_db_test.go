@@ -33,6 +33,9 @@ const (
 	// Free text no canonical unit list will ever contain, of the kind the Sarafu
 	// import actually carried.
 	legacyOfferingUnit = "50kg sack"
+
+	// What the vocabulary stores once a write adopts the value above.
+	canonicalLegacyUnit = "50kg Sack"
 )
 
 type offeringFixtures struct {
@@ -221,6 +224,14 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 				t.Errorf("cleanup: %v", err)
 				return
 			}
+		}
+		// The legacy unit becomes a real vocabulary row the first time a test
+		// rewrites it. Leaving it behind would make the next run start from a
+		// different vocabulary than the one the fixtures describe.
+		if _, err := cleanup.Exec(ctx,
+			`DELETE FROM offering_unit WHERE value = $1 AND is_custom`, canonicalLegacyUnit); err != nil {
+			t.Errorf("cleanup the adopted legacy unit: %v", err)
+			return
 		}
 		if err := cleanup.Commit(ctx); err != nil {
 			t.Errorf("commit cleanup: %v", err)
@@ -541,13 +552,15 @@ func TestOfferingUpdateClearsAnOmittedPhoto(t *testing.T) {
 	}
 }
 
-// An imported free-text unit stays readable, and a write has to replace it with a
-// canonical one — including a write that re-sends the same legacy value.
+// An imported free-text unit stays readable, and a write adopts it into the
+// shared vocabulary under the one canonical spelling.
 //
-// That last case is why the API validates the unit itself rather than leaning on
-// the database. A NOT VALID foreign key's update trigger short-circuits when the
-// column is unchanged, so `unit = '50kg sack'` on a row that already holds it
-// would pass the constraint untouched and quietly persist an uneditable value.
+// Re-sending the legacy value is the case that matters. A NOT VALID foreign
+// key's update trigger short-circuits when the column is unchanged, so
+// `unit = '50kg sack'` on a row that already holds it would slip past the
+// constraint without ever becoming a row in offering_unit. The API creates the
+// value itself, which is why the rewrite both succeeds and leaves something the
+// next seller can pick from the list.
 func TestOfferingLegacyUnitSurvivesUntilItIsWritten(t *testing.T) {
 	a, priv := newOfferingAPI(t)
 	fx, cleanup := seedOfferingFixtures(t, a)
@@ -563,11 +576,23 @@ func TestOfferingLegacyUnitSurvivesUntilItIsWritten(t *testing.T) {
 	}
 
 	token := offeringToken(t, priv, offeringOwnerAddress, "USER")
-	res, _ = offeringRequest(t, a, http.MethodPut,
+	res, result = offeringRequest(t, a, http.MethodPut,
 		offeringItemPath(fx.ownedAddress, fx.legacyOfferingID), token,
 		offeringBody(map[string]any{"unit": legacyOfferingUnit}))
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("rewriting a legacy unit: status = %d, want 400 body=%s", res.Code, res.Body.String())
+	if res.Code != http.StatusOK {
+		t.Fatalf("rewriting a legacy unit: status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+	if got := offeringFrom(t, result)["unit"]; got != canonicalLegacyUnit {
+		t.Errorf("unit = %v, want the canonical spelling %q", got, canonicalLegacyUnit)
+	}
+
+	var isCustom bool
+	if err := a.store.Pool().QueryRow(context.Background(),
+		`SELECT is_custom FROM offering_unit WHERE value = $1`, canonicalLegacyUnit).Scan(&isCustom); err != nil {
+		t.Fatalf("the rewrite did not add %q to the vocabulary: %v", canonicalLegacyUnit, err)
+	}
+	if !isCustom {
+		t.Errorf("is_custom = false, want true; an imported spelling is not a built-in")
 	}
 }
 
@@ -705,7 +730,9 @@ func TestOfferingWriteRejectsInvalidValuesWithA400(t *testing.T) {
 
 	token := offeringToken(t, priv, offeringOwnerAddress, "USER")
 	for name, body := range map[string]map[string]any{
-		"unknown unit":   offeringBody(map[string]any{"unit": "furlong"}),
+		// A unit outside the seeded list is now created on the way past, so the
+		// only unit a caller can still get wrong is one no column could hold.
+		"over-long unit": offeringBody(map[string]any{"unit": strings.Repeat("a", 33)}),
 		"third type":     offeringBody(map[string]any{"commodityType": "UNCLASSIFIED"}),
 		"data uri image": offeringBody(map[string]any{"imageUrl": "data:image/png;base64,AAAA"}),
 		"zero price":     offeringBody(map[string]any{"price": "0"}),

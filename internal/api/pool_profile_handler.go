@@ -92,9 +92,11 @@ func (a *API) savePoolProfile(
 	address string,
 	req apiresp.UpdatePoolProfileRequest,
 ) (store.Pool, bool, error) {
-	if rejected, err := a.rejectUnknownTags(c, tx, req.Tags); rejected || err != nil {
+	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
+	if handled || err != nil {
 		return store.Pool{}, true, err
 	}
+	req.Tags = tags
 
 	poolID, err := a.store.UpdatePoolProfile(ctx, tx, address, store.PoolProfile{
 		DisplayName:   req.DisplayName,
@@ -117,7 +119,7 @@ func (a *API) savePoolProfile(
 		return store.Pool{}, true, handlePostgresError(c, err)
 	}
 
-	if err := a.store.ReplacePoolTags(ctx, tx, poolID, req.Tags); err != nil {
+	if err := a.store.ReplacePoolTags(ctx, tx, poolID, tags); err != nil {
 		return store.Pool{}, true, handlePostgresError(c, err)
 	}
 

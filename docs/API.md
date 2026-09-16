@@ -68,6 +68,12 @@
    - [Update (`PUT /api/v2/reports/:id`)](#115-update-put-apiv2reportsid)
    - [Approve (`PUT /api/v2/reports/:id/approve`)](#116-approve-put-apiv2reportsidapprove)
    - [Delete (`DELETE /api/v2/reports/:id`)](#117-delete-delete-apiv2reportsid)
+12. [Shared vocabulary (`token_tag`, `offering_unit`)](#12-shared-vocabulary-token_tag-offering_unit)
+   - [Reads](#121-reads)
+   - [Creation is a side effect of the owning write](#122-creation-is-a-side-effect-of-the-owning-write)
+   - [Tag filters are still closed](#123-tag-filters-are-still-closed)
+   - [GET /api/v2/admin/vocabulary](#124-get-apiv2adminvocabulary)
+   - [DELETE /api/v2/admin/vocabulary/tags and .../units](#125-delete-apiv2adminvocabularytags-and-units)
 
 ---
 
@@ -2211,7 +2217,7 @@ sent as empty arrays.
 | `periodFrom`, `periodTo` | RFC3339 timestamps; if both are set, `periodFrom <= periodTo` |
 | `hostName` | Optional issuer free text, maximum 200 characters |
 | `participants`, `timeTaken` | Optional issuer free text, maximum 100 characters each |
-| `tags` | At most 12 values from the existing `token_tag` vocabulary |
+| `tags` | At most 12 values; a value the vocabulary does not have yet is created with the post (see [section 12](#12-shared-vocabulary-token_tag-offering_unit)) |
 | `vouchers` | At most 12 stable `{chainId,address}` references; every referenced voucher must exist |
 | `images` | At most 50, in document order; URLs use `http(s)` |
 | `attachments` | At most 20, in document order; `kind` is `FILE` or `EMBED`, and URLs use `http(s)` |
@@ -2433,3 +2439,144 @@ assign-all editor needs to resubmit a legacy post without erasing anything.
 
 `status` is the moderation queue: a console defaults to `SUBMITTED` and offers
 the rest. There is no `ALL` value on the wire — omit the parameter.
+
+---
+
+## 12. Shared vocabulary (`token_tag`, `offering_unit`)
+
+Two global lookup tables back every tag picker and the offering unit field.
+Both are open: a value the catalog does not have yet is **created by the write
+that names it**, not by a separate call. There is no "create a tag" endpoint,
+and there never should be — a vocabulary value with nothing referencing it is
+litter.
+
+### 12.1 Reads
+
+```http
+GET /api/v2/token-tags
+GET /api/v2/offering-units
+```
+
+Both are authenticated (`/api/v2/*`), both return built-in and custom values in
+one list, and neither distinguishes the two: a picker has no reason to care
+which values shipped with a migration.
+
+```json
+{ "ok": true, "description": "Available offering units", "result": { "units": ["bag", "kg", "Produce Crate"] } }
+```
+
+### 12.2 Creation is a side effect of the owning write
+
+| Write | Creates |
+|---|---|
+| `POST /api/v2/vouchers/:address/offerings`, `PUT .../offerings/:id` | the offering's `unit` |
+| `PUT /api/v2/vouchers/:address/profile`, `PUT /api/v2/admin/vouchers/:address/profile` | each `tags` value |
+| `PUT /api/v2/pools/:address/profile`, `PUT /api/v2/admin/pools/:address/profile` | each `tags` value |
+| `POST /api/v2/reports`, `PUT /api/v2/reports/:id` | each `tags` value |
+| `POST /api/v2/contracts/token`, `POST /api/v2/contracts/pool` | each `tags` value |
+
+The value is created inside the same transaction as the write that named it, so
+a request that fails validation, authorization or the quota check leaves nothing
+behind. A cancelled form creates nothing because it never sends a request.
+
+**An existing spelling always wins.** The lookup is case-insensitive
+(`lower(value)`, uniquely indexed), so `KG` resolves to the built-in `kg` rather
+than creating a second row. Only a value nothing matches is created, and it is
+created in Title Case after whitespace is trimmed and collapsed:
+`"  urban   FARMING "` becomes `Urban Farming`. The response echoes the
+canonical spelling, which is what the client stores.
+
+Validation, applied before anything is created:
+
+| Rule | Tags | Units |
+|---|---|---|
+| Blank after trimming | `400 E04` | `400 E04` |
+| Maximum length | 100 characters | 32 characters |
+| Contains a comma | `400 E04` | allowed |
+| Duplicate within one request | `400 E04`, compared case-insensitively | n/a |
+
+Commas are refused in tags because the tag filter on every catalog read is a
+comma-separated list; a tag containing one could never be selected back.
+
+Concurrency is settled by the unique index rather than by the handler: two
+requests submitting the same new value at the same time produce one row, and
+both writes succeed.
+
+### 12.3 Tag filters are still closed
+
+Creation applies to **writes only**. The `tags` filter on the catalog reads
+(`GET /api/v2/vouchers`, `/api/v2/pools`, `/api/v2/reports`,
+`/api/v2/admin/reports`) still rejects a value outside the vocabulary with
+`400 E04`. A filter naming a tag nothing carries is a client bug, and answering
+it with an empty page hides that.
+
+### 12.4 `GET /api/v2/admin/vocabulary`
+
+`SUPERADMIN`-only. Lists **custom values only** — built-ins are not deletable,
+so listing them would only offer an operator a button that returns `409`.
+
+```json
+{
+  "ok": true,
+  "description": "Custom vocabulary",
+  "result": {
+    "tags": [
+      {
+        "value": "Urban Farming",
+        "deployedTokens": 0, "deployedPools": 0,
+        "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0
+      }
+    ],
+    "units": [{ "value": "Produce Crate", "offerings": 4 }]
+  }
+}
+```
+
+The per-resource counts exist so the console can describe what a deletion will
+remove before the operator commits to it.
+
+### 12.5 `DELETE /api/v2/admin/vocabulary/tags` and `.../units`
+
+`SUPERADMIN`-only. The value travels in a JSON body, not the path, because a
+tag may contain spaces and any character but a comma:
+
+```http
+DELETE /api/v2/admin/vocabulary/tags
+{ "value": "Urban Farming" }
+```
+
+The row is located case-insensitively and locked `FOR UPDATE`, then:
+
+| Response | When |
+|---|---|
+| `404 E03` | no such value |
+| `409 E16` | the value is a built-in |
+| `200` | deleted, with the counts of what it removed |
+
+```json
+{
+  "ok": true,
+  "description": "Custom vocabulary value deleted",
+  "result": {
+    "value": "Urban Farming",
+    "usage": { "deployedTokens": 0, "deployedPools": 0, "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0 },
+    "total": 3
+  }
+}
+```
+
+The two deletions differ in what they do to the content that referenced the
+value, and the difference is deliberate:
+
+- **A tag** is removed from every relation that carried it — `voucher_tags`,
+  `pool_tags`, `report_tags`, `offering_tags`, `deployed_token_tags`,
+  `deployed_pool_tags` — and the vouchers, pools, posts and offerings
+  themselves are untouched.
+- **A unit** is cleared to `NULL` on every offering that used it. The offerings
+  survive; an operator tidying a vocabulary must not delete a seller's listing.
+
+Both run in one transaction with the delete, so a value never disappears while
+a row still points at it.
+
+Deletion does not blacklist: the next catalog write that names the value creates
+it again.

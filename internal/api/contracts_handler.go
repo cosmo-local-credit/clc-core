@@ -88,25 +88,11 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if len(req.Tags) > 0 {
-		validTags, err := a.store.ListTokenTags(ctx, tx)
-		if err != nil {
-			return handlePostgresError(c, err)
-		}
-		validTagSet := make(map[string]struct{}, len(validTags))
-		for _, t := range validTags {
-			validTagSet[t] = struct{}{}
-		}
-		for _, tag := range req.Tags {
-			if _, ok := validTagSet[tag]; !ok {
-				return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-					Ok:          false,
-					ErrCode:     apiresp.ErrCodeValidationFailed,
-					Description: fmt.Sprintf("invalid tag: %q", tag),
-				})
-			}
-		}
+	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
+	if handled || err != nil {
+		return err
 	}
+	req.Tags = tags
 
 	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
 	if callerType == "user" {
@@ -261,25 +247,11 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if len(req.Tags) > 0 {
-		validTags, err := a.store.ListTokenTags(ctx, tx)
-		if err != nil {
-			return handlePostgresError(c, err)
-		}
-		validTagSet := make(map[string]struct{}, len(validTags))
-		for _, t := range validTags {
-			validTagSet[t] = struct{}{}
-		}
-		for _, tag := range req.Tags {
-			if _, ok := validTagSet[tag]; !ok {
-				return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-					Ok:          false,
-					ErrCode:     apiresp.ErrCodeValidationFailed,
-					Description: fmt.Sprintf("invalid tag: %q", tag),
-				})
-			}
-		}
+	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
+	if handled || err != nil {
+		return err
 	}
+	req.Tags = tags
 
 	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
 	if callerType == "user" {

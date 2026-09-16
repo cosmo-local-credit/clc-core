@@ -252,7 +252,14 @@ CREATE TRIGGER update_token_deploy_meta_timestamp
 
 -- Shared tag lookup for token and pool metadata.
 CREATE TABLE IF NOT EXISTS token_tag (
-    value TEXT PRIMARY KEY
+    value TEXT PRIMARY KEY,
+    is_custom BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT token_tag_value_valid CHECK (
+        value = btrim(value)
+        AND value <> ''
+        AND char_length(value) <= 100
+        AND strpos(value, ',') = 0
+    )
 );
 INSERT INTO token_tag (value) VALUES
     ('Agriculture'),
@@ -277,6 +284,9 @@ INSERT INTO token_tag (value) VALUES
     ('Youth'),
     ('Other')
 ON CONFLICT (value) DO NOTHING;
+
+CREATE UNIQUE INDEX IF NOT EXISTS token_tag_value_lower_idx
+    ON token_tag (lower(value));
 
 CREATE TABLE IF NOT EXISTS token_deploy_meta_tags (
     otx_id    INT  REFERENCES token_deploy_meta(otx_id) ON DELETE CASCADE NOT NULL,
@@ -886,7 +896,13 @@ INSERT INTO commodity_type (value) VALUES
 ON CONFLICT (value) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS offering_unit (
-    value TEXT PRIMARY KEY
+    value TEXT PRIMARY KEY,
+    is_custom BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT offering_unit_value_valid CHECK (
+        value = btrim(value)
+        AND value <> ''
+        AND char_length(value) <= 32
+    )
 );
 INSERT INTO offering_unit (value) VALUES
     ('kg'),
@@ -905,6 +921,9 @@ INSERT INTO offering_unit (value) VALUES
     ('session'),
     ('metre')
 ON CONFLICT (value) DO NOTHING;
+
+CREATE UNIQUE INDEX IF NOT EXISTS offering_unit_value_lower_idx
+    ON offering_unit (lower(value));
 
 CREATE TABLE IF NOT EXISTS offering_frequency (
     value TEXT PRIMARY KEY

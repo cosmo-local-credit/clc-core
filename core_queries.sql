@@ -221,6 +221,113 @@ LIMIT 1;
 --name: list-token-tags
 SELECT value FROM token_tag ORDER BY value;
 
+--name: find-token-tag
+SELECT value FROM token_tag WHERE lower(value) = lower($1);
+
+--name: insert-custom-token-tag
+INSERT INTO token_tag (value, is_custom) VALUES ($1, true)
+ON CONFLICT DO NOTHING;
+
+--name: list-offering-units
+SELECT value FROM offering_unit ORDER BY value;
+
+--name: find-offering-unit
+SELECT value FROM offering_unit WHERE lower(value) = lower($1);
+
+--name: insert-custom-offering-unit
+INSERT INTO offering_unit (value, is_custom) VALUES ($1, true)
+ON CONFLICT DO NOTHING;
+
+--name: list-custom-token-tags
+SELECT
+    tt.value,
+    (SELECT count(*) FROM deployed_token_tags dtt WHERE dtt.tag_value = tt.value) AS deployed_tokens,
+    (SELECT count(*) FROM deployed_pool_tags dpt WHERE dpt.tag_value = tt.value) AS deployed_pools,
+    (SELECT count(*) FROM voucher_tags vt WHERE vt.tag_value = tt.value) AS vouchers,
+    (SELECT count(*) FROM pool_tags pt WHERE pt.tag_value = tt.value) AS pools,
+    (SELECT count(*) FROM report_tags rt WHERE rt.tag_value = tt.value) AS posts,
+    (SELECT count(*) FROM offering_tags ot WHERE ot.tag_value = tt.value) AS offerings
+FROM token_tag tt
+WHERE tt.is_custom
+ORDER BY tt.value;
+
+--name: list-custom-offering-units
+SELECT
+    ou.value,
+    (SELECT count(*) FROM offerings o WHERE o.unit = ou.value) AS offerings
+FROM offering_unit ou
+WHERE ou.is_custom
+ORDER BY ou.value;
+
+--name: lock-token-tag
+SELECT value, is_custom FROM token_tag
+WHERE lower(value) = lower($1)
+FOR UPDATE;
+
+--name: lock-offering-unit
+SELECT value, is_custom FROM offering_unit
+WHERE lower(value) = lower($1)
+FOR UPDATE;
+
+--name: delete-custom-token-tag
+WITH
+deleted_deployed_tokens AS (
+    DELETE FROM deployed_token_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_deployed_pools AS (
+    DELETE FROM deployed_pool_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_vouchers AS (
+    DELETE FROM voucher_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_pools AS (
+    DELETE FROM pool_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_posts AS (
+    DELETE FROM report_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_offerings AS (
+    DELETE FROM offering_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_value AS (
+    DELETE FROM token_tag
+    WHERE value = $1
+      AND is_custom
+      AND (
+        (SELECT count(*) FROM deleted_deployed_tokens)
+        + (SELECT count(*) FROM deleted_deployed_pools)
+        + (SELECT count(*) FROM deleted_vouchers)
+        + (SELECT count(*) FROM deleted_pools)
+        + (SELECT count(*) FROM deleted_posts)
+        + (SELECT count(*) FROM deleted_offerings)
+      ) >= 0
+    RETURNING value
+)
+SELECT
+    (SELECT count(*) FROM deleted_deployed_tokens) AS deployed_tokens,
+    (SELECT count(*) FROM deleted_deployed_pools) AS deployed_pools,
+    (SELECT count(*) FROM deleted_vouchers) AS vouchers,
+    (SELECT count(*) FROM deleted_pools) AS pools,
+    (SELECT count(*) FROM deleted_posts) AS posts,
+    (SELECT count(*) FROM deleted_offerings) AS offerings,
+    EXISTS (SELECT 1 FROM deleted_value) AS deleted;
+
+--name: delete-custom-offering-unit
+WITH
+cleared_offerings AS (
+    UPDATE offerings SET unit = NULL WHERE unit = $1 RETURNING 1
+),
+deleted_value AS (
+    DELETE FROM offering_unit
+    WHERE value = $1
+      AND is_custom
+      AND (SELECT count(*) FROM cleared_offerings) >= 0
+    RETURNING value
+)
+SELECT
+    (SELECT count(*) FROM cleared_offerings) AS offerings,
+    EXISTS (SELECT 1 FROM deleted_value) AS deleted;
+
 -- A symbol is occupied by a catalog row or by a deployment which may still
 -- land on-chain. FAILED deployments are deliberately reusable. The suffix
 -- predicate mirrors the client's bare-stem plus numeric-suffix candidates;

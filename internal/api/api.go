@@ -184,6 +184,7 @@ func New(o APIOpts) *API {
 	apiGroup.POST("/contracts/upgrade/pool", a.upgradePoolHandler)
 
 	apiGroup.GET("/token-tags", a.tokenTagsHandler)
+	apiGroup.GET("/offering-units", a.offeringUnitsHandler)
 	apiGroup.GET("/symbols", a.symbolsLookupHandler)
 	apiGroup.GET("/oracle-feeds", a.oracleFeedsHandler)
 	apiGroup.GET("/system", a.systemHandler)
@@ -277,6 +278,9 @@ func New(o APIOpts) *API {
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
+	adminGroup.GET("/vocabulary", a.adminVocabularyHandler)
+	adminGroup.DELETE("/vocabulary/tags", a.adminDeleteTokenTagHandler)
+	adminGroup.DELETE("/vocabulary/units", a.adminDeleteOfferingUnitHandler)
 
 	// Global post moderation reads. The write half stays on apiGroup with the
 	// other report mutations, where the role check is already per-handler.

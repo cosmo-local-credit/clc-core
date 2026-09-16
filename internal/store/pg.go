@@ -37,6 +37,17 @@ type (
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
 		ListTakenVoucherSymbols      string `query:"list-taken-voucher-symbols"`
 		ListTokenTags                string `query:"list-token-tags"`
+		FindTokenTag                 string `query:"find-token-tag"`
+		InsertCustomTokenTag         string `query:"insert-custom-token-tag"`
+		ListOfferingUnits            string `query:"list-offering-units"`
+		FindOfferingUnit             string `query:"find-offering-unit"`
+		InsertCustomOfferingUnit     string `query:"insert-custom-offering-unit"`
+		ListCustomTokenTags          string `query:"list-custom-token-tags"`
+		ListCustomOfferingUnits      string `query:"list-custom-offering-units"`
+		LockTokenTag                 string `query:"lock-token-tag"`
+		LockOfferingUnit             string `query:"lock-offering-unit"`
+		DeleteCustomTokenTag         string `query:"delete-custom-token-tag"`
+		DeleteCustomOfferingUnit     string `query:"delete-custom-offering-unit"`
 		GetProtocolAddress           string `query:"get-protocol-address"`
 		SetProtocolAddress           string `query:"set-protocol-address"`
 		InsertDeployedPool           string `query:"insert-deployed-pool"`

@@ -15,7 +15,13 @@
 -- commodity_type and offering_frequency beside it, so adding a unit is an INSERT
 -- and not an ALTER TYPE that cannot run in a transaction with other DDL.
 CREATE TABLE IF NOT EXISTS offering_unit (
-    value TEXT PRIMARY KEY
+    value TEXT PRIMARY KEY,
+    is_custom BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT offering_unit_value_valid CHECK (
+        value = btrim(value)
+        AND value <> ''
+        AND char_length(value) <= 32
+    )
 );
 INSERT INTO offering_unit (value) VALUES
     ('kg'),
@@ -34,6 +40,9 @@ INSERT INTO offering_unit (value) VALUES
     ('session'),
     ('metre')
 ON CONFLICT (value) DO NOTHING;
+
+CREATE UNIQUE INDEX IF NOT EXISTS offering_unit_value_lower_idx
+    ON offering_unit (lower(value));
 
 -- NOT VALID, because imported rows carry free text: "50kg sack", "sack", "per
 -- bunch". Coercing those to a canonical value would invent data the importer

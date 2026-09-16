@@ -204,9 +204,10 @@ func TestBindOfferingWriteNormalizes(t *testing.T) {
 	if write.Description != "Stone-ground." {
 		t.Errorf("description = %q, want it trimmed", write.Description)
 	}
-	// The lookup holds lower-case values, so " KG " has to reach the FK as "kg".
-	if write.Unit != "kg" {
-		t.Errorf("unit = %q, want the canonical lower-case value", write.Unit)
+	// Binding trims only. The transaction-backed vocabulary resolver later maps
+	// this case-insensitively to the existing canonical "kg" value.
+	if write.Unit != "KG" {
+		t.Errorf("unit = %q, want the trimmed value", write.Unit)
 	}
 	// The classification is passed through exactly: it is a database enum value,
 	// not display text.

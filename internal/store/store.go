@@ -35,6 +35,16 @@ type (
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 		ListTakenVoucherSymbols(context.Context, pgx.Tx, string) ([]string, error)
 		ListTokenTags(context.Context, pgx.Tx) ([]string, error)
+		FindTokenTag(context.Context, pgx.Tx, string) (string, error)
+		InsertCustomTokenTag(context.Context, pgx.Tx, string) error
+		ListOfferingUnits(context.Context, pgx.Tx) ([]string, error)
+		FindOfferingUnit(context.Context, pgx.Tx, string) (string, error)
+		InsertCustomOfferingUnit(context.Context, pgx.Tx, string) error
+		ListCustomVocabulary(context.Context, pgx.Tx) (CustomVocabulary, error)
+		LockTokenTag(context.Context, pgx.Tx, string) (VocabularyEntry, error)
+		LockOfferingUnit(context.Context, pgx.Tx, string) (VocabularyEntry, error)
+		DeleteCustomTokenTag(context.Context, pgx.Tx, string) (TagVocabularyUsage, error)
+		DeleteCustomOfferingUnit(context.Context, pgx.Tx, string) (UnitVocabularyUsage, error)
 		GetProtocolAddress(context.Context, pgx.Tx, string) (string, error)
 		SetProtocolAddress(context.Context, pgx.Tx, string, string) error
 		InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)

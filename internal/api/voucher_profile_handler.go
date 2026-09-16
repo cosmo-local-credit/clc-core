@@ -114,11 +114,11 @@ func (a *API) saveVoucherProfile(
 	address string,
 	req apiresp.UpdateVoucherProfileRequest,
 ) (store.MarketVoucherDetail, bool, error) {
-	// Same vocabulary check the catalog search and the deploy endpoints apply, so
-	// a tag cannot enter through here that no filter could ever select.
-	if rejected, err := a.rejectUnknownTags(c, tx, req.Tags); rejected || err != nil {
+	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
+	if handled || err != nil {
 		return store.MarketVoucherDetail{}, true, err
 	}
+	req.Tags = tags
 
 	voucherID, err := a.store.UpdateVoucherProfile(ctx, tx, address, store.VoucherProfile{
 		DisplayName:  req.DisplayName,
@@ -142,7 +142,7 @@ func (a *API) saveVoucherProfile(
 		return store.MarketVoucherDetail{}, true, handlePostgresError(c, err)
 	}
 
-	if err := a.store.ReplaceVoucherTags(ctx, tx, voucherID, req.Tags); err != nil {
+	if err := a.store.ReplaceVoucherTags(ctx, tx, voucherID, tags); err != nil {
 		return store.MarketVoucherDetail{}, true, handlePostgresError(c, err)
 	}
 

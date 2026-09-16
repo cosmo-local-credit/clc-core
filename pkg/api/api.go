@@ -427,16 +427,11 @@ type (
 	}
 )
 
-// OfferingUnits is the closed set a write may choose from.
+// BuiltInOfferingUnits is the initial set seeded by the database.
 //
-// Duplicated from the offering_unit lookup that migrations/023_offering_crud.sql
-// seeds, on purpose. The database is the backstop, but it cannot be the primary
-// check: the unit foreign key is NOT VALID so imported free text survives, and a
-// foreign key's update trigger short-circuits when the column is unchanged — so
-// re-saving a row that already holds "50kg sack" would pass the constraint
-// untouched. The API therefore has to be what closes the set. When either side
-// moves, both move; TestOfferingUnitsMatchTheMigration fails if they drift.
-var OfferingUnits = []string{
+// Writes may also introduce a custom value. This slice stays exported for
+// callers that need to distinguish translated built-in labels from custom text.
+var BuiltInOfferingUnits = []string{
 	"kg",
 	"g",
 	"litre",
@@ -453,6 +448,10 @@ var OfferingUnits = []string{
 	"session",
 	"metre",
 }
+
+// OfferingUnits remains as a compatibility alias for clients that only need
+// the seeded values. It is not the validation boundary for offering writes.
+var OfferingUnits = BuiltInOfferingUnits
 
 const (
 	ErrCodeInternalServerError = "E01"
