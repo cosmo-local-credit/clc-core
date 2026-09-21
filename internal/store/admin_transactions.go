@@ -114,7 +114,7 @@ var (
 	adminVoucherArms = []adminTxArm{
 		{
 			kind:          "transfer",
-			table:         "chain_data_v2.token_transfer",
+			table:         "token_transfer",
 			columns:       "ev.contract_address AS voucher, ev.sender_address AS from_address, ev.recipient_address AS to_address, ev.transfer_value::text AS amount",
 			searchColumns: []string{"ev.contract_address", "ev.sender_address", "ev.recipient_address"},
 			// _mint and _burn each emit a Transfer log with the zero address on one
@@ -125,13 +125,13 @@ var (
 		},
 		{
 			kind:          "mint",
-			table:         "chain_data_v2.token_mint",
+			table:         "token_mint",
 			columns:       "ev.contract_address AS voucher, ev.minter_address AS from_address, ev.recipient_address AS to_address, ev.mint_value::text AS amount",
 			searchColumns: []string{"ev.contract_address", "ev.minter_address", "ev.recipient_address"},
 		},
 		{
 			kind:          "burn",
-			table:         "chain_data_v2.token_burn",
+			table:         "token_burn",
 			columns:       "ev.contract_address AS voucher, ev.burner_address AS from_address, NULL::text AS to_address, ev.burn_value::text AS amount",
 			searchColumns: []string{"ev.contract_address", "ev.burner_address"},
 		},
@@ -140,13 +140,13 @@ var (
 	adminPoolArms = []adminTxArm{
 		{
 			kind:          "swap",
-			table:         "chain_data_v2.pool_swap",
+			table:         "pool_swap",
 			columns:       "ev.contract_address AS pool, ev.initiator_address AS initiator, ev.token_in_address AS token_in, ev.token_out_address AS token_out, ev.in_value::text AS amount_in, ev.out_value::text AS amount_out, ev.fee::text AS fee",
 			searchColumns: []string{"ev.contract_address", "ev.initiator_address", "ev.token_in_address", "ev.token_out_address"},
 		},
 		{
 			kind:          "deposit",
-			table:         "chain_data_v2.pool_deposit",
+			table:         "pool_deposit",
 			columns:       "ev.contract_address AS pool, ev.initiator_address AS initiator, ev.token_in_address AS token_in, NULL::text AS token_out, ev.in_value::text AS amount_in, NULL::text AS amount_out, NULL::text AS fee",
 			searchColumns: []string{"ev.contract_address", "ev.initiator_address", "ev.token_in_address"},
 		},
@@ -292,7 +292,7 @@ func selectAdminTxArm[T any](
 	}
 
 	query := "SELECT ev.tx_id, ev.log_index, tx.tx_hash, tx.date_block AS t, tx.success, " + arm.columns +
-		" FROM " + arm.table + " ev JOIN chain_data_v2.tx ON tx.id = ev.tx_id"
+		" FROM " + arm.table + " ev JOIN tx ON tx.id = ev.tx_id"
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -36,8 +37,11 @@ func TestLoadFederationQueries(t *testing.T) {
 	if !strings.Contains(queries.DashboardTransactionSeries, "generate_series") {
 		t.Fatal("expected transaction series to fill buckets in SQL")
 	}
-	if !strings.Contains(queries.DashboardTransactionSeries, "chain_data_v2.tx") {
-		t.Fatal("expected transaction series to read chain_data_v2.tx")
+	if !regexp.MustCompile(`\bFROM\s+tx\b`).MatchString(queries.DashboardTransactionSeries) {
+		t.Fatal("expected transaction series to read the indexer tx table")
+	}
+	if strings.Contains(queries.DashboardTransactionSeries, "chain_data_v2.") {
+		t.Fatal("federation queries must not hard-code a schema; the DSN search_path selects it")
 	}
 	if !strings.Contains(queries.DashboardTransactionSeries, "extract(epoch from $1::timestamp)") {
 		t.Fatal("expected extract() to cast $1 to timestamp; untyped params are ambiguous")
@@ -52,7 +56,7 @@ func TestLoadFederationQueries(t *testing.T) {
 		"sarafu_network",
 	} {
 		if strings.Contains(queries.DashboardTransactionSeries, table) {
-			t.Fatalf("transaction series must read only chain_data_v2.tx, found %s", table)
+			t.Fatalf("transaction series must read only tx, found %s", table)
 		}
 	}
 
@@ -61,8 +65,11 @@ func TestLoadFederationQueries(t *testing.T) {
 		"list-user-token-holdings":   queries.ListUserTokenHoldings,
 		"list-user-transfer-history": queries.ListUserTransferHistory,
 	} {
-		if !strings.Contains(query, "chain_data_v2.token_transfer") {
-			t.Fatalf("expected %s to read live from chain_data_v2.token_transfer", name)
+		if !regexp.MustCompile(`\bFROM\s+token_transfer\s+tt\b`).MatchString(query) {
+			t.Fatalf("expected %s to read live from token_transfer", name)
+		}
+		if strings.Contains(query, "chain_data_v2.") {
+			t.Fatalf("expected %s not to hard-code a schema", name)
 		}
 		if strings.Contains(query, "account_token_holding") || strings.Contains(query, "account_transfer") {
 			t.Fatalf("expected %s not to reference a materialized view", name)
@@ -80,8 +87,8 @@ func TestLoadFederationQueries(t *testing.T) {
 		"list-user-transfer-history-next": queries.ListUserTransferHistoryNext,
 		"list-user-transfer-history-prev": queries.ListUserTransferHistoryPrevious,
 	} {
-		if strings.Contains(query, "chain_data_v2.tokens") {
-			t.Fatalf("expected %s not to join chain_data_v2.tokens (metadata is local now)", name)
+		if strings.Contains(query, "JOIN tokens") || strings.Contains(query, "FROM tokens") {
+			t.Fatalf("expected %s not to join tokens (metadata is local now)", name)
 		}
 		if strings.Contains(query, "sarafu_network.vouchers") {
 			t.Fatalf("expected %s not to join sarafu_network.vouchers (metadata is local now)", name)
