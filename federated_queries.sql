@@ -29,6 +29,8 @@
 -- Addresses are stored checksummed (EIP-55) throughout the federation schema,
 -- so plain equality is used everywhere — no LOWER() normalisation.
 
+-- sarafu_network.accounts exists only where Sarafu legacy history was imported.
+-- Elsewhere the store maps undefined_table to false (see FederationPg).
 --name: legacy-user-exists-by-blockchain-address
 SELECT EXISTS (
     SELECT 1
