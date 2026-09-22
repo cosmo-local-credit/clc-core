@@ -169,3 +169,40 @@ func TestPoolProfileMutationRejectsNonOwnersAndAcceptsSuperadmins(t *testing.T) 
 		}
 	}
 }
+
+// The profile route can set the same override the narrow display-name route
+// does, so it has to refuse a label another pool already shows. Both callers go
+// through savePoolProfile, which is where the check lives.
+func TestPoolProfileMutationRejectsADisplayNameAnotherPoolHolds(t *testing.T) {
+	a, signingKey := newOfferingAPI(t)
+	fixtures, cleanup := seedPoolProfileFixtures(t, a)
+	defer cleanup()
+	owner := offeringToken(t, signingKey, offeringOwnerAddress, "USER")
+	target := "/api/v2/pools/" + fixtures.ownedAddress + "/profile"
+
+	res, _ := offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": "  " + strings.ToLower(poolProfileMarker) + "   other  "})
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 body=%s", res.Code, res.Body.String())
+	}
+
+	// Clearing the override is never a conflict: it falls back to the contract
+	// name, which was already unique enough to deploy.
+	res, _ = offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": ""})
+	if res.Code != http.StatusOK {
+		t.Fatalf("clearing status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+
+	// And the pool's own label does not collide with itself.
+	res, _ = offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": "Zqpoolprofile Fresh Label"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("first rename status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+	res, _ = offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": "Zqpoolprofile Fresh Label"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("re-save status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+}

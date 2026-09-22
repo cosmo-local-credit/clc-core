@@ -48,6 +48,10 @@ type offeringFixtures struct {
 	legacyOfferingID uint64
 	otherVoucherAddr string
 	otherOfferingID  uint64
+	// Every voucher this fixture seeded. Cleanup deletes by id because a profile
+	// write replaces the whole record: a test that omits locationName clears the
+	// marker these rows were once found by, and the row would leak.
+	voucherIDs []int64
 }
 
 func newOfferingAPI(t *testing.T) (*API, ed25519.PrivateKey) {
@@ -145,6 +149,7 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("seed voucher %q: %v", name, err)
 		}
+		fx.voucherIDs = append(fx.voucherIDs, int64(id))
 		return id, address
 	}
 
@@ -212,15 +217,25 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 		}
 		defer cleanup.Rollback(ctx)
 
-		for _, statement := range []string{
-			`DELETE FROM offering_tags WHERE offering_id IN
+		for _, statement := range []struct {
+			query string
+			arg   any
+		}{
+			{`DELETE FROM offering_tags WHERE offering_id IN
 			     (SELECT id FROM offerings WHERE location_name = $1
-			      OR voucher_id IN (SELECT id FROM vouchers WHERE location_name = $1))`,
-			`DELETE FROM offerings WHERE location_name = $1
-			     OR voucher_id IN (SELECT id FROM vouchers WHERE location_name = $1)`,
-			`DELETE FROM vouchers WHERE location_name = $1`,
+			      OR voucher_id IN (SELECT id FROM vouchers WHERE location_name = $1))`, offeringMarker},
+			{`DELETE FROM offering_tags WHERE offering_id IN
+			     (SELECT id FROM offerings WHERE voucher_id = ANY($1::BIGINT[]))`, fx.voucherIDs},
+			{`DELETE FROM offerings WHERE location_name = $1
+			     OR voucher_id IN (SELECT id FROM vouchers WHERE location_name = $1)`, offeringMarker},
+			{`DELETE FROM offerings WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			{`DELETE FROM report_vouchers WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			{`DELETE FROM voucher_tags WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			{`DELETE FROM vouchers WHERE id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			// Anything a test seeded under the marker that is not one of ours.
+			{`DELETE FROM vouchers WHERE location_name = $1`, offeringMarker},
 		} {
-			if _, err := cleanup.Exec(ctx, statement, offeringMarker); err != nil {
+			if _, err := cleanup.Exec(ctx, statement.query, statement.arg); err != nil {
 				t.Errorf("cleanup: %v", err)
 				return
 			}
