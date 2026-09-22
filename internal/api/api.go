@@ -186,6 +186,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/token-tags", a.tokenTagsHandler)
 	apiGroup.GET("/offering-units", a.offeringUnitsHandler)
 	apiGroup.GET("/symbols", a.symbolsLookupHandler)
+	apiGroup.GET("/names", a.namesLookupHandler)
 	apiGroup.GET("/oracle-feeds", a.oracleFeedsHandler)
 	apiGroup.GET("/system", a.systemHandler)
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)

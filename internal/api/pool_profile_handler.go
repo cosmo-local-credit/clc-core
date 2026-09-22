@@ -92,6 +92,19 @@ func (a *API) savePoolProfile(
 	address string,
 	req apiresp.UpdatePoolProfileRequest,
 ) (store.Pool, bool, error) {
+	// See saveVoucherProfile: only a non-empty override can collide, and the
+	// pool's own address is excluded so an unchanged re-save is not a conflict.
+	if req.DisplayName != nil && *req.DisplayName != "" {
+		taken, err := a.store.PoolDisplayNameTaken(ctx, tx, *req.DisplayName, &address)
+		if err != nil {
+			return store.Pool{}, true, handlePostgresError(c, err)
+		}
+		if taken {
+			return store.Pool{}, true,
+				handleConflictError(c, "a pool with this name already exists")
+		}
+	}
+
 	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
 	if handled || err != nil {
 		return store.Pool{}, true, err

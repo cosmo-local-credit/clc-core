@@ -34,6 +34,7 @@ type (
 		GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 		ListTakenVoucherSymbols(context.Context, pgx.Tx, string) ([]string, error)
+		VoucherDisplayNameTaken(context.Context, pgx.Tx, string, *string) (bool, error)
 		ListTokenTags(context.Context, pgx.Tx) ([]string, error)
 		FindTokenTag(context.Context, pgx.Tx, string) (string, error)
 		InsertCustomTokenTag(context.Context, pgx.Tx, string) error
@@ -64,6 +65,7 @@ type (
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 		ListTakenPoolSymbols(context.Context, pgx.Tx, string) ([]string, error)
+		PoolDisplayNameTaken(context.Context, pgx.Tx, string, *string) (bool, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
 		GetOracleFeedByName(context.Context, pgx.Tx, int64, string) (OracleFeed, error)
 		ListOracleFeeds(context.Context, pgx.Tx, int64) ([]OracleFeed, error)

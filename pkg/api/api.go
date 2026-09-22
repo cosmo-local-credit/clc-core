@@ -18,7 +18,9 @@ type (
 	}
 
 	DeployPoolRequest struct {
-		Name          string `json:"name" validate:"required"`
+		// max mirrors pools_display_name_valid (migration 032): a name that
+		// deploys must also be settable as a display_name override later.
+		Name          string `json:"name" validate:"required,max=80"`
 		Symbol        string `json:"symbol" validate:"required"`
 		Decimals      string `json:"decimals" validate:"required"`
 		Owner         string `json:"owner" validate:"required,eth_addr_checksum"`
@@ -53,7 +55,9 @@ type (
 	// only rule is a size cap; clients tell the two apart by whether the value
 	// parses as an http(s) URL.
 	DeployTokenRequest struct {
-		Name            string   `json:"name" validate:"required"`
+		// max mirrors vouchers_display_name_valid (migration 030), for the reason
+		// DeployPoolRequest gives above.
+		Name            string   `json:"name" validate:"required,max=120"`
 		Symbol          string   `json:"symbol" validate:"required"`
 		Decimals        string   `json:"decimals" validate:"required"`
 		Owner           string   `json:"owner" validate:"required,eth_addr_checksum"`

@@ -23,8 +23,22 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		return handleBindError(c, err)
 	}
 
+	// Normalize before validating so the length cap counts the name that is
+	// actually deployed, and so the uniqueness probe below compares the same
+	// bytes the SwapPool constructor receives. Padding must not smuggle a
+	// duplicate past the check.
+	req.Name = store.NormalizeCatalogTerm(req.Name)
+
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
+	}
+
+	if req.Name == "" {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "Validation failed: name must not be blank",
+		})
 	}
 
 	if req.QuoterType == "" {
@@ -87,6 +101,19 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// Uniqueness on the label, inside the transaction that goes on to enqueue the
+	// deploy. Not a reservation: the deployed_pools row is written later, by the
+	// worker, so two requests milliseconds apart can still both pass. That window
+	// is narrower than the one a worker-side constraint would leave, where the
+	// rejection lands after the deploy transaction is signed.
+	nameTaken, err := a.store.PoolDisplayNameTaken(ctx, tx, req.Name, nil)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if nameTaken {
+		return handleConflictError(c, "a pool with this name already exists")
+	}
 
 	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
 	if handled || err != nil {
@@ -232,8 +259,20 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		return handleBindError(c, err)
 	}
 
+	// See deployPoolHandler: normalized before validation so the cap and the
+	// uniqueness probe both see the name the ERC20 constructor will receive.
+	req.Name = store.NormalizeCatalogTerm(req.Name)
+
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
+	}
+
+	if req.Name == "" {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "Validation failed: name must not be blank",
+		})
 	}
 
 	callerType, _ := c.Get("callerType").(string)
@@ -246,6 +285,16 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// Uniqueness on the label; see deployPoolHandler for why this is a read
+	// inside the transaction rather than a database constraint.
+	nameTaken, err := a.store.VoucherDisplayNameTaken(ctx, tx, req.Name, nil)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if nameTaken {
+		return handleConflictError(c, "a voucher with this name already exists")
+	}
 
 	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
 	if handled || err != nil {

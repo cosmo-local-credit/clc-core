@@ -139,6 +139,18 @@ func handleForbiddenError(c *echo.Context, reason string) error {
 	return errors.New(reason)
 }
 
+// handleConflictError is the 409 for a request that is well-formed but collides
+// with state the server already holds -- a name someone else took, an offering
+// that already exists. Distinct from a 400: nothing about the request needs
+// correcting except the value that clashed.
+func handleConflictError(c *echo.Context, description string) error {
+	return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeConflict,
+		Description: description,
+	})
+}
+
 func handlePostgresError(c *echo.Context, err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
