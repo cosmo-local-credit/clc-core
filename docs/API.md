@@ -1661,6 +1661,56 @@ Latest indexed envelopes from `chain_data_v2.tx`, classified from live event tab
 
 ---
 
+### 7.13 `GET /api/v2/admin/vouchers`
+
+The console's voucher catalog. Same `q`, `tags`, `tagMatch` and `owner`
+parameters as the public list in [section 9](#9-public-market-catalog-get-apiv2vouchers),
+and the same cursor pagination (`perPage` default/max 100, `cursor`, `next`).
+
+It differs from the public list in exactly two ways, and both are the point:
+
+- **No visibility gate.** The public list filters `active` vouchers with
+  complete coordinates. This one filters neither, so retired and ungeolocated
+  vouchers are reachable. Each row carries `active` so the console can render
+  status.
+- **No `bbox`.** The console lists rather than maps, and a viewport filter would
+  silently exclude the very rows this endpoint exists to reach.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `status` | `string` | `all` | `all`, `active`, or `retired` (case-insensitive). An unrecognised value is `400 E04`, never a silently widened page |
+
+Responses are `Cache-Control: no-store`. The public market responses are
+cacheable because they are identical for every caller; this one is scoped to a
+role and must never be served to anyone else.
+
+### 7.14 `GET /api/v2/admin/vouchers/:address`
+
+One voucher whatever its visibility. The projection is
+[9.6](#96-voucher-detail-get-apiv2vouchersaddress)'s plus `active`, and there is
+no `active` predicate: `404` means the catalog does not hold the address, not
+that the voucher is retired.
+
+This route is why retiring is reversible at all. Without it, retiring a voucher
+would also remove the only screen an operator could restore it from.
+
+### 7.15 `PUT /api/v2/admin/vouchers/:address/restore`
+
+Returns a retired voucher to the public catalog. `SUPERADMIN`-only and no
+request body. Success is `200 OK` with description `Voucher restored` and the
+restored row under `result.voucher`.
+
+Deliberately not the mirror image of
+[9.8](#98-retire-a-voucher-delete-apiv2vouchersaddress): an owner may take their
+own voucher out of circulation, but putting one back is an operator decision, so
+there is no owner-facing route and no toggle an owner can flip back and forth.
+
+Restoring an already-active voucher is idempotent in state and still `200`. It
+is not an error — the caller asked for a state the row is already in, and a
+`409` would make the console handle a case with no user-visible difference.
+
+---
+
 ## 8. SIWE Message Construction
 
 The following is a client-side example using the [`siwe`](https://www.npmjs.com/package/siwe) JavaScript library. This pattern applies to `/auth/signup`, `/auth/signin`, and `/auth/siwe/verify`.
@@ -1950,6 +2000,55 @@ Caching and rate limiting are exactly as in [9.3](#93-caching) and
 > **Swagger drift.** `docs/swagger.yaml` predates the catalog surface and does
 > not describe these routes. Reconciling it is tracked as separate follow-up
 > work.
+
+### 9.8 Retire a voucher (`DELETE /api/v2/vouchers/:address`)
+
+Requires a user JWT. The caller must be either the voucher's current
+`ownerAddress` or a `SUPERADMIN`; the catalog row is locked and checked in the
+same transaction as the write, so authorization cannot race a concurrent
+ownership change. Another signed-in user receives `403 E10`, a service
+credential `403`, and no session `401`. No request body is required.
+
+```http
+DELETE /api/v2/vouchers/0x1B4a4f08D796C72efB377f629130a15eb0B78942
+Cookie: __clc_auth=<owner-or-admin-jwt>
+```
+
+Success is `200 OK` with description `Voucher retired` and **no `result`**. The
+other catalog writes return the saved row so a client can seed its cache, but
+the row this one writes is no longer visible to
+[9.6](#96-voucher-detail-get-apiv2vouchersaddress) — reading it back would
+answer `404`. A client's correct next move is to drop the voucher from its cache,
+not to re-read it.
+
+**Soft, not destructive.** The endpoint flips `vouchers.active`, the same
+visibility gate every market, search and offering statement already filters on.
+Nothing is deleted: the reports and offerings that reference the voucher keep
+their foreign keys, and a restore returns it intact. Deleting instead was
+measured and rejected — 65% of report→voucher links ride on rows a delete would
+take with them.
+
+**Visibility afterwards.** The voucher stops resolving from
+[9](#9-public-market-catalog-get-apiv2vouchers), [9.6](#96-voucher-detail-get-apiv2vouchersaddress)
+and [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings), and its 404
+body is byte-identical to an address that never existed. It remains visible to
+the console reads in [7.13](#713-get-apiv2adminvouchers) and
+[7.14](#714-get-apiv2adminvouchersaddress), and to the surfaces that deliberately
+ignore `active`: pool composition, symbol occupancy, report linking and
+federation balance metadata. A retired voucher's symbol stays taken, so a new
+deploy cannot collide with it.
+
+| State | Repeat `DELETE` |
+|---|---|
+| Active | `200`, retired |
+| Already retired | `409` `voucher is already retired` |
+| Unknown address | `404`, body identical to a retired-voucher read |
+
+Activity is checked before ownership on purpose: answering `409` to the owner
+and `403` to everyone else would leak that the address exists.
+
+There is no owner-facing restore. Putting a voucher back is an operator
+decision — see [7.15](#715-put-apiv2adminvouchersaddressrestore).
 
 ### 9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)
 

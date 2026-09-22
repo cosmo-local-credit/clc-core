@@ -225,6 +225,10 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/pools/:address/profile", a.updatePoolProfileHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/profile", a.updateVoucherProfileHandler, a.requireUserAuth())
+	// Retiring is an owner capability for the same reason, and the same handler
+	// serves a superadmin through canManageVoucher. Restoring is not symmetric and
+	// lives under /api/v2/admin with the console's voucher reads.
+	apiGroup.DELETE("/vouchers/:address", a.retireVoucherHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")
@@ -277,6 +281,9 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
+	adminGroup.GET("/vouchers", a.adminVouchersListHandler)
+	adminGroup.GET("/vouchers/:address", a.adminVoucherByAddressHandler)
+	adminGroup.PUT("/vouchers/:address/restore", a.adminRestoreVoucherHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 	adminGroup.GET("/vocabulary", a.adminVocabularyHandler)
 	adminGroup.DELETE("/vocabulary/tags", a.adminDeleteTokenTagHandler)

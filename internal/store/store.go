@@ -56,6 +56,7 @@ type (
 		ReplacePoolTags(context.Context, pgx.Tx, uint64, []string) error
 		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)
 		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
+		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
@@ -156,6 +157,8 @@ type (
 		ListMarketVouchersNext(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersPrevious(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		GetMarketVoucherByAddress(context.Context, pgx.Tx, string) (MarketVoucherDetail, error)
+		ListAdminVouchers(context.Context, pgx.Tx, CatalogFilter, AdminVoucherStatus, CatalogPage, uint64, uint64) ([]AdminVoucher, error)
+		GetAdminVoucherByAddress(context.Context, pgx.Tx, string) (AdminVoucherDetail, error)
 
 		// Catalog search and tag filtering (PG_SEARCH_PLAN.md Slices 1 and 2).
 		ListMarketVouchersFiltered(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter, CatalogPage, uint64, uint64) ([]MarketVoucher, error)

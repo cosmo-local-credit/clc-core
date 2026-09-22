@@ -108,6 +108,18 @@ func (pg *Pg) UpdateVoucherDisplayName(ctx context.Context, tx pgx.Tx, voucherID
 	return err
 }
 
+// SetVoucherActive flips a voucher's catalog visibility after the caller has
+// authorized against a locked voucher row.
+//
+// One method for both directions because the write is the same column; retiring
+// and restoring differ only in who may ask, which the handlers decide. Nothing
+// is deleted: every report and offering that references this voucher keeps its
+// foreign key, and restoring returns the voucher to the catalog intact.
+func (pg *Pg) SetVoucherActive(ctx context.Context, tx pgx.Tx, voucherID uint64, active bool) error {
+	_, err := tx.Exec(ctx, pg.queries.SetVoucherActive, voucherID, active)
+	return err
+}
+
 // ReplaceVoucherTags swaps a voucher's whole tag set.
 //
 // Clear-then-insert rather than a diff, for the reason ReplacePoolTags gives: the

@@ -1174,6 +1174,18 @@ UPDATE vouchers
 SET display_name = $2
 WHERE id = $1;
 
+-- Retiring and restoring are the same column write; only who may ask differs,
+-- and that is decided in the handler against the locked row. `active` is the
+-- catalog's visibility gate — every market, search and offering statement
+-- filters on it — so flipping it here removes a voucher from the public
+-- catalog without touching the report and offering rows that reference it
+-- (42.md 3.1: deactivate, do not delete).
+--name: set-voucher-active
+UPDATE vouchers
+SET active = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
 -- Tags are a junction, so a replace is a clear and a re-insert, both inside the
 -- caller's transaction with the profile update — as for pools, an operator who
 -- mistypes one tag must not lose the rest.
@@ -1848,6 +1860,39 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) dominant ON TRUE
 WHERE lower(v.address) = lower($1) AND v.active;
+
+-- The console's read of one voucher. Identical projection to
+-- get-market-voucher-by-address plus `active`, and deliberately without the
+-- `v.active` predicate: a retired voucher is invisible to every public
+-- statement, so without this an operator could retire one and then have no
+-- screen left to restore it from. Mounted under /api/v2/admin, where
+-- requireSuperAdmin has already decided the caller may see it.
+--name: admin-get-voucher-by-address
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
+    v.name AS contract_name, v.symbol, v.decimals, v.owner_address,
+    v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
+    v.location_name, v.geo_lat, v.geo_lng,
+    v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url, v.active,
+    COALESCE((
+        SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
+        FROM voucher_tags vt
+        WHERE vt.voucher_id = v.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        ELSE 'voucher'
+    END AS kind
+FROM vouchers v
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = v.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+WHERE lower(v.address) = lower($1);
 
 -- Report feed. Ordered by updated_at because that is the timestamp the feed
 -- shows; on the imported catalog it bears almost no relation to id order.

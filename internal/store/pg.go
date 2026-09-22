@@ -64,6 +64,7 @@ type (
 		InsertPoolTag                string `query:"insert-pool-tag"`
 		UpdateVoucherProfile         string `query:"update-voucher-profile"`
 		UpdateVoucherDisplayName     string `query:"update-voucher-display-name"`
+		SetVoucherActive             string `query:"set-voucher-active"`
 		DeleteVoucherTags            string `query:"delete-voucher-tags"`
 		InsertVoucherTag             string `query:"insert-voucher-tag"`
 		SetPoolTokenMembership       string `query:"set-pool-token-membership"`
@@ -174,6 +175,7 @@ type (
 		ListMarketVouchersPrevBounded string `query:"list-market-vouchers-prev-bounded"`
 
 		GetMarketVoucherByAddress string `query:"get-market-voucher-by-address"`
+		AdminGetVoucherByAddress  string `query:"admin-get-voucher-by-address"`
 
 		// Catalog search support. The filtered voucher and pool statements are
 		// composed in Go from constant fragments (internal/store/catalog_search.go)

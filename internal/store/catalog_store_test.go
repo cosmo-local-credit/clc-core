@@ -42,6 +42,8 @@ func TestLoadCatalogQueries(t *testing.T) {
 		"get-voucher-offering":             queries.GetVoucherOffering,
 		"get-offering-for-mutation":        queries.GetOfferingForMutation,
 		"lock-voucher-for-offering-create": queries.LockVoucherForOfferingCreate,
+		"set-voucher-active":               queries.SetVoucherActive,
+		"admin-get-voucher-by-address":     queries.AdminGetVoucherByAddress,
 		"lock-offering-voucher-owner":      queries.LockOfferingVoucherOwner,
 		"create-offering":                  queries.CreateOffering,
 		"update-offering":                  queries.UpdateOffering,
@@ -104,6 +106,30 @@ func TestLoadCatalogQueries(t *testing.T) {
 		if !strings.Contains(query, "v.symbol AS voucher_symbol") {
 			t.Errorf("%s must name the voucher each offering belongs to", name)
 		}
+	}
+
+	// The retire/restore write must be keyed by id, not address: the handler has
+	// already locked the row it authorized against, and re-finding it by address
+	// would reopen the window that lock closes.
+	if !strings.Contains(queries.SetVoucherActive, "WHERE id = $1") {
+		t.Fatal("set-voucher-active must write the row the caller locked, by id")
+	}
+	if !strings.Contains(queries.SetVoucherActive, "SET active = $2") {
+		t.Fatal("set-voucher-active must take the new visibility as a parameter, not hard-code one direction")
+	}
+
+	// The console's reads exist to reach what the public ones hide. A visibility
+	// predicate creeping into either would make retiring a voucher also remove
+	// the screen an operator restores it from.
+	if strings.Contains(queries.AdminGetVoucherByAddress, "v.active;") ||
+		strings.Contains(queries.AdminGetVoucherByAddress, "AND v.active") {
+		t.Fatal("admin-get-voucher-by-address must resolve retired vouchers too")
+	}
+	if !strings.Contains(queries.AdminGetVoucherByAddress, "v.active,") {
+		t.Fatal("admin-get-voucher-by-address must project active so the console can render status")
+	}
+	if !strings.Contains(queries.GetMarketVoucherByAddress, "AND v.active") {
+		t.Fatal("get-market-voucher-by-address must keep hiding retired vouchers from the public")
 	}
 }
 
