@@ -386,6 +386,43 @@ FROM (
 ORDER BY symbol
 LIMIT 128;
 
+-- A display name is occupied by a catalog row or by a deploy which may still
+-- land on-chain. FAILED deploys are deliberately reusable, as with symbols, and
+-- a retired voucher keeps its label: the address stays resolvable and reusing
+-- the name would make old references ambiguous.
+--
+-- $1 is the caller-normalized name (trimmed, inner whitespace collapsed,
+-- lowercased) -- normalizeDeployName in Go produces exactly what the indexed
+-- expression here produces. $2 excludes the row being renamed so an owner can
+-- re-save its own name; it is NULL on deploy.
+--name: voucher-display-name-taken
+SELECT EXISTS (
+    SELECT 1
+    FROM vouchers
+    WHERE lower(regexp_replace(btrim(COALESCE(display_name, name)), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR lower(address) <> lower($2))
+    UNION ALL
+    SELECT 1
+    FROM deployed_tokens
+    WHERE status IN ('PENDING', 'CONFIRMED')
+      AND lower(regexp_replace(btrim(name), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR address IS NULL OR lower(address) <> lower($2))
+);
+
+--name: pool-display-name-taken
+SELECT EXISTS (
+    SELECT 1
+    FROM pools
+    WHERE lower(regexp_replace(btrim(COALESCE(display_name, name)), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR lower(address) <> lower($2))
+    UNION ALL
+    SELECT 1
+    FROM deployed_pools
+    WHERE status IN ('PENDING', 'CONFIRMED')
+      AND lower(regexp_replace(btrim(name), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR address IS NULL OR lower(address) <> lower($2))
+);
+
 --name: get-protocol-address
 SELECT address FROM protocol_addresses WHERE key = $1;
 

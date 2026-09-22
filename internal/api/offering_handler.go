@@ -111,7 +111,7 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	if !voucher.Active {
-		return offeringConflictError(c, "voucher is retired and cannot receive offerings")
+		return handleConflictError(c, "voucher is retired and cannot receive offerings")
 	}
 
 	seller, ok := offeringSeller(callerAddress, callerRole, voucher.OwnerAddress)
@@ -264,7 +264,7 @@ func (a *API) authorizeOfferingMutation(
 	// state the owner needs told about, and it is not secret — the voucher's own
 	// public record already carries it.
 	if !parent.Active {
-		return nil, true, offeringConflictError(c, "voucher is retired and its offerings cannot be changed")
+		return nil, true, handleConflictError(c, "voucher is retired and its offerings cannot be changed")
 	}
 	if !canWriteVoucherOfferings(callerAddress, callerRole, parent.OwnerAddress) {
 		return nil, true, handleForbiddenError(c,
@@ -451,13 +451,5 @@ func offeringVoucherNotFoundError(c *echo.Context) error {
 		Ok:          false,
 		ErrCode:     apiresp.ErrCodeNotFound,
 		Description: "Voucher not found",
-	})
-}
-
-func offeringConflictError(c *echo.Context, description string) error {
-	return c.JSON(http.StatusConflict, apiresp.ErrResponse{
-		Ok:          false,
-		ErrCode:     apiresp.ErrCodeConflict,
-		Description: description,
 	})
 }

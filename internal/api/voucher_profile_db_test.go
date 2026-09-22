@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,28 @@ func TestVoucherProfileMutationRejectsNonOwnersAndRetiredVouchers(t *testing.T) 
 		map[string]any{"description": "Steward correction"})
 	if res.Code != http.StatusOK {
 		t.Errorf("superadmin status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+}
+
+// saveVoucherProfile carries the same uniqueness check the narrow display-name
+// route has, so the wider profile route cannot be used to sidestep it.
+func TestVoucherProfileMutationRejectsADisplayNameAnotherVoucherHolds(t *testing.T) {
+	a, signingKey := newOfferingAPI(t)
+	fixtures, cleanup := seedOfferingFixtures(t, a)
+	defer cleanup()
+	owner := offeringToken(t, signingKey, offeringOwnerAddress, "USER")
+	target := "/api/v2/vouchers/" + fixtures.ownedAddress + "/profile"
+
+	res, _ := offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": "  " + strings.ToLower(offeringMarker) + "   other  "})
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 body=%s", res.Code, res.Body.String())
+	}
+
+	// Clearing falls back to the contract name and is always allowed.
+	res, _ = offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": ""})
+	if res.Code != http.StatusOK {
+		t.Fatalf("clearing status = %d, want 200 body=%s", res.Code, res.Body.String())
 	}
 }

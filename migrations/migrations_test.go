@@ -71,6 +71,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "034_symbol_occupancy_indexes.sql")
 	assert.Contains(t, sqlFiles, "035_pool_deploy_fee_settings.sql")
 	assert.Contains(t, sqlFiles, "036_custom_vocabulary.sql")
+	assert.Contains(t, sqlFiles, "037_deploy_name_occupancy_indexes.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -108,7 +109,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "033_pool_owner_index.sql" ||
 				name == "034_symbol_occupancy_indexes.sql" ||
 				name == "035_pool_deploy_fee_settings.sql" ||
-				name == "036_custom_vocabulary.sql",
+				name == "036_custom_vocabulary.sql" ||
+				name == "037_deploy_name_occupancy_indexes.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -154,7 +156,36 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"034_symbol_occupancy_indexes.sql",
 		"035_pool_deploy_fee_settings.sql",
 		"036_custom_vocabulary.sql",
+		"037_deploy_name_occupancy_indexes.sql",
 	}, files)
+}
+
+func TestDeployNameOccupancyIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("037_deploy_name_occupancy_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	for _, want := range []string{
+		"vouchers_normalized_name_idx",
+		"pools_normalized_name_idx",
+		"deployed_tokens_open_normalized_name_idx",
+		"deployed_pools_open_normalized_name_idx",
+	} {
+		assert.Contains(t, s, want)
+	}
+
+	// The indexed expression has to stay byte-identical to the predicate in
+	// voucher-display-name-taken / pool-display-name-taken, or the planner
+	// silently falls back to a sequential scan over the whole catalog.
+	assert.Equal(t, 2, strings.Count(s,
+		`lower(regexp_replace(btrim(COALESCE(display_name, name)), '\s+', ' ', 'g'))`))
+	assert.Equal(t, 2, strings.Count(s,
+		`lower(regexp_replace(btrim(name), '\s+', ' ', 'g'))`))
+
+	assert.Equal(t, 2, strings.Count(s, "WHERE status IN ('PENDING', 'CONFIRMED')"))
+	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.NotContains(t, s, "CREATE UNIQUE INDEX")
+	assert.NotContains(t, s, "CREATE INDEX CONCURRENTLY")
 }
 
 func TestSymbolOccupancyIndexesMigration(t *testing.T) {

@@ -54,10 +54,21 @@ func (a *API) updateVoucherDisplayNameHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	if !voucher.Active {
-		return offeringConflictError(c, "voucher is retired and its display name cannot be changed")
+		return handleConflictError(c, "voucher is retired and its display name cannot be changed")
 	}
 	if !canManageVoucher(callerAddress, callerRole, voucher.OwnerAddress) {
 		return handleForbiddenError(c, "only the voucher owner or a superadmin may change this voucher's display name")
+	}
+
+	// Excluding this voucher's own address lets the owner re-save the label they
+	// already hold, and lets them reset it to the contract name their own deploy
+	// row carries.
+	taken, err := a.store.VoucherDisplayNameTaken(ctx, tx, req.DisplayName, &address)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if taken {
+		return handleConflictError(c, "a voucher with this name already exists")
 	}
 
 	if err := a.store.UpdateVoucherDisplayName(ctx, tx, voucher.ID, req.DisplayName); err != nil {

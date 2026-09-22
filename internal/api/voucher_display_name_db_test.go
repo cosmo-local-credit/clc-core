@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -92,5 +93,59 @@ func TestVoucherDisplayNameMutationRejectsBlankLabels(t *testing.T) {
 		map[string]any{"displayName": "   "})
 	if res.Code != http.StatusBadRequest {
 		t.Errorf("blank status = %d, want 400 body=%s", res.Code, res.Body.String())
+	}
+}
+
+// The label is what catalog reads show, so two vouchers carrying the same one is
+// exactly the ambiguity the deploy-time check exists to prevent; a rename must
+// not be a way around it.
+func TestVoucherDisplayNameMutationRejectsALabelAnotherVoucherHolds(t *testing.T) {
+	a, signingKey := newOfferingAPI(t)
+	fixtures, cleanup := seedOfferingFixtures(t, a)
+	defer cleanup()
+	owner := offeringToken(t, signingKey, offeringOwnerAddress, "USER")
+
+	// Case and padding differ; normalization has to see through both.
+	for _, label := range []string{
+		offeringMarker + " Other",
+		"  " + strings.ToLower(offeringMarker) + "   other  ",
+	} {
+		res, _ := offeringRequest(t, a, http.MethodPut,
+			"/api/v2/vouchers/"+fixtures.ownedAddress+"/display-name", owner,
+			map[string]any{"displayName": label})
+		if res.Code != http.StatusConflict {
+			t.Errorf("%q status = %d, want 409 body=%s", label, res.Code, res.Body.String())
+		}
+	}
+
+	var displayName *string
+	if err := a.store.Pool().QueryRow(context.Background(), `
+		SELECT display_name FROM vouchers WHERE id = $1`, fixtures.ownedID).Scan(&displayName); err != nil {
+		t.Fatalf("read voucher after rejected rename: %v", err)
+	}
+	if displayName != nil {
+		t.Errorf("display name = %v, want the rejected rename to have left it unset", *displayName)
+	}
+}
+
+// Re-saving the label a voucher already holds is not a conflict with itself,
+// and neither is resetting it to the contract name its own deploy row carries.
+func TestVoucherDisplayNameMutationAcceptsTheVouchersOwnLabel(t *testing.T) {
+	a, signingKey := newOfferingAPI(t)
+	fixtures, cleanup := seedOfferingFixtures(t, a)
+	defer cleanup()
+	owner := offeringToken(t, signingKey, offeringOwnerAddress, "USER")
+
+	target := "/api/v2/vouchers/" + fixtures.ownedAddress + "/display-name"
+	for _, label := range []string{
+		"Zqdisplayname Reused Label",
+		"Zqdisplayname Reused Label",
+		offeringMarker + " Owned", // the contract name on this voucher's own row
+	} {
+		res, _ := offeringRequest(t, a, http.MethodPut, target, owner,
+			map[string]any{"displayName": label})
+		if res.Code != http.StatusOK {
+			t.Fatalf("%q status = %d, want 200 body=%s", label, res.Code, res.Body.String())
+		}
 	}
 }

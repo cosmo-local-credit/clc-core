@@ -34,9 +34,10 @@
    - [GET /api/v2/account/status/:address](#54-get-apiv2accountstatusaddress)
    - [POST /api/v2/contracts/token](#55-post-apiv2contractstoken)
    - [POST /api/v2/contracts/pool](#56-post-apiv2contractspool)
-   - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#57-pretium-backend-endpoints-apiv2pretium)
-   - [GET /api/v2/pools](#58-get-apiv2pools)
-   - [GET /api/v2/pools/:address](#59-get-apiv2poolsaddress)
+   - [GET /api/v2/names](#57-get-apiv2names)
+   - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#58-pretium-backend-endpoints-apiv2pretium)
+   - [GET /api/v2/pools](#59-get-apiv2pools)
+   - [GET /api/v2/pools/:address](#510-get-apiv2poolsaddress)
 6. [User-Only Endpoints (`/api/v2/users/*`)](#6-user-only-endpoints-apiv2users)
    - [GET /api/v2/users/me](#61-get-apiv2usersme)
    - [GET /api/v2/users/me/tokens](#62-get-apiv2usersmetokens)
@@ -741,8 +742,8 @@ Submits a request to deploy an ERC-20 token contract. The deployment is queued a
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | `string` | Yes | Full token name |
-| `symbol` | `string` | Yes | Ticker symbol (e.g. `MTK`) |
+| `name` | `string` | Yes | Full token name, up to 120 characters. Must be unique — see below |
+| `symbol` | `string` | Yes | Ticker symbol (e.g. `MTK`). Not required to be unique |
 | `decimals` | `string` (int) | Yes | Token decimal places (e.g. `"6"`) |
 | `owner` | `string` | Yes | Checksummed Ethereum address of the token owner |
 | `expiryTimestamp` | `string` (ISO 8601) | No | Optional expiry date for the token |
@@ -753,6 +754,14 @@ Image URLs must be `http` or `https`. Other schemes — including `data:` — ar
 rejected with `400` before the deploy is queued, because the catalog column that
 finally receives them is HTTP-only and by then the transaction would already be
 signed and its nonce spent.
+
+`name` is trimmed and its inner whitespace collapsed before anything else
+happens, and the collapsed form is what reaches the ERC-20 constructor. It must
+not already be in use by another voucher, whether by a catalog row or by a
+deploy still in flight. The comparison ignores case and whitespace, so
+`"  community   MARKET "` collides with `"Community Market"`. A deploy that
+previously failed releases its name. Use
+[`GET /api/v2/names`](#57-get-apiv2names) to check before submitting.
 
 **Response `200`:**
 
@@ -770,8 +779,9 @@ signed and its nonce spent.
 
 | HTTP | `code` | Condition |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, bad address) |
+| `400` | `E04` | Validation failure (missing fields, bad address, name over 120 characters or blank after trimming) |
 | `403` | `E11` | User has reached their `maxTokens` quota |
+| `409` | `E16` | `name` is already used by another voucher or an in-flight deploy |
 
 ---
 
@@ -801,8 +811,8 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | `string` | Yes | Pool name |
-| `symbol` | `string` | Yes | Pool symbol |
+| `name` | `string` | Yes | Pool name, up to 80 characters. Unique among pools, on the same terms as a token name |
+| `symbol` | `string` | Yes | Pool symbol. Not required to be unique |
 | `decimals` | `string` (int) | Yes | Decimal precision |
 | `owner` | `string` | Yes | Checksummed owner address |
 | `quoterType` | `string` | Yes | Pricing strategy — see below |
@@ -838,12 +848,63 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | HTTP | `code` | Condition |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter) |
+| `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter, name over 80 characters or blank after trimming) |
 | `403` | `E11` | User has reached their `maxPools` quota |
+| `409` | `E16` | `name` is already used by another pool or an in-flight deploy |
 
 ---
 
-### 5.7 `Pretium Backend Endpoints (/api/v2/pretium/*)`
+### 5.7 `GET /api/v2/names`
+
+Reports whether a voucher or pool name is still free, so a creation form can say
+so before the user has filled in everything else.
+
+This is an advisory read, not a reservation. Nothing is held: the deploy request
+is the claim, and it re-runs the same check. Two clients told a name is free
+moments apart can still race, and the loser gets `409` from the deploy.
+
+**Auth:** user JWT or service JWT
+
+**Query parameters:**
+
+| Name | Required | Description |
+|---|---|---|
+| `kind` | Yes | `voucher` or `pool`. The two are separate namespaces |
+| `name` | Yes | The name to check. Trimmed and inner-whitespace-collapsed before comparison; at most 120 characters for a voucher, 80 for a pool |
+| `exclude` | No | A contract address whose own name should not count as a conflict, for a rename form checking the value already in its field |
+
+A name is occupied by a catalog row or by a deploy that may still land on-chain
+(`PENDING` or `CONFIRMED`). A deploy that `FAILED` releases its name. Where a
+voucher or pool carries an off-chain display name, that label is what is
+compared, not the immutable contract name it overrides.
+
+**Response `200`:**
+
+```/dev/null/name-availability-response.json#L1-9
+{
+  "ok": true,
+  "description": "Name availability",
+  "result": {
+    "kind": "voucher",
+    "name": "Community Market",
+    "available": false
+  }
+}
+```
+
+`result.name` echoes the normalized form the comparison used, so a client can
+show the user exactly what was checked. Responses are sent `Cache-Control: no-store`.
+
+**Error cases:**
+
+| HTTP | `code` | Condition |
+|---|---|---|
+| `400` | `E04` | `kind` is not `voucher` or `pool`; `name` is blank or over the limit for that kind; `exclude` is not an address |
+| `401` | `E06` | Missing or invalid credentials |
+
+---
+
+### 5.8 `Pretium Backend Endpoints (/api/v2/pretium/*)`
 
 These routes proxy the configured Pretium Ramp service for cash in/out flows.
 
@@ -879,7 +940,7 @@ See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
 
 ---
 
-### 5.8 `GET /api/v2/pools`
+### 5.9 `GET /api/v2/pools`
 
 Returns **all confirmed** (on-chain) SwapPool contracts across all users — the global pools catalog for the app. Cursor pagination matches activity and `/users/me/pools`.
 
@@ -954,7 +1015,7 @@ cursor pages.
 
 ---
 
-### 5.9 `GET /api/v2/pools/:address`
+### 5.10 `GET /api/v2/pools/:address`
 
 Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any authenticated client may load any confirmed pool.
 
