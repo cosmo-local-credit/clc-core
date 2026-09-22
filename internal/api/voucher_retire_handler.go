@@ -51,7 +51,7 @@ func (a *API) retireVoucherHandler(c *echo.Context) error {
 	// voucher is already in the asked-for state, and answering 409 to its owner
 	// and 403 to everyone else would leak that the address exists.
 	if !voucher.Active {
-		return offeringConflictError(c, "voucher is already retired")
+		return handleConflictError(c, "voucher is already retired")
 	}
 	if !canManageVoucher(callerAddress, callerRole, voucher.OwnerAddress) {
 		return handleForbiddenError(c, "only the voucher owner or a superadmin may retire this voucher")
