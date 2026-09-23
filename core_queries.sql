@@ -790,6 +790,16 @@ WHERE LOWER(us.tx_hash) = LOWER($1)
   AND $2 IN (us.owner_user_id, us.authorized_user_id)
 LIMIT 1;
 
+-- Which of the given transaction hashes carry a private attachment the caller
+-- may read. Same visibility rule as get-user-share-by-tx-hash (owner or
+-- authorized recipient), but for a whole page of transfers at once, so the
+-- activity list can flag them without one request per row.
+--name: list-user-share-tx-hashes
+SELECT DISTINCT LOWER(us.tx_hash) AS tx_hash
+FROM user_shares us
+WHERE LOWER(us.tx_hash) = ANY($1::text[])
+  AND $2 IN (us.owner_user_id, us.authorized_user_id);
+
 -- User deployments
 --name: count-user-tokens
 SELECT COUNT(*) FROM user_deployments

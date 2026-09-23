@@ -95,6 +95,7 @@ type (
 		UpdateUserProfile             string `query:"update-user-profile"`
 		InsertUserShare               string `query:"insert-user-share"`
 		GetUserShareByTxHash          string `query:"get-user-share-by-tx-hash"`
+		ListUserShareTxHashes         string `query:"list-user-share-tx-hashes"`
 		AccountRelationshipCounts     string `query:"account-relationship-counts"`
 		CountUserTokens               string `query:"count-user-tokens"`
 		CountUserPools                string `query:"count-user-pools"`
