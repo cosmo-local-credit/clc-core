@@ -386,6 +386,43 @@ FROM (
 ORDER BY symbol
 LIMIT 128;
 
+-- A display name is occupied by a catalog row or by a deploy which may still
+-- land on-chain. FAILED deploys are deliberately reusable, as with symbols, and
+-- a retired voucher keeps its label: the address stays resolvable and reusing
+-- the name would make old references ambiguous.
+--
+-- $1 is the caller-normalized name (trimmed, inner whitespace collapsed,
+-- lowercased) -- normalizeDeployName in Go produces exactly what the indexed
+-- expression here produces. $2 excludes the row being renamed so an owner can
+-- re-save its own name; it is NULL on deploy.
+--name: voucher-display-name-taken
+SELECT EXISTS (
+    SELECT 1
+    FROM vouchers
+    WHERE lower(regexp_replace(btrim(COALESCE(display_name, name)), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR lower(address) <> lower($2))
+    UNION ALL
+    SELECT 1
+    FROM deployed_tokens
+    WHERE status IN ('PENDING', 'CONFIRMED')
+      AND lower(regexp_replace(btrim(name), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR address IS NULL OR lower(address) <> lower($2))
+);
+
+--name: pool-display-name-taken
+SELECT EXISTS (
+    SELECT 1
+    FROM pools
+    WHERE lower(regexp_replace(btrim(COALESCE(display_name, name)), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR lower(address) <> lower($2))
+    UNION ALL
+    SELECT 1
+    FROM deployed_pools
+    WHERE status IN ('PENDING', 'CONFIRMED')
+      AND lower(regexp_replace(btrim(name), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR address IS NULL OR lower(address) <> lower($2))
+);
+
 --name: get-protocol-address
 SELECT address FROM protocol_addresses WHERE key = $1;
 
@@ -752,6 +789,16 @@ INNER JOIN users owner ON owner.id = us.owner_user_id
 WHERE LOWER(us.tx_hash) = LOWER($1)
   AND $2 IN (us.owner_user_id, us.authorized_user_id)
 LIMIT 1;
+
+-- Which of the given transaction hashes carry a private attachment the caller
+-- may read. Same visibility rule as get-user-share-by-tx-hash (owner or
+-- authorized recipient), but for a whole page of transfers at once, so the
+-- activity list can flag them without one request per row.
+--name: list-user-share-tx-hashes
+SELECT DISTINCT LOWER(us.tx_hash) AS tx_hash
+FROM user_shares us
+WHERE LOWER(us.tx_hash) = ANY($1::text[])
+  AND $2 IN (us.owner_user_id, us.authorized_user_id);
 
 -- User deployments
 --name: count-user-tokens
@@ -1172,6 +1219,18 @@ RETURNING id;
 --name: update-voucher-display-name
 UPDATE vouchers
 SET display_name = $2
+WHERE id = $1;
+
+-- Retiring and restoring are the same column write; only who may ask differs,
+-- and that is decided in the handler against the locked row. `active` is the
+-- catalog's visibility gate — every market, search and offering statement
+-- filters on it — so flipping it here removes a voucher from the public
+-- catalog without touching the report and offering rows that reference it
+-- (42.md 3.1: deactivate, do not delete).
+--name: set-voucher-active
+UPDATE vouchers
+SET active = $2,
+    updated_at = CURRENT_TIMESTAMP
 WHERE id = $1;
 
 -- Tags are a junction, so a replace is a clear and a re-insert, both inside the
@@ -1848,6 +1907,39 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) dominant ON TRUE
 WHERE lower(v.address) = lower($1) AND v.active;
+
+-- The console's read of one voucher. Identical projection to
+-- get-market-voucher-by-address plus `active`, and deliberately without the
+-- `v.active` predicate: a retired voucher is invisible to every public
+-- statement, so without this an operator could retire one and then have no
+-- screen left to restore it from. Mounted under /api/v2/admin, where
+-- requireSuperAdmin has already decided the caller may see it.
+--name: admin-get-voucher-by-address
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
+    v.name AS contract_name, v.symbol, v.decimals, v.owner_address,
+    v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
+    v.location_name, v.geo_lat, v.geo_lng,
+    v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url, v.active,
+    COALESCE((
+        SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
+        FROM voucher_tags vt
+        WHERE vt.voucher_id = v.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        ELSE 'voucher'
+    END AS kind
+FROM vouchers v
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = v.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+WHERE lower(v.address) = lower($1);
 
 -- Report feed. Ordered by updated_at because that is the timestamp the feed
 -- shows; on the imported catalog it bears almost no relation to id order.

@@ -51,7 +51,7 @@ func (a *API) updateVoucherProfileHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	if !voucher.Active {
-		return offeringConflictError(c, "voucher is retired and its details cannot be changed")
+		return handleConflictError(c, "voucher is retired and its details cannot be changed")
 	}
 	if !canManageVoucher(callerAddress, callerRole, voucher.OwnerAddress) {
 		return handleForbiddenError(c, "only the voucher owner or a superadmin may change this voucher's details")
@@ -114,6 +114,21 @@ func (a *API) saveVoucherProfile(
 	address string,
 	req apiresp.UpdateVoucherProfileRequest,
 ) (store.MarketVoucherDetail, bool, error) {
+	// An omitted or cleared display name falls back to the immutable contract
+	// name, which is already unique enough to have deployed; only a new override
+	// can collide. The voucher's own address is excluded so re-saving the profile
+	// without touching the name is never a conflict.
+	if req.DisplayName != nil && *req.DisplayName != "" {
+		taken, err := a.store.VoucherDisplayNameTaken(ctx, tx, *req.DisplayName, &address)
+		if err != nil {
+			return store.MarketVoucherDetail{}, true, handlePostgresError(c, err)
+		}
+		if taken {
+			return store.MarketVoucherDetail{}, true,
+				handleConflictError(c, "a voucher with this name already exists")
+		}
+	}
+
 	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
 	if handled || err != nil {
 		return store.MarketVoucherDetail{}, true, err

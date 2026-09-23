@@ -36,6 +36,7 @@ type (
 		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
 		ListTakenVoucherSymbols      string `query:"list-taken-voucher-symbols"`
+		VoucherDisplayNameTaken      string `query:"voucher-display-name-taken"`
 		ListTokenTags                string `query:"list-token-tags"`
 		FindTokenTag                 string `query:"find-token-tag"`
 		InsertCustomTokenTag         string `query:"insert-custom-token-tag"`
@@ -57,6 +58,7 @@ type (
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
 		ListTakenPoolSymbols         string `query:"list-taken-pool-symbols"`
+		PoolDisplayNameTaken         string `query:"pool-display-name-taken"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
 		LockPoolForProfileUpdate     string `query:"lock-pool-for-profile-update"`
 		UpdatePoolProfile            string `query:"update-pool-profile"`
@@ -64,6 +66,7 @@ type (
 		InsertPoolTag                string `query:"insert-pool-tag"`
 		UpdateVoucherProfile         string `query:"update-voucher-profile"`
 		UpdateVoucherDisplayName     string `query:"update-voucher-display-name"`
+		SetVoucherActive             string `query:"set-voucher-active"`
 		DeleteVoucherTags            string `query:"delete-voucher-tags"`
 		InsertVoucherTag             string `query:"insert-voucher-tag"`
 		SetPoolTokenMembership       string `query:"set-pool-token-membership"`
@@ -92,6 +95,7 @@ type (
 		UpdateUserProfile             string `query:"update-user-profile"`
 		InsertUserShare               string `query:"insert-user-share"`
 		GetUserShareByTxHash          string `query:"get-user-share-by-tx-hash"`
+		ListUserShareTxHashes         string `query:"list-user-share-tx-hashes"`
 		AccountRelationshipCounts     string `query:"account-relationship-counts"`
 		CountUserTokens               string `query:"count-user-tokens"`
 		CountUserPools                string `query:"count-user-pools"`
@@ -188,6 +192,7 @@ type (
 		ListMarketVouchersPrevBounded string `query:"list-market-vouchers-prev-bounded"`
 
 		GetMarketVoucherByAddress string `query:"get-market-voucher-by-address"`
+		AdminGetVoucherByAddress  string `query:"admin-get-voucher-by-address"`
 
 		// Catalog search support. The filtered voucher and pool statements are
 		// composed in Go from constant fragments (internal/store/catalog_search.go)

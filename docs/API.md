@@ -34,9 +34,10 @@
    - [GET /api/v2/account/status/:address](#54-get-apiv2accountstatusaddress)
    - [POST /api/v2/contracts/token](#55-post-apiv2contractstoken)
    - [POST /api/v2/contracts/pool](#56-post-apiv2contractspool)
-   - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#57-pretium-backend-endpoints-apiv2pretium)
-   - [GET /api/v2/pools](#58-get-apiv2pools)
-   - [GET /api/v2/pools/:address](#59-get-apiv2poolsaddress)
+   - [GET /api/v2/names](#57-get-apiv2names)
+   - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#58-pretium-backend-endpoints-apiv2pretium)
+   - [GET /api/v2/pools](#59-get-apiv2pools)
+   - [GET /api/v2/pools/:address](#510-get-apiv2poolsaddress)
 6. [User-Only Endpoints (`/api/v2/users/*`)](#6-user-only-endpoints-apiv2users)
    - [GET /api/v2/users/me](#61-get-apiv2usersme)
    - [GET /api/v2/users/me/tokens](#62-get-apiv2usersmetokens)
@@ -742,8 +743,8 @@ Submits a request to deploy an ERC-20 token contract. The deployment is queued a
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | `string` | Yes | Full token name |
-| `symbol` | `string` | Yes | Ticker symbol (e.g. `MTK`) |
+| `name` | `string` | Yes | Full token name, up to 120 characters. Must be unique — see below |
+| `symbol` | `string` | Yes | Ticker symbol (e.g. `MTK`). Not required to be unique |
 | `decimals` | `string` (int) | Yes | Token decimal places (e.g. `"6"`) |
 | `owner` | `string` | Yes | Checksummed Ethereum address of the token owner |
 | `expiryTimestamp` | `string` (ISO 8601) | No | Optional expiry date for the token |
@@ -754,6 +755,14 @@ Image URLs must be `http` or `https`. Other schemes — including `data:` — ar
 rejected with `400` before the deploy is queued, because the catalog column that
 finally receives them is HTTP-only and by then the transaction would already be
 signed and its nonce spent.
+
+`name` is trimmed and its inner whitespace collapsed before anything else
+happens, and the collapsed form is what reaches the ERC-20 constructor. It must
+not already be in use by another voucher, whether by a catalog row or by a
+deploy still in flight. The comparison ignores case and whitespace, so
+`"  community   MARKET "` collides with `"Community Market"`. A deploy that
+previously failed releases its name. Use
+[`GET /api/v2/names`](#57-get-apiv2names) to check before submitting.
 
 **Response `200`:**
 
@@ -771,8 +780,9 @@ signed and its nonce spent.
 
 | HTTP | `code` | Condition |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, bad address) |
+| `400` | `E04` | Validation failure (missing fields, bad address, name over 120 characters or blank after trimming) |
 | `403` | `E11` | User has reached their `maxTokens` quota |
+| `409` | `E16` | `name` is already used by another voucher or an in-flight deploy |
 
 ---
 
@@ -802,8 +812,8 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | `string` | Yes | Pool name |
-| `symbol` | `string` | Yes | Pool symbol |
+| `name` | `string` | Yes | Pool name, up to 80 characters. Unique among pools, on the same terms as a token name |
+| `symbol` | `string` | Yes | Pool symbol. Not required to be unique |
 | `decimals` | `string` (int) | Yes | Decimal precision |
 | `owner` | `string` | Yes | Checksummed owner address |
 | `quoterType` | `string` | Yes | Pricing strategy — see below |
@@ -839,12 +849,63 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | HTTP | `code` | Condition |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter) |
+| `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter, name over 80 characters or blank after trimming) |
 | `403` | `E11` | User has reached their `maxPools` quota |
+| `409` | `E16` | `name` is already used by another pool or an in-flight deploy |
 
 ---
 
-### 5.7 `Pretium Backend Endpoints (/api/v2/pretium/*)`
+### 5.7 `GET /api/v2/names`
+
+Reports whether a voucher or pool name is still free, so a creation form can say
+so before the user has filled in everything else.
+
+This is an advisory read, not a reservation. Nothing is held: the deploy request
+is the claim, and it re-runs the same check. Two clients told a name is free
+moments apart can still race, and the loser gets `409` from the deploy.
+
+**Auth:** user JWT or service JWT
+
+**Query parameters:**
+
+| Name | Required | Description |
+|---|---|---|
+| `kind` | Yes | `voucher` or `pool`. The two are separate namespaces |
+| `name` | Yes | The name to check. Trimmed and inner-whitespace-collapsed before comparison; at most 120 characters for a voucher, 80 for a pool |
+| `exclude` | No | A contract address whose own name should not count as a conflict, for a rename form checking the value already in its field |
+
+A name is occupied by a catalog row or by a deploy that may still land on-chain
+(`PENDING` or `CONFIRMED`). A deploy that `FAILED` releases its name. Where a
+voucher or pool carries an off-chain display name, that label is what is
+compared, not the immutable contract name it overrides.
+
+**Response `200`:**
+
+```/dev/null/name-availability-response.json#L1-9
+{
+  "ok": true,
+  "description": "Name availability",
+  "result": {
+    "kind": "voucher",
+    "name": "Community Market",
+    "available": false
+  }
+}
+```
+
+`result.name` echoes the normalized form the comparison used, so a client can
+show the user exactly what was checked. Responses are sent `Cache-Control: no-store`.
+
+**Error cases:**
+
+| HTTP | `code` | Condition |
+|---|---|---|
+| `400` | `E04` | `kind` is not `voucher` or `pool`; `name` is blank or over the limit for that kind; `exclude` is not an address |
+| `401` | `E06` | Missing or invalid credentials |
+
+---
+
+### 5.8 `Pretium Backend Endpoints (/api/v2/pretium/*)`
 
 These routes proxy the configured Pretium Ramp service for cash in/out flows.
 
@@ -880,7 +941,7 @@ See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
 
 ---
 
-### 5.8 `GET /api/v2/pools`
+### 5.9 `GET /api/v2/pools`
 
 Returns **all confirmed** (on-chain) SwapPool contracts across all users — the global pools catalog for the app. Cursor pagination matches activity and `/users/me/pools`.
 
@@ -955,7 +1016,7 @@ cursor pages.
 
 ---
 
-### 5.9 `GET /api/v2/pools/:address`
+### 5.10 `GET /api/v2/pools/:address`
 
 Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any authenticated client may load any confirmed pool.
 
@@ -1662,6 +1723,56 @@ Latest indexed envelopes from `chain_data_v2.tx`, classified from live event tab
 
 ---
 
+### 7.13 `GET /api/v2/admin/vouchers`
+
+The console's voucher catalog. Same `q`, `tags`, `tagMatch` and `owner`
+parameters as the public list in [section 9](#9-public-market-catalog-get-apiv2vouchers),
+and the same cursor pagination (`perPage` default/max 100, `cursor`, `next`).
+
+It differs from the public list in exactly two ways, and both are the point:
+
+- **No visibility gate.** The public list filters `active` vouchers with
+  complete coordinates. This one filters neither, so retired and ungeolocated
+  vouchers are reachable. Each row carries `active` so the console can render
+  status.
+- **No `bbox`.** The console lists rather than maps, and a viewport filter would
+  silently exclude the very rows this endpoint exists to reach.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `status` | `string` | `all` | `all`, `active`, or `retired` (case-insensitive). An unrecognised value is `400 E04`, never a silently widened page |
+
+Responses are `Cache-Control: no-store`. The public market responses are
+cacheable because they are identical for every caller; this one is scoped to a
+role and must never be served to anyone else.
+
+### 7.14 `GET /api/v2/admin/vouchers/:address`
+
+One voucher whatever its visibility. The projection is
+[9.6](#96-voucher-detail-get-apiv2vouchersaddress)'s plus `active`, and there is
+no `active` predicate: `404` means the catalog does not hold the address, not
+that the voucher is retired.
+
+This route is why retiring is reversible at all. Without it, retiring a voucher
+would also remove the only screen an operator could restore it from.
+
+### 7.15 `PUT /api/v2/admin/vouchers/:address/restore`
+
+Returns a retired voucher to the public catalog. `SUPERADMIN`-only and no
+request body. Success is `200 OK` with description `Voucher restored` and the
+restored row under `result.voucher`.
+
+Deliberately not the mirror image of
+[9.8](#98-retire-a-voucher-delete-apiv2vouchersaddress): an owner may take their
+own voucher out of circulation, but putting one back is an operator decision, so
+there is no owner-facing route and no toggle an owner can flip back and forth.
+
+Restoring an already-active voucher is idempotent in state and still `200`. It
+is not an error — the caller asked for a state the row is already in, and a
+`409` would make the console handle a case with no user-visible difference.
+
+---
+
 ## 8. SIWE Message Construction
 
 The following is a client-side example using the [`siwe`](https://www.npmjs.com/package/siwe) JavaScript library. This pattern applies to `/auth/signup`, `/auth/signin`, and `/auth/siwe/verify`.
@@ -1951,6 +2062,55 @@ Caching and rate limiting are exactly as in [9.3](#93-caching) and
 > **Swagger drift.** `docs/swagger.yaml` predates the catalog surface and does
 > not describe these routes. Reconciling it is tracked as separate follow-up
 > work.
+
+### 9.8 Retire a voucher (`DELETE /api/v2/vouchers/:address`)
+
+Requires a user JWT. The caller must be either the voucher's current
+`ownerAddress` or a `SUPERADMIN`; the catalog row is locked and checked in the
+same transaction as the write, so authorization cannot race a concurrent
+ownership change. Another signed-in user receives `403 E10`, a service
+credential `403`, and no session `401`. No request body is required.
+
+```http
+DELETE /api/v2/vouchers/0x1B4a4f08D796C72efB377f629130a15eb0B78942
+Cookie: __clc_auth=<owner-or-admin-jwt>
+```
+
+Success is `200 OK` with description `Voucher retired` and **no `result`**. The
+other catalog writes return the saved row so a client can seed its cache, but
+the row this one writes is no longer visible to
+[9.6](#96-voucher-detail-get-apiv2vouchersaddress) — reading it back would
+answer `404`. A client's correct next move is to drop the voucher from its cache,
+not to re-read it.
+
+**Soft, not destructive.** The endpoint flips `vouchers.active`, the same
+visibility gate every market, search and offering statement already filters on.
+Nothing is deleted: the reports and offerings that reference the voucher keep
+their foreign keys, and a restore returns it intact. Deleting instead was
+measured and rejected — 65% of report→voucher links ride on rows a delete would
+take with them.
+
+**Visibility afterwards.** The voucher stops resolving from
+[9](#9-public-market-catalog-get-apiv2vouchers), [9.6](#96-voucher-detail-get-apiv2vouchersaddress)
+and [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings), and its 404
+body is byte-identical to an address that never existed. It remains visible to
+the console reads in [7.13](#713-get-apiv2adminvouchers) and
+[7.14](#714-get-apiv2adminvouchersaddress), and to the surfaces that deliberately
+ignore `active`: pool composition, symbol occupancy, report linking and
+federation balance metadata. A retired voucher's symbol stays taken, so a new
+deploy cannot collide with it.
+
+| State | Repeat `DELETE` |
+|---|---|
+| Active | `200`, retired |
+| Already retired | `409` `voucher is already retired` |
+| Unknown address | `404`, body identical to a retired-voucher read |
+
+Activity is checked before ownership on purpose: answering `409` to the owner
+and `403` to everyone else would leak that the address exists.
+
+There is no owner-facing restore. Putting a voucher back is an operator
+decision — see [7.15](#715-put-apiv2adminvouchersaddressrestore).
 
 ### 9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)
 
