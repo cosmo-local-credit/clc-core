@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
@@ -27,7 +28,7 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 
 	if req.QuoterType == "" {
-		req.QuoterType = "decimal"
+		req.QuoterType = "relative"
 	}
 
 	if req.QuoterType == "oracle" {
@@ -63,6 +64,19 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		})
 	}
 
+	// feeAddress is deliberately not tied to feesDecoupled. SwapPool credits
+	// fees[token] and settles withdraw() to feeAddress in both modes; decoupling
+	// only reserves the accrued balance from withdrawable liquidity. Refusing a
+	// recipient on a coupled pool left its fees going to whoever deployed it,
+	// with no way for the client to say otherwise.
+	if req.FeeAddress != "" && feePercent == 0 {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "feeAddress requires a non-zero feePolicyDefault",
+		})
+	}
+
 	callerType, _ := c.Get("callerType").(string)
 	callerUserID, _ := c.Get("callerUserID").(uint64)
 
@@ -74,25 +88,11 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if len(req.Tags) > 0 {
-		validTags, err := a.store.ListTokenTags(ctx, tx)
-		if err != nil {
-			return handlePostgresError(c, err)
-		}
-		validTagSet := make(map[string]struct{}, len(validTags))
-		for _, t := range validTags {
-			validTagSet[t] = struct{}{}
-		}
-		for _, tag := range req.Tags {
-			if _, ok := validTagSet[tag]; !ok {
-				return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-					Ok:          false,
-					ErrCode:     apiresp.ErrCodeValidationFailed,
-					Description: fmt.Sprintf("invalid tag: %q", tag),
-				})
-			}
-		}
+	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
+	if handled || err != nil {
+		return err
 	}
+	req.Tags = tags
 
 	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
 	if callerType == "user" {
@@ -156,8 +156,10 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		Owner:                      req.Owner,
 		QuoterType:                 req.QuoterType,
 		FeesDecoupled:              req.FeesDecoupled,
+		FeeAddress:                 req.FeeAddress,
 		FeePolicyDefaultFee:        req.FeePolicyDefault,
 		BaseCurrency:               req.BaseCurrency,
+		UnitOfAccount:              req.UnitOfAccount,
 		FactoryAddress:             swapPoolPC.FactoryAddress,
 		SwapPoolImplAddress:        swapPoolPC.ImplementationAddress,
 		TokenIndexImplAddress:      tokenIndexPC.ImplementationAddress,
@@ -245,25 +247,11 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if len(req.Tags) > 0 {
-		validTags, err := a.store.ListTokenTags(ctx, tx)
-		if err != nil {
-			return handlePostgresError(c, err)
-		}
-		validTagSet := make(map[string]struct{}, len(validTags))
-		for _, t := range validTags {
-			validTagSet[t] = struct{}{}
-		}
-		for _, tag := range req.Tags {
-			if _, ok := validTagSet[tag]; !ok {
-				return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-					Ok:          false,
-					ErrCode:     apiresp.ErrCodeValidationFailed,
-					Description: fmt.Sprintf("invalid tag: %q", tag),
-				})
-			}
-		}
+	tags, handled, err := a.ensureTokenTags(c, tx, req.Tags)
+	if handled || err != nil {
+		return err
 	}
+	req.Tags = tags
 
 	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
 	if callerType == "user" {
@@ -371,4 +359,55 @@ func (a *API) tokenTagsHandler(c *echo.Context) error {
 			"tags": tags,
 		},
 	})
+}
+
+func (a *API) oracleFeedsHandler(c *echo.Context) error {
+	chainID, err := parseOracleFeedChainID(c.QueryParam("chainId"), a.chainID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "chainId must be a positive integer",
+		})
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	feeds, err := a.store.ListOracleFeeds(ctx, tx, chainID)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "Available oracle feeds",
+		Result: map[string]any{
+			"feeds": feeds,
+		},
+	})
+}
+
+func parseOracleFeedChainID(raw string, fallback int64) (int64, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		if fallback <= 0 {
+			return 0, fmt.Errorf("invalid fallback chain id %d", fallback)
+		}
+		return fallback, nil
+	}
+
+	chainID, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || chainID <= 0 {
+		return 0, fmt.Errorf("invalid chain id %q", raw)
+	}
+	return chainID, nil
 }

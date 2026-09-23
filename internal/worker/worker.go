@@ -98,6 +98,20 @@ func (w *WorkerContainer) Bootstrap() error {
 		},
 		Workers: workers,
 		Logger:  slog.New(infoHandler{w.logg.Handler()}),
+		// The periodic sweep is the backstop for anything the dispatcher and
+		// the receipt pollers miss: a rejection nobody classified, an RPC that
+		// dropped a transaction after accepting it, or a process that died
+		// between signing and publishing. Without it a stuck nonce is only
+		// noticed when someone reads the otx table.
+		PeriodicJobs: []*river.PeriodicJob{
+			river.NewPeriodicJob(
+				river.PeriodicInterval(reconcileInterval),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return NonceReconcilerArgs{}, nil
+				},
+				&river.PeriodicJobOpts{RunOnStart: true},
+			),
+		},
 	})
 	if err != nil {
 		return err
@@ -163,6 +177,10 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 	}
 
 	if err := river.AddWorkerSafely(workers, &NotificationDeliveryWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &NonceReconcilerWorker{wc: wc}); err != nil {
 		return nil, err
 	}
 

@@ -14,8 +14,8 @@ import (
 // not the deploy pipeline (MIGRATION.md §3.5); deploy-status APIs keep
 // reading deployed_pools.
 //
-// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, and `facets` narrow the page
-// (PG_SEARCH_PLAN.md Slice 2). Pool tags are the pool's own curated
+// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, `owner`, and `facets`
+// narrow the page (PG_SEARCH_PLAN.md Slice 2). Pool tags are the pool's own curated
 // `pool_tags` — the same values each row already returns — not member-voucher
 // or member-offering tags, so a filtered row always carries the tag that
 // matched it. Every page direction applies every active predicate.
@@ -30,6 +30,15 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 
 	search, err := parseCatalogRelationshipSearch(c)
 	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+	// `owner` narrows the page to one address' pools, the same parameter and the
+	// same case-folded comparison the voucher catalog takes. It names an address
+	// rather than reading the caller's session, because the console asks for
+	// someone else's pools and the wallet asks for its own through one route —
+	// and `owner_address` is already on every row this endpoint returns, so the
+	// filter discloses nothing an unfiltered page would not.
+	if search.filter.Owner, err = addressFilterParam(c, "owner"); err != nil {
 		return respondCatalogSearchError(c, err)
 	}
 

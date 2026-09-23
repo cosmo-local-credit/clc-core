@@ -68,7 +68,13 @@
    - [Update (`PUT /api/v2/reports/:id`)](#115-update-put-apiv2reportsid)
    - [Approve (`PUT /api/v2/reports/:id/approve`)](#116-approve-put-apiv2reportsidapprove)
    - [Delete (`DELETE /api/v2/reports/:id`)](#117-delete-delete-apiv2reportsid)
-12. [Production Web Push (`/api/notifications`)](#12-production-web-push-apinotifications)
+12. [Shared vocabulary (`token_tag`, `offering_unit`)](#12-shared-vocabulary-token_tag-offering_unit)
+   - [Reads](#121-reads)
+   - [Creation is a side effect of the owning write](#122-creation-is-a-side-effect-of-the-owning-write)
+   - [Tag filters are still closed](#123-tag-filters-are-still-closed)
+   - [GET /api/v2/admin/vocabulary](#124-get-apiv2adminvocabulary)
+   - [DELETE /api/v2/admin/vocabulary/tags and .../units](#125-delete-apiv2adminvocabularytags-and-units)
+13. [Production Web Push (`/api/notifications`)](#13-production-web-push-apinotifications)
 
 ---
 
@@ -786,10 +792,11 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
   "symbol":           "MYP",
   "decimals":         "6",
   "owner":            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-  "quoterType":       "decimal",
+  "quoterType":       "relative",
   "feesDecoupled":    false,
   "feePolicyDefault": "",
-  "baseCurrency":     ""
+  "baseCurrency":     "",
+  "unitOfAccount":    "KES"
 }
 ```
 
@@ -803,6 +810,8 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 | `feesDecoupled` | `bool` | No | If `true`, fee policy executes independently of swaps (default: `false`) |
 | `feePolicyDefault` | `string` | No | Default fee policy identifier |
 | `baseCurrency` | `string` | Conditional | Checksummed non-zero token address; **required** when `quoterType` is `"oracle"` |
+| `unitOfAccount` | `string` | Yes | ISO 4217 currency code (or another supported unit) used to describe pool values |
+| `terms` | `string` | No | HTTP(S) link or Markdown terms, up to 5,000 characters |
 | `imageUrl` | `string` (http/https URL) | No | Optional pool image URL |
 | `bannerUrl` | `string` | No | Optional pool banner image URL |
 
@@ -810,9 +819,9 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | Value | Description |
 |---|---|
-| `"decimal"` | Fixed decimal-based pricing *(default)* |
+| `"decimal"` | Equal-value pricing adjusted only for token decimals |
 | `"oracle"` | Price sourced from an on-chain oracle; `baseCurrency` must be set |
-| `"relative"` | Pricing relative to pool reserves |
+| `"relative"` | Per-voucher rates relative to a common unit *(default)* |
 
 **Response `200`:**
 
@@ -990,6 +999,9 @@ Returns a single confirmed SwapPool by contract address. Address match is case-i
 ## 6. User-Only Endpoints (`/api/v2/users/*`)
 
 These endpoints require a valid **user JWT** (`__clc_auth` cookie). Service JWTs are rejected with `403 Forbidden`.
+
+`GET /api/v2/users/me/reports` and `GET /api/v2/users/me/reports/:id` are on this
+group too and are documented with the rest of Posts, in [§11.8](#118-an-authors-own-posts).
 
 ---
 
@@ -1279,6 +1291,9 @@ These endpoints require a caller with role `SUPERADMIN`. Any other caller (inclu
 
 The baseline migration seeds an initial approved superadmin account. Additional superadmins must be granted directly in the `users` table by an operator with write access; public signup and SIWE verify create normal `USER` accounts only.
 
+`GET /api/v2/admin/reports` and `GET /api/v2/admin/reports/:id` are on this group
+too and are documented with the rest of Posts, in [§11.9](#119-global-moderation-reads).
+
 ---
 
 ### 7.1 `GET /api/v2/admin/users`
@@ -1430,7 +1445,7 @@ Updates the deployment quotas for a specific user.
 
 ### 7.5 `PUT /api/v2/admin/users/:address/profile`
 
-Corrects another account's identity and contact details. `PUT /auth/profile` edits only the signed-in account, so this is the operator equivalent; it takes the same body and applies the same validation.
+Corrects another account's identity, contact details, and profile preferences. `PUT /auth/profile` edits only the signed-in account, so this is the operator equivalent; it takes the same body and applies the same validation.
 
 It cannot change status, role or limits — those have their own endpoints.
 
@@ -1448,6 +1463,9 @@ It cannot change status, role or limits — those have their own endpoints.
   "email":        "ada@example.com",
   "phone":        "+254700000000",
   "country":      "KE",
+  "preferredCurrency": "KES",
+  "bio":          "Community organiser",
+  "website":      "https://ada.example",
   "locationName": "Nairobi",
   "geoLat":       -1.2921,
   "geoLng":       36.8219
@@ -1460,6 +1478,9 @@ It cannot change status, role or limits — those have their own endpoints.
 | `email` | `string` | No | Must be a valid address, unique across accounts |
 | `phone` | `string` | No | Unique across accounts |
 | `country` | `string` | No | ISO 3166-1 alpha-2 code |
+| `preferredCurrency` | `string` | No | Three-letter uppercase ISO 4217 code. Omit to preserve a legacy value. |
+| `bio` | `string` | No | Max 500 characters. Send `""` to clear. |
+| `website` | `string` | No | HTTP(S) URL. Send `""` to clear. |
 | `locationName` | `string` | No | Max 200 characters |
 | `geoLat` | `number` | No | −90 to 90. Must be sent with `geoLng` |
 | `geoLng` | `number` | No | −180 to 180. Must be sent with `geoLat` |
@@ -2010,14 +2031,22 @@ these routes sit on the authenticated API group.
 | Operation | User JWT | Service JWT | `SUPERADMIN` user JWT |
 |---|---|---|---|
 | List and detail | Yes | Yes | Yes |
-| Create | Yes, as `SUBMITTED` | No | Yes, as `APPROVED` |
-| Update | Original author only | No | Any post |
+| Create | Yes, as `APPROVED` | No | Yes, as `APPROVED` |
+| Update | Original author only, stays `APPROVED` | No | Any post, status preserved |
 | Approve | No | No | Any post |
 | Delete | No | No | Any post |
+| Own posts in any status | Yes, own only | No | Yes, own only |
+| Any post in any status | No | No | Yes |
 
-Only `APPROVED` reports are returned by the two read routes. `DRAFT`,
-`SUBMITTED`, and `REJECTED` are invisible there, and an unapproved id is a
-`404` rather than a `403`: whether a draft exists is not public information.
+Only `APPROVED` reports are returned by the two read routes under
+`/api/v2/reports`. `DRAFT`, `SUBMITTED`, and `REJECTED` are invisible there, and
+an unapproved id is a `404` rather than a `403`: whether a draft exists is not
+public information.
+
+Those two routes are **not** widened for privileged callers. Every status is
+reachable through the separate management reads in [§11.8](#118-an-authors-own-posts)
+and [§11.9](#119-global-moderation-reads) instead, so one URL never returns
+different rows to different callers.
 
 ### 11.1 Feed (`GET /api/v2/reports`)
 
@@ -2189,10 +2218,19 @@ sent as empty arrays.
 | `periodFrom`, `periodTo` | RFC3339 timestamps; if both are set, `periodFrom <= periodTo` |
 | `hostName` | Optional issuer free text, maximum 200 characters |
 | `participants`, `timeTaken` | Optional issuer free text, maximum 100 characters each |
-| `tags` | At most 12 values from the existing `token_tag` vocabulary; duplicates are removed |
+| `tags` | At most 12 values; a value the vocabulary does not have yet is created with the post (see [section 12](#12-shared-vocabulary-token_tag-offering_unit)) |
 | `vouchers` | At most 12 stable `{chainId,address}` references; every referenced voucher must exist |
-| `images` | At most 50, in document order; URLs must be unique within the post and use `http(s)` |
+| `images` | At most 50, in document order; URLs use `http(s)` |
 | `attachments` | At most 20, in document order; `kind` is `FILE` or `EMBED`, and URLs use `http(s)` |
+
+**All four collections reject duplicates with `400 E04`** after trimming and
+canonicalisation — a repeated tag value, a repeated voucher `(chainId, lowercase
+address)` identity, a repeated image URL, or a repeated attachment
+`(kind, URL)` pair. Tags and vouchers previously deduplicated silently while
+images failed and attachments were unchecked, so the same client mistake got
+three different answers. An attachment URL may appear twice if the two entries
+have different `kind` values: a `FILE` download and an `EMBED` player reference
+are two rows.
 
 `PUT` is **assign-all**, not patch semantics. It replaces every editable scalar
 and all four relation sets (`tags`, `vouchers`, `images`, `attachments`) in one
@@ -2202,16 +2240,19 @@ leaves the existing post unchanged.
 
 The client cannot send `authorAddress`, `modifierAddress`, `status`, `sourceId`,
 or timestamps. The server derives the immutable original author from the user
-JWT. An edit records the caller as the modifier but never transfers authorship
-or changes approval state. In particular, editing an `APPROVED` post leaves it
-`APPROVED`; no reapproval is required.
+JWT, and derives the resulting status from the caller's role. An edit records
+the caller as the modifier but never transfers authorship.
 
 ### 11.4 Create (`POST /api/v2/reports`)
 
-Requires a user JWT; service JWTs receive `403 E10`. A normal user's new post is
-stored as `SUBMITTED` and remains absent from the feed and detail routes until a
-superadmin approves it. A `SUPERADMIN`-created post is stored as `APPROVED`
-immediately because that caller already holds approval authority.
+Requires a user JWT; service JWTs receive `403 E10`. Posts are auto-approved:
+every new post is stored as `APPROVED` and appears in the feed and detail
+routes at once, whoever created it.
+
+`vouchers` is restricted by role. A `SUPERADMIN` may link any catalog voucher;
+any other caller may only link vouchers whose `owner_address` is their own
+address, and a write naming someone else's voucher is a `403 E10`. A voucher
+with no recorded owner is owned by nobody for this purpose.
 
 ```http
 POST /api/v2/reports
@@ -2230,7 +2271,7 @@ Success is `201 Created` and returns the complete created report:
       "id": 4633,
       "title": "August community harvest",
       "authorAddress": "0x0000000000000000000000000000000000000011",
-      "status": "SUBMITTED",
+      "status": "APPROVED",
       "tags": ["Agriculture", "Youth"],
       "vouchers": [],
       "images": [],
@@ -2259,15 +2300,24 @@ The request body is the complete [write document](#113-write-contract).
 Success is `200 OK` with description `Report updated` and the complete report
 under `result.report`.
 
-An authorized edit always preserves the existing workflow status:
+The resulting workflow status depends on who edited:
 
-- A `SUBMITTED`, `DRAFT`, or `REJECTED` post keeps that status and the normal
-  detail route continues to answer `404` until a superadmin approves it.
-- An `APPROVED` post stays approved after either an author or admin edit and is
-  still visible immediately; editing never sends it back for reapproval.
+| Caller | Status after the edit |
+|---|---|
+| Original author, any status | `APPROVED` |
+| `SUPERADMIN` | Unchanged; a rejected post stays rejected |
+
+Posts are auto-approved, so an author's edit publishes the result the same way
+their create did. That also lifts a legacy `SUBMITTED` post out of a queue that
+is no longer worked. A superadmin edit preserves status so that a moderator's
+correction of a rejected post does not republish it by accident; rejecting and
+deleting are the moderation levers, and approval
+([§11.6](#116-approve-put-apiv2reportsidapprove)) remains for legacy rows.
 
 The mutation response includes `status` and returns the row to its authorized
-caller even when the normal detail route hides it.
+caller even when the normal detail route hides it. An author whose post is no
+longer approved reads it back through
+[§11.8](#118-an-authors-own-posts).
 
 ### 11.6 Approve (`PUT /api/v2/reports/:id/approve`)
 
@@ -2284,8 +2334,13 @@ the latest modifier. It does not rewrite the post body or any relation. Calling
 it for an already-approved post is idempotent in state and returns `200 OK` with
 description `Report approved` and the complete report under `result.report`.
 
-Once approved, the post appears in the feed and detail routes. Later author or
-admin edits preserve `APPROVED` and do not require this endpoint again.
+Once approved, the post appears in the feed and detail routes. Both an admin
+edit and an author edit keep it `APPROVED`
+([§11.5](#115-update-put-apiv2reportsid)); with auto-approval this endpoint is
+needed only for rows that predate it.
+
+There is no unapprove transition. A console must therefore confirm before
+calling this.
 
 ### 11.7 Delete (`DELETE /api/v2/reports/:id`)
 
@@ -2311,10 +2366,223 @@ Success is `200 OK`:
 
 The mutation routes return `400 E02` for malformed JSON, `400 E04` for
 invalid fields or unknown tag/voucher references, `401 E06` without valid
-authentication, `403 E10` when the credential lacks permission, and `404 E03`
-when `:id` does not exist.
+authentication, `403 E10` when the credential lacks permission or a non-superadmin
+links a voucher they do not own, and `404 E03` when `:id` does not exist.
 
-## 12. Production Web Push (`/api/notifications`)
+### 11.8 An author's own posts
+
+```http
+GET /api/v2/users/me/reports?perPage=20&status=SUBMITTED
+GET /api/v2/users/me/reports/4633
+```
+
+Requires a user JWT; service credentials receive `403 E10`. Both routes return
+every status **authored by the caller**, whose address comes from the JWT and is
+not a parameter. `GET /users/me/reports/:id` naming another author's post is a
+`404`, not a `403` — a `403` would confirm the id exists.
+
+The list accepts the same `q`, `tags`, `tagMatch`, `vouchers`, and `voucherMatch`
+filters as the feed, plus:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | `uint` | `20` | Capped at `100`, as on the feed |
+| `status` | `DRAFT` \| `SUBMITTED` \| `APPROVED` \| `REJECTED` | — | Case-insensitive; an unknown value is a `400`, never a silently broadened queue |
+| `cursorUpdatedAt`, `cursorId` | keyset pair | — | Both or neither; one alone is a `400` |
+| `next` | `bool` | `true` with a cursor | Direction. Sending it without a cursor is a `400` |
+
+Rows are the feed's summary plus a required `status`; `body` stays off list rows
+as it does on the feed. Ordering is `updated_at DESC, id DESC`, so an approved
+post whose author has just edited it sorts to the top rather than back at its
+original creation position.
+
+The response carries **both** edge cursors rather than the feed's single `next`,
+because this list pages in both directions:
+
+```json
+{
+  "ok": true,
+  "description": "Reports",
+  "result": {
+    "reports": [{ "id": 4633, "status": "SUBMITTED", "...": "..." }],
+    "first": { "updatedAt": "2026-08-20T10:00:00Z", "id": 4633 },
+    "last":  { "updatedAt": "2026-08-02T09:12:41Z", "id": 4102 }
+  }
+}
+```
+
+Send `last` with `next=true` for the following page and `first` with
+`next=false` for the preceding one. Both are `null` on an empty page. The
+comparison is on the `(updatedAt, id)` pair, so paging stays duplicate-free
+across the tied timestamps the import produced in bulk.
+
+`Cache-Control: no-store` on both routes.
+
+### 11.9 Global moderation reads
+
+```http
+GET /api/v2/admin/reports?status=SUBMITTED&perPage=20
+GET /api/v2/admin/reports/4633
+```
+
+`SUPERADMIN`-only; every other credential receives `403 E10`. Same parameters,
+same page and cursor shape, and the same `no-store` as §11.8, over every author
+rather than one. One extra parameter:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `author` | address | Exact, case-insensitive `author_address`; unknown or malformed is a `400` |
+
+`author` is what lets a console's per-account panel and its global queue read one
+endpoint. `GET /admin/reports/:id` returns the complete post in any status,
+including `images`, `attachments`, and the field-report fields, which is what an
+assign-all editor needs to resubmit a legacy post without erasing anything.
+
+`status` is the moderation queue: a console defaults to `SUBMITTED` and offers
+the rest. There is no `ALL` value on the wire — omit the parameter.
+
+---
+
+## 12. Shared vocabulary (`token_tag`, `offering_unit`)
+
+Two global lookup tables back every tag picker and the offering unit field.
+Both are open: a value the catalog does not have yet is **created by the write
+that names it**, not by a separate call. There is no "create a tag" endpoint,
+and there never should be — a vocabulary value with nothing referencing it is
+litter.
+
+### 12.1 Reads
+
+```http
+GET /api/v2/token-tags
+GET /api/v2/offering-units
+```
+
+Both are authenticated (`/api/v2/*`), both return built-in and custom values in
+one list, and neither distinguishes the two: a picker has no reason to care
+which values shipped with a migration.
+
+```json
+{ "ok": true, "description": "Available offering units", "result": { "units": ["bag", "kg", "Produce Crate"] } }
+```
+
+### 12.2 Creation is a side effect of the owning write
+
+| Write | Creates |
+|---|---|
+| `POST /api/v2/vouchers/:address/offerings`, `PUT .../offerings/:id` | the offering's `unit` |
+| `PUT /api/v2/vouchers/:address/profile`, `PUT /api/v2/admin/vouchers/:address/profile` | each `tags` value |
+| `PUT /api/v2/pools/:address/profile`, `PUT /api/v2/admin/pools/:address/profile` | each `tags` value |
+| `POST /api/v2/reports`, `PUT /api/v2/reports/:id` | each `tags` value |
+| `POST /api/v2/contracts/token`, `POST /api/v2/contracts/pool` | each `tags` value |
+
+The value is created inside the same transaction as the write that named it, so
+a request that fails validation, authorization or the quota check leaves nothing
+behind. A cancelled form creates nothing because it never sends a request.
+
+**An existing spelling always wins.** The lookup is case-insensitive
+(`lower(value)`, uniquely indexed), so `KG` resolves to the built-in `kg` rather
+than creating a second row. Only a value nothing matches is created, and it is
+created in Title Case after whitespace is trimmed and collapsed:
+`"  urban   FARMING "` becomes `Urban Farming`. The response echoes the
+canonical spelling, which is what the client stores.
+
+Validation, applied before anything is created:
+
+| Rule | Tags | Units |
+|---|---|---|
+| Blank after trimming | `400 E04` | `400 E04` |
+| Maximum length | 100 characters | 32 characters |
+| Contains a comma | `400 E04` | allowed |
+| Duplicate within one request | `400 E04`, compared case-insensitively | n/a |
+
+Commas are refused in tags because the tag filter on every catalog read is a
+comma-separated list; a tag containing one could never be selected back.
+
+Concurrency is settled by the unique index rather than by the handler: two
+requests submitting the same new value at the same time produce one row, and
+both writes succeed.
+
+### 12.3 Tag filters are still closed
+
+Creation applies to **writes only**. The `tags` filter on the catalog reads
+(`GET /api/v2/vouchers`, `/api/v2/pools`, `/api/v2/reports`,
+`/api/v2/admin/reports`) still rejects a value outside the vocabulary with
+`400 E04`. A filter naming a tag nothing carries is a client bug, and answering
+it with an empty page hides that.
+
+### 12.4 `GET /api/v2/admin/vocabulary`
+
+`SUPERADMIN`-only. Lists **custom values only** — built-ins are not deletable,
+so listing them would only offer an operator a button that returns `409`.
+
+```json
+{
+  "ok": true,
+  "description": "Custom vocabulary",
+  "result": {
+    "tags": [
+      {
+        "value": "Urban Farming",
+        "deployedTokens": 0, "deployedPools": 0,
+        "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0
+      }
+    ],
+    "units": [{ "value": "Produce Crate", "offerings": 4 }]
+  }
+}
+```
+
+The per-resource counts exist so the console can describe what a deletion will
+remove before the operator commits to it.
+
+### 12.5 `DELETE /api/v2/admin/vocabulary/tags` and `.../units`
+
+`SUPERADMIN`-only. The value travels in a JSON body, not the path, because a
+tag may contain spaces and any character but a comma:
+
+```http
+DELETE /api/v2/admin/vocabulary/tags
+{ "value": "Urban Farming" }
+```
+
+The row is located case-insensitively and locked `FOR UPDATE`, then:
+
+| Response | When |
+|---|---|
+| `404 E03` | no such value |
+| `409 E16` | the value is a built-in |
+| `200` | deleted, with the counts of what it removed |
+
+```json
+{
+  "ok": true,
+  "description": "Custom vocabulary value deleted",
+  "result": {
+    "value": "Urban Farming",
+    "usage": { "deployedTokens": 0, "deployedPools": 0, "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0 },
+    "total": 3
+  }
+}
+```
+
+The two deletions differ in what they do to the content that referenced the
+value, and the difference is deliberate:
+
+- **A tag** is removed from every relation that carried it — `voucher_tags`,
+  `pool_tags`, `report_tags`, `offering_tags`, `deployed_token_tags`,
+  `deployed_pool_tags` — and the vouchers, pools, posts and offerings
+  themselves are untouched.
+- **A unit** is cleared to `NULL` on every offering that used it. The offerings
+  survive; an operator tidying a vocabulary must not delete a seller's listing.
+
+Both run in one transaction with the delete, so a value never disappears while
+a row still points at it.
+
+Deletion does not blacklist: the next catalog write that names the value creates
+it again.
+
+## 13. Production Web Push (`/api/notifications`)
 
 The notification API deliberately keeps the unversioned path already shipped
 by clc-app. Successful responses use the browser client's raw JSON contract,

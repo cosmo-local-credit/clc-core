@@ -80,7 +80,7 @@ func seedFivefoldVouchers(t *testing.T, tx pgx.Tx) {
 	// then picked an index scan or a hash join depending on how much autovacuum
 	// had done since the last run — it failed 4 runs in 10 in isolation.
 	rebuild := dropIndexesForScaleSeeding(t, tx,
-		"vouchers_active_name_trgm_idx", "vouchers_active_symbol_trgm_idx",
+		"vouchers_active_display_name_trgm_idx", "vouchers_active_symbol_trgm_idx",
 		"offerings_voucher_id_idx", "offering_tags_tag_offering_idx")
 
 	// Names combine a 20-word and a 10-word vocabulary plus the row number, so
@@ -260,7 +260,7 @@ func TestVoucherSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 		query := composeMarketVoucherPage(nil, tc.filter, tc.page, 5000, 100)
 		plan := explainGenericPlan(t, tx, query.sql)
 
-		assertIndexDrives(t, label, plan, "vouchers_active_name_trgm_idx")
+		assertIndexDrives(t, label, plan, "vouchers_active_display_name_trgm_idx")
 
 		// The backward primary-key walk is the plan this shape exists to avoid.
 		if strings.Contains(plan, "Index Scan Backward using vouchers_pkey") {
@@ -357,7 +357,7 @@ func TestPoolSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 
 	// The local catalog holds two pools, which cannot produce a representative
 	// plan, so seed a representative pool count before asserting.
-	rebuild := dropIndexesForScaleSeeding(t, tx, "pools_name_trgm_idx", "pools_symbol_trgm_idx")
+	rebuild := dropIndexesForScaleSeeding(t, tx, "pools_display_name_trgm_idx", "pools_symbol_trgm_idx")
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO pools (chain_id, address, name, symbol, decimals)
 		SELECT 42220,
@@ -381,7 +381,7 @@ func TestPoolSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 		query := composePoolPage(CatalogFilter{Term: "sarafu"}, page, 2500, 100)
 		plan := explainGenericPlan(t, tx, query.sql)
 
-		assertIndexDrives(t, "pool search "+label, plan, "pools_name_trgm_idx")
+		assertIndexDrives(t, "pool search "+label, plan, "pools_display_name_trgm_idx")
 
 		// The paged rows are fetched by primary key, so the wide pool projection
 		// is read for one page rather than for every candidate.
@@ -418,7 +418,7 @@ func TestVoucherFacetCountsRetainTrigramIndexUnderGenericPlan(t *testing.T) {
 	query := composeMarketVoucherTagCounts(nil, CatalogFilter{Term: "sarafu"})
 	plan := explainGenericPlan(t, tx, query.sql)
 
-	assertIndexDrives(t, "voucher facet counts", plan, "vouchers_active_name_trgm_idx")
+	assertIndexDrives(t, "voucher facet counts", plan, "vouchers_active_display_name_trgm_idx")
 
 	// Offerings reach their tags by index. Otherwise this is a scan of the whole
 	// junction per facet request, which is the shape that motivated splitting the

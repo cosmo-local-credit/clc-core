@@ -34,42 +34,6 @@ type (
 		CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
 		UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
 	}
-
-	// OfferingWrite is the six product fields a caller owns.
-	//
-	// Absent on purpose: voucher_id (the immutable relationship, taken from the
-	// route), seller_address (server-selected from the locked voucher owner),
-	// source_id (import provenance), and quantity/frequency/location/geo (legacy
-	// import columns this product does not manage). A caller cannot reach any of
-	// them through this type, which is why the handler never has to remember not
-	// to trust them.
-	OfferingWrite struct {
-		CommodityName string
-		CommodityType string
-		Description   string
-		Unit          string
-		// Plain decimal text all the way to NUMERIC. Never a float64: the column
-		// holds values float64 silently rounds.
-		Price    string
-		ImageURL *string
-	}
-
-	// VoucherOfferingParent is the locked voucher a create authorizes against.
-	VoucherOfferingParent struct {
-		ID           uint64  `db:"id"`
-		OwnerAddress *string `db:"owner_address"`
-		Active       bool    `db:"active"`
-	}
-
-	// OfferingParent is the locked offering plus the voucher facts that decide
-	// whether the caller may write it.
-	OfferingParent struct {
-		ID           uint64  `db:"id"`
-		VoucherID    uint64  `db:"voucher_id"`
-		Available    bool    `db:"available"`
-		OwnerAddress *string `db:"owner_address"`
-		Active       bool    `db:"active"`
-	}
 )
 
 func (pg *Pg) ListOfferings(ctx context.Context, tx pgx.Tx, limit uint64) ([]Offering, error) {
@@ -146,6 +110,44 @@ func (pg *Pg) ListPoolOfferingsPrevious(ctx context.Context, tx pgx.Tx, poolAddr
 	}
 	return offerings, nil
 }
+
+type (
+	// OfferingWrite is the six product fields a caller owns.
+	//
+	// Absent on purpose: voucher_id (the immutable relationship, taken from the
+	// route), seller_address (server-selected from the locked voucher owner),
+	// source_id (import provenance), and quantity/frequency/location/geo (legacy
+	// import columns this product does not manage). A caller cannot reach any of
+	// them through this type, which is why the handler never has to remember not
+	// to trust them.
+	OfferingWrite struct {
+		CommodityName string
+		CommodityType string
+		Description   string
+		Unit          string
+		// Plain decimal text all the way to NUMERIC. Never a float64: the column
+		// holds values float64 silently rounds.
+		Price    string
+		ImageURL *string
+	}
+
+	// VoucherOfferingParent is the locked voucher a create authorizes against.
+	VoucherOfferingParent struct {
+		ID           uint64  `db:"id"`
+		OwnerAddress *string `db:"owner_address"`
+		Active       bool    `db:"active"`
+	}
+
+	// OfferingParent is the locked offering plus the voucher facts that decide
+	// whether the caller may write it.
+	OfferingParent struct {
+		ID           uint64  `db:"id"`
+		VoucherID    uint64  `db:"voucher_id"`
+		Available    bool    `db:"available"`
+		OwnerAddress *string `db:"owner_address"`
+		Active       bool    `db:"active"`
+	}
+)
 
 // GetVoucherOffering returns one publicly visible offering under its voucher.
 // Filters availability and voucher activity exactly like the public list, so an

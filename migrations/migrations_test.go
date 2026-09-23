@@ -58,7 +58,20 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "021_pool_quoter_type.sql")
 	assert.Contains(t, sqlFiles, "022_image_urls.sql")
 	assert.Contains(t, sqlFiles, "023_offering_crud.sql")
-	assert.Contains(t, sqlFiles, "024_notifications.sql")
+	assert.Contains(t, sqlFiles, "024_oracle_feed_chains.sql")
+	assert.Contains(t, sqlFiles, "025_report_management_indexes.sql")
+	assert.Contains(t, sqlFiles, "026_dispatch_verdict_statuses.sql")
+	assert.Contains(t, sqlFiles, "027_gnosis_platform_contracts.sql")
+	assert.Contains(t, sqlFiles, "028_otx_tracking_id_index.sql")
+	assert.Contains(t, sqlFiles, "029_user_profile_preferences.sql")
+	assert.Contains(t, sqlFiles, "030_voucher_display_name.sql")
+	assert.Contains(t, sqlFiles, "031_pool_deploy_unit_of_account.sql")
+	assert.Contains(t, sqlFiles, "032_pool_display_name.sql")
+	assert.Contains(t, sqlFiles, "033_pool_owner_index.sql")
+	assert.Contains(t, sqlFiles, "034_symbol_occupancy_indexes.sql")
+	assert.Contains(t, sqlFiles, "035_pool_deploy_fee_settings.sql")
+	assert.Contains(t, sqlFiles, "036_custom_vocabulary.sql")
+	assert.Contains(t, sqlFiles, "037_notifications.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -84,7 +97,20 @@ func TestMigrationFiles(t *testing.T) {
 				name == "021_pool_quoter_type.sql" ||
 				name == "022_image_urls.sql" ||
 				name == "023_offering_crud.sql" ||
-				name == "024_notifications.sql",
+				name == "024_oracle_feed_chains.sql" ||
+				name == "025_report_management_indexes.sql" ||
+				name == "026_dispatch_verdict_statuses.sql" ||
+				name == "027_gnosis_platform_contracts.sql" ||
+				name == "028_otx_tracking_id_index.sql" ||
+				name == "029_user_profile_preferences.sql" ||
+				name == "030_voucher_display_name.sql" ||
+				name == "031_pool_deploy_unit_of_account.sql" ||
+				name == "032_pool_display_name.sql" ||
+				name == "033_pool_owner_index.sql" ||
+				name == "034_symbol_occupancy_indexes.sql" ||
+				name == "035_pool_deploy_fee_settings.sql" ||
+				name == "036_custom_vocabulary.sql" ||
+				name == "037_notifications.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -117,22 +143,93 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"021_pool_quoter_type.sql",
 		"022_image_urls.sql",
 		"023_offering_crud.sql",
-		"024_notifications.sql",
+		"024_oracle_feed_chains.sql",
+		"025_report_management_indexes.sql",
+		"026_dispatch_verdict_statuses.sql",
+		"027_gnosis_platform_contracts.sql",
+		"028_otx_tracking_id_index.sql",
+		"029_user_profile_preferences.sql",
+		"030_voucher_display_name.sql",
+		"031_pool_deploy_unit_of_account.sql",
+		"032_pool_display_name.sql",
+		"033_pool_owner_index.sql",
+		"034_symbol_occupancy_indexes.sql",
+		"035_pool_deploy_fee_settings.sql",
+		"036_custom_vocabulary.sql",
+		"037_notifications.sql",
 	}, files)
 }
 
-func TestNotificationsMigration(t *testing.T) {
-	content, err := os.ReadFile("024_notifications.sql")
+func TestSymbolOccupancyIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("034_symbol_occupancy_indexes.sql")
 	require.NoError(t, err)
 
 	s := string(content)
-	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_devices")
-	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_device_wallets")
-	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_events")
-	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_deliveries")
-	assert.Contains(t, s, "UNIQUE (notification_id, device_id)")
-	assert.Contains(t, s, "source_key")
-	assert.Contains(t, s, "TEXT NOT NULL UNIQUE")
+	for _, want := range []string{
+		"vouchers_symbol_upper_idx",
+		"ON vouchers (upper(symbol))",
+		"pools_symbol_upper_idx",
+		"ON pools (upper(symbol))",
+		"deployed_tokens_open_symbol_upper_idx",
+		"ON deployed_tokens (upper(symbol))",
+		"deployed_pools_open_symbol_upper_idx",
+		"ON deployed_pools (upper(symbol))",
+	} {
+		assert.Contains(t, s, want)
+	}
+	assert.Equal(t, 2, strings.Count(s, "WHERE status IN ('PENDING', 'CONFIRMED')"))
+	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.NotContains(t, s, "CREATE UNIQUE INDEX")
+	assert.NotContains(t, s, "CREATE INDEX CONCURRENTLY")
+}
+
+func TestPoolDisplayNameMigration(t *testing.T) {
+	content, err := os.ReadFile("032_pool_display_name.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS display_name TEXT")
+	assert.Contains(t, s, "pools_display_name_valid")
+	assert.Contains(t, s, "display_name = btrim(display_name)")
+	assert.Contains(t, s, "char_length(display_name) BETWEEN 1 AND 80")
+	assert.Contains(t, s, "pools_display_name_trgm_idx")
+	assert.Contains(t, s, "lower(COALESCE(display_name, name)) gin_trgm_ops")
+}
+
+func TestPoolDeployUnitOfAccountMigration(t *testing.T) {
+	content, err := os.ReadFile("031_pool_deploy_unit_of_account.sql")
+	require.NoError(t, err)
+
+	assert.Contains(t, string(content), "ADD COLUMN IF NOT EXISTS unit_of_account TEXT")
+}
+
+func TestVoucherDisplayNameMigration(t *testing.T) {
+	content, err := os.ReadFile("030_voucher_display_name.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS display_name TEXT")
+	assert.Contains(t, s, "vouchers_display_name_valid")
+	assert.Contains(t, s, "display_name = btrim(display_name)")
+	assert.Contains(t, s, "char_length(display_name) BETWEEN 1 AND 120")
+	assert.Contains(t, s, "DROP INDEX IF EXISTS vouchers_active_name_trgm_idx")
+	assert.Contains(t, s, "vouchers_active_display_name_trgm_idx")
+	assert.Contains(t, s, "lower(COALESCE(display_name, name)) gin_trgm_ops")
+	assert.Contains(t, s, "WHERE active")
+}
+
+func TestOracleFeedChainsMigration(t *testing.T) {
+	content, err := os.ReadFile("024_oracle_feed_chains.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN IF NOT EXISTS chain_id BIGINT")
+	assert.Contains(t, s, "SET chain_id = 42220")
+	assert.Contains(t, s, "UNIQUE (chain_id, name)")
+	assert.Contains(t, s, "oracle_feeds_chain_address_idx")
+	assert.Contains(t, s, "0x9a48d9b0AF457eF040281A9Af3867bc65522Fecd")
+	assert.Contains(t, s, "0x0826492a24b1dBd1d8fcB4701b38C557CE685e9D")
+	assert.Contains(t, s, "0x3D207061Dbe8E2473527611BFecB87Ff12b28dDa")
 }
 
 func TestSendMessageSharesMigration(t *testing.T) {
@@ -1000,4 +1097,43 @@ func TestBaselineCarriesOfferingWriteConstraints(t *testing.T) {
 	// Still exactly two classifications.
 	assert.Contains(t, s, "INSERT INTO commodity_type (value) VALUES\n    ('GOOD'),\n    ('SERVICE')")
 	assert.NotContains(t, s, "UNCLASSIFIED")
+}
+
+func TestReportManagementIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("025_report_management_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// A missing index degrades a management page to a sequential scan, which no
+	// other test would notice.
+	assert.Contains(t, s, "reports_author_updated_idx")
+	assert.Contains(t, s, "reports_title_trgm_idx")
+	assert.Contains(t, s, "reports_description_trgm_idx")
+	assert.Contains(t, s, "lower(author_address)")
+	assert.NotContains(t, s, "WHERE status = 'APPROVED'")
+}
+
+func TestPoolOwnerIndexMigration(t *testing.T) {
+	content, err := os.ReadFile("033_pool_owner_index.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "pools_owner_lower_idx")
+	// The expression has to match ownerPredicate's comparison exactly, or the
+	// index exists and the planner cannot use it.
+	assert.Contains(t, s, "ON pools (lower(owner_address))")
+}
+
+func TestNotificationsMigration(t *testing.T) {
+	content, err := os.ReadFile("037_notifications.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_devices")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_device_wallets")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_events")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS notification_deliveries")
+	assert.Contains(t, s, "UNIQUE (notification_id, device_id)")
+	assert.Contains(t, s, "source_key")
+	assert.Contains(t, s, "TEXT NOT NULL UNIQUE")
 }

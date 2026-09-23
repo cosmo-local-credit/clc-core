@@ -14,6 +14,7 @@ require (
 	github.com/grassrootseconomics/ethutils v1.6.0
 	github.com/grassrootseconomics/go-calibur v0.0.0-20260128154856-823d52e5bca4
 	github.com/holiman/uint256 v1.3.2
+	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/jackc/tern/v2 v2.3.3
 	github.com/kamikazechaser/util v0.1.0

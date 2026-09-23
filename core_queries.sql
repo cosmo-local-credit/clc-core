@@ -192,30 +192,199 @@ SELECT id FROM upserted;
 INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
 
 --name: get-deployed-token-by-address
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin,
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
+       COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
        dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
+LEFT JOIN vouchers v ON v.id = dt.voucher_id
 LEFT JOIN deployed_token_tags dtt ON dtt.deployed_token_id = dt.id
 WHERE dt.address = $1 AND dt.status = 'CONFIRMED'
-GROUP BY dt.id, o.tracking_id;
+GROUP BY dt.id, v.id, o.tracking_id;
 
 --name: get-deployed-token-by-tracking-id
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin,
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
+       COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
        dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
+LEFT JOIN vouchers v ON v.id = dt.voucher_id
 LEFT JOIN deployed_token_tags dtt ON dtt.deployed_token_id = dt.id
 WHERE o.tracking_id = $1::uuid AND dt.status = 'CONFIRMED'
-GROUP BY dt.id, o.tracking_id
+GROUP BY dt.id, v.id, o.tracking_id
 LIMIT 1;
 
 --name: list-token-tags
 SELECT value FROM token_tag ORDER BY value;
+
+--name: find-token-tag
+SELECT value FROM token_tag WHERE lower(value) = lower($1);
+
+--name: insert-custom-token-tag
+INSERT INTO token_tag (value, is_custom) VALUES ($1, true)
+ON CONFLICT DO NOTHING;
+
+--name: list-offering-units
+SELECT value FROM offering_unit ORDER BY value;
+
+--name: find-offering-unit
+SELECT value FROM offering_unit WHERE lower(value) = lower($1);
+
+--name: insert-custom-offering-unit
+INSERT INTO offering_unit (value, is_custom) VALUES ($1, true)
+ON CONFLICT DO NOTHING;
+
+--name: list-custom-token-tags
+SELECT
+    tt.value,
+    (SELECT count(*) FROM deployed_token_tags dtt WHERE dtt.tag_value = tt.value) AS deployed_tokens,
+    (SELECT count(*) FROM deployed_pool_tags dpt WHERE dpt.tag_value = tt.value) AS deployed_pools,
+    (SELECT count(*) FROM voucher_tags vt WHERE vt.tag_value = tt.value) AS vouchers,
+    (SELECT count(*) FROM pool_tags pt WHERE pt.tag_value = tt.value) AS pools,
+    (SELECT count(*) FROM report_tags rt WHERE rt.tag_value = tt.value) AS posts,
+    (SELECT count(*) FROM offering_tags ot WHERE ot.tag_value = tt.value) AS offerings
+FROM token_tag tt
+WHERE tt.is_custom
+ORDER BY tt.value;
+
+--name: list-custom-offering-units
+SELECT
+    ou.value,
+    (SELECT count(*) FROM offerings o WHERE o.unit = ou.value) AS offerings
+FROM offering_unit ou
+WHERE ou.is_custom
+ORDER BY ou.value;
+
+--name: lock-token-tag
+SELECT value, is_custom FROM token_tag
+WHERE lower(value) = lower($1)
+FOR UPDATE;
+
+--name: lock-offering-unit
+SELECT value, is_custom FROM offering_unit
+WHERE lower(value) = lower($1)
+FOR UPDATE;
+
+--name: delete-custom-token-tag
+WITH
+deleted_deployed_tokens AS (
+    DELETE FROM deployed_token_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_deployed_pools AS (
+    DELETE FROM deployed_pool_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_vouchers AS (
+    DELETE FROM voucher_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_pools AS (
+    DELETE FROM pool_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_posts AS (
+    DELETE FROM report_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_offerings AS (
+    DELETE FROM offering_tags WHERE tag_value = $1 RETURNING 1
+),
+deleted_value AS (
+    DELETE FROM token_tag
+    WHERE value = $1
+      AND is_custom
+      AND (
+        (SELECT count(*) FROM deleted_deployed_tokens)
+        + (SELECT count(*) FROM deleted_deployed_pools)
+        + (SELECT count(*) FROM deleted_vouchers)
+        + (SELECT count(*) FROM deleted_pools)
+        + (SELECT count(*) FROM deleted_posts)
+        + (SELECT count(*) FROM deleted_offerings)
+      ) >= 0
+    RETURNING value
+)
+SELECT
+    (SELECT count(*) FROM deleted_deployed_tokens) AS deployed_tokens,
+    (SELECT count(*) FROM deleted_deployed_pools) AS deployed_pools,
+    (SELECT count(*) FROM deleted_vouchers) AS vouchers,
+    (SELECT count(*) FROM deleted_pools) AS pools,
+    (SELECT count(*) FROM deleted_posts) AS posts,
+    (SELECT count(*) FROM deleted_offerings) AS offerings,
+    EXISTS (SELECT 1 FROM deleted_value) AS deleted;
+
+--name: delete-custom-offering-unit
+WITH
+cleared_offerings AS (
+    UPDATE offerings SET unit = NULL WHERE unit = $1 RETURNING 1
+),
+deleted_value AS (
+    DELETE FROM offering_unit
+    WHERE value = $1
+      AND is_custom
+      AND (SELECT count(*) FROM cleared_offerings) >= 0
+    RETURNING value
+)
+SELECT
+    (SELECT count(*) FROM cleared_offerings) AS offerings,
+    EXISTS (SELECT 1 FROM deleted_value) AS deleted;
+
+-- A symbol is occupied by a catalog row or by a deployment which may still
+-- land on-chain. FAILED deployments are deliberately reusable. The suffix
+-- predicate mirrors the client's bare-stem plus numeric-suffix candidates;
+-- unrelated symbols which merely share the prefix do not occupy it.
+--name: list-taken-voucher-symbols
+SELECT symbol
+FROM (
+    SELECT upper(symbol) AS symbol
+    FROM vouchers
+    WHERE upper(symbol) = $1
+       OR (
+            length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
+            AND starts_with(upper(symbol), $1)
+            AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
+       )
+    UNION
+    SELECT upper(symbol) AS symbol
+    FROM deployed_tokens
+    WHERE status IN ('PENDING', 'CONFIRMED')
+      AND (
+            upper(symbol) = $1
+            OR (
+                length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
+                AND starts_with(upper(symbol), $1)
+                AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
+            )
+      )
+) occupied
+ORDER BY symbol
+LIMIT 128;
+
+--name: list-taken-pool-symbols
+SELECT symbol
+FROM (
+    SELECT upper(symbol) AS symbol
+    FROM pools
+    WHERE upper(symbol) = $1
+       OR (
+            length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
+            AND starts_with(upper(symbol), $1)
+            AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
+       )
+    UNION
+    SELECT upper(symbol) AS symbol
+    FROM deployed_pools
+    WHERE status IN ('PENDING', 'CONFIRMED')
+      AND (
+            upper(symbol) = $1
+            OR (
+                length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
+                AND starts_with(upper(symbol), $1)
+                AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
+            )
+      )
+) occupied
+ORDER BY symbol
+LIMIT 128;
 
 --name: get-protocol-address
 SELECT address FROM protocol_addresses WHERE key = $1;
@@ -229,9 +398,9 @@ ON CONFLICT (key) DO UPDATE SET address = EXCLUDED.address, updated_at = CURRENT
 INSERT INTO deployed_pools (
     otx_id, platform_contract_id, status, name, symbol, decimals,
     token_registry_address, limiter_address, fee_policy_address, quoter_address, quoter_type,
-    protocol_fee_controller_address, fees_decoupled, admin,
-    description, website, email, phone, terms, location_name, geo_lat, geo_lng, image_url, banner_url
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+    protocol_fee_controller_address, fees_decoupled, fee_ppm, fee_address, admin,
+    description, unit_of_account, website, email, phone, terms, location_name, geo_lat, geo_lng, image_url, banner_url
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
 RETURNING id;
 
 --name: confirm-deployed-pool
@@ -250,8 +419,11 @@ WHERE otx_id = $1 AND status = 'PENDING';
 -- catalog on lower(address), let the fresh deploy win field by field, and link
 -- the pipeline row — all inside the confirming transaction.
 --
--- fee_ppm / fee_address / unit_of_account / default_voucher_id have no
--- counterpart on the deploy row and are left to the importer and pool sync.
+-- default_voucher_id has no counterpart on the deploy row and is left to the
+-- importer and pool sync. fee_ppm and fee_address do: they are what the deploy
+-- initialized FeePolicy and SwapPool with, and a later on-chain setDefaultFee or
+-- setFeeAddress is the indexer's to project — COALESCE keeps a projected value
+-- rather than resetting it to the deploy's.
 --name: upsert-pool-from-deploy
 WITH deploy AS (
     SELECT
@@ -268,7 +440,10 @@ WITH deploy AS (
         dp.fee_policy_address,
         dp.protocol_fee_controller_address,
         dp.fees_decoupled,
+        dp.fee_ppm,
+        dp.fee_address,
         dp.description,
+        dp.unit_of_account,
         dp.website,
         dp.email,
         dp.phone,
@@ -287,7 +462,8 @@ upserted AS (
     INSERT INTO pools (
         chain_id, address, name, symbol, decimals, owner_address,
         token_registry_address, limiter_address, quoter_address, quoter_type, fee_policy_address,
-        protocol_fee_controller_address, fees_decoupled, description,
+        protocol_fee_controller_address, fees_decoupled, fee_ppm, fee_address,
+        description, unit_of_account,
         location_name, geo_lat, geo_lng, email, website, phone, terms,
         image_url, banner_url, platform_contract_id
     )
@@ -295,7 +471,8 @@ upserted AS (
         d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
         d.token_registry_address, d.limiter_address, d.quoter_address, d.quoter_type,
         d.fee_policy_address, d.protocol_fee_controller_address, d.fees_decoupled,
-        d.description, d.location_name, d.geo_lat, d.geo_lng,
+        d.fee_ppm, d.fee_address,
+        d.description, d.unit_of_account, d.location_name, d.geo_lat, d.geo_lng,
         d.email, d.website, d.phone, d.terms, d.image_url, d.banner_url,
         d.platform_contract_id
     FROM deploy d
@@ -311,7 +488,10 @@ upserted AS (
         fee_policy_address              = COALESCE(EXCLUDED.fee_policy_address, pools.fee_policy_address),
         protocol_fee_controller_address = COALESCE(EXCLUDED.protocol_fee_controller_address, pools.protocol_fee_controller_address),
         fees_decoupled                  = COALESCE(EXCLUDED.fees_decoupled, pools.fees_decoupled),
+        fee_ppm                         = COALESCE(pools.fee_ppm, EXCLUDED.fee_ppm),
+        fee_address                     = COALESCE(pools.fee_address, EXCLUDED.fee_address),
         description                     = COALESCE(EXCLUDED.description, pools.description),
+        unit_of_account                 = COALESCE(EXCLUDED.unit_of_account, pools.unit_of_account),
         location_name                   = COALESCE(EXCLUDED.location_name, pools.location_name),
         geo_lat                         = COALESCE(EXCLUDED.geo_lat, pools.geo_lat),
         geo_lng                         = COALESCE(EXCLUDED.geo_lng, pools.geo_lng),
@@ -347,8 +527,8 @@ INSERT INTO deployed_pool_tags (deployed_pool_id, tag_value) VALUES ($1, $2);
 --name: get-deployed-pool-by-address
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
-    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
-    dp.description, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.fee_ppm, dp.fee_address, dp.admin,
+    dp.description, dp.unit_of_account, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
     COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp
@@ -360,8 +540,8 @@ GROUP BY dp.id, o.tracking_id;
 --name: get-deployed-pool-by-tracking-id
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
-    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.admin,
-    dp.description, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
+    dp.protocol_fee_controller_address, dp.fees_decoupled, dp.fee_ppm, dp.fee_address, dp.admin,
+    dp.description, dp.unit_of_account, dp.website, dp.email, dp.phone, dp.terms, dp.location_name, dp.geo_lat, dp.geo_lng,
     dp.image_url, dp.banner_url, dp.created_at, dp.updated_at, o.tracking_id,
     COALESCE(array_agg(dpt.tag_value ORDER BY dpt.tag_value) FILTER (WHERE dpt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_pools dp
@@ -373,13 +553,14 @@ LIMIT 1;
 
 -- Oracle feeds
 --name: get-oracle-feed-by-name
-SELECT id, name, address, created_at, updated_at
+SELECT id, chain_id, name, address, created_at, updated_at
 FROM oracle_feeds
-WHERE name = $1;
+WHERE chain_id = $1 AND name = $2;
 
 --name: list-oracle-feeds
-SELECT id, name, address, created_at, updated_at
+SELECT id, chain_id, name, address, created_at, updated_at
 FROM oracle_feeds
+WHERE chain_id = $1
 ORDER BY name;
 
 --name: get-otx-by-tracking-id
@@ -482,21 +663,21 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
 VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE LOWER(blockchain_address) = LOWER($1)
 LIMIT 1;
 
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -504,37 +685,39 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
--- Omitted location fields preserve their stored values. clearLocation overrides
--- them together so callers can explicitly remove a saved pin. The avatar follows
--- the same shape for the same reason: an older client that sends no avatar must
--- not erase one, so removing it is an explicit clearAvatar rather than a magic
--- value that an absent field could be confused with.
+-- Every onboarding preference preserves on omission so older clients cannot
+-- erase a profile field they do not know about. An explicitly sent empty bio or
+-- website clears it. Location and avatar retain their existing explicit-clear
+-- controls because each is a multi-column/value pair respectively.
 UPDATE users
 SET name = $2,
     email = NULLIF($3, ''),
     phone = NULLIF($4, ''),
     country = $5,
-    location_name = CASE WHEN $6 THEN NULL ELSE COALESCE($7, location_name) END,
-    geo_lat = CASE WHEN $6 THEN NULL ELSE COALESCE($8::DOUBLE PRECISION, geo_lat) END,
-    geo_lng = CASE WHEN $6 THEN NULL ELSE COALESCE($9::DOUBLE PRECISION, geo_lng) END,
-    avatar_url = CASE WHEN $10 THEN NULL ELSE COALESCE($11, avatar_url) END
+    preferred_currency = COALESCE($6, preferred_currency),
+    bio = CASE WHEN $7::TEXT IS NULL THEN bio ELSE NULLIF($7, '') END,
+    website = CASE WHEN $8::TEXT IS NULL THEN website ELSE NULLIF($8, '') END,
+    location_name = CASE WHEN $9 THEN NULL ELSE COALESCE($10, location_name) END,
+    geo_lat = CASE WHEN $9 THEN NULL ELSE COALESCE($11::DOUBLE PRECISION, geo_lat) END,
+    geo_lng = CASE WHEN $9 THEN NULL ELSE COALESCE($12::DOUBLE PRECISION, geo_lng) END,
+    avatar_url = CASE WHEN $13 THEN NULL ELSE COALESCE($14, avatar_url) END
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 -- User shares
 --name: insert-user-share
@@ -603,10 +786,12 @@ JOIN users u ON u.id = ud.user_id
 ORDER BY ud.created_at DESC;
 
 --name: list-tokens-by-user
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
+    COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+LEFT JOIN vouchers v ON v.id = dt.voucher_id
 WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.status = 'CONFIRMED'
 ORDER BY dt.id DESC
 LIMIT $2;
@@ -615,10 +800,12 @@ LIMIT $2;
 -- Keyset window is fetched ascending (the rows immediately after the cursor)
 -- then re-sorted descending in SQL so the API never reorders rows in memory.
 SELECT * FROM (
-    SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+    SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
+        COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
     FROM deployed_tokens dt
     INNER JOIN otx o ON dt.otx_id = o.id
     INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+    LEFT JOIN vouchers v ON v.id = dt.voucher_id
     WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.status = 'CONFIRMED' AND dt.id > $2
     ORDER BY dt.id ASC
     LIMIT $3
@@ -626,10 +813,12 @@ SELECT * FROM (
 ORDER BY page.id DESC;
 
 --name: list-tokens-by-user-prev
-SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol, dt.name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
+    COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin, dt.created_at, dt.updated_at, o.tracking_id
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
 INNER JOIN user_deployments ud ON ud.tracking_id = o.tracking_id
+LEFT JOIN vouchers v ON v.id = dt.voucher_id
 WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.status = 'CONFIRMED' AND dt.id < $2
 ORDER BY dt.id DESC
 LIMIT $3;
@@ -688,10 +877,12 @@ SELECT * FROM (
 ORDER BY page.id DESC;
 
 --name: list-all-tokens
-SELECT id, otx_id, platform_contract_id, status, address, symbol, name, decimals, admin, created_at, updated_at
-FROM deployed_tokens
-WHERE status = 'CONFIRMED'
-ORDER BY created_at DESC;
+SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
+    COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin, dt.created_at, dt.updated_at
+FROM deployed_tokens dt
+LEFT JOIN vouchers v ON v.id = dt.voucher_id
+WHERE dt.status = 'CONFIRMED'
+ORDER BY dt.created_at DESC;
 
 --name: list-all-pools
 SELECT id, otx_id, platform_contract_id, status, address, name, symbol, decimals,
@@ -803,7 +994,7 @@ WHERE keystore_id = (SELECT id FROM keystore WHERE public_key = $1)
 -- (chain_data_v2.tokens / sarafu_network.vouchers) — the local catalog is the
 -- single home for living voucher attributes (MIGRATION.md §2 V2).
 --name: list-voucher-metadata-by-addresses
-SELECT address, symbol, name, decimals, icon_url
+SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url
 FROM vouchers
 WHERE lower(address) = ANY($1);
 
@@ -811,7 +1002,8 @@ WHERE lower(address) = ANY($1);
 -- catalog, not the deploy pipeline. Cursor-paginated newest-first by id,
 -- tags aggregated from pool_tags.
 --name: list-pools
-SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+    p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
     p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -827,7 +1019,8 @@ LIMIT $1;
 
 --name: list-pools-next
 -- Next pages are older records (id < cursor).
-SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+    p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
     p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -845,7 +1038,8 @@ LIMIT $2;
 --name: list-pools-prev
 -- Previous pages move toward newer records (id > cursor).
 SELECT * FROM (
-    SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+    SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+        p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
         p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
         p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
         p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -865,7 +1059,8 @@ ORDER BY id DESC;
 -- Single pool catalog row by contract address (case-insensitive; stored
 -- addresses are EIP-55, lookups may arrive in any casing).
 --name: get-pool-by-address
-SELECT p.id, p.chain_id, p.address, p.name, p.symbol, p.owner_address, p.fee_ppm,
+SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
+    p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
     p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -878,7 +1073,16 @@ LEFT JOIN pool_tags pt ON pt.pool_id = p.id
 WHERE lower(p.address) = lower($1)
 GROUP BY p.id;
 
--- Operator edits to a pool's off-chain record (PUT /admin/pools/:address/profile).
+-- The owner profile route authorizes from this row and writes it in the same
+-- transaction. Imported pools may have no owner; only a superadmin may manage
+-- those through the admin route.
+--name: lock-pool-for-profile-update
+SELECT id, owner_address
+FROM pools
+WHERE lower(address) = lower($1)
+FOR UPDATE;
+
+-- Owner or operator edits to a pool's off-chain record.
 --
 -- Only catalog metadata: nothing here has an on-chain counterpart, so an edit
 -- cannot put the row out of step with the contract. Name, symbol, decimals and
@@ -891,8 +1095,8 @@ GROUP BY p.id;
 -- omitting it. pools_geo_valid backstops the both-or-neither coordinate rule the
 -- handler checks first.
 --name: update-pool-profile
--- Assign-all for everything the console has always sent, and COALESCE for the two
--- image columns.
+-- Assign-all for everything the console has always sent, and preserve-on-omit
+-- semantics for display_name and the two image columns.
 --
 -- The distinction is not stylistic. Until now this statement did not touch
 -- image_url or banner_url at all, which is the only reason a pool's images survive
@@ -901,17 +1105,18 @@ GROUP BY p.id;
 -- save. Omitted therefore preserves, and '' clears, matching update-user-profile.
 -- Once every client sends the fields this can collapse to a plain assignment.
 UPDATE pools
-SET description     = $2,
-    unit_of_account = $3,
-    email           = $4,
-    website         = $5,
-    phone           = $6,
-    terms           = $7,
-    location_name   = $8,
-    geo_lat         = $9,
-    geo_lng         = $10,
-    image_url       = CASE WHEN $11::TEXT IS NULL THEN image_url  ELSE NULLIF($11, '') END,
-    banner_url      = CASE WHEN $12::TEXT IS NULL THEN banner_url ELSE NULLIF($12, '') END
+SET display_name    = CASE WHEN $2::TEXT IS NULL THEN display_name ELSE NULLIF(btrim($2), '') END,
+    description     = $3,
+    unit_of_account = $4,
+    email           = $5,
+    website         = $6,
+    phone           = $7,
+    terms           = $8,
+    location_name   = $9,
+    geo_lat         = $10,
+    geo_lng         = $11,
+    image_url       = CASE WHEN $12::TEXT IS NULL THEN image_url  ELSE NULLIF($12, '') END,
+    banner_url      = CASE WHEN $13::TEXT IS NULL THEN banner_url ELSE NULLIF($13, '') END
 WHERE lower(address) = lower($1)
 RETURNING id;
 
@@ -927,9 +1132,9 @@ ON CONFLICT (pool_id, tag_value) DO NOTHING;
 
 -- A superadmin's edits to a voucher's off-chain record.
 --
--- Name, symbol, decimals and owner_address are deliberately absent: they mirror
--- the deployed ERC20, and a catalog that disagrees with the chain about them is
--- worse than one that cannot edit them. So are active, internal, voucher_type
+-- display_name is deliberately separate from name: it is a public catalog
+-- label, while name continues to mirror the deployed ERC20. Symbol, decimals
+-- and owner_address are also chain facts. active, internal, voucher_type
 -- and the sink and redemption addresses — those are not catalog prose, and
 -- retiring a voucher is not the same operation as correcting its email.
 --
@@ -938,27 +1143,36 @@ ON CONFLICT (pool_id, tag_value) DO NOTHING;
 -- expressing it as empty rather than omitting it. vouchers_geo_valid backstops
 -- the both-or-neither coordinate rule the handler checks first.
 --
--- The two image columns are the exception, for the reason update-pool-profile
+-- display_name and the two image columns are the exceptions, for the reason update-pool-profile
 -- gives: NULL preserves and '' clears, so a client that sends no image fields
 -- cannot blank a voucher's images. vouchers_image_urls_http rejects anything
 -- that is not http(s), which is why '' has to become NULL rather than staying an
 -- empty string.
 --name: update-voucher-profile
 UPDATE vouchers
-SET description   = $2,
-    voucher_uoa   = $3,
-    voucher_value = $4,
-    email         = $5,
-    website       = $6,
-    phone         = $7,
-    terms         = $8,
-    location_name = $9,
-    geo_lat       = $10,
-    geo_lng       = $11,
-    icon_url      = CASE WHEN $12::TEXT IS NULL THEN icon_url   ELSE NULLIF($12, '') END,
-    banner_url    = CASE WHEN $13::TEXT IS NULL THEN banner_url ELSE NULLIF($13, '') END
+SET display_name  = CASE WHEN $2::TEXT IS NULL THEN display_name ELSE NULLIF(btrim($2), '') END,
+    description   = $3,
+    voucher_uoa   = $4,
+    voucher_value = $5,
+    email         = $6,
+    website       = $7,
+    phone         = $8,
+    terms         = $9,
+    location_name = $10,
+    geo_lat       = $11,
+    geo_lng       = $12,
+    icon_url      = CASE WHEN $13::TEXT IS NULL THEN icon_url   ELSE NULLIF($13, '') END,
+    banner_url    = CASE WHEN $14::TEXT IS NULL THEN banner_url ELSE NULLIF($14, '') END
 WHERE lower(address) = lower($1)
 RETURNING id;
+
+-- A voucher owner may correct the public label without receiving access to the
+-- rest of the operator profile. Authorization happens against the locked row in
+-- the handler; taking the database id here prevents a second address lookup.
+--name: update-voucher-display-name
+UPDATE vouchers
+SET display_name = $2
+WHERE id = $1;
 
 -- Tags are a junction, so a replace is a clear and a re-insert, both inside the
 -- caller's transaction with the profile update — as for pools, an operator who
@@ -1028,7 +1242,9 @@ SELECT p.id, v.id, FALSE, f.id, CURRENT_TIMESTAMP
 FROM pools p
 JOIN vouchers v ON v.chain_id = p.chain_id
 LEFT JOIN LATERAL (
-    SELECT id FROM oracle_feeds WHERE lower(address) = lower($3) ORDER BY id LIMIT 1
+    SELECT id FROM oracle_feeds
+    WHERE chain_id = p.chain_id AND lower(address) = lower($3)
+    ORDER BY id LIMIT 1
 ) f ON TRUE
 WHERE lower(p.quoter_address) = lower($1)
   AND lower(v.address) = lower($2)
@@ -1052,7 +1268,7 @@ WHERE pt.pool_id = p.id
 -- Pool voucher composition (MIGRATION.md §3.4). Oracle feeds replace legacy
 -- fixed exchange rates; offering counts are local catalog facts.
 --name: list-pool-vouchers
-SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.decimals, v.owner_address,
     v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
     v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
@@ -1075,7 +1291,7 @@ ORDER BY v.id DESC
 LIMIT $2;
 
 --name: list-pool-vouchers-next
-SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.decimals, v.owner_address,
     v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
     v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
@@ -1099,7 +1315,7 @@ LIMIT $3;
 
 --name: list-pool-vouchers-prev
 SELECT * FROM (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.decimals, v.owner_address,
         v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
         v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
         v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
@@ -1126,7 +1342,7 @@ ORDER BY id DESC;
 -- Marketplace offerings, enriched with voucher identity and shared tags.
 --name: list-offerings
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
     o.seller_address, o.commodity_name, o.commodity_type, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1143,7 +1359,7 @@ LIMIT $1;
 
 --name: list-offerings-next
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
     o.seller_address, o.commodity_name, o.commodity_type, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1162,7 +1378,7 @@ LIMIT $2;
 --name: list-offerings-prev
 SELECT * FROM (
     SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-        v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
         o.seller_address, o.commodity_name, o.commodity_type, o.description,
         o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
         o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1182,7 +1398,7 @@ ORDER BY id DESC;
 
 --name: list-voucher-offerings
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
     o.seller_address, o.commodity_name, o.commodity_type, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1200,7 +1416,7 @@ LIMIT $2;
 
 --name: list-voucher-offerings-next
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
     o.seller_address, o.commodity_name, o.commodity_type, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1219,7 +1435,7 @@ LIMIT $3;
 --name: list-voucher-offerings-prev
 SELECT * FROM (
     SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-        v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
         o.seller_address, o.commodity_name, o.commodity_type, o.description,
         o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
         o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1244,7 +1460,7 @@ ORDER BY id DESC;
 -- they are reached through the pool or through the voucher.
 --name: list-pool-offerings
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
     o.seller_address, o.commodity_name, o.commodity_type, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1264,7 +1480,7 @@ LIMIT $2;
 
 --name: list-pool-offerings-next
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
     o.seller_address, o.commodity_name, o.commodity_type, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1286,7 +1502,7 @@ LIMIT $3;
 --name: list-pool-offerings-prev
 SELECT * FROM (
     SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-        v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
         o.seller_address, o.commodity_name, o.commodity_type, o.description,
         o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
         o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1320,7 +1536,7 @@ ORDER BY id DESC;
 -- to reconcile two representations of the row it just saved.
 --name: get-voucher-offering
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
     o.seller_address, o.commodity_name, o.commodity_type, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1339,7 +1555,7 @@ WHERE lower(v.address) = lower($1) AND o.id = $2 AND o.available AND v.active;
 -- after DELETE unlisted it, and the public statement above would return nothing.
 --name: get-offering-for-mutation
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    v.name AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.decimals AS voucher_decimals,
     o.seller_address, o.commodity_name, o.commodity_type, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
@@ -1414,7 +1630,7 @@ RETURNING id;
 
 --name: list-market-vouchers
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -1443,7 +1659,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-next
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.id < $1
@@ -1473,7 +1689,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-prev
 WITH page AS MATERIALIZED (
     SELECT * FROM (
-        SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
+        SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
             v.location_name, v.geo_lat, v.geo_lng
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL AND v.id > $1
@@ -1503,7 +1719,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-bounded
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -1533,7 +1749,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-next-bounded
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -1565,7 +1781,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-prev-bounded
 WITH page AS MATERIALIZED (
     SELECT * FROM (
-        SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
+        SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
             v.location_name, v.geo_lat, v.geo_lng
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL
@@ -1605,7 +1821,8 @@ ORDER BY page.id DESC;
 -- an operator editing this voucher has to see before they can edit it: an
 -- update-voucher-profile that assigns every column needs the current values to
 -- send back, or a save silently clears whichever it could not read.
-SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.decimals, v.owner_address,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
+    v.name AS contract_name, v.symbol, v.decimals, v.owner_address,
     v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
     v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url,
@@ -1658,7 +1875,7 @@ SELECT r.id, r.title, r.description,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
             'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-            'name', v.name, 'symbol', v.symbol
+            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -1682,7 +1899,7 @@ SELECT r.id, r.title, r.description,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
             'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-            'name', v.name, 'symbol', v.symbol
+            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -1740,7 +1957,7 @@ SELECT r.id, r.title, r.body, r.description,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
             'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-            'name', v.name, 'symbol', v.symbol
+            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -1748,6 +1965,63 @@ SELECT r.id, r.title, r.body, r.description,
     ), '[]'::JSONB) AS vouchers
 FROM reports r
 WHERE r.id = $1 AND ($2 OR r.status = 'APPROVED');
+
+-- One post in any status, for its own author or for an operator.
+--
+-- A second statement rather than another boolean on get-report: that route's
+-- approved-only representation is cached as the public catalog, and widening it
+-- on a caller property would give one cache identity two meanings. This one is
+-- served no-store.
+--
+-- $2 is the author constraint — NULL for a superadmin read, an address for
+-- /users/me/reports/:id. A row owned by someone else returns nothing, which the
+-- handler answers as 404 rather than 403.
+--
+-- The projection must stay byte-identical to get-report's: an editor built on
+-- this read sends every field back on an assign-all PUT, so a column missing
+-- here is a field the editor erases.
+-- TestManagedReportDetailProjectionMatchesPublicDetail fails if they drift.
+--name: get-managed-report
+SELECT r.id, r.title, r.body, r.description,
+    CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.status, r.created_at, r.updated_at,
+    r.host_name, r.participants, r.time_taken,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'url', ri.url,
+            'width', ri.width, 'height', ri.height,
+            'maxWidth', ri.max_width, 'maxHeight', ri.max_height,
+            'byteSize', ri.byte_size, 'caption', ri.caption
+        ) ORDER BY ri.ordinal)
+        FROM report_images ri
+        WHERE ri.report_id = r.id
+    ), '[]'::JSONB) AS images,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'kind', ra.kind, 'url', ra.url,
+            'filename', ra.filename, 'byteSize', ra.byte_size
+        ) ORDER BY ra.ordinal)
+        FROM report_attachments ra
+        WHERE ra.report_id = r.id
+    ), '[]'::JSONB) AS attachments,
+    COALESCE((
+        SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
+        FROM report_tags rt
+        WHERE rt.report_id = r.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'id', v.id, 'chainId', v.chain_id, 'address', v.address,
+            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
+        ) ORDER BY v.id)
+        FROM report_vouchers rv
+        INNER JOIN vouchers v ON v.id = rv.voucher_id
+        WHERE rv.report_id = r.id
+    ), '[]'::JSONB) AS vouchers
+FROM reports r
+WHERE r.id = $1
+    AND ($2::TEXT IS NULL OR lower(r.author_address) = lower($2::TEXT));
 
 -- Report writes. author_address is set only by the insert and never appears in
 -- the update statement: the wallet that created a post remains its original
@@ -1772,8 +2046,14 @@ FROM reports
 WHERE id = $1
 FOR UPDATE;
 
--- Assign-all editing. source_id, author_address, status and created_at are
--- deliberately absent: they are provenance/workflow state, not post content.
+-- Assign-all editing. source_id, author_address and created_at are deliberately
+-- absent: they are provenance, not post content.
+--
+-- status is a conditional write. $14 is NULL for a superadmin edit, so COALESCE
+-- keeps the row's current state; an author's edit passes 'SUBMITTED' so
+-- replacement content goes back through review. Assigning it here keeps the
+-- authorization decision, the content write and the workflow write inside the
+-- transaction already holding lock-report-author's row lock.
 --name: update-report
 UPDATE reports
 SET title = $2,
@@ -1787,7 +2067,8 @@ SET title = $2,
     modifier_address = $10,
     host_name = $11,
     participants = $12,
-    time_taken = $13
+    time_taken = $13,
+    status = COALESCE($14, status)
 WHERE id = $1;
 
 -- Approval is separate from content editing. Neither an author edit nor an
@@ -1866,6 +2147,16 @@ INNER JOIN vouchers v
     ON v.chain_id = ref.chain_id
     AND lower(v.address) = lower(ref.address)
 ORDER BY v.id;
+
+-- How many of the given voucher ids belong to one address. Posts link vouchers
+-- by id after resolve-voucher-refs, and a non-superadmin author may only link
+-- vouchers they own; comparing the count against the number of ids is the
+-- whole check. A voucher with no recorded owner is owned by nobody here.
+--name: count-vouchers-owned-by
+SELECT count(*)
+FROM vouchers v
+WHERE v.id = ANY($1::BIGINT[])
+    AND lower(v.owner_address) = lower($2);
 
 -- The voucher tag facet vocabulary: every tag that appears on an available
 -- offering of a visible voucher. Deliberately independent of the caller's
@@ -1983,6 +2274,48 @@ SELECT
         FROM pool_tokens pt
         INNER JOIN vouchers v ON v.id = pt.voucher_id
         WHERE pt.is_allowed AND lower(v.owner_address) = lower($1)) AS pool_memberships;
+
+-- Unsettled transactions for one signer, oldest nonce first. The reconciler
+-- walks this list: receipts first, then republishes the lowest nonce the chain
+-- has not consumed. Dispatch statuses excluded here are the settled ones — see
+-- store.IsTerminalDispatchStatus.
+--name: get-unsettled-otx-by-signer
+SELECT otx.id, otx.tracking_id, otx.otx_type, otx.signer_account AS public_key, otx.raw_tx, otx.tx_hash, otx.nonce, otx.replaced, otx.created_at, otx.updated_at, dispatch.status
+FROM otx
+INNER JOIN dispatch ON otx.id = dispatch.otx_id
+WHERE otx.signer_account = (SELECT id FROM keystore WHERE public_key = $1)
+  AND otx.replaced = false
+  AND dispatch.status NOT IN ('SUCCESS', 'REVERTED', 'LOW_NONCE', 'INVALID_TX')
+ORDER BY otx.nonce ASC, otx.id ASC;
+
+-- Mark an OTX superseded by a replacement carrying the same nonce. The column
+-- has existed since migration 001 and was never written until the fee bumper
+-- landed; nothing enforces uniqueness on (signer_account, nonce) precisely so
+-- replacement rows are legal.
+--name: set-otx-replaced
+UPDATE otx SET replaced = true WHERE id = $1;
+
+-- Serialises everything that touches one signer's nonce sequence: the
+-- dispatcher, the fee bumper and the reconciler. Transaction-scoped, so it is
+-- released on commit or rollback. Two goroutines signing a pair of
+-- transactions in the same millisecond is how they got published out of nonce
+-- order in the first place.
+--name: lock-signer
+SELECT pg_advisory_xact_lock(
+    (SELECT id FROM keystore WHERE public_key = $1)::BIGINT
+);
+
+-- Highest nonce this signer has an unreplaced OTX for, and whether every
+-- lower nonce has left PENDING. Used by the dispatcher to hold a transaction
+-- back until its predecessors are in the pool.
+--name: count-undispatched-below-nonce
+SELECT count(*)
+FROM otx
+INNER JOIN dispatch ON otx.id = dispatch.otx_id
+WHERE otx.signer_account = (SELECT id FROM keystore WHERE public_key = $1)
+  AND otx.replaced = false
+  AND otx.nonce < $2
+  AND dispatch.status = 'PENDING';
 
 --name: upsert-notification-device
 INSERT INTO notification_devices (

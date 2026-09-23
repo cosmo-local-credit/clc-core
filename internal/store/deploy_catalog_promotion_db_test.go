@@ -334,10 +334,13 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	feeController := randomAddress(t, tx)
 	desc, site, mail, phone := "A test pool", "https://pool.example.org", "p@example.org", "+254701"
 	terms := "https://pool.example.org/terms"
+	unitOfAccount := "KES"
 	locName := "Kisumu"
 	lat, lng := -0.0917, 34.7680
 	image, banner := "https://img", "https://banner"
 	quoterType := "oracle"
+	feePPM := 15000.0
+	feeRecipient := randomAddress(t, tx)
 
 	deployedID, err := pg.InsertDeployedPool(ctx, tx, DeployedPool{
 		OTXID:                        otxID,
@@ -352,8 +355,11 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		QuoterType:                   &quoterType,
 		ProtocolFeeControllerAddress: feeController,
 		FeesDecoupled:                true,
+		FeePPM:                       &feePPM,
+		FeeAddress:                   &feeRecipient,
 		Admin:                        admin,
 		Description:                  &desc,
+		UnitOfAccount:                &unitOfAccount,
 		Website:                      &site,
 		Email:                        &mail,
 		Phone:                        &phone,
@@ -387,6 +393,7 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		gotImage, gotBanner            *string
 		gotPlatformID                  *uint64
 		gotFeePPM, gotUoa, gotTerms    *string
+		gotFeeAddress                  *string
 		gotDefaultVoucherID            *uint64
 		gotQuoterType                  *string
 	)
@@ -394,14 +401,14 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 		SELECT chain_id, address, name, symbol, owner_address,
 		       token_registry_address, limiter_address, quoter_address, fee_policy_address,
 		       protocol_fee_controller_address, fees_decoupled, image_url, banner_url,
-		       platform_contract_id, fee_ppm::TEXT, unit_of_account, terms, default_voucher_id,
-		       quoter_type
+		       platform_contract_id, fee_ppm::TEXT, fee_address, unit_of_account, terms,
+		       default_voucher_id, quoter_type
 		FROM pools WHERE id = $1`, poolID).Scan(
 		&gotChainID, &gotAddress, &gotName, &gotSymbol, &gotOwner,
 		&gotRegistry, &gotLimiter, &gotQuoter, &gotFeePolicy,
 		&gotFeeController, &gotDecoupled, &gotImage, &gotBanner,
-		&gotPlatformID, &gotFeePPM, &gotUoa, &gotTerms, &gotDefaultVoucherID,
-		&gotQuoterType)
+		&gotPlatformID, &gotFeePPM, &gotFeeAddress, &gotUoa, &gotTerms,
+		&gotDefaultVoucherID, &gotQuoterType)
 	require.NoError(t, err, "promoted pool must exist")
 
 	assert.NotZero(t, gotChainID)
@@ -435,10 +442,18 @@ func TestUpsertPoolFromDeployCreatesCatalogRowAndLink(t *testing.T) {
 	assert.Equal(t, banner, *gotBanner)
 	require.NotNil(t, gotPlatformID)
 
+	// What the pool charges and where it pays travels with the deploy. Left
+	// NULL, the app reads back a configured recipient as "not set".
+	require.NotNil(t, gotFeePPM)
+	assert.Equal(t, "15000", *gotFeePPM)
+	require.NotNil(t, gotFeeAddress)
+	assert.Equal(t, feeRecipient, *gotFeeAddress)
+
 	// Columns with no counterpart on the deploy row are left for the importer
-	// and pool sync to own.
-	assert.Nil(t, gotFeePPM, "fee_ppm has no deploy-side source")
-	assert.Nil(t, gotUoa, "unit_of_account has no deploy-side source")
+	// and pool sync to own. Unit of account is publish metadata and must already
+	// be present when this fresh deploy becomes visible in the catalog.
+	require.NotNil(t, gotUoa)
+	assert.Equal(t, unitOfAccount, *gotUoa)
 	require.NotNil(t, gotTerms)
 	assert.Equal(t, terms, *gotTerms)
 	assert.Nil(t, gotDefaultVoucherID, "default_voucher_id has no deploy-side source")

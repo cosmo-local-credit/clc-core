@@ -36,6 +36,51 @@ func TestPoolVouchersRejectsInvalidAddressOnce(t *testing.T) {
 	}
 }
 
+func TestParseOracleFeedChainID(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		raw      string
+		fallback int64
+		want     int64
+		wantErr  bool
+	}{
+		{name: "explicit", raw: "42220", fallback: 1, want: 42220},
+		{name: "trimmed", raw: " 44787 ", fallback: 1, want: 44787},
+		{name: "configured fallback", fallback: 42220, want: 42220},
+		{name: "zero", raw: "0", fallback: 42220, wantErr: true},
+		{name: "negative", raw: "-1", fallback: 42220, wantErr: true},
+		{name: "malformed", raw: "celo", fallback: 42220, wantErr: true},
+		{name: "invalid fallback", fallback: 0, wantErr: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := parseOracleFeedChainID(testCase.raw, testCase.fallback)
+			if (err != nil) != testCase.wantErr {
+				t.Fatalf("parseOracleFeedChainID() error = %v, wantErr %t", err, testCase.wantErr)
+			}
+			if got != testCase.want {
+				t.Fatalf("chain id = %d, want %d", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestOracleFeedsRouteRequiresAuthentication(t *testing.T) {
+	a := New(APIOpts{
+		Logg:    slog.New(slog.DiscardHandler),
+		CORS:    []string{"https://admin.example"},
+		ChainID: 42220,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/oracle-feeds?chainId=not-a-chain", nil)
+	req.RemoteAddr = "198.51.100.91:1234"
+	res := httptest.NewRecorder()
+	a.router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusUnauthorized)
+	}
+}
+
 func TestVoucherOfferingsRouteIsPublicRateLimitedAndDoesNotCacheErrors(t *testing.T) {
 	a := New(APIOpts{
 		Logg: slog.New(slog.DiscardHandler),

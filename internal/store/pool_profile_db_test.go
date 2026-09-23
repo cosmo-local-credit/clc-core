@@ -103,6 +103,46 @@ func TestUpdatePoolProfileLeavesChainColumnsAlone(t *testing.T) {
 	assert.Equal(t, 6, decimals)
 }
 
+func TestUpdatePoolProfilePreservesDisplayNameWhenOmittedAndClearsItExplicitly(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	poolID, address := seedEditablePool(t, tx)
+	replacement := "Editable Community"
+	_, err := pg.UpdatePoolProfile(ctx, tx, address, PoolProfile{DisplayName: &replacement})
+	require.NoError(t, err)
+
+	description := "A later metadata-only edit"
+	_, err = pg.UpdatePoolProfile(ctx, tx, address, PoolProfile{Description: &description})
+	require.NoError(t, err)
+	var afterOmission *string
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT display_name FROM pools WHERE id = $1`, poolID).Scan(&afterOmission))
+	require.NotNil(t, afterOmission)
+	assert.Equal(t, replacement, *afterOmission)
+
+	pool, err := pg.GetPoolByAddress(ctx, tx, address)
+	require.NoError(t, err)
+	require.NotNil(t, pool.Name)
+	require.NotNil(t, pool.ContractName)
+	assert.Equal(t, replacement, *pool.Name)
+	assert.Equal(t, "Editable", *pool.ContractName)
+
+	empty := ""
+	_, err = pg.UpdatePoolProfile(ctx, tx, address, PoolProfile{DisplayName: &empty})
+	require.NoError(t, err)
+	var afterClear *string
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT display_name FROM pools WHERE id = $1`, poolID).Scan(&afterClear))
+	assert.Nil(t, afterClear)
+
+	pool, err = pg.GetPoolByAddress(ctx, tx, address)
+	require.NoError(t, err)
+	require.NotNil(t, pool.Name)
+	assert.Equal(t, "Editable", *pool.Name)
+}
+
 func TestReplacePoolTagsSwapsTheWholeSet(t *testing.T) {
 	pg, tx, cleanup := newMarketTestPg(t)
 	defer cleanup()

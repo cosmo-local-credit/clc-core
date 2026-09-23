@@ -58,6 +58,15 @@ func TestLoadCatalogQueries(t *testing.T) {
 	if !strings.Contains(queries.ListPoolVouchers, "oracle_feeds") {
 		t.Fatal("expected pool vouchers to include their oracle feed")
 	}
+	if !strings.Contains(queries.ListOracleFeeds, "WHERE chain_id = $1") {
+		t.Fatal("oracle feed choices must be scoped to the requested chain")
+	}
+	if !strings.Contains(queries.GetOracleFeedByName, "chain_id = $1 AND name = $2") {
+		t.Fatal("oracle feed names must be looked up within one chain")
+	}
+	if !strings.Contains(queries.SetPoolTokenOracle, "chain_id = p.chain_id") {
+		t.Fatal("oracle events must resolve an aggregator on the pool's own chain")
+	}
 	if !strings.Contains(queries.ListPoolVouchers, "offer_count") {
 		t.Fatal("expected pool vouchers to include offering counts")
 	}
@@ -214,5 +223,22 @@ func TestOfferingWriteQueries(t *testing.T) {
 	if !strings.Contains(queries.DeleteOffering, "SET available = false") ||
 		!strings.Contains(queries.DeleteOffering, "RETURNING id") {
 		t.Error("delete-offering must unlist the row and return its id")
+	}
+}
+
+func TestPoolProfileAuthorizationQuery(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatalf("load core queries: %v", err)
+	}
+
+	if !strings.Contains(queries.LockPoolForProfileUpdate, "owner_address") {
+		t.Error("lock-pool-for-profile-update must report the relationship it authorizes from")
+	}
+	if !strings.Contains(queries.LockPoolForProfileUpdate, "FOR UPDATE") {
+		t.Error("lock-pool-for-profile-update must lock the row it authorizes from")
+	}
+	if !strings.Contains(queries.LockPoolForProfileUpdate, "lower(address) = lower($1)") {
+		t.Error("lock-pool-for-profile-update must match the catalog address case-insensitively")
 	}
 }

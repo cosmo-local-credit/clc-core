@@ -23,6 +23,10 @@ type (
 		GetOTXByTxHash               string `query:"get-otx-by-tx-hash"`
 		InsertDispatchTx             string `query:"insert-dispatch-tx"`
 		UpdateDispatchTxStatus       string `query:"update-dispatch-tx-status"`
+		GetUnsettledOTXBySigner      string `query:"get-unsettled-otx-by-signer"`
+		SetOTXReplaced               string `query:"set-otx-replaced"`
+		LockSigner                   string `query:"lock-signer"`
+		CountUndispatchedBelowNonce  string `query:"count-undispatched-below-nonce"`
 		GetPlatformContracts         string `query:"get-platform-contracts"`
 		InsertDeployedToken          string `query:"insert-deployed-token"`
 		ConfirmDeployedToken         string `query:"confirm-deployed-token"`
@@ -31,7 +35,19 @@ type (
 		InsertDeployedTokenTag       string `query:"insert-deployed-token-tag"`
 		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
+		ListTakenVoucherSymbols      string `query:"list-taken-voucher-symbols"`
 		ListTokenTags                string `query:"list-token-tags"`
+		FindTokenTag                 string `query:"find-token-tag"`
+		InsertCustomTokenTag         string `query:"insert-custom-token-tag"`
+		ListOfferingUnits            string `query:"list-offering-units"`
+		FindOfferingUnit             string `query:"find-offering-unit"`
+		InsertCustomOfferingUnit     string `query:"insert-custom-offering-unit"`
+		ListCustomTokenTags          string `query:"list-custom-token-tags"`
+		ListCustomOfferingUnits      string `query:"list-custom-offering-units"`
+		LockTokenTag                 string `query:"lock-token-tag"`
+		LockOfferingUnit             string `query:"lock-offering-unit"`
+		DeleteCustomTokenTag         string `query:"delete-custom-token-tag"`
+		DeleteCustomOfferingUnit     string `query:"delete-custom-offering-unit"`
 		GetProtocolAddress           string `query:"get-protocol-address"`
 		SetProtocolAddress           string `query:"set-protocol-address"`
 		InsertDeployedPool           string `query:"insert-deployed-pool"`
@@ -40,11 +56,14 @@ type (
 		UpsertPoolFromDeploy         string `query:"upsert-pool-from-deploy"`
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
+		ListTakenPoolSymbols         string `query:"list-taken-pool-symbols"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
+		LockPoolForProfileUpdate     string `query:"lock-pool-for-profile-update"`
 		UpdatePoolProfile            string `query:"update-pool-profile"`
 		DeletePoolTags               string `query:"delete-pool-tags"`
 		InsertPoolTag                string `query:"insert-pool-tag"`
 		UpdateVoucherProfile         string `query:"update-voucher-profile"`
+		UpdateVoucherDisplayName     string `query:"update-voucher-display-name"`
 		DeleteVoucherTags            string `query:"delete-voucher-tags"`
 		InsertVoucherTag             string `query:"insert-voucher-tag"`
 		SetPoolTokenMembership       string `query:"set-pool-token-membership"`
@@ -143,6 +162,7 @@ type (
 		ListReports                  string `query:"list-reports"`
 		ListReportsNext              string `query:"list-reports-next"`
 		GetReport                    string `query:"get-report"`
+		GetManagedReport             string `query:"get-managed-report"`
 		CreateReport                 string `query:"create-report"`
 		LockReportAuthor             string `query:"lock-report-author"`
 		UpdateReport                 string `query:"update-report"`
@@ -177,6 +197,7 @@ type (
 		UnknownTokenTags           string `query:"unknown-token-tags"`
 		SetCatalogStatementTimeout string `query:"set-catalog-statement-timeout"`
 		ResolveVoucherRefs         string `query:"resolve-voucher-refs"`
+		CountVouchersOwnedBy       string `query:"count-vouchers-owned-by"`
 
 		// Facet vocabularies are parameterless and request-independent; only
 		// the count half varies with the search, and it is composed.

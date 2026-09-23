@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/knadh/goyesql/v2"
 )
@@ -88,9 +91,17 @@ func (s *FederationPg) Pool() *pgxpool.Pool {
 	return s.db
 }
 
+// LegacyUserExistsByBlockchainAddress reports whether the address belongs to a
+// legacy Sarafu account. The sarafu_network schema only exists on deployments
+// that carry that history; where the table is absent nobody is a legacy user,
+// so undefined_table is answered with false rather than surfaced as an error.
 func (s *FederationPg) LegacyUserExistsByBlockchainAddress(ctx context.Context, address string) (bool, error) {
 	var exists bool
 	if err := s.db.QueryRow(ctx, s.queries.LegacyUserExistsByBlockchainAddress, address).Scan(&exists); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UndefinedTable {
+			return false, nil
+		}
 		return false, err
 	}
 	return exists, nil

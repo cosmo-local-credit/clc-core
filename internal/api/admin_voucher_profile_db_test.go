@@ -18,9 +18,7 @@ import (
 // Fixtures are committed, because the requests under test open their own
 // connections and cannot see an uncommitted transaction, and every one carries a
 // marker unique to this file so cleanup cannot touch another suite's rows.
-const (
-	voucherProfileMarker = "Zqvoucherprofile"
-)
+const voucherProfileMarker = "Zqvoucherprofile"
 
 // seedEditableVoucher creates one active, geolocated voucher with two tags, and
 // returns its address. Two tags rather than one so a replace that keeps a subset
@@ -250,19 +248,20 @@ func TestAdminUpdateVoucherProfileRejectsHalfAPin(t *testing.T) {
 	}
 }
 
-// A tag outside the vocabulary is rejected whole, so the profile edit beside it
-// does not land half-applied.
-func TestAdminUpdateVoucherProfileRejectsAnUnknownTag(t *testing.T) {
+// A tag outside the vocabulary is now created rather than refused, so the case
+// that still has to roll the whole edit back is a malformed one: the value can
+// never become a row, and the profile beside it must not land half-applied.
+func TestAdminUpdateVoucherProfileRejectsAMalformedTag(t *testing.T) {
 	a, token := newAdminAPI(t)
 	address, _, cleanup := seedEditableVoucherFixture(t, a)
 	defer cleanup()
 
 	res, _ := putVoucherProfile(t, a, token, address, map[string]any{
 		"description": "Should not be saved",
-		"tags":        []string{"NotARealTagValue"},
+		"tags":        []string{"Food, Water"},
 	})
 	if res.Code == http.StatusOK {
-		t.Fatalf("an unknown tag was accepted: %s", res.Body.String())
+		t.Fatalf("a malformed tag was accepted: %s", res.Body.String())
 	}
 
 	var description *string

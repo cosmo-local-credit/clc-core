@@ -83,6 +83,7 @@ func loadGasOracle(chainProvider *ethutils.Provider) gas.GasOracle {
 	gasOracle, err := gas.NewRPCGasOracle(gas.RPCGasOracleOpts{
 		Logg:          lo,
 		ChainProvider: chainProvider,
+		MinFeeCapWei:  ko.Int64("chain.min_fee_cap_wei"),
 	})
 	if err != nil {
 		lo.Error("could not initialize rpc gas oracle", "error", err)

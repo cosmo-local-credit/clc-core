@@ -207,6 +207,9 @@ func New(o APIOpts) *API {
 	apiGroup.POST("/contracts/upgrade/pool", a.upgradePoolHandler)
 
 	apiGroup.GET("/token-tags", a.tokenTagsHandler)
+	apiGroup.GET("/offering-units", a.offeringUnitsHandler)
+	apiGroup.GET("/symbols", a.symbolsLookupHandler)
+	apiGroup.GET("/oracle-feeds", a.oracleFeedsHandler)
 	apiGroup.GET("/system", a.systemHandler)
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)
 	apiGroup.GET("/otx/track/:trackingId/contract", a.trackContractHandler)
@@ -232,15 +235,19 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
 
-	// Offering writes. On apiGroup with requireUserAuth, like report mutations:
-	// a normal voucher owner needs this capability, so it is not an admin route.
+	// Owner catalog writes. On apiGroup with requireUserAuth, like report
+	// mutations: a normal pool or voucher owner needs these capabilities, so they
+	// are not admin-only routes.
 	// Mounting a second copy under /api/v2/admin would give the console its own
-	// handlers to drift from. The owner/superadmin decision happens inside the
-	// handler, from the voucher row it locks — middleware only establishes who is
+	// handlers to drift from. Each owner/superadmin decision happens inside the
+	// handler, from the catalog row it locks — middleware only establishes who is
 	// calling.
 	apiGroup.POST("/vouchers/:address/offerings", a.voucherOfferingCreateHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/offerings/:id", a.voucherOfferingUpdateHandler, a.requireUserAuth())
 	apiGroup.DELETE("/vouchers/:address/offerings/:id", a.voucherOfferingDeleteHandler, a.requireUserAuth())
+	apiGroup.PUT("/pools/:address/profile", a.updatePoolProfileHandler, a.requireUserAuth())
+	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
+	apiGroup.PUT("/vouchers/:address/profile", a.updateVoucherProfileHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")
@@ -274,6 +281,12 @@ func New(o APIOpts) *API {
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
 	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)
 
+	// An author's own posts in every status. /reports and /reports/:id stay
+	// approved-only; these are the reads that let an author find and reopen a
+	// post the public feed is hiding.
+	userGroup.GET("/me/reports", a.userReportsListHandler)
+	userGroup.GET("/me/reports/:id", a.userReportByIDHandler)
+
 	// Superadmin-only routes
 	adminGroup := apiGroup.Group("/admin", a.requireSuperAdmin())
 	adminGroup.GET("/users", a.adminListUsersHandler)
@@ -288,6 +301,14 @@ func New(o APIOpts) *API {
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
+	adminGroup.GET("/vocabulary", a.adminVocabularyHandler)
+	adminGroup.DELETE("/vocabulary/tags", a.adminDeleteTokenTagHandler)
+	adminGroup.DELETE("/vocabulary/units", a.adminDeleteOfferingUnitHandler)
+
+	// Global post moderation reads. The write half stays on apiGroup with the
+	// other report mutations, where the role check is already per-handler.
+	adminGroup.GET("/reports", a.adminReportsListHandler)
+	adminGroup.GET("/reports/:id", a.adminReportByIDHandler)
 
 	// Dashboard aggregates are a separate group so catalog mutations and
 	// ops totals do not share a route prefix that invites accidental reuse.

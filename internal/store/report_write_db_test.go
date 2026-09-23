@@ -83,7 +83,8 @@ func TestReportWriteLifecycleReplacesRelationsAndPreservesAuthorship(t *testing.
 			{URL: "https://content.example/replacement.jpg"},
 		},
 	}
-	if err := pg.UpdateReport(ctx, tx, id, updatedWrite, modifier); err != nil {
+	resubmitted := ReportStatusSubmitted
+	if err := pg.UpdateReport(ctx, tx, id, updatedWrite, modifier, &resubmitted); err != nil {
 		t.Fatalf("update report: %v", err)
 	}
 	if err := pg.ReplaceReportRelations(ctx, tx, id, updatedWrite); err != nil {
@@ -107,14 +108,36 @@ func TestReportWriteLifecycleReplacesRelationsAndPreservesAuthorship(t *testing.
 	if err := pg.ApproveReport(ctx, tx, id, approver); err != nil {
 		t.Fatalf("approve report: %v", err)
 	}
-	// Editing after approval changes content and modifier, never workflow state.
+
+	// An author's edit of an approved post resubmits it and takes it out of the
+	// public read, which is what stops editing being a way to substitute
+	// unreviewed content for approved content.
 	updatedWrite.Title = "Edited after approval"
-	if err := pg.UpdateReport(ctx, tx, id, updatedWrite, author); err != nil {
-		t.Fatalf("edit approved report: %v", err)
+	if err := pg.UpdateReport(ctx, tx, id, updatedWrite, author, &resubmitted); err != nil {
+		t.Fatalf("author edit of approved report: %v", err)
+	}
+	if public, err := pg.GetReport(ctx, tx, id); err != nil || public != nil {
+		t.Fatalf("public read after author edit = %+v, err = %v", public, err)
+	}
+	edited, err := pg.GetReportForMutation(ctx, tx, id)
+	if err != nil || edited == nil || edited.Status != ReportStatusSubmitted ||
+		edited.Title != "Edited after approval" {
+		t.Fatalf("report after author edit = %+v, err = %v", edited, err)
+	}
+
+	// An operator's edit passes no status, so COALESCE preserves whatever the
+	// row holds: approving and then correcting must not unpublish.
+	if err := pg.ApproveReport(ctx, tx, id, approver); err != nil {
+		t.Fatalf("reapprove report: %v", err)
+	}
+	updatedWrite.Title = "Corrected by an operator"
+	if err := pg.UpdateReport(ctx, tx, id, updatedWrite, approver, nil); err != nil {
+		t.Fatalf("admin edit of approved report: %v", err)
 	}
 	approved, err := pg.GetReport(ctx, tx, id)
-	if err != nil || approved == nil || approved.Status != "APPROVED" || approved.Title != "Edited after approval" {
-		t.Fatalf("approved report after author edit = %+v, err = %v", approved, err)
+	if err != nil || approved == nil || approved.Status != ReportStatusApproved ||
+		approved.Title != "Corrected by an operator" {
+		t.Fatalf("approved report after admin edit = %+v, err = %v", approved, err)
 	}
 
 	var storedAuthor, storedModifier, status string
@@ -123,7 +146,7 @@ func TestReportWriteLifecycleReplacesRelationsAndPreservesAuthorship(t *testing.
 	).Scan(&storedAuthor, &storedModifier, &status); err != nil {
 		t.Fatalf("read provenance: %v", err)
 	}
-	if storedAuthor != author || storedModifier != author || status != "APPROVED" {
+	if storedAuthor != author || storedModifier != approver || status != ReportStatusApproved {
 		t.Fatalf("provenance = author:%q modifier:%q status:%q", storedAuthor, storedModifier, status)
 	}
 

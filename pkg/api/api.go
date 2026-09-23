@@ -18,19 +18,24 @@ type (
 	}
 
 	DeployPoolRequest struct {
-		Name             string   `json:"name" validate:"required"`
-		Symbol           string   `json:"symbol" validate:"required"`
-		Decimals         string   `json:"decimals" validate:"required"`
-		Owner            string   `json:"owner" validate:"required,eth_addr_checksum"`
-		QuoterType       string   `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
-		FeesDecoupled    bool     `json:"feesDecoupled"`
+		Name          string `json:"name" validate:"required"`
+		Symbol        string `json:"symbol" validate:"required"`
+		Decimals      string `json:"decimals" validate:"required"`
+		Owner         string `json:"owner" validate:"required,eth_addr_checksum"`
+		QuoterType    string `json:"quoterType" validate:"omitempty,oneof=decimal oracle relative"`
+		FeesDecoupled bool   `json:"feesDecoupled"`
+		// Where decoupled fees are paid. Defaults to the owner, which is what every
+		// deploy did before the field existed; meaningful only with FeesDecoupled,
+		// since coupled fees stay in the pool's own liquidity.
+		FeeAddress       string   `json:"feeAddress,omitempty" validate:"omitempty,eth_addr_checksum"`
 		FeePolicyDefault string   `json:"feePolicyDefault" validate:"required"`
 		BaseCurrency     string   `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
+		UnitOfAccount    string   `json:"unitOfAccount" validate:"required,max=16"`
 		Description      string   `json:"description,omitempty"`
 		Website          string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email            string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone            string   `json:"phone,omitempty"`
-		Terms            string   `json:"terms,omitempty" validate:"omitempty,url"`
+		Terms            string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
 		LocationName     string   `json:"locationName,omitempty"`
 		GeoLat           *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
 		GeoLng           *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
@@ -43,6 +48,10 @@ type (
 		Tags      []string `json:"tags,omitempty"`
 	}
 
+	// Terms is either a link to the publisher's terms or the terms themselves,
+	// written as Markdown. The column is TEXT with no format constraint, so the
+	// only rule is a size cap; clients tell the two apart by whether the value
+	// parses as an http(s) URL.
 	DeployTokenRequest struct {
 		Name            string   `json:"name" validate:"required"`
 		Symbol          string   `json:"symbol" validate:"required"`
@@ -53,7 +62,7 @@ type (
 		Website         string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email           string   `json:"email,omitempty" validate:"omitempty,email"`
 		Phone           string   `json:"phone,omitempty"`
-		Terms           string   `json:"terms,omitempty" validate:"omitempty,url"`
+		Terms           string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
 		VoucherUoa      string   `json:"voucherUoa,omitempty"`
 		VoucherValue    *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
 		LocationName    string   `json:"locationName,omitempty"`
@@ -248,22 +257,27 @@ type (
 
 	// UpdatePoolProfileRequest carries a pool's editable off-chain record.
 	//
-	// Every field is optional in the JSON but assigned unconditionally by the
-	// handler, so a caller sends the whole record and omitting a field clears
-	// it. Nothing here mirrors SwapPool: name, symbol, decimals and the
-	// dependency addresses all come from the chain and are not editable.
+	// Every ordinary metadata field is optional in the JSON but assigned
+	// unconditionally by the handler, so a caller sends the whole record and
+	// omitting one clears it. DisplayName and the images preserve on omission.
+	// Nothing here mirrors SwapPool: name, symbol, decimals and the dependency
+	// addresses all come from the chain and are not editable.
 	UpdatePoolProfileRequest struct {
+		// DisplayName is an off-chain override for the deployed SwapPool name.
+		// Omitted preserves the existing override; an empty string clears it and
+		// makes catalog reads fall back to the immutable contract name.
+		DisplayName   *string  `json:"displayName,omitempty"  validate:"omitempty,max=80"`
 		Description   *string  `json:"description,omitempty"   validate:"omitempty,max=500"`
 		UnitOfAccount *string  `json:"unitOfAccount,omitempty" validate:"omitempty,max=16"`
 		Email         *string  `json:"email,omitempty"         validate:"omitempty,email"`
 		Website       *string  `json:"website,omitempty"       validate:"omitempty,url"`
 		Phone         *string  `json:"phone,omitempty"`
-		Terms         *string  `json:"terms,omitempty"         validate:"omitempty,url"`
+		Terms         *string  `json:"terms,omitempty"         validate:"omitempty,max=5000"`
 		LocationName  *string  `json:"locationName,omitempty"  validate:"omitempty,max=200"`
 		GeoLat        *float64 `json:"geoLat,omitempty"        validate:"omitempty,min=-90,max=90"`
 		GeoLng        *float64 `json:"geoLng,omitempty"        validate:"omitempty,min=-180,max=180"`
-		// Unlike every other field here, these two preserve on omission rather
-		// than clearing: update-pool-profile COALESCEs them so a client that does
+		// Like DisplayName, these two preserve on omission rather than clearing:
+		// update-pool-profile COALESCEs them so a client that does
 		// not send images cannot blank a pool's images. Send "" to clear one.
 		// `http_url|eq=`: an http(s) URL to set, "" to clear. The alternation is
 		// required because omitempty does not skip a pointer to an empty string.
@@ -276,17 +290,22 @@ type (
 	//
 	// Assign-all, exactly as UpdatePoolProfileRequest: every field is optional in
 	// the JSON and written unconditionally by the handler, so a caller sends the
-	// whole record and omitting a field clears it. Nothing here mirrors the
-	// deployed ERC20 — name, symbol, decimals and the owner all come from the
-	// chain and are not editable.
+	// whole record and omitting a field clears it. Except for DisplayName,
+	// nothing here mirrors the deployed ERC20 — contract name, symbol, decimals
+	// and the owner all come from the chain and are not editable. Terms is a link
+	// or the terms themselves as Markdown, as on DeployTokenRequest.
 	UpdateVoucherProfileRequest struct {
+		// DisplayName is an off-chain override for the deployed ERC20 name.
+		// Omitted preserves the existing override; an empty string clears it and
+		// makes catalog reads fall back to the immutable contract name.
+		DisplayName  *string  `json:"displayName,omitempty"  validate:"omitempty,max=120"`
 		Description  *string  `json:"description,omitempty"  validate:"omitempty,max=500"`
 		VoucherUoa   *string  `json:"voucherUoa,omitempty"   validate:"omitempty,max=16"`
 		VoucherValue *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
 		Email        *string  `json:"email,omitempty"        validate:"omitempty,email"`
 		Website      *string  `json:"website,omitempty"      validate:"omitempty,url"`
 		Phone        *string  `json:"phone,omitempty"`
-		Terms        *string  `json:"terms,omitempty"        validate:"omitempty,url"`
+		Terms        *string  `json:"terms,omitempty"        validate:"omitempty,max=5000"`
 		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
 		GeoLat       *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
 		GeoLng       *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
@@ -302,18 +321,32 @@ type (
 		Tags      []string `json:"tags,omitempty"`
 	}
 
+	// UpdateVoucherDisplayNameRequest is the narrow owner-facing mutation for a
+	// voucher's public label. Contract name, symbol, decimals and ownership stay
+	// outside it because they are chain facts.
+	UpdateVoucherDisplayNameRequest struct {
+		DisplayName string `json:"displayName" validate:"required,max=120"`
+	}
+
 	// UpdateProfileRequest carries optional profile fields. Omitted location
 	// values preserve stored data; ClearLocation explicitly removes the pin, and
 	// ClearAvatar does the same for the profile image.
 	UpdateProfileRequest struct {
-		Name          string   `json:"name"          validate:"omitempty,max=80"`
-		Email         string   `json:"email"         validate:"omitempty,email"`
-		Phone         string   `json:"phone"`
-		Country       string   `json:"country"       validate:"omitempty,len=2"`
-		LocationName  *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
-		GeoLat        *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
-		GeoLng        *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
-		ClearLocation bool     `json:"clearLocation,omitempty"`
+		Name    string `json:"name"          validate:"omitempty,max=80"`
+		Email   string `json:"email"         validate:"omitempty,email"`
+		Phone   string `json:"phone"`
+		Country string `json:"country"       validate:"omitempty,len=2"`
+		// Profile preferences are pointers because clients predating them must be
+		// able to update their contact details without clearing them. Website's
+		// explicit empty-string alternative clears a saved value; `omitempty` does
+		// not skip a pointer to an empty string.
+		PreferredCurrency *string  `json:"preferredCurrency,omitempty" validate:"omitempty,len=3,uppercase,alpha"`
+		Bio               *string  `json:"bio,omitempty"               validate:"omitempty,max=500"`
+		Website           *string  `json:"website,omitempty"           validate:"omitempty,http_url|eq="`
+		LocationName      *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
+		GeoLat            *float64 `json:"geoLat,omitempty"       validate:"omitempty,min=-90,max=90"`
+		GeoLng            *float64 `json:"geoLng,omitempty"       validate:"omitempty,min=-180,max=180"`
+		ClearLocation     bool     `json:"clearLocation,omitempty"`
 		// http_url, never url: the latter accepts ftp:, data: and javascript:,
 		// which users_avatar_url_http would then reject at the database — after
 		// the request had already been accepted.
@@ -394,34 +427,31 @@ type (
 	}
 )
 
-// OfferingUnits is the closed set a write may choose from.
+// BuiltInOfferingUnits is the initial set seeded by the database.
 //
-// Duplicated from the offering_unit lookup that migrations/023_offering_crud.sql
-// seeds, on purpose. The database is the backstop, but it cannot be the primary
-// check: the unit foreign key is NOT VALID so imported free text survives, and a
-// foreign key's update trigger short-circuits when the column is unchanged — so
-// re-saving a row that already holds "50kg sack" would pass the constraint
-// untouched. The API therefore has to be what closes the set. When either side
-// moves, both move; TestOfferingUnitsMatchTheMigration fails if they drift.
-var (
-	OfferingUnits = []string{
-		"kg",
-		"g",
-		"litre",
-		"item",
-		"hour",
-		"day",
-		"bag",
-		"unit",
-		"bundle",
-		"piece",
-		"dozen",
-		"serving",
-		"trip",
-		"session",
-		"metre",
-	}
-)
+// Writes may also introduce a custom value. This slice stays exported for
+// callers that need to distinguish translated built-in labels from custom text.
+var BuiltInOfferingUnits = []string{
+	"kg",
+	"g",
+	"litre",
+	"item",
+	"hour",
+	"day",
+	"bag",
+	"unit",
+	"bundle",
+	"piece",
+	"dozen",
+	"serving",
+	"trip",
+	"session",
+	"metre",
+}
+
+// OfferingUnits remains as a compatibility alias for clients that only need
+// the seeded values. It is not the validation boundary for offering writes.
+var OfferingUnits = BuiltInOfferingUnits
 
 const (
 	ErrCodeInternalServerError = "E01"

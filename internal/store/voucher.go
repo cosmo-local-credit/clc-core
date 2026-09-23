@@ -26,9 +26,12 @@ type (
 	// whole record: nil clears. The exceptions are IconURL and BannerURL, where
 	// nil preserves and a pointer to "" clears — see update-voucher-profile.
 	//
-	// Name, symbol, decimals and owner_address are absent because they mirror the
-	// deployed ERC20. They change by transacting, not by editing a form.
+	// DisplayName is the one name a catalog editor owns: it is an off-chain
+	// override for the immutable deployed ERC20 name. Nil preserves it and an
+	// empty string clears it, matching the image-field compatibility rule.
+	// Symbol, decimals and owner_address remain chain facts.
 	VoucherProfile struct {
+		DisplayName  *string
 		Description  *string
 		VoucherUOA   *string
 		VoucherValue *float64
@@ -67,6 +70,8 @@ func (pg *Pg) ListVoucherMetadataByAddresses(ctx context.Context, tx pgx.Tx, add
 // Assign-all, like UpdatePoolProfile: an omitted field clears rather than
 // preserves, because patch semantics over nullable columns cannot express
 // clearing a field at all — JSON gives no way to tell an absent key from a null.
+// DisplayName and the image fields are deliberate compatibility exceptions;
+// nil preserves their value and an empty string clears it.
 func (pg *Pg) UpdateVoucherProfile(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -78,6 +83,7 @@ func (pg *Pg) UpdateVoucherProfile(
 		ctx,
 		pg.queries.UpdateVoucherProfile,
 		address,
+		profile.DisplayName,
 		profile.Description,
 		profile.VoucherUOA,
 		profile.VoucherValue,
@@ -92,6 +98,14 @@ func (pg *Pg) UpdateVoucherProfile(
 		profile.BannerURL,
 	).Scan(&id)
 	return id, err
+}
+
+// UpdateVoucherDisplayName changes only the catalog label after the caller has
+// authorized against a locked voucher row. It cannot mutate any chain-derived
+// voucher data, including the immutable deployed name.
+func (pg *Pg) UpdateVoucherDisplayName(ctx context.Context, tx pgx.Tx, voucherID uint64, displayName string) error {
+	_, err := tx.Exec(ctx, pg.queries.UpdateVoucherDisplayName, voucherID, displayName)
+	return err
 }
 
 // ReplaceVoucherTags swaps a voucher's whole tag set.

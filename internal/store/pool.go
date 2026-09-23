@@ -14,10 +14,13 @@ type (
 	// pipeline's record. Most fields are pointers: catalog rows merged from
 	// sparse sources (federation import, deploy metadata) may lack them.
 	Pool struct {
-		ID                   uint64   `db:"id"                              json:"id"`
-		ChainID              int64    `db:"chain_id"                        json:"chainId"`
-		Address              string   `db:"address"                         json:"address"`
-		Name                 *string  `db:"name"                            json:"name"`
+		ID      uint64  `db:"id"                              json:"id"`
+		ChainID int64   `db:"chain_id"                        json:"chainId"`
+		Address string  `db:"address"                         json:"address"`
+		Name    *string `db:"name"                            json:"name"`
+		// ContractName is the immutable SwapPool name. Name is the effective
+		// catalog label, which may be an owner-set display-name override.
+		ContractName         *string  `db:"contract_name"                   json:"contractName"`
 		Symbol               *string  `db:"symbol"                          json:"symbol"`
 		OwnerAddress         *string  `db:"owner_address"                   json:"ownerAddress"`
 		FeePPM               *float64 `db:"fee_ppm"                         json:"feePpm"`
@@ -56,10 +59,11 @@ type (
 	// PoolProfile is the editable half of a pool row. Nothing in it mirrors chain
 	// state, which is what makes it safe for an operator to overwrite.
 	//
-	// ImageURL and BannerURL are the exception to the assign-all rule the statement
-	// documents: nil preserves what is stored, and a pointer to "" clears it. A
-	// client that predates pool images therefore cannot blank them.
+	// DisplayName, ImageURL and BannerURL are exceptions to the assign-all rule
+	// the statement documents: nil preserves what is stored, and a pointer to ""
+	// clears it. A client that predates those fields therefore cannot blank them.
 	PoolProfile struct {
+		DisplayName   *string
 		Description   *string
 		UnitOfAccount *string
 		Email         *string
@@ -72,7 +76,26 @@ type (
 		ImageURL      *string
 		BannerURL     *string
 	}
+
+	// PoolProfileOwner is the locked relationship used to authorize a catalog
+	// profile write without loading the pool's full presentation row.
+	PoolProfileOwner struct {
+		ID           uint64  `db:"id"`
+		OwnerAddress *string `db:"owner_address"`
+	}
 )
+
+func (pg *Pg) LockPoolForProfileUpdate(
+	ctx context.Context,
+	tx pgx.Tx,
+	address string,
+) (PoolProfileOwner, error) {
+	var owner PoolProfileOwner
+	if err := pgxscan.Get(ctx, tx, &owner, pg.queries.LockPoolForProfileUpdate, address); err != nil {
+		return PoolProfileOwner{}, err
+	}
+	return owner, nil
+}
 
 func (pg *Pg) ListPools(ctx context.Context, tx pgx.Tx, limit uint64) ([]Pool, error) {
 	var pools []Pool
@@ -140,6 +163,7 @@ func (pg *Pg) UpdatePoolProfile(
 		ctx,
 		pg.queries.UpdatePoolProfile,
 		address,
+		profile.DisplayName,
 		profile.Description,
 		profile.UnitOfAccount,
 		profile.Email,

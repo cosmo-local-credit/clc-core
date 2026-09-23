@@ -302,6 +302,7 @@ Table "vouchers" {
   "chain_id" int4 [not null]
   "address" text [not null]
   "name" text
+  "display_name" text
   "symbol" text
   "decimals" int4
   "owner_address" text
@@ -334,6 +335,7 @@ Table "vouchers" {
     `redemption_address IS NULL OR redemption_address ~ '^0x[0-9a-fA-F]{40}$'::text` [name: 'vouchers_redemption_format']
     `decimals IS NULL OR decimals BETWEEN 0 AND 255` [name: 'vouchers_decimals_range']
     `voucher_value IS NULL OR voucher_value >= 0` [name: 'vouchers_value_nonneg']
+    `display_name IS NULL OR (display_name = btrim(display_name) AND char_length(display_name) BETWEEN 1 AND 120)` [name: 'vouchers_display_name_valid']
     `((geo_lat IS NULL) = (geo_lng IS NULL)) AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90) AND (geo_lng IS NULL OR geo_lng BETWEEN -180 AND 180)` [name: 'vouchers_geo_valid']
   }
 

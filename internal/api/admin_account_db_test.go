@@ -124,15 +124,24 @@ func seedAccountFixtures(t *testing.T, a *API) func() {
 	voucher(lower(accountAddress), accountMarker+" Hidden", false)
 	voucher(otherAddress, accountMarker+" Other", true)
 
-	var poolID uint64
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO pools (chain_id, address, name, symbol, decimals, location_name)
-		VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
-		        $1, 'ZQP', 6, $2)
-		RETURNING id`, accountMarker+" Pool", accountMarker).Scan(&poolID); err != nil {
-		_ = tx.Rollback(ctx)
-		t.Fatalf("seed pool: %v", err)
+	pool := func(owner, name string) uint64 {
+		var id uint64
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO pools (chain_id, address, name, symbol, decimals, location_name, owner_address)
+			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
+			        $1, 'ZQP', 6, $2, $3)
+			RETURNING id`, name, accountMarker, owner).Scan(&id); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("seed pool %q: %v", name, err)
+		}
+		return id
 	}
+
+	// Lowercased owner, checksummed query: the handler's comparison is
+	// case-folded, and the address reaches the column from a deploy while the
+	// request carries whatever the wallet is holding.
+	poolID := pool(lower(accountAddress), accountMarker+" Pool")
+	pool(otherAddress, accountMarker+" Other Pool")
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed) VALUES ($1, $2, TRUE)`,
 		poolID, owned); err != nil {
@@ -269,6 +278,24 @@ func TestAdminAccountEndpoints(t *testing.T) {
 
 	t.Run("vouchers by owner rejects a malformed address", func(t *testing.T) {
 		res, _ := getJSON(t, a, "", "/api/v2/vouchers?perPage=10&owner=not-an-address")
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", res.Code)
+		}
+	})
+
+	t.Run("pools by owner", func(t *testing.T) {
+		res, result := getJSON(t, a, token, "/api/v2/pools?perPage=100&owner="+accountAddress)
+		if res.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", res.Code, res.Body.String())
+		}
+
+		got := names(t, result, "pools")
+		assertContains(t, got, accountMarker+" Pool")
+		assertExcludes(t, got, accountMarker+" Other Pool")
+	})
+
+	t.Run("pools by owner rejects a malformed address", func(t *testing.T) {
+		res, _ := getJSON(t, a, token, "/api/v2/pools?perPage=10&owner=not-an-address")
 		if res.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400", res.Code)
 		}

@@ -9,7 +9,7 @@ import (
 )
 
 // naiveUTC binds a timestamptz Go value as timestamp without time zone.
-// chain_data_v2.date_block is naive UTC; a timestamptz parameter drops the
+// The indexer's tx.date_block is naive UTC; a timestamptz parameter drops the
 // remote date filter and the FDW scan times out.
 func naiveUTC(t time.Time) pgtype.Timestamp {
 	return pgtype.Timestamp{Time: t.UTC(), Valid: true}

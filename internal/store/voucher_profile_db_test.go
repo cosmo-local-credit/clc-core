@@ -141,6 +141,58 @@ func TestUpdateVoucherProfileLeavesChainColumnsAlone(t *testing.T) {
 	assert.True(t, active, "a profile edit must not change visibility")
 }
 
+// The public label belongs to the catalog, not the immutable ERC20 metadata.
+// It must be independently editable and must not overwrite the deployed name.
+func TestUpdateVoucherDisplayNameLeavesContractNameAlone(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	voucherID, _ := seedEditableVoucher(t, tx)
+	replacement := "Corrected community name"
+	require.NoError(t, pg.UpdateVoucherDisplayName(ctx, tx, voucherID, replacement))
+
+	var contractName string
+	var displayName *string
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT name, display_name FROM vouchers WHERE id = $1`, voucherID).
+		Scan(&contractName, &displayName))
+	assert.Equal(t, "Editable", contractName)
+	require.NotNil(t, displayName)
+	assert.Equal(t, replacement, *displayName)
+}
+
+// The admin profile request predates display names. Omitting the new key must
+// therefore preserve an owner correction rather than silently erasing it.
+func TestUpdateVoucherProfilePreservesDisplayNameWhenOmittedAndClearsItExplicitly(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	voucherID, address := seedEditableVoucher(t, tx)
+	replacement := "Corrected community name"
+	require.NoError(t, pg.UpdateVoucherDisplayName(ctx, tx, voucherID, replacement))
+
+	description := "An unrelated operator edit"
+	_, err := pg.UpdateVoucherProfile(ctx, tx, address, VoucherProfile{Description: &description})
+	require.NoError(t, err)
+
+	var afterOmission *string
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT display_name FROM vouchers WHERE id = $1`, voucherID).Scan(&afterOmission))
+	require.NotNil(t, afterOmission)
+	assert.Equal(t, replacement, *afterOmission)
+
+	empty := ""
+	_, err = pg.UpdateVoucherProfile(ctx, tx, address, VoucherProfile{DisplayName: &empty})
+	require.NoError(t, err)
+
+	var afterClear *string
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT display_name FROM vouchers WHERE id = $1`, voucherID).Scan(&afterClear))
+	assert.Nil(t, afterClear)
+}
+
 func TestReplaceVoucherTagsSwapsTheWholeSet(t *testing.T) {
 	pg, tx, cleanup := newMarketTestPg(t)
 	defer cleanup()

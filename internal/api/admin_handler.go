@@ -176,7 +176,7 @@ func (a *API) adminUpdateUserLimitsHandler(c *echo.Context) error {
 }
 
 // adminUpdateUserProfileHandler lets a superadmin correct another account's
-// identity and contact details.
+// identity, contact details, and profile preferences.
 //
 // The self-service handler at PUT /auth/profile edits the signed-in account and
 // nothing else — it takes its address from the JWT claims — so an operator fixing
@@ -448,24 +448,9 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 	if handled || err != nil {
 		return err
 	}
-
-	var req apiresp.UpdatePoolProfileRequest
-	if err := c.Bind(&req); err != nil {
-		return handleBindError(c, err)
-	}
-	if err := c.Validate(req); err != nil {
-		return a.handleValidateError(c, err)
-	}
-
-	// A label without coordinates, or coordinates without a label, describes a
-	// place nobody can point at. pools_geo_valid backstops this at the database,
-	// but a 400 names the field the caller got wrong.
-	if (req.GeoLat == nil) != (req.GeoLng == nil) {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "Validation failed: geoLat and geoLng must be provided together",
-		})
+	req, handled, err := a.bindPoolProfileRequest(c)
+	if handled || err != nil {
+		return err
 	}
 
 	ctx := c.Request().Context()
@@ -476,58 +461,16 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Same vocabulary check the catalog search applies, so a tag cannot enter
-	// through this endpoint that no filter could ever select.
-	if rejected, err := a.rejectUnknownTags(c, tx, req.Tags); rejected || err != nil {
+	pool, handled, err := a.savePoolProfile(c, ctx, tx, address, req)
+	if handled || err != nil {
 		return err
-	}
-
-	poolID, err := a.store.UpdatePoolProfile(ctx, tx, address, store.PoolProfile{
-		Description:   req.Description,
-		UnitOfAccount: req.UnitOfAccount,
-		Email:         req.Email,
-		Website:       req.Website,
-		Phone:         req.Phone,
-		Terms:         req.Terms,
-		LocationName:  req.LocationName,
-		ImageURL:      req.ImageURL,
-		BannerURL:     req.BannerURL,
-		GeoLat:        req.GeoLat,
-		GeoLng:        req.GeoLng,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeNotFound,
-				Description: "pool not found",
-			})
-		}
-		return handlePostgresError(c, err)
-	}
-
-	if err := a.store.ReplacePoolTags(ctx, tx, poolID, req.Tags); err != nil {
-		return handlePostgresError(c, err)
-	}
-
-	pool, err := a.store.GetPoolByAddress(ctx, tx, address)
-	if err != nil {
-		return handlePostgresError(c, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 
-	// The whole row, so a console can write the response straight into its cache
-	// rather than refetching what it just sent.
-	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok:          true,
-		Description: "Pool profile updated",
-		Result: map[string]any{
-			"pool": pool,
-		},
-	})
+	return respondPoolProfile(c, pool)
 }
 
 // adminUpdateVoucherProfileHandler lets a superadmin correct a voucher's
@@ -538,12 +481,14 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 // importer fills the rest, so a mistyped issuer email, a wrong unit of account or
 // a missing pin could only be fixed in the database by hand.
 //
-// It edits catalog metadata and nothing else. Name, symbol, decimals and the
-// owner mirror the deployed ERC20, and letting an operator retype them here would
-// produce a catalog that disagrees with the chain — with the catalog winning on
-// every screen that reads it. `active` is absent too: retiring a voucher is a
-// different operation from correcting its prose, and folding the two together
-// would let a description edit hide a voucher by accident.
+// It edits catalog metadata and nothing else, through the same write the
+// owner-facing /vouchers/:address/profile route uses. DisplayName is the sole
+// public label an operator may correct; the deployed name, symbol, decimals and
+// owner remain chain facts. Letting an operator retype those facts here would produce a
+// catalog that disagrees with the chain — with the catalog winning on every screen
+// that reads it. `active` is absent too: retiring a voucher is a different
+// operation from correcting its prose, and folding the two together would let a
+// description edit hide a voucher by accident.
 //
 // Assign-all, like the pool handler above: the caller sends the whole record and
 // every column is written, so clearing a field means sending it empty. Tags are
@@ -554,90 +499,26 @@ func (a *API) adminUpdateVoucherProfileHandler(c *echo.Context) error {
 	if handled || err != nil {
 		return err
 	}
-
-	var req apiresp.UpdateVoucherProfileRequest
-	if err := c.Bind(&req); err != nil {
-		return handleBindError(c, err)
-	}
-	if err := c.Validate(req); err != nil {
-		return a.handleValidateError(c, err)
-	}
-
-	// A label without coordinates, or coordinates without a label, describes a
-	// place nobody can point at. vouchers_geo_valid backstops this at the
-	// database, but a 400 names the field the caller got wrong.
-	if (req.GeoLat == nil) != (req.GeoLng == nil) {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "Validation failed: geoLat and geoLng must be provided together",
-		})
+	req, handled, err := a.bindVoucherProfileRequest(c)
+	if handled || err != nil {
+		return err
 	}
 
 	ctx := c.Request().Context()
-
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 
-	// Same vocabulary check the catalog search and the deploy endpoints apply, so
-	// a tag cannot enter through here that no filter could ever select.
-	if rejected, err := a.rejectUnknownTags(c, tx, req.Tags); rejected || err != nil {
-		return err
-	}
-
-	voucherID, err := a.store.UpdateVoucherProfile(ctx, tx, address, store.VoucherProfile{
-		Description:  req.Description,
-		VoucherUOA:   req.VoucherUoa,
-		VoucherValue: req.VoucherValue,
-		Email:        req.Email,
-		Website:      req.Website,
-		Phone:        req.Phone,
-		Terms:        req.Terms,
-		LocationName: req.LocationName,
-		GeoLat:       req.GeoLat,
-		GeoLng:       req.GeoLng,
-		IconURL:      req.IconURL,
-		BannerURL:    req.BannerURL,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeNotFound,
-				Description: "voucher not found",
-			})
-		}
-		return handlePostgresError(c, err)
-	}
-
-	if err := a.store.ReplaceVoucherTags(ctx, tx, voucherID, req.Tags); err != nil {
-		return handlePostgresError(c, err)
-	}
-
 	// The public detail row rather than an admin-only shape: it is what the
 	// console already caches for this voucher, so the response can be written
 	// straight into that cache instead of being refetched through a second
 	// endpoint that would have to agree with this one.
-	//
-	// It is also the read that proves the write landed as intended — the update
-	// statement returns an id, not a row, and `get-market-voucher-by-address`
-	// filters on `v.active`, so an inactive voucher 404s here after a successful
-	// update rather than reporting a save the catalog will not serve.
-	voucher, err := a.store.GetMarketVoucherByAddress(ctx, tx, address)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeNotFound,
-				Description: "voucher not found",
-			})
-		}
-		return handlePostgresError(c, err)
+	voucher, handled, err := a.saveVoucherProfile(c, ctx, tx, address, req)
+	if handled || err != nil {
+		return err
 	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}

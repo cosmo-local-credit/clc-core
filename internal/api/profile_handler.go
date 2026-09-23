@@ -33,16 +33,19 @@ func pendingSIWEEmail(address string) string {
 
 func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) (store.UserProfileUpdate, error) {
 	update := store.UserProfileUpdate{
-		Address:       address,
-		Name:          req.Name,
-		Email:         req.Email,
-		Phone:         req.Phone,
-		Country:       req.Country,
-		ClearLocation: req.ClearLocation,
-		GeoLat:        req.GeoLat,
-		GeoLng:        req.GeoLng,
-		ClearAvatar:   req.ClearAvatar,
-		AvatarURL:     req.AvatarURL,
+		Address:           address,
+		Name:              req.Name,
+		Email:             req.Email,
+		Phone:             req.Phone,
+		Country:           req.Country,
+		PreferredCurrency: req.PreferredCurrency,
+		Bio:               req.Bio,
+		Website:           req.Website,
+		ClearLocation:     req.ClearLocation,
+		GeoLat:            req.GeoLat,
+		GeoLng:            req.GeoLng,
+		ClearAvatar:       req.ClearAvatar,
+		AvatarURL:         req.AvatarURL,
 	}
 
 	if req.ClearLocation && (req.LocationName != nil || req.GeoLat != nil || req.GeoLng != nil) {
@@ -60,6 +63,18 @@ func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) 
 			return update, errors.New("locationName cannot be blank")
 		}
 		update.LocationName = &locationName
+	}
+	if req.PreferredCurrency != nil {
+		currency := strings.ToUpper(strings.TrimSpace(*req.PreferredCurrency))
+		update.PreferredCurrency = &currency
+	}
+	if req.Bio != nil {
+		bio := strings.TrimSpace(*req.Bio)
+		update.Bio = &bio
+	}
+	if req.Website != nil {
+		website := strings.TrimSpace(*req.Website)
+		update.Website = &website
 	}
 
 	return update, nil
@@ -208,16 +223,19 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "User profile",
 		Result: map[string]any{
-			"address":      user.EthereumAddress,
-			"name":         user.Name,
-			"email":        user.Email,
-			"phone":        user.Phone,
-			"country":      user.Country,
-			"locationName": user.LocationName,
-			"geoLat":       user.GeoLat,
-			"geoLng":       user.GeoLng,
-			"avatarUrl":    user.AvatarURL,
-			"createdAt":    user.CreatedAt.Format(time.RFC3339),
+			"address":           user.EthereumAddress,
+			"name":              user.Name,
+			"email":             user.Email,
+			"phone":             user.Phone,
+			"country":           user.Country,
+			"preferredCurrency": user.PreferredCurrency,
+			"bio":               user.Bio,
+			"website":           user.Website,
+			"locationName":      user.LocationName,
+			"geoLat":            user.GeoLat,
+			"geoLng":            user.GeoLng,
+			"avatarUrl":         user.AvatarURL,
+			"createdAt":         user.CreatedAt.Format(time.RFC3339),
 		},
 	})
 }
@@ -274,15 +292,18 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Profile updated",
 		Result: map[string]any{
-			"address":      user.EthereumAddress,
-			"name":         user.Name,
-			"email":        user.Email,
-			"phone":        user.Phone,
-			"country":      user.Country,
-			"locationName": user.LocationName,
-			"geoLat":       user.GeoLat,
-			"geoLng":       user.GeoLng,
-			"avatarUrl":    user.AvatarURL,
+			"address":           user.EthereumAddress,
+			"name":              user.Name,
+			"email":             user.Email,
+			"phone":             user.Phone,
+			"country":           user.Country,
+			"preferredCurrency": user.PreferredCurrency,
+			"bio":               user.Bio,
+			"website":           user.Website,
+			"locationName":      user.LocationName,
+			"geoLat":            user.GeoLat,
+			"geoLng":            user.GeoLng,
+			"avatarUrl":         user.AvatarURL,
 		},
 	})
 }

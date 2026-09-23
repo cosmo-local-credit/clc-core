@@ -805,13 +805,31 @@ func TestPoolSearchAndTagFilters(t *testing.T) {
 	both := seedPool(searchToken+" Both Pool", "QBP", "Art", "Culture")
 	untagged := seedPool(searchToken+" Plain Pool", "QPP")
 	bySymbol := seedPool("Unrelated Pool", searchToken+"SYM")
+	renamed := seedPool("Immutable Contract Pool", "RNP")
+	if _, err := tx.Exec(ctx, `UPDATE pools SET display_name = $2 WHERE id = $1`,
+		renamed, searchToken+" Renamed Pool"); err != nil {
+		t.Fatalf("set pool display name: %v", err)
+	}
 
 	t.Run("matches names and symbols", func(t *testing.T) {
 		got := poolIDs(list(mustFilter(t, searchToken, nil, TagMatchAny)))
-		want := []uint64{art, culture, both, untagged, bySymbol}
+		want := []uint64{art, culture, both, untagged, bySymbol, renamed}
 		slices.Sort(want)
 		if !slices.Equal(got, want) {
 			t.Errorf("ids = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("matches and returns the effective display name", func(t *testing.T) {
+		pools := list(mustFilter(t, searchToken+" Renamed", nil, TagMatchAny))
+		if len(pools) != 1 || pools[0].ID != renamed {
+			t.Fatalf("display-name search returned %#v, want pool %d", poolIDs(pools), renamed)
+		}
+		if pools[0].Name == nil || *pools[0].Name != searchToken+" Renamed Pool" {
+			t.Errorf("effective name = %#v, want %q", pools[0].Name, searchToken+" Renamed Pool")
+		}
+		if pools[0].ContractName == nil || *pools[0].ContractName != "Immutable Contract Pool" {
+			t.Errorf("contract name = %#v, want Immutable Contract Pool", pools[0].ContractName)
 		}
 	})
 
@@ -843,7 +861,9 @@ func TestPoolSearchAndTagFilters(t *testing.T) {
 
 	t.Run("paging applies the filter in every direction", func(t *testing.T) {
 		filter := mustFilter(t, searchToken, nil, TagMatchAny)
-		allowed := map[uint64]bool{art: true, culture: true, both: true, untagged: true, bySymbol: true}
+		allowed := map[uint64]bool{
+			art: true, culture: true, both: true, untagged: true, bySymbol: true, renamed: true,
+		}
 
 		first, err := pg.ListPoolsFiltered(ctx, tx, filter, CatalogFirstPage, 0, 2)
 		if err != nil {
@@ -883,6 +903,59 @@ func TestPoolSearchAndTagFilters(t *testing.T) {
 			rows := list(mustFilter(t, searchToken, []string{facet.Tag}, TagMatchAny))
 			if uint64(len(rows)) != facet.Count {
 				t.Errorf("pool facet %q promised %d rows but the filter returned %d",
+					facet.Tag, facet.Count, len(rows))
+			}
+		}
+	})
+
+	// The wallet's "Your pools" list is this predicate and nothing else, so it
+	// has to narrow on its own — without a search term, which is the branch the
+	// screen actually uses — and fold case, because the address arrives from a
+	// connected wallet lowercased while a deploy stores it checksummed.
+	t.Run("owner filter narrows to one address and folds case", func(t *testing.T) {
+		const owner = "0x1111111111111111111111111111111111111111"
+		if _, err := tx.Exec(ctx, `UPDATE pools SET owner_address = $2 WHERE id = ANY($1)`,
+			[]uint64{art, both}, "0x1111111111111111111111111111111111111111"); err != nil {
+			t.Fatalf("set pool owner: %v", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE pools SET owner_address = $2 WHERE id = $1`,
+			culture, "0x2222222222222222222222222222222222222222"); err != nil {
+			t.Fatalf("set other pool owner: %v", err)
+		}
+
+		want := []uint64{art, both}
+		slices.Sort(want)
+
+		if got := poolIDs(list(CatalogFilter{Owner: owner})); !slices.Equal(got, want) {
+			t.Errorf("owner alone: ids = %v, want %v", got, want)
+		}
+		if got := poolIDs(list(CatalogFilter{Owner: strings.ToUpper(owner)})); !slices.Equal(got, want) {
+			t.Errorf("upper-cased owner: ids = %v, want %v", got, want)
+		}
+
+		withTerm := mustFilter(t, searchToken, nil, TagMatchAny)
+		withTerm.Owner = owner
+		if got := poolIDs(list(withTerm)); !slices.Equal(got, want) {
+			t.Errorf("owner with a search term: ids = %v, want %v", got, want)
+		}
+
+		withTag := mustFilter(t, "", []string{"Art"}, TagMatchAll)
+		withTag.Owner = owner
+		if got := poolIDs(list(withTag)); !slices.Equal(got, want) {
+			t.Errorf("owner with a tag filter: ids = %v, want %v", got, want)
+		}
+
+		// The facet has to agree with the list it labels, or the sheet offers a
+		// tag that returns nothing.
+		facets, err := pg.ListPoolTagFacets(ctx, tx, CatalogFilter{Owner: owner})
+		if err != nil {
+			t.Fatalf("owner facets: %v", err)
+		}
+		for _, facet := range facets {
+			scoped := mustFilter(t, "", []string{facet.Tag}, TagMatchAny)
+			scoped.Owner = owner
+			if rows := list(scoped); uint64(len(rows)) != facet.Count {
+				t.Errorf("owner facet %q promised %d rows but the filter returned %d",
 					facet.Tag, facet.Count, len(rows))
 			}
 		}

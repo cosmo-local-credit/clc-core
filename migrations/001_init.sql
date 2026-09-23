@@ -252,7 +252,14 @@ CREATE TRIGGER update_token_deploy_meta_timestamp
 
 -- Shared tag lookup for token and pool metadata.
 CREATE TABLE IF NOT EXISTS token_tag (
-    value TEXT PRIMARY KEY
+    value TEXT PRIMARY KEY,
+    is_custom BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT token_tag_value_valid CHECK (
+        value = btrim(value)
+        AND value <> ''
+        AND char_length(value) <= 100
+        AND strpos(value, ',') = 0
+    )
 );
 INSERT INTO token_tag (value) VALUES
     ('Agriculture'),
@@ -277,6 +284,9 @@ INSERT INTO token_tag (value) VALUES
     ('Youth'),
     ('Other')
 ON CONFLICT (value) DO NOTHING;
+
+CREATE UNIQUE INDEX IF NOT EXISTS token_tag_value_lower_idx
+    ON token_tag (lower(value));
 
 CREATE TABLE IF NOT EXISTS token_deploy_meta_tags (
     otx_id    INT  REFERENCES token_deploy_meta(otx_id) ON DELETE CASCADE NOT NULL,
@@ -327,6 +337,7 @@ CREATE TABLE IF NOT EXISTS pool_deploy_meta (
     fees_decoupled                  BOOLEAN NOT NULL DEFAULT false,
     admin                           TEXT NOT NULL,
     description                     TEXT,
+    unit_of_account                 TEXT,
     website                         TEXT,
     email                           TEXT,
     phone                           TEXT,
@@ -553,6 +564,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
     chain_id              INT NOT NULL,
     address               TEXT NOT NULL,
     name                  TEXT,
+    display_name          TEXT,
     symbol                TEXT,
     decimals              INT,
     owner_address         TEXT,
@@ -592,6 +604,10 @@ CREATE TABLE IF NOT EXISTS vouchers (
         CHECK (decimals IS NULL OR decimals BETWEEN 0 AND 255),
     CONSTRAINT vouchers_value_nonneg
         CHECK (voucher_value IS NULL OR voucher_value >= 0),
+    CONSTRAINT vouchers_display_name_valid
+        CHECK (display_name IS NULL
+            OR (display_name = btrim(display_name)
+                AND char_length(display_name) BETWEEN 1 AND 120)),
     CONSTRAINT vouchers_geo_valid CHECK (
         ((geo_lat IS NULL) = (geo_lng IS NULL))
         AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90)
@@ -621,6 +637,7 @@ CREATE TABLE IF NOT EXISTS pools (
     chain_id                        INT NOT NULL,
     address                         TEXT NOT NULL,
     name                            TEXT,
+    display_name                    TEXT,
     symbol                          TEXT,
     owner_address                   TEXT,
     fee_ppm                         NUMERIC,
@@ -678,6 +695,10 @@ CREATE TABLE IF NOT EXISTS pools (
         CHECK (fee_ppm IS NULL OR fee_ppm BETWEEN 0 AND 1000000),
     CONSTRAINT pools_decimals_range
         CHECK (decimals IS NULL OR decimals BETWEEN 0 AND 255),
+    CONSTRAINT pools_display_name_valid
+        CHECK (display_name IS NULL
+            OR (display_name = btrim(display_name)
+                AND char_length(display_name) BETWEEN 1 AND 80)),
     CONSTRAINT pools_geo_valid CHECK (
         ((geo_lat IS NULL) = (geo_lng IS NULL))
         AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90)
@@ -875,7 +896,13 @@ INSERT INTO commodity_type (value) VALUES
 ON CONFLICT (value) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS offering_unit (
-    value TEXT PRIMARY KEY
+    value TEXT PRIMARY KEY,
+    is_custom BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT offering_unit_value_valid CHECK (
+        value = btrim(value)
+        AND value <> ''
+        AND char_length(value) <= 32
+    )
 );
 INSERT INTO offering_unit (value) VALUES
     ('kg'),
@@ -894,6 +921,9 @@ INSERT INTO offering_unit (value) VALUES
     ('session'),
     ('metre')
 ON CONFLICT (value) DO NOTHING;
+
+CREATE UNIQUE INDEX IF NOT EXISTS offering_unit_value_lower_idx
+    ON offering_unit (lower(value));
 
 CREATE TABLE IF NOT EXISTS offering_frequency (
     value TEXT PRIMARY KEY

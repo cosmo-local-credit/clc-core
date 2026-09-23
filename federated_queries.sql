@@ -1,17 +1,18 @@
 -- Federated / Warehouse Queries
--- These queries target the federated PostgreSQL database.
--- Use fully qualified table names (schema_name.table_name)
--- since no default search_path is set on this connection.
+-- These run on the federation connection (federation.dsn) and read the
+-- eth-indexer tables. Table names are deliberately unqualified so the DSN
+-- picks the schema (`?search_path=indexer` when the indexer shares the
+-- clc-core database, or a postgres_fdw schema on a separate warehouse).
 --
 -- Account balances and transfer history are served LIVE from the indexer's
 -- source tables, filtered to a single holder:
---   chain_data_v2.token_transfer  — one row per on-chain token transfer
---   chain_data_v2.tx              — transaction envelope (hash, block, success)
+--   token_transfer  — one row per on-chain token transfer
+--   tx              — transaction envelope (hash, block, success)
 --
 -- These queries return CHAIN FACTS ONLY. Token metadata (symbol, name,
 -- decimals, icon) is enriched from the LOCAL vouchers catalog by the API
 -- layer (per MIGRATION.md §2 the catalog is the single home for living
--- voucher attributes) — the former joins to chain_data_v2.tokens and
+-- voucher attributes) — the former joins to tokens and
 -- sarafu_network.vouchers are gone. A side effect is that holdings and
 -- transfers are no longer silently dropped for tokens the federation
 -- metadata tables did not know.
@@ -28,6 +29,8 @@
 -- Addresses are stored checksummed (EIP-55) throughout the federation schema,
 -- so plain equality is used everywhere — no LOWER() normalisation.
 
+-- sarafu_network.accounts exists only where Sarafu legacy history was imported.
+-- Elsewhere the store maps undefined_table to false (see FederationPg).
 --name: legacy-user-exists-by-blockchain-address
 SELECT EXISTS (
     SELECT 1
@@ -45,13 +48,13 @@ SELECT EXISTS (
 --name: list-user-token-holdings
 WITH movements AS (
     SELECT tt.contract_address, tt.transfer_value AS delta, tx.id AS tx_id, tx.date_block
-    FROM chain_data_v2.token_transfer tt
-    JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
     WHERE tx.success = true AND tt.recipient_address = $1
     UNION ALL
     SELECT tt.contract_address, -tt.transfer_value AS delta, tx.id AS tx_id, tx.date_block
-    FROM chain_data_v2.token_transfer tt
-    JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
     WHERE tx.success = true AND tt.sender_address = $1
 ),
 holding AS (
@@ -76,13 +79,13 @@ LIMIT $2;
 --name: list-user-token-holdings-next
 WITH movements AS (
     SELECT tt.contract_address, tt.transfer_value AS delta, tx.id AS tx_id, tx.date_block
-    FROM chain_data_v2.token_transfer tt
-    JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
     WHERE tx.success = true AND tt.recipient_address = $1
     UNION ALL
     SELECT tt.contract_address, -tt.transfer_value AS delta, tx.id AS tx_id, tx.date_block
-    FROM chain_data_v2.token_transfer tt
-    JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
     WHERE tx.success = true AND tt.sender_address = $1
 ),
 holding AS (
@@ -108,13 +111,13 @@ LIMIT $3;
 --name: list-user-token-holdings-prev
 WITH movements AS (
     SELECT tt.contract_address, tt.transfer_value AS delta, tx.id AS tx_id, tx.date_block
-    FROM chain_data_v2.token_transfer tt
-    JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
     WHERE tx.success = true AND tt.recipient_address = $1
     UNION ALL
     SELECT tt.contract_address, -tt.transfer_value AS delta, tx.id AS tx_id, tx.date_block
-    FROM chain_data_v2.token_transfer tt
-    JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
     WHERE tx.success = true AND tt.sender_address = $1
 ),
 holding AS (
@@ -161,8 +164,8 @@ SELECT * FROM (
             tt.contract_address,
             tt.transfer_value::text AS amount,
             tx.success
-        FROM chain_data_v2.token_transfer tt
-        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        FROM token_transfer tt
+        JOIN tx ON tx.id = tt.tx_id
         WHERE tt.recipient_address = $1
         ORDER BY tt.id DESC
         LIMIT $2
@@ -180,8 +183,8 @@ SELECT * FROM (
             tt.contract_address,
             tt.transfer_value::text AS amount,
             tx.success
-        FROM chain_data_v2.token_transfer tt
-        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        FROM token_transfer tt
+        JOIN tx ON tx.id = tt.tx_id
         WHERE tt.sender_address = $1 AND tt.sender_address <> tt.recipient_address
         ORDER BY tt.id DESC
         LIMIT $2
@@ -204,8 +207,8 @@ SELECT * FROM (
             tt.contract_address,
             tt.transfer_value::text AS amount,
             tx.success
-        FROM chain_data_v2.token_transfer tt
-        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        FROM token_transfer tt
+        JOIN tx ON tx.id = tt.tx_id
         WHERE tt.recipient_address = $1 AND tt.id < $2
         ORDER BY tt.id DESC
         LIMIT $3
@@ -223,8 +226,8 @@ SELECT * FROM (
             tt.contract_address,
             tt.transfer_value::text AS amount,
             tx.success
-        FROM chain_data_v2.token_transfer tt
-        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        FROM token_transfer tt
+        JOIN tx ON tx.id = tt.tx_id
         WHERE tt.sender_address = $1 AND tt.sender_address <> tt.recipient_address AND tt.id < $2
         ORDER BY tt.id DESC
         LIMIT $3
@@ -248,8 +251,8 @@ SELECT * FROM (
                 tt.contract_address,
                 tt.transfer_value::text AS amount,
                 tx.success
-            FROM chain_data_v2.token_transfer tt
-            JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+            FROM token_transfer tt
+            JOIN tx ON tx.id = tt.tx_id
             WHERE tt.recipient_address = $1 AND tt.id > $2
             ORDER BY tt.id ASC
             LIMIT $3
@@ -267,8 +270,8 @@ SELECT * FROM (
                 tt.contract_address,
                 tt.transfer_value::text AS amount,
                 tx.success
-            FROM chain_data_v2.token_transfer tt
-            JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+            FROM token_transfer tt
+            JOIN tx ON tx.id = tt.tx_id
             WHERE tt.sender_address = $1 AND tt.sender_address <> tt.recipient_address AND tt.id > $2
             ORDER BY tt.id ASC
             LIMIT $3
@@ -279,7 +282,7 @@ SELECT * FROM (
 ) page
 ORDER BY id DESC;
 
--- Filled envelope series from chain_data_v2.tx only. One foreign scan:
+-- Filled envelope series from tx only. One foreign scan:
 -- postgres_fdw ships the date filter but not GROUP BY, so the remote
 -- returns date_block rows and we bucket locally. A separate COUNT(*) is
 -- another scan of the same window — the handler sums this series instead.
@@ -302,7 +305,7 @@ WITH buckets AS (
 counts AS (
     SELECT (floor(extract(epoch from date_block) / $3::bigint) * $3::bigint)::bigint AS bucket_epoch,
         COUNT(*)::bigint AS n
-    FROM chain_data_v2.tx
+    FROM tx
     WHERE date_block >= $1 AND date_block < $2
     GROUP BY 1
 )
@@ -325,23 +328,23 @@ ORDER BY b.bucket_epoch;
 -- would overstate both the total and the partner list.
 SELECT
     (SELECT COUNT(*)
-        FROM chain_data_v2.token_transfer tt
-        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        FROM token_transfer tt
+        JOIN tx ON tx.id = tt.tx_id
         WHERE tx.success
             AND (lower(tt.sender_address) = lower($1)
                 OR lower(tt.recipient_address) = lower($1))) AS transactions,
     (SELECT COUNT(*)
-        FROM chain_data_v2.pool_swap ps
-        JOIN chain_data_v2.tx ON tx.id = ps.tx_id
+        FROM pool_swap ps
+        JOIN tx ON tx.id = ps.tx_id
         WHERE tx.success AND lower(ps.initiator_address) = lower($1)) AS swaps,
     (SELECT COUNT(*) FROM (
         SELECT lower(tt.recipient_address) AS party
-        FROM chain_data_v2.token_transfer tt
-        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        FROM token_transfer tt
+        JOIN tx ON tx.id = tt.tx_id
         WHERE tx.success AND lower(tt.sender_address) = lower($1)
         UNION
         SELECT lower(tt.sender_address)
-        FROM chain_data_v2.token_transfer tt
-        JOIN chain_data_v2.tx ON tx.id = tt.tx_id
+        FROM token_transfer tt
+        JOIN tx ON tx.id = tt.tx_id
         WHERE tx.success AND lower(tt.recipient_address) = lower($1)
     ) parties WHERE party <> '' AND party <> lower($1)) AS partners;

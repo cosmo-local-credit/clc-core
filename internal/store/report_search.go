@@ -25,11 +25,13 @@ import (
 // Visibility is unchanged: approved reports only. The feed has never shown anything else and
 // search does not change that.
 
-// reportProjection is the SELECT list, byte-identical in output to the static statements so a
-// filtered page and an unfiltered page return the same fields.
+// reportSummaryColumns is the one report list projection, pulled out of the
+// SELECT so the management list (report_management.go) can return the same
+// summary plus `status` without a second copy. Byte-identical in output to the
+// static list-reports statements, so a filtered and an unfiltered page return
+// the same fields.
 const (
-	reportProjection = `
-SELECT r.id, r.title, r.description,
+	reportSummaryColumns = `r.id, r.title, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
     r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
     r.created_at, r.updated_at,
@@ -41,13 +43,14 @@ SELECT r.id, r.title, r.description,
 	COALESCE((
 	    SELECT jsonb_agg(jsonb_build_object(
 	        'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-	        'name', v.name, 'symbol', v.symbol
+	        'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
 	    ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
         WHERE rv.report_id = r.id
-    ), '[]'::JSONB) AS vouchers
-FROM reports r`
+    ), '[]'::JSONB) AS vouchers`
+
+	reportProjection = "\nSELECT " + reportSummaryColumns + "\nFROM reports r"
 )
 
 // reportSearchPredicate matches the term against title and description.
@@ -248,13 +251,13 @@ func composeReportVoucherCounts(filter CatalogFilter) composed {
 			reportTagPredicate(args, filter),
 		) + `
 )
-SELECT v.id, v.chain_id, v.address, v.name, v.symbol,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol,
     COUNT(*) AS match_count
 FROM candidates c
 INNER JOIN report_vouchers rv ON rv.report_id = c.id
 INNER JOIN vouchers v ON v.id = rv.voucher_id
-GROUP BY v.id, v.chain_id, v.address, v.name, v.symbol
-ORDER BY lower(v.name), v.id;`
+GROUP BY v.id, v.display_name, v.chain_id, v.address, v.name, v.symbol
+ORDER BY lower(COALESCE(v.display_name, v.name)), v.id;`
 
 	return composed{sql: sql, args: args.values}
 }

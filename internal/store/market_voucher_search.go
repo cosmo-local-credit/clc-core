@@ -23,7 +23,7 @@ import (
 // same fields.
 const (
 	marketVoucherPageProjection = `
-SELECT v.id, v.chain_id, v.address, v.name, v.symbol, v.icon_url,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
     v.location_name, v.geo_lat, v.geo_lng,
     CASE dominant.commodity_type
         WHEN 'GOOD' THEN 'goods'

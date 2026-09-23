@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
     chain_id              INT NOT NULL,
     address               TEXT NOT NULL,
     name                  TEXT,
+    display_name          TEXT,
     symbol                TEXT,
     decimals              INT,
     owner_address         TEXT,
@@ -79,6 +80,10 @@ CREATE TABLE IF NOT EXISTS vouchers (
         CHECK (decimals IS NULL OR decimals BETWEEN 0 AND 255),
     CONSTRAINT vouchers_value_nonneg
         CHECK (voucher_value IS NULL OR voucher_value >= 0),
+    CONSTRAINT vouchers_display_name_valid
+        CHECK (display_name IS NULL
+            OR (display_name = btrim(display_name)
+                AND char_length(display_name) BETWEEN 1 AND 120)),
     CONSTRAINT vouchers_geo_valid CHECK (
         ((geo_lat IS NULL) = (geo_lng IS NULL))
         AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90)
@@ -116,6 +121,7 @@ CREATE TABLE IF NOT EXISTS pools (
     chain_id                        INT NOT NULL,
     address                         TEXT NOT NULL,
     name                            TEXT,
+    display_name                    TEXT,
     symbol                          TEXT,
     owner_address                   TEXT,
     fee_ppm                         NUMERIC,
@@ -173,6 +179,10 @@ CREATE TABLE IF NOT EXISTS pools (
         CHECK (fee_ppm IS NULL OR fee_ppm BETWEEN 0 AND 1000000),
     CONSTRAINT pools_decimals_range
         CHECK (decimals IS NULL OR decimals BETWEEN 0 AND 255),
+    CONSTRAINT pools_display_name_valid
+        CHECK (display_name IS NULL
+            OR (display_name = btrim(display_name)
+                AND char_length(display_name) BETWEEN 1 AND 80)),
     CONSTRAINT pools_geo_valid CHECK (
         ((geo_lat IS NULL) = (geo_lng IS NULL))
         AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90)

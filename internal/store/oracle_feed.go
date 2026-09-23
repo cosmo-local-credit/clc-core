@@ -11,6 +11,7 @@ import (
 type (
 	OracleFeed struct {
 		ID        uint64    `db:"id"         json:"id"`
+		ChainID   int64     `db:"chain_id"   json:"chainId"`
 		Name      string    `db:"name"       json:"name"`
 		Address   string    `db:"address"    json:"address"`
 		CreatedAt time.Time `db:"created_at" json:"createdAt"`
@@ -18,10 +19,10 @@ type (
 	}
 )
 
-func (pg *Pg) GetOracleFeedByName(ctx context.Context, tx pgx.Tx, name string) (OracleFeed, error) {
+func (pg *Pg) GetOracleFeedByName(ctx context.Context, tx pgx.Tx, chainID int64, name string) (OracleFeed, error) {
 	var feed OracleFeed
 
-	row, err := tx.Query(ctx, pg.queries.GetOracleFeedByName, name)
+	row, err := tx.Query(ctx, pg.queries.GetOracleFeedByName, chainID, name)
 	if err != nil {
 		return feed, err
 	}
@@ -33,10 +34,10 @@ func (pg *Pg) GetOracleFeedByName(ctx context.Context, tx pgx.Tx, name string) (
 	return feed, nil
 }
 
-func (pg *Pg) ListOracleFeeds(ctx context.Context, tx pgx.Tx) ([]OracleFeed, error) {
+func (pg *Pg) ListOracleFeeds(ctx context.Context, tx pgx.Tx, chainID int64) ([]OracleFeed, error) {
 	var feeds []OracleFeed
 
-	rows, err := tx.Query(ctx, pg.queries.ListOracleFeeds)
+	rows, err := tx.Query(ctx, pg.queries.ListOracleFeeds, chainID)
 	if err != nil {
 		return nil, err
 	}

@@ -21,6 +21,10 @@ type (
 		GetOTXByTxHash(context.Context, pgx.Tx, string) (OTX, error)
 		InsertDispatchTx(context.Context, pgx.Tx, DispatchTx) error
 		UpdateDispatchTxStatus(context.Context, pgx.Tx, DispatchTx) error
+		GetUnsettledOTXBySigner(context.Context, pgx.Tx, string) ([]*OTX, error)
+		SetOTXReplaced(context.Context, pgx.Tx, uint64) error
+		CountUndispatchedBelowNonce(context.Context, pgx.Tx, string, uint64) (uint64, error)
+		LockSigner(context.Context, pgx.Tx, string) error
 		GetPlatformContracts(context.Context, pgx.Tx, int64, string) (PlatformContracts, error)
 		InsertDeployedToken(context.Context, pgx.Tx, DeployedToken) (uint64, error)
 		ConfirmDeployedToken(context.Context, pgx.Tx, uint64, string) (uint64, error)
@@ -29,16 +33,29 @@ type (
 		InsertDeployedTokenTag(context.Context, pgx.Tx, uint64, string) error
 		GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
+		ListTakenVoucherSymbols(context.Context, pgx.Tx, string) ([]string, error)
 		ListTokenTags(context.Context, pgx.Tx) ([]string, error)
+		FindTokenTag(context.Context, pgx.Tx, string) (string, error)
+		InsertCustomTokenTag(context.Context, pgx.Tx, string) error
+		ListOfferingUnits(context.Context, pgx.Tx) ([]string, error)
+		FindOfferingUnit(context.Context, pgx.Tx, string) (string, error)
+		InsertCustomOfferingUnit(context.Context, pgx.Tx, string) error
+		ListCustomVocabulary(context.Context, pgx.Tx) (CustomVocabulary, error)
+		LockTokenTag(context.Context, pgx.Tx, string) (VocabularyEntry, error)
+		LockOfferingUnit(context.Context, pgx.Tx, string) (VocabularyEntry, error)
+		DeleteCustomTokenTag(context.Context, pgx.Tx, string) (TagVocabularyUsage, error)
+		DeleteCustomOfferingUnit(context.Context, pgx.Tx, string) (UnitVocabularyUsage, error)
 		GetProtocolAddress(context.Context, pgx.Tx, string) (string, error)
 		SetProtocolAddress(context.Context, pgx.Tx, string, string) error
 		InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
 		ConfirmDeployedPool(context.Context, pgx.Tx, uint64, string) (uint64, error)
 		FailDeployedPool(context.Context, pgx.Tx, uint64) error
 		UpsertPoolFromDeploy(context.Context, pgx.Tx, uint64) (uint64, error)
+		LockPoolForProfileUpdate(context.Context, pgx.Tx, string) (PoolProfileOwner, error)
 		UpdatePoolProfile(context.Context, pgx.Tx, string, PoolProfile) (uint64, error)
 		ReplacePoolTags(context.Context, pgx.Tx, uint64, []string) error
 		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)
+		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
@@ -46,9 +63,10 @@ type (
 		ClearPoolTokenOracle(context.Context, pgx.Tx, string, string) (int64, error)
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
+		ListTakenPoolSymbols(context.Context, pgx.Tx, string) ([]string, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
-		GetOracleFeedByName(context.Context, pgx.Tx, string) (OracleFeed, error)
-		ListOracleFeeds(context.Context, pgx.Tx) ([]OracleFeed, error)
+		GetOracleFeedByName(context.Context, pgx.Tx, int64, string) (OracleFeed, error)
+		ListOracleFeeds(context.Context, pgx.Tx, int64) ([]OracleFeed, error)
 		GetOTXByTrackingID(context.Context, pgx.Tx, string) ([]*OTX, error)
 		GetOTXByAccount(context.Context, pgx.Tx, string, uint64) ([]*OTX, error)
 		GetOTXByAccountNext(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
@@ -122,7 +140,15 @@ type (
 		GetReportForMutation(context.Context, pgx.Tx, uint64) (*Report, error)
 		CreateReport(context.Context, pgx.Tx, ReportWrite, string, string) (uint64, error)
 		LockReportAuthor(context.Context, pgx.Tx, uint64) (string, error)
-		UpdateReport(context.Context, pgx.Tx, uint64, ReportWrite, string) error
+		UpdateReport(context.Context, pgx.Tx, uint64, ReportWrite, string, *string) error
+
+		// Post management reads. Deliberately separate from the four calls
+		// above, which serve the approved-only public catalog: these return
+		// every status and are authorized per caller, so sharing a signature
+		// with the catalog reads is how one of them would end up serving the
+		// other's audience.
+		ListManagedReports(context.Context, pgx.Tx, ManagedReportFilter, ReportCursor, CatalogPage, uint64) ([]Report, error)
+		GetManagedReport(context.Context, pgx.Tx, uint64, string) (*Report, error)
 		ApproveReport(context.Context, pgx.Tx, uint64, string) error
 		ReplaceReportRelations(context.Context, pgx.Tx, uint64, ReportWrite) error
 		DeleteReport(context.Context, pgx.Tx, uint64) error
@@ -140,6 +166,7 @@ type (
 		ListReportVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
 		ResolveVoucherRefs(context.Context, pgx.Tx, []VoucherRef) ([]uint64, error)
+		CountVouchersOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)

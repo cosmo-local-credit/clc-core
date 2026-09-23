@@ -457,6 +457,22 @@ func (pg *Pg) ResolveVoucherRefs(
 	return ids, nil
 }
 
+// CountVouchersOwnedBy answers how many of the given voucher rows list owner as
+// their owner_address, compared case-insensitively. A count rather than a list
+// because the caller only needs to know whether every id passed; ids not in
+// the table simply do not count, so an unknown id reads the same as one owned
+// by someone else.
+func (pg *Pg) CountVouchersOwnedBy(ctx context.Context, tx pgx.Tx, ids []uint64, owner string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	var count int
+	if err := tx.QueryRow(ctx, pg.queries.CountVouchersOwnedBy, ids, owner).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (a *sqlArgs) bind(value any) string {
 	a.values = append(a.values, value)
 	return "$" + strconv.Itoa(len(a.values))
@@ -479,19 +495,25 @@ func voucherIDsParam(ids []uint64) []int64 {
 	return values
 }
 
-// searchPredicate returns the name/symbol match for the filter's term, or "" if
-// there is no term. Both fragments are constant text; only the term is bound.
+// searchPredicate returns the displayed name/symbol match for the filter's term,
+// or "" if there is no term. Voucher and pool labels may override their
+// immutable contract names. Both fragments are constant text; only the term is
+// bound.
 func searchPredicate(args *sqlArgs, filter CatalogFilter, table string) string {
 	if filter.Term == "" {
 		return ""
 	}
 
 	placeholder := args.bind(filter.likeTerm())
+	name := table + ".name"
+	if table == "v" || table == "p" {
+		name = "COALESCE(" + table + ".display_name, " + table + ".name)"
+	}
 	if filter.prefixOnly() {
-		return "(lower(" + table + ".name) LIKE lower(" + placeholder + ") || '%' ESCAPE '\\'" +
+		return "(lower(" + name + ") LIKE lower(" + placeholder + ") || '%' ESCAPE '\\'" +
 			"\n            OR lower(" + table + ".symbol) LIKE lower(" + args.reuse() + ") || '%' ESCAPE '\\')"
 	}
-	return "(lower(" + table + ".name) LIKE '%' || lower(" + placeholder + ") || '%' ESCAPE '\\'" +
+	return "(lower(" + name + ") LIKE '%' || lower(" + placeholder + ") || '%' ESCAPE '\\'" +
 		"\n            OR lower(" + table + ".symbol) LIKE '%' || lower(" + args.reuse() + ") || '%' ESCAPE '\\')"
 }
 
