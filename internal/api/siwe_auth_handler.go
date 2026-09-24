@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -387,3 +388,83 @@ func (a *API) sessionHandler(c *echo.Context) error {
 	})
 }
 
+// webAuthnCredentialsHandler lists the passkeys mapped to the signed-in
+// wallet, for the holder's Settings screen.
+//
+// It sits on the public /auth group beside sessionHandler and resolves the
+// session the same way, inside the handler: the group has no middleware, and
+// flexibleAuthMiddleware would also admit a service token, which has no wallet
+// of its own. The address comes from the session only, so one account can
+// never read another's credentials.
+//
+// State is what clc-core has persisted — pending until the register() call is
+// confirmed, then active. There is deliberately no chain read here; a pending
+// row keeps its tracking id so a client that reloaded can resume following it.
+func (a *API) webAuthnCredentialsHandler(c *echo.Context) error {
+	cookie, err := c.Cookie(userAuthCookieName)
+	if err != nil || cookie.Value == "" {
+		return webAuthnCredentialsUnauthorized(c)
+	}
+	token, err := a.parseUserJWT(cookie.Value)
+	if err != nil || !common.IsHexAddress(token.EthereumAddress) {
+		return webAuthnCredentialsUnauthorized(c)
+	}
+	address := common.HexToAddress(token.EthereumAddress).Hex()
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	creds, err := a.store.ListWebAuthnCredentialsByAddress(ctx, tx, address)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: "WebAuthn credentials",
+		Result: map[string]any{
+			"address":     address,
+			"credentials": webAuthnCredentialSummaries(creds),
+		},
+	})
+}
+
+// webAuthnCredentialSummary is the public shape of one credential row. The
+// tracking id is only meaningful, and only sent, while the row is pending.
+type webAuthnCredentialSummary struct {
+	CredentialID string    `json:"credentialId"`
+	State        string    `json:"state"`
+	CreatedAt    time.Time `json:"createdAt"`
+	TrackingID   *string   `json:"trackingId"`
+}
+
+func webAuthnCredentialSummaries(creds []store.WebAuthnCredential) []webAuthnCredentialSummary {
+	out := make([]webAuthnCredentialSummary, 0, len(creds))
+	for _, cred := range creds {
+		summary := webAuthnCredentialSummary{
+			CredentialID: cred.CredentialID,
+			State:        cred.State,
+			CreatedAt:    cred.CreatedAt,
+		}
+		if cred.State == store.WebAuthnPending {
+			summary.TrackingID = cred.TrackingID
+		}
+		out = append(out, summary)
+	}
+	return out
+}
+
+func webAuthnCredentialsUnauthorized(c *echo.Context) error {
+	return c.JSON(http.StatusUnauthorized, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrJWTAuth,
+		Description: "a user session is required",
+	})
+}

@@ -12,17 +12,90 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/golang-jwt/jwt/v5"
 	gocalibur "github.com/grassrootseconomics/go-calibur"
 )
 
 const webAuthnTestCalibur = "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00"
+
+func TestWebAuthnCredentialsRequiresAUserSession(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, otherPrivate, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(APIOpts{
+		Logg:         slog.New(slog.DiscardHandler),
+		CORS:         []string{"https://app.example"},
+		SigningKey:   private,
+		VerifyingKey: public,
+	})
+
+	forged, err := jwt.NewWithClaims(jwt.SigningMethodEdDSA, UserJWTClaims{
+		EthereumAddress: "0x" + "1234567890123456789012345678901234567890",
+		Role:            "USER",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}).SignedString(otherPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceToken, err := jwt.NewWithClaims(jwt.SigningMethodEdDSA, JWTCustomClaims{
+		PublicKey: "0x1234567890123456789012345678901234567890",
+		Service:   true,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}).SignedString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := map[string]func(*http.Request){
+		"guest":                     func(*http.Request) {},
+		"cookie signed by another":  func(r *http.Request) { r.AddCookie(&http.Cookie{Name: userAuthCookieName, Value: forged}) },
+		"service bearer, no cookie": func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+serviceToken) },
+	}
+	for name, prepare := range cases {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/auth/webauthn/credentials", nil)
+			prepare(req)
+			res := httptest.NewRecorder()
+			a.router.ServeHTTP(res, req)
+			if res.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401", res.Code)
+			}
+		})
+	}
+}
+
+func TestWebAuthnCredentialSummariesExposeTrackingOnlyWhilePending(t *testing.T) {
+	pendingID := "11111111-1111-1111-1111-111111111111"
+	activeID := "22222222-2222-2222-2222-222222222222"
+	got := webAuthnCredentialSummaries([]store.WebAuthnCredential{
+		{CredentialID: "a", State: store.WebAuthnPending, TrackingID: &pendingID},
+		{CredentialID: "b", State: store.WebAuthnActive, TrackingID: &activeID},
+	})
+	if got[0].TrackingID == nil || *got[0].TrackingID != pendingID {
+		t.Fatalf("pending summary trackingId = %v, want %s", got[0].TrackingID, pendingID)
+	}
+	if got[1].TrackingID != nil {
+		t.Fatalf("active summary trackingId = %v, want nil", *got[1].TrackingID)
+	}
+}
 
 // TestRelayRejectsForgedRegistrationBeforeQueueing drives the public relay
 // route with registrations that must never reach the job queue. The API has no

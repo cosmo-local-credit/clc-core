@@ -148,6 +148,8 @@ func New(o APIOpts) *API {
 	authGroup.POST("/logout", a.logoutHandler)
 	authGroup.POST("/webauthn/verify", a.webAuthnSigninHandler)
 	authGroup.GET("/session", a.sessionHandler)
+	// Resolves the session inside the handler, like /session; see its comment.
+	authGroup.GET("/webauthn/credentials", a.webAuthnCredentialsHandler)
 
 	// SIWE unified verify (public — returns JWT for approved users)
 	siweGroup := router.Group("/auth/siwe")
