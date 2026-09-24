@@ -15,6 +15,9 @@ type (
 		Ok          bool   `json:"ok"`
 		Description string `json:"description"`
 		ErrCode     string `json:"code"`
+		// Result carries machine-readable detail for the few errors a client
+		// acts on, e.g. the tracking id of an already-pending registration.
+		Result map[string]any `json:"result,omitempty"`
 	}
 
 	DeployPoolRequest struct {

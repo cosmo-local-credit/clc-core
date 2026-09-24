@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"errors"
-	"math/big"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -110,6 +109,28 @@ func (w *RelayDelegateWorker) Work(ctx context.Context, job *river.Job[RelayDele
 
 func (RelayArgs) Kind() string { return "RELAY" }
 
+// RelayRegistration is the WebAuthn credential a registration relay carries.
+type RelayRegistration struct {
+	CredentialID string
+	PublicKeyX   string
+	PublicKeyY   string
+}
+
+// Registration returns the credential carried by the relay, or nil when the
+// relay is not a registration. All three fields must be present.
+func (a RelayArgs) Registration() *RelayRegistration {
+	if a.CredentialID == "" || a.PublicKeyX == "" || a.PublicKeyY == "" {
+		return nil
+	}
+	return &RelayRegistration{CredentialID: a.CredentialID, PublicKeyX: a.PublicKeyX, PublicKeyY: a.PublicKeyY}
+}
+
+// HasPartialRegistration reports registration metadata that is present but
+// incomplete, which is rejected rather than relayed as a plain batch.
+func (a RelayArgs) HasPartialRegistration() bool {
+	return a.Registration() == nil && (a.CredentialID != "" || a.PublicKeyX != "" || a.PublicKeyY != "")
+}
+
 // Work relays a client-signed Calibur batch. It decides between a plain
 // execution (already delegated) and a delegate+execute (first relay), signs
 // the resulting tx with the master key, persists any WebAuthn credential
@@ -168,27 +189,38 @@ func (w *RelayWorker) Work(ctx context.Context, job *river.Job[RelayArgs]) error
 		return err
 	}
 
-	// Persist the WebAuthn credential mapping when this relay carries a
-	// registration payload (registration is signed by the ephemeral
-	// secp256k1 key while the WebAuthn passkey doesn't exist in our records
-	// yet). This is the third table touched in this tx, so it must commit
-	// atomically with the OTX and dispatch rows.
-	if job.Args.SignatureType == "secp256k1" && job.Args.CredentialID != "" && job.Args.PublicKeyX != "" && job.Args.PublicKeyY != "" {
-		x, okX := new(big.Int).SetString(job.Args.PublicKeyX, 10)
-		y, okY := new(big.Int).SetString(job.Args.PublicKeyY, 10)
-		if !okX || !okY {
-			return errors.New("relay: publicKeyX / publicKeyY must be decimal integers")
+	// Record the WebAuthn credential when this relay carries a registration.
+	// The API already proved the root key signed it; the proof is repeated here
+	// because this is where the row is written. The row starts pending and in
+	// the same transaction as the OTX it waits on, so it can only become usable
+	// through that transaction's confirmation (store.UpdateDispatchTxStatus),
+	// and a conflicting credential aborts the relay before anything is signed
+	// onto the dispatch queue.
+	if registration := job.Args.Registration(); registration != nil {
+		keyHash, err := w.wc.relayer.VerifyRegistration(relayer.RegistrationProof{
+			UserAddress:   userAddr,
+			SignedBatch:   job.Args.SignedBatch,
+			Signature:     common.FromHex(job.Args.Signature),
+			SignatureType: job.Args.SignatureType,
+			PublicKeyX:    registration.PublicKeyX,
+			PublicKeyY:    registration.PublicKeyY,
+		})
+		if err != nil {
+			return err
 		}
-		keyHash := relayer.ComputeP256KeyHash(x, y)
-		if err := w.wc.store.UpsertWebAuthnCredential(ctx, tx, store.WebAuthnCredential{
-			CredentialID: job.Args.CredentialID,
+		trackingID := job.Args.TrackingID
+		if err := w.wc.store.RecordWebAuthnRegistration(ctx, tx, store.WebAuthnCredential{
+			CredentialID: registration.CredentialID,
 			Address:      userAddr.Hex(),
 			KeyHash:      keyHash.Hex(),
-			PublicKeyX:   job.Args.PublicKeyX,
-			PublicKeyY:   job.Args.PublicKeyY,
+			PublicKeyX:   registration.PublicKeyX,
+			PublicKeyY:   registration.PublicKeyY,
+			TrackingID:   &trackingID,
 		}); err != nil {
 			return err
 		}
+	} else if job.Args.HasPartialRegistration() {
+		return errors.New("relay: credentialId, publicKeyX and publicKeyY must be sent together")
 	}
 
 	// On first relay (delegate+exec), the wallet is being activated —

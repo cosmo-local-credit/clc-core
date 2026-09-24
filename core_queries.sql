@@ -1015,18 +1015,94 @@ SELECT id, otx_id, proxy_address, contract_type, new_implementation, version, cr
 FROM upgrade_meta
 WHERE otx_id = $1;
 
--- Insert (idempotently) a WebAuthn credential registered during relayer
--- registration. Re-registering with the same credential_id is a no-op.
---name: upsert-webauthn-credential
-INSERT INTO webauthn_credentials (credential_id, address, key_hash, public_key_x, public_key_y)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (credential_id) DO NOTHING;
+-- Record a WebAuthn credential carried by a registration relay. Written in the
+-- relay worker's transaction, beside the OTX it waits on, and always 'pending':
+-- only a successful receipt for tracking_id makes it usable (see
+-- settle-webauthn-registration). Conflicts are decided by the caller under
+-- get-webauthn-credential-for-update, never silently here.
+--name: insert-webauthn-credential
+INSERT INTO webauthn_credentials (credential_id, address, key_hash, public_key_x, public_key_y, tracking_id, state)
+VALUES ($1, $2, $3, $4, $5, $6::uuid, 'pending');
 
--- Look up a WebAuthn credential by its credential_id for recovery flow.
+-- Re-arm a failed registration of the same credential -> address/key mapping
+-- under a new tracking id.
+--name: rearm-webauthn-credential
+UPDATE webauthn_credentials
+SET tracking_id = $2::uuid, state = 'pending'
+WHERE credential_id = $1 AND state IN ('failed', 'unverified');
+
+-- Any-state lookup, locked, for deciding whether a registration conflicts.
+--name: get-webauthn-credential-for-update
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE credential_id = $1
+FOR UPDATE;
+
+-- Any-state lookup without a lock, for the relay handler's early rejection.
 --name: get-webauthn-credential
-SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y, created_at
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
 FROM webauthn_credentials
 WHERE credential_id = $1;
+
+-- The only lookup a sign-in or recovery path may use: a credential whose
+-- registration the chain confirmed. Pending, failed and legacy rows are
+-- indistinguishable from an unknown credential here.
+--name: get-active-webauthn-credential
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE credential_id = $1 AND state = 'active';
+
+-- Every credential mapped to one wallet, for the holder's own Settings screen.
+-- Reads persisted state only; no chain call sits behind this.
+--name: list-webauthn-credentials-by-address
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE address = $1
+ORDER BY created_at DESC, credential_id;
+
+-- Re-derive a pending registration's state from every transaction carrying its
+-- tracking id, after one of them changed status. A fee bump or republish adds a
+-- replacement row under the same tracking id, so one row's REVERTED or LOW_NONCE
+-- is not the outcome while another row is still in flight:
+--   any SUCCESS                      -> active
+--   every row terminal, none SUCCESS -> failed
+--   otherwise                        -> still pending
+-- The terminal set matches store.terminalDispatchStatuses.
+--name: settle-webauthn-registration
+UPDATE webauthn_credentials c
+SET state = CASE
+    WHEN EXISTS (
+        SELECT 1 FROM otx o INNER JOIN dispatch d ON d.otx_id = o.id
+        WHERE o.tracking_id = c.tracking_id AND d.status = 'SUCCESS'
+    ) THEN 'active'
+    WHEN NOT EXISTS (
+        SELECT 1 FROM otx o INNER JOIN dispatch d ON d.otx_id = o.id
+        WHERE o.tracking_id = c.tracking_id
+          AND d.status NOT IN ('SUCCESS', 'REVERTED', 'LOW_NONCE', 'INVALID_TX')
+    ) THEN 'failed'
+    ELSE 'pending'
+END
+WHERE c.tracking_id = (SELECT tracking_id FROM otx WHERE id = $1)
+  AND c.state = 'pending';
+
+-- Rows written before migration 038, awaiting the one-time chain check.
+--name: list-legacy-webauthn-credentials
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE state = 'legacy'
+ORDER BY created_at, credential_id;
+
+-- Move one legacy row to its verdict. Guarded on state so a concurrent
+-- registration of the same credential is never overwritten.
+--name: resolve-legacy-webauthn-credential
+UPDATE webauthn_credentials
+SET state = $2
+WHERE credential_id = $1 AND state = 'legacy';
 
 -- Fast-forward the relayer noncestore to the on-chain pending nonce, if
 -- the stored next_nonce is behind.

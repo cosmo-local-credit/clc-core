@@ -274,7 +274,7 @@ func (a *API) webAuthnSigninHandler(c *echo.Context) error {
 	defer tx.Rollback(ctx)
 
 	// 1. Resolve the credential -> wallet address + P-256 public key.
-	cred, err := a.store.GetWebAuthnCredential(ctx, tx, req.CredentialID)
+	cred, err := a.store.GetActiveWebAuthnCredential(ctx, tx, req.CredentialID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
@@ -386,3 +386,4 @@ func (a *API) sessionHandler(c *echo.Context) error {
 		"role": token.Role,
 	})
 }
+

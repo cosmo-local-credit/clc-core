@@ -210,6 +210,15 @@ func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracl
 	}
 	cancel()
 
+	// Pre-038 credential rows are unusable until this confirms them on chain.
+	// A failure here only delays those holders' passkey sign-in to the next
+	// boot, so it is logged rather than fatal.
+	legacyCtx, cancelLegacy := context.WithTimeout(context.Background(), 60*time.Second)
+	if err := r.VerifyLegacyWebAuthnCredentials(legacyCtx); err != nil {
+		lo.Error("legacy webauthn credential check failed", "error", err)
+	}
+	cancelLegacy()
+
 	return r
 }
 

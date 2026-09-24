@@ -58,7 +58,19 @@ func (pg *Pg) InsertDispatchTx(ctx context.Context, tx pgx.Tx, dispatchTx Dispat
 	return err
 }
 
+// UpdateDispatchTxStatus records a transaction's dispatch status and, in the
+// same database transaction, re-derives any pending WebAuthn registration the
+// transaction carries.
+//
+// The registration step lives here rather than in each caller because a status
+// reaches this table from four places — the dispatcher, the receipt poller, the
+// reconciler and the chain-event subscriber — and a passkey must become usable
+// exactly when its register() call is confirmed, whichever of them sees it
+// first. It is a no-op for a transaction that carries no registration.
 func (pg *Pg) UpdateDispatchTxStatus(ctx context.Context, tx pgx.Tx, dispatchTx DispatchTx) error {
-	_, err := tx.Exec(ctx, pg.queries.UpdateDispatchTxStatus, dispatchTx.Status, dispatchTx.OTXID)
+	if _, err := tx.Exec(ctx, pg.queries.UpdateDispatchTxStatus, dispatchTx.Status, dispatchTx.OTXID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, pg.queries.SettleWebAuthnRegistration, dispatchTx.OTXID)
 	return err
 }

@@ -192,16 +192,7 @@ func (a *API) relayHandler(c *echo.Context) error {
 	}
 	ctx := c.Request().Context()
 
-	tx, err := a.store.Pool().Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	trackingID := uuid.NewString()
-
-	if _, err := a.queueClient.InsertTx(ctx, tx, worker.RelayArgs{
-		TrackingID:    trackingID,
+	args := worker.RelayArgs{
 		UserAddress:   req.UserAddress,
 		SignedBatch:   req.SignedBatch,
 		Signature:     req.Signature,
@@ -210,7 +201,73 @@ func (a *API) relayHandler(c *echo.Context) error {
 		CredentialID:  req.CredentialID,
 		PublicKeyX:    req.PublicKeyX,
 		PublicKeyY:    req.PublicKeyY,
-	}, &river.InsertOpts{MaxAttempts: 1}); err != nil {
+	}
+
+	// A registration is rejected here, before a job exists, unless the wallet's
+	// root key signed it and it registers exactly the supplied key. The route is
+	// public, so this proof is the only thing standing between an anonymous
+	// caller and a passkey mapped to someone else's address.
+	if args.HasPartialRegistration() {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeValidationFailed,
+			Description: "credentialId, publicKeyX and publicKeyY must be sent together",
+		})
+	}
+	var registrationKeyHash common.Hash
+	if registration := args.Registration(); registration != nil {
+		userAddr := common.HexToAddress(req.UserAddress)
+		keyHash, err := a.relayer.VerifyRegistration(relayer.RegistrationProof{
+			UserAddress:   userAddr,
+			SignedBatch:   req.SignedBatch,
+			Signature:     common.FromHex(req.Signature),
+			SignatureType: req.SignatureType,
+			PublicKeyX:    registration.PublicKeyX,
+			PublicKeyY:    registration.PublicKeyY,
+		})
+		if err != nil {
+			a.logg.Warn("relay registration rejected",
+				"userAddress", req.UserAddress,
+				"credentialId", registration.CredentialID,
+				"err", err,
+			)
+			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeValidationFailed,
+				Description: err.Error(),
+			})
+		}
+
+		registrationKeyHash = keyHash
+	}
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if registration := args.Registration(); registration != nil {
+		var existing *store.WebAuthnCredential
+		row, err := a.store.GetWebAuthnCredential(ctx, tx, registration.CredentialID)
+		switch {
+		case err == nil:
+			existing = &row
+		case !errors.Is(err, pgx.ErrNoRows):
+			return handlePostgresError(c, err)
+		}
+		if err := store.CheckWebAuthnRegistration(existing, store.WebAuthnCredential{
+			Address: common.HexToAddress(req.UserAddress).Hex(),
+			KeyHash: registrationKeyHash.Hex(),
+		}); err != nil {
+			return webAuthnRegistrationConflict(c, err)
+		}
+	}
+
+	trackingID := uuid.NewString()
+	args.TrackingID = trackingID
+
+	if _, err := a.queueClient.InsertTx(ctx, tx, args, &river.InsertOpts{MaxAttempts: 1}); err != nil {
 		return handlePostgresError(c, err)
 	}
 
@@ -224,6 +281,26 @@ func (a *API) relayHandler(c *echo.Context) error {
 		Result: map[string]any{
 			"trackingId": trackingID,
 		},
+	})
+}
+
+// webAuthnRegistrationConflict answers a registration whose credential id is
+// already taken. A pending registration of the same mapping hands back its
+// tracking id so the client resumes following it instead of relaying again.
+func webAuthnRegistrationConflict(c *echo.Context, err error) error {
+	var regErr *store.WebAuthnRegistrationError
+	if !errors.As(err, &regErr) {
+		return err
+	}
+	result := map[string]any{"state": regErr.Existing.State}
+	if errors.Is(err, store.ErrWebAuthnRegistrationPending) && regErr.Existing.TrackingID != nil {
+		result["trackingId"] = *regErr.Existing.TrackingID
+	}
+	return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeConflict,
+		Description: regErr.Error(),
+		Result:      result,
 	})
 }
 
@@ -335,7 +412,7 @@ func (a *API) webAuthnRecoverHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	cred, err := a.store.GetWebAuthnCredential(ctx, tx, req.CredentialID)
+	cred, err := a.store.GetActiveWebAuthnCredential(ctx, tx, req.CredentialID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{

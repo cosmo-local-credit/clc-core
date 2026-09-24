@@ -120,9 +120,16 @@ type (
 		InsertUpgradeMeta     string `query:"insert-upgrade-meta"`
 		GetUpgradeMetaByOTXID string `query:"get-upgrade-meta-by-otx-id"`
 
-		UpsertWebAuthnCredential string `query:"upsert-webauthn-credential"`
-		GetWebAuthnCredential    string `query:"get-webauthn-credential"`
-		SetNonceIfHigher         string `query:"set-nonce-if-higher"`
+		InsertWebAuthnCredential         string `query:"insert-webauthn-credential"`
+		RearmWebAuthnCredential          string `query:"rearm-webauthn-credential"`
+		GetWebAuthnCredentialForUpdate   string `query:"get-webauthn-credential-for-update"`
+		GetWebAuthnCredential            string `query:"get-webauthn-credential"`
+		GetActiveWebAuthnCredential      string `query:"get-active-webauthn-credential"`
+		ListWebAuthnCredentialsByAddress string `query:"list-webauthn-credentials-by-address"`
+		SettleWebAuthnRegistration       string `query:"settle-webauthn-registration"`
+		ListLegacyWebAuthnCredentials    string `query:"list-legacy-webauthn-credentials"`
+		ResolveLegacyWebAuthnCredential  string `query:"resolve-legacy-webauthn-credential"`
+		SetNonceIfHigher                 string `query:"set-nonce-if-higher"`
 
 		ListVoucherMetadataByAddresses string `query:"list-voucher-metadata-by-addresses"`
 

@@ -72,6 +72,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "035_pool_deploy_fee_settings.sql")
 	assert.Contains(t, sqlFiles, "036_custom_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "037_deploy_name_occupancy_indexes.sql")
+	assert.Contains(t, sqlFiles, "038_webauthn_credential_state.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -110,7 +111,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "034_symbol_occupancy_indexes.sql" ||
 				name == "035_pool_deploy_fee_settings.sql" ||
 				name == "036_custom_vocabulary.sql" ||
-				name == "037_deploy_name_occupancy_indexes.sql",
+				name == "037_deploy_name_occupancy_indexes.sql" ||
+				name == "038_webauthn_credential_state.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -157,7 +159,22 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"035_pool_deploy_fee_settings.sql",
 		"036_custom_vocabulary.sql",
 		"037_deploy_name_occupancy_indexes.sql",
+		"038_webauthn_credential_state.sql",
 	}, files)
+}
+
+func TestWebAuthnCredentialStateMigration(t *testing.T) {
+	content, err := os.ReadFile("038_webauthn_credential_state.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Existing rows must land in 'legacy', never 'active': they were written
+	// before registration was proven, and sign-in trusts only active rows.
+	assert.Contains(t, s, "state       TEXT        NOT NULL DEFAULT 'legacy'")
+	assert.Contains(t, s, "ALTER COLUMN state DROP DEFAULT")
+	assert.NotContains(t, s, "DEFAULT 'active'")
+	assert.Contains(t, s, "CHECK (state IN ('pending', 'active', 'failed', 'legacy', 'unverified'))")
+	assert.Contains(t, s, "webauthn_credentials_tracking_id_idx")
 }
 
 func TestDeployNameOccupancyIndexesMigration(t *testing.T) {

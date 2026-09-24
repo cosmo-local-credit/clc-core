@@ -180,8 +180,12 @@ type (
 		InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error
 		GetUpgradeMetaByOTXID(context.Context, pgx.Tx, uint64) (UpgradeMeta, error)
 
-		UpsertWebAuthnCredential(context.Context, pgx.Tx, WebAuthnCredential) error
+		RecordWebAuthnRegistration(context.Context, pgx.Tx, WebAuthnCredential) error
 		GetWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
+		GetActiveWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
+		ListWebAuthnCredentialsByAddress(context.Context, pgx.Tx, string) ([]WebAuthnCredential, error)
+		ListLegacyWebAuthnCredentials(context.Context, pgx.Tx) ([]WebAuthnCredential, error)
+		ResolveLegacyWebAuthnCredential(context.Context, pgx.Tx, string, string) error
 		SetNonceIfHigher(context.Context, pgx.Tx, string, uint64) error
 	}
 )
