@@ -123,3 +123,28 @@ func (pg *Pg) DeleteCustomOfferingUnit(ctx context.Context, tx pgx.Tx, value str
 	err := pgxscan.Get(ctx, tx, &usage, pg.queries.DeleteCustomOfferingUnit, value)
 	return usage, err
 }
+
+func (pg *Pg) RenameCustomVocabulary(ctx context.Context, tx pgx.Tx, tag bool, value, replacement string) (string, error) {
+	query := pg.queries.RenameCustomOfferingUnit
+	if tag {
+		query = pg.queries.RenameCustomTokenTag
+	}
+	var renamed string
+	err := tx.QueryRow(ctx, query, value, replacement).Scan(&renamed)
+	return renamed, err
+}
+
+// Jobs keep tag names in JSON, outside the foreign keys updated by a rename.
+func (pg *Pg) HasUnfinishedTagDeployment(ctx context.Context, tx pgx.Tx, value string) (bool, error) {
+	var installed bool
+	// Catalog-only databases may not have a queue installed.
+	if err := tx.QueryRow(ctx, "SELECT to_regclass('river_job') IS NOT NULL").Scan(&installed); err != nil {
+		return false, err
+	}
+	if !installed {
+		return false, nil
+	}
+	var pending bool
+	err := tx.QueryRow(ctx, pg.queries.HasUnfinishedTagDeployment, value).Scan(&pending)
+	return pending, err
+}

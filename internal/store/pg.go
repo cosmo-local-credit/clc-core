@@ -47,6 +47,9 @@ type (
 		ListCustomOfferingUnits      string `query:"list-custom-offering-units"`
 		LockTokenTag                 string `query:"lock-token-tag"`
 		LockOfferingUnit             string `query:"lock-offering-unit"`
+		RenameCustomTokenTag         string `query:"rename-custom-token-tag"`
+		RenameCustomOfferingUnit     string `query:"rename-custom-offering-unit"`
+		HasUnfinishedTagDeployment   string `query:"has-unfinished-tag-deployment"`
 		DeleteCustomTokenTag         string `query:"delete-custom-token-tag"`
 		DeleteCustomOfferingUnit     string `query:"delete-custom-offering-unit"`
 		GetProtocolAddress           string `query:"get-protocol-address"`

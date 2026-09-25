@@ -199,7 +199,7 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 	if _, err := tx.Exec(ctx, `
 		ALTER TABLE offerings
 		    ADD CONSTRAINT offerings_unit_fk
-		        FOREIGN KEY (unit) REFERENCES offering_unit(value)
+		        FOREIGN KEY (unit) REFERENCES offering_unit(value) ON UPDATE CASCADE
 		        NOT VALID`); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("restore unit constraint: %v", err)

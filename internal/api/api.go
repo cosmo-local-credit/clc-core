@@ -289,6 +289,8 @@ func New(o APIOpts) *API {
 	adminGroup.PUT("/vouchers/:address/restore", a.adminRestoreVoucherHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 	adminGroup.GET("/vocabulary", a.adminVocabularyHandler)
+	adminGroup.PUT("/vocabulary/tags", a.adminRenameTokenTagHandler)
+	adminGroup.PUT("/vocabulary/units", a.adminRenameOfferingUnitHandler)
 	adminGroup.DELETE("/vocabulary/tags", a.adminDeleteTokenTagHandler)
 	adminGroup.DELETE("/vocabulary/units", a.adminDeleteOfferingUnitHandler)
 

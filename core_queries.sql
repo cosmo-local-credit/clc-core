@@ -222,7 +222,7 @@ LIMIT 1;
 SELECT value FROM token_tag ORDER BY value;
 
 --name: find-token-tag
-SELECT value FROM token_tag WHERE lower(value) = lower($1);
+SELECT value FROM token_tag WHERE lower(value) = lower($1) FOR KEY SHARE;
 
 --name: insert-custom-token-tag
 INSERT INTO token_tag (value, is_custom) VALUES ($1, true)
@@ -232,7 +232,7 @@ ON CONFLICT DO NOTHING;
 SELECT value FROM offering_unit ORDER BY value;
 
 --name: find-offering-unit
-SELECT value FROM offering_unit WHERE lower(value) = lower($1);
+SELECT value FROM offering_unit WHERE lower(value) = lower($1) FOR KEY SHARE;
 
 --name: insert-custom-offering-unit
 INSERT INTO offering_unit (value, is_custom) VALUES ($1, true)
@@ -268,6 +268,20 @@ FOR UPDATE;
 SELECT value, is_custom FROM offering_unit
 WHERE lower(value) = lower($1)
 FOR UPDATE;
+
+--name: rename-custom-token-tag
+UPDATE token_tag SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
+
+--name: rename-custom-offering-unit
+UPDATE offering_unit SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
+
+--name: has-unfinished-tag-deployment
+SELECT EXISTS (
+    SELECT 1 FROM river_job
+    WHERE kind IN ('TOKEN_DEPLOY', 'POOL_DEPLOY')
+      AND state NOT IN ('completed', 'cancelled')
+      AND args->'tags' ? $1
+);
 
 --name: delete-custom-token-tag
 WITH

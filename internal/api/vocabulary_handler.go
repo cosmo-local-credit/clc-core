@@ -234,3 +234,76 @@ func vocabularyConflictError(c *echo.Context, description string) error {
 		Ok: false, ErrCode: apiresp.ErrCodeConflict, Description: description,
 	})
 }
+
+func (a *API) adminRenameTokenTagHandler(c *echo.Context) error {
+	return a.renameVocabulary(c, true)
+}
+
+func (a *API) adminRenameOfferingUnitHandler(c *echo.Context) error {
+	return a.renameVocabulary(c, false)
+}
+
+func (a *API) renameVocabulary(c *echo.Context, tag bool) error {
+	var req struct {
+		Value       string `json:"value" validate:"required"`
+		Replacement string `json:"replacement" validate:"required"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	req.Value = strings.TrimSpace(req.Value)
+	req.Replacement = strings.Join(strings.Fields(req.Replacement), " ")
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+	maxLength := customUnitMaxLength
+	if tag {
+		maxLength = customTagMaxLength
+	}
+	if utf8.RuneCountInString(req.Replacement) > maxLength {
+		return vocabularyValidationError(c, "vocabulary value is too long")
+	}
+	if tag && strings.Contains(req.Replacement, ",") {
+		return vocabularyValidationError(c, "tags must not contain commas")
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	lock := a.store.LockOfferingUnit
+	if tag {
+		lock = a.store.LockTokenTag
+	}
+	entry, err := lock(ctx, tx, req.Value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return vocabularyNotFoundError(c)
+	}
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if !entry.IsCustom {
+		return vocabularyConflictError(c, "only custom vocabulary values can be renamed")
+	}
+	if tag && req.Replacement != entry.Value {
+		pending, err := a.store.HasUnfinishedTagDeployment(ctx, tx, entry.Value)
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		if pending {
+			return vocabularyConflictError(c, "This tag is being used by an unfinished voucher or pool deployment. Please try again after the deployment finishes.")
+		}
+	}
+	renamed, err := a.store.RenameCustomVocabulary(ctx, tx, tag, entry.Value, req.Replacement)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Vocabulary value renamed", Result: map[string]any{"value": renamed},
+	})
+}

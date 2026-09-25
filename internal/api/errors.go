@@ -152,6 +152,17 @@ func handleConflictError(c *echo.Context, description string) error {
 }
 
 func handlePostgresError(c *echo.Context, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+		switch pgErr.ConstraintName {
+		case "token_tag_pkey", "token_tag_value_lower_idx", "offering_unit_pkey", "offering_unit_value_lower_idx":
+			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+				Ok: false, ErrCode: apiresp.ErrCodeConflict,
+				Description: "a vocabulary value with this name already exists",
+			})
+		}
+	}
+
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
 			Ok:          false,
