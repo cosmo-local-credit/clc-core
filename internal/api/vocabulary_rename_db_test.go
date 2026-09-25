@@ -29,7 +29,9 @@ func TestAdminRenameVocabularyPreservesReferences(t *testing.T) {
 	res, created := offeringRequest(t, a, http.MethodPost, "/api/v2/vouchers/"+fx.ownedAddress+"/offerings", owner,
 		offeringBody(map[string]any{"unit": unit}))
 	require.Equal(t, http.StatusCreated, res.Code, res.Body.String())
-	id := uint64(offeringFrom(t, created)["id"].(float64))
+	offeringID, ok := offeringFrom(t, created)["id"].(float64)
+	require.True(t, ok, "created offering must have a numeric id")
+	id := uint64(offeringID)
 
 	for path, old := range map[string]string{"tags": tag, "units": unit} {
 		res, result := offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vocabulary/"+path, admin,
@@ -48,8 +50,11 @@ func TestAdminRenameVocabularyPreservesReferences(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
 	for key, value := range map[string]string{"tags": tag, "units": unit} {
 		found := false
-		for _, item := range listed[key].([]any) {
-			row := item.(map[string]any)
+		items, ok := listed[key].([]any)
+		require.True(t, ok, "%s must be a list", key)
+		for _, item := range items {
+			row, ok := item.(map[string]any)
+			require.True(t, ok, "vocabulary entry must be an object")
 			require.NotEqual(t, value, row["value"])
 			if row["value"] == value+" NEW" {
 				found = true

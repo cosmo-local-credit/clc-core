@@ -113,8 +113,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "035_pool_deploy_fee_settings.sql" ||
 				name == "036_custom_vocabulary.sql" ||
 				name == "037_deploy_name_occupancy_indexes.sql" ||
-				name == "038_webauthn_credential_state.sql",
-			name == "039_editable_vocabulary.sql",
+				name == "038_webauthn_credential_state.sql" ||
+				name == "039_editable_vocabulary.sql",
 			"unexpected migration file %s", name,
 		)
 	}

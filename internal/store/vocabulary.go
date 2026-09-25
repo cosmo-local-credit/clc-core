@@ -134,7 +134,8 @@ func (pg *Pg) RenameCustomVocabulary(ctx context.Context, tx pgx.Tx, tag bool, v
 	return renamed, err
 }
 
-// Jobs keep tag names in JSON, outside the foreign keys updated by a rename.
+// HasUnfinishedTagDeployment checks jobs whose saved tag names are outside the
+// foreign keys updated by a rename.
 func (pg *Pg) HasUnfinishedTagDeployment(ctx context.Context, tx pgx.Tx, value string) (bool, error) {
 	var installed bool
 	// Catalog-only databases may not have a queue installed.
