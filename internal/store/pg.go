@@ -14,6 +14,20 @@ import (
 
 type (
 	Queries struct {
+		LockUserMemberships          string `query:"lock-user-memberships"`
+		LockMembershipDomains        string `query:"lock-membership-domains"`
+		LockMembershipHosts          string `query:"lock-membership-hosts"`
+		LockDomainAccount            string `query:"lock-domain-account"`
+		GetUserDomains               string `query:"get-user-domains"`
+		SetDomainRegistration        string `query:"set-domain-registration"`
+		ActivateDomainMembership     string `query:"activate-domain-membership"`
+		LeaveDomainMembership        string `query:"leave-domain-membership"`
+		IncrementDomainRevision      string `query:"increment-domain-revision"`
+		InsertDomainMembershipAudit  string `query:"insert-domain-membership-audit"`
+		GetDomainByID                string `query:"get-domain-by-id"`
+		GetGlobalDomain              string `query:"get-global-domain"`
+		GetActiveDomainByHostname    string `query:"get-active-domain-by-hostname"`
+		GetUserDomainState           string `query:"get-user-domain-state"`
 		InsertKeyPair                string `query:"insert-keypair"`
 		ActivateKeyPair              string `query:"activate-keypair"`
 		LoadMasterKey                string `query:"load-master-key"`

@@ -13,6 +13,14 @@ type (
 	Store interface {
 		Pool() *pgxpool.Pool
 		Bootstrap() error
+		GetDomainByID(context.Context, pgx.Tx, uint64) (Domain, error)
+		GetGlobalDomain(context.Context, pgx.Tx) (Domain, error)
+		GetActiveDomainByHostname(context.Context, pgx.Tx, string) (Domain, error)
+		GetUserDomainState(context.Context, pgx.Tx, uint64) (UserDomainState, error)
+		GetUserDomains(context.Context, pgx.Tx, uint64) (UserDomains, error)
+		CompleteDomainOnboarding(context.Context, pgx.Tx, uint64, uint64, uint64, UserProfileUpdate) (UserDomains, error)
+		JoinDomain(context.Context, pgx.Tx, uint64, uint64, uint64) (UserDomains, error)
+		LeaveDomain(context.Context, pgx.Tx, uint64, uint64, uint64) (UserDomains, error)
 		InsertKeyPair(context.Context, pgx.Tx, keypair.Key) error
 		ActivateKeyPair(context.Context, pgx.Tx, string) error
 		LoadMasterSignerKey(context.Context, pgx.Tx) (keypair.Key, error)

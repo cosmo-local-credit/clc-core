@@ -696,6 +696,24 @@ WHERE keystore.public_key = $1;
 --name: check-keypair
 SELECT active FROM keystore WHERE public_key = $1;
 
+-- Domains
+--name: get-domain-by-id
+SELECT id, slug, name, description, is_global, status, created_at, updated_at
+FROM domains WHERE id = $1;
+
+--name: get-global-domain
+SELECT id, slug, name, description, is_global, status, created_at, updated_at
+FROM domains WHERE is_global AND status = 'active';
+
+--name: get-active-domain-by-hostname
+SELECT d.id, d.slug, d.name, d.description, d.is_global, d.status, d.created_at, d.updated_at
+FROM domains d
+JOIN domain_hosts h ON h.domain_id = d.id
+WHERE h.hostname = $1 AND h.status = 'active' AND h.verified_at IS NOT NULL AND d.status = 'active';
+
+--name: get-user-domain-state
+SELECT id AS user_id, registration_domain_id, domain_revision FROM users WHERE id = $1;
+
 -- Users
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
@@ -2484,3 +2502,60 @@ WHERE otx.signer_account = (SELECT id FROM keystore WHERE public_key = $1)
   AND otx.replaced = false
   AND otx.nonce < $2
   AND dispatch.status = 'PENDING';
+
+-- Domain membership operations lock spaces, then hosts, then the account.
+-- Shared configuration locks allow different users to mutate memberships concurrently.
+--name: lock-membership-domains
+SELECT id, slug, name, description, is_global, status, created_at, updated_at
+FROM domains
+WHERE id = $1 OR id = $2 OR is_global
+ORDER BY id FOR SHARE;
+
+--name: lock-membership-hosts
+SELECT domain_id, hostname, status, verified_at
+FROM domain_hosts WHERE domain_id = ANY($1::int[])
+ORDER BY domain_id FOR SHARE;
+
+--name: lock-domain-account
+SELECT id AS user_id, registration_domain_id, domain_revision, status, blockchain_address AS address
+FROM users WHERE id = $1 FOR UPDATE;
+
+--name: get-user-domains
+SELECT u.id AS user_id, u.registration_domain_id, u.domain_revision,
+       COALESCE(rd.is_global OR registration.status IS DISTINCT FROM 'active', false)
+           AND u.registration_domain_id IS NOT NULL AS global_required,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object(
+           'domainId', m.domain_id, 'name', d.name, 'status', m.status,
+           'domainStatus', d.status, 'isGlobal', d.is_global,
+           'hostname', CASE WHEN h.status = 'active' AND h.verified_at IS NOT NULL
+                           AND d.status = 'active' THEN h.hostname END,
+           'joinedAt', m.joined_at, 'leftAt', m.left_at) ORDER BY m.domain_id)
+         FROM user_domains m JOIN domains d ON d.id = m.domain_id
+         LEFT JOIN domain_hosts h ON h.domain_id = d.id
+         WHERE m.user_id = u.id), '[]'::jsonb) AS memberships
+FROM users u
+LEFT JOIN domains rd ON rd.id = u.registration_domain_id
+LEFT JOIN user_domains registration ON registration.user_id = u.id AND registration.domain_id = u.registration_domain_id
+WHERE u.id = $1;
+
+--name: set-domain-registration
+UPDATE users SET registration_domain_id = $2 WHERE id = $1 AND registration_domain_id IS NULL;
+
+--name: activate-domain-membership
+INSERT INTO user_domains (user_id, domain_id) VALUES ($1, $2)
+ON CONFLICT (user_id, domain_id) DO UPDATE SET status = 'active', left_at = NULL
+WHERE user_domains.status = 'left';
+
+--name: leave-domain-membership
+UPDATE user_domains SET status = 'left', left_at = clock_timestamp()
+WHERE user_id = $1 AND domain_id = $2 AND status = 'active';
+
+--name: increment-domain-revision
+UPDATE users SET domain_revision = domain_revision + 1 WHERE id = $1;
+
+--name: insert-domain-membership-audit
+INSERT INTO domain_audit_events (domain_id, actor_key, action, entity_type, entity_key, before_state, after_state, reason)
+VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8);
+
+--name: lock-user-memberships
+SELECT domain_id FROM user_domains WHERE user_id = $1 ORDER BY domain_id FOR UPDATE;
