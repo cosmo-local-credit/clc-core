@@ -3,6 +3,96 @@
 > **Version:** 2.0  
 > **License:** [AGPL-3.0](../LICENSE)
 
+## Domain hostname and membership APIs
+
+These endpoints expose the domain foundation and membership operations. Admin
+provisioning/DNS verification, content-origin propagation and catalog filtering
+are separate follow-up changes. Existing catalog routes are still unscoped.
+
+| Route | Authentication and behavior |
+| --- | --- |
+| `GET /api/v2/domains/resolve?hostname=kosta.example` | Public; returns `result.domain` with `id`, `slug`, `name`, `description`, `isGlobal`, `hostname`. Requires an active space and verified active hostname. Unknown, pending, disabled or archived hosts return 404; there is no Sarafu fallback. |
+| `GET /api/v2/domains?after=42` | Public directory of ready spaces; up to 100 entries in ascending ID order. Returns `result.domains` and nullable `result.next`; pass `next` as `after`. No member/contact data. |
+| `GET /api/v2/users/me/domains` | User session; current account's registration ID, revision, `globalRequired`, and all memberships, including inactive ones. No space header required. |
+| `PUT /api/v2/users/me/domains/:id` | User session; explicitly joins the visited space. Route ID must equal the selected space ID. |
+| `DELETE /api/v2/users/me/domains/:id` | User session; leaves that account's membership, with atomic Sarafu fallback. May manage a different space from the currently visited one. |
+| `POST /auth/profile` with `"domainOnboarding": true` | User session; profile, first registration-space assignment, membership and audit commit together. Existing profile validation applies. |
+
+User endpoints reject service tokens and reload account status. A pending or
+rejected account cannot use them, even with an unexpired user JWT. Superadmins
+use the same membership rules for their own accounts.
+
+All membership mutations and explicit onboarding require:
+
+```http
+Origin: https://kosta.example
+X-CLC-Domain-ID: 42
+If-Match: "0"
+```
+
+`Origin` must identify the active verified hostname for the selected space;
+HTTPS uses the standard port (an explicit `:443` is accepted). Hostnames are
+normalized for case, a trailing dot and IDNA. Schemes/paths in the resolver's
+hostname parameter, IP addresses, wildcards and nonstandard origin ports are
+rejected. No `Host`, `Forwarded` or `X-Forwarded-Host` fallback is used. Local
+HTTP hosts and trusted-ingress attestation are not implemented in this slice.
+
+Obtain the account revision from the membership GET. `If-Match` accepts exactly
+one quoted nonnegative integer, not `*`, a weak ETag or a list. Successful
+membership/onboarding responses include `ETag: "<domainRevision>"` and:
+
+```json
+{
+  "ok": true,
+  "description": "Space membership updated",
+  "result": {
+    "registrationDomainId": 42,
+    "domainRevision": 3,
+    "globalRequired": true,
+    "memberships": [
+      {"domainId": 42, "name": "Kosta", "status": "left", "domainStatus": "active", "isGlobal": false, "hostname": "kosta.example", "joinedAt": "2026-09-28T12:00:00Z", "leftAt": "2026-09-28T13:00:00Z"},
+      {"domainId": 1, "name": "Sarafu", "status": "active", "domainStatus": "active", "isGlobal": true, "hostname": "sarafu.network", "joinedAt": "2026-09-28T13:00:00Z", "leftAt": null}
+    ],
+    "deactivatedDomainId": 42,
+    "continueAt": "https://sarafu.network"
+  }
+}
+```
+
+IDs are illustrative. `deactivatedDomainId` is included on DELETE;
+`continueAt` is included when Sarafu is required and its active membership has
+a verified active hostname. It comes from database configuration and is returned
+after commit, never as an HTTP redirect. The client chooses when to navigate.
+Inactive/archived hostname configuration produces a null membership `hostname`.
+
+Stale revisions return 409 `DOMAIN_REVISION_CONFLICT`, even for a retry. Refetch
+and retry with the current revision. With a current revision, repeated joins or
+leaves do not add audit events or increment the revision. Repeated onboarding
+does not overwrite a completed profile or reactivate a space the user left.
+Ordinary profile writes without `domainOnboarding: true` retain their existing
+request/response contract and do not assign membership.
+
+| Status | Code / meaning |
+| --- | --- |
+| 400 | `DOMAIN_REVISION_REQUIRED`: missing or malformed `If-Match`; `DOMAIN_CONTEXT_INVALID`: missing or malformed space headers; `E04`: invalid route ID/hostname |
+| 401 | `E06`: missing or invalid session |
+| 403 | `DOMAIN_CONTEXT_INVALID`: unknown/mismatched origin; `E10`: service token, restricted account, suspended membership or mismatched join target |
+| 404 | `DOMAIN_UNAVAILABLE`: missing or unavailable space/account |
+| 409 | `DOMAIN_ONBOARDING_REQUIRED`, `DOMAIN_REGISTRATION_CONFLICT`, `DOMAIN_REVISION_CONFLICT`, `GLOBAL_DOMAIN_REQUIRED`; existing identity-conflict codes also apply |
+| 503 | `DOMAIN_FALLBACK_UNAVAILABLE`: required fallback unavailable, suspended, or an existing account invariant requires support repair |
+
+All these handlers return `Cache-Control: no-store`. CORS allows the domain and
+revision headers and exposes `ETag`. Existing configured app/admin origins remain
+allowed; additional HTTPS origins are checked against active verified domain
+configuration on actual requests. Successful preflights send
+`Access-Control-Max-Age: 300`, allowing the browser to reuse the preliminary
+permission for five minutes. Removing a dynamic host revokes the CORS allowance
+on its next actual request, even if the browser skips a cached preflight.
+Membership mutations still validate context and authorization themselves.
+An independently configured static CORS entry must
+also be removed when retiring that origin. CORS does not authenticate the caller
+or grant membership; mutation handlers independently validate the context.
+
 ---
 
 ## Table of Contents

@@ -259,6 +259,9 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 			Description: err.Error(),
 		})
 	}
+	if req.DomainOnboarding {
+		return a.domainOnboardingHandler(c, update)
+	}
 	ctx := c.Request().Context()
 
 	tx, err := a.store.Pool().Begin(ctx)

@@ -701,6 +701,13 @@ SELECT active FROM keystore WHERE public_key = $1;
 SELECT id, slug, name, description, is_global, status, created_at, updated_at
 FROM domains WHERE id = $1;
 
+--name: list-active-domains
+SELECT d.id, d.slug, d.name, d.description, d.is_global, h.hostname
+FROM domains d JOIN domain_hosts h ON h.domain_id = d.id
+WHERE d.status = 'active' AND h.status = 'active' AND h.verified_at IS NOT NULL
+  AND d.id > $1
+ORDER BY d.id LIMIT $2;
+
 --name: get-global-domain
 SELECT id, slug, name, description, is_global, status, created_at, updated_at
 FROM domains WHERE is_global AND status = 'active';

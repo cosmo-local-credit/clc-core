@@ -339,10 +339,12 @@ type (
 	// values preserve stored data; ClearLocation explicitly removes the pin, and
 	// ClearAvatar does the same for the profile image.
 	UpdateProfileRequest struct {
-		Name    string `json:"name"          validate:"omitempty,max=80"`
-		Email   string `json:"email"         validate:"omitempty,email"`
-		Phone   string `json:"phone"`
-		Country string `json:"country"       validate:"omitempty,len=2"`
+		// DomainOnboarding atomically assigns the space selected by X-CLC-Domain-ID.
+		DomainOnboarding bool   `json:"domainOnboarding,omitempty"`
+		Name             string `json:"name"          validate:"omitempty,max=80"`
+		Email            string `json:"email"         validate:"omitempty,email"`
+		Phone            string `json:"phone"`
+		Country          string `json:"country"       validate:"omitempty,len=2"`
 		// Profile preferences are pointers because clients predating them must be
 		// able to update their contact details without clearing them. Website's
 		// explicit empty-string alternative clears a saved value; `omitempty` does

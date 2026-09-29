@@ -101,7 +101,7 @@ func New(o APIOpts) *API {
 	}
 	router.HTTPErrorHandler = a.customHTTPErrorHandler
 
-	corsConfig := newCORSConfig(o.CORS)
+	corsConfig := a.domainCORSConfig(o.CORS)
 
 	router.Use(middleware.Recover())
 	router.Use(middleware.BodyLimit(maxBodySize))
@@ -174,6 +174,10 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
+
+	// Public space metadata contains no memberships or account information.
+	router.GET(apiVersion+"/domains/resolve", a.domainResolveHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/domains", a.domainsListHandler, a.marketRateLimitMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
@@ -256,6 +260,9 @@ func New(o APIOpts) *API {
 	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
+	userGroup.GET("/me/domains", a.userDomainsHandler)
+	userGroup.PUT("/me/domains/:id", a.domainMembershipHandler)
+	userGroup.DELETE("/me/domains/:id", a.domainMembershipHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)

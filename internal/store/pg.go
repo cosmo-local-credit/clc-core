@@ -25,6 +25,7 @@ type (
 		IncrementDomainRevision      string `query:"increment-domain-revision"`
 		InsertDomainMembershipAudit  string `query:"insert-domain-membership-audit"`
 		GetDomainByID                string `query:"get-domain-by-id"`
+		ListActiveDomains            string `query:"list-active-domains"`
 		GetGlobalDomain              string `query:"get-global-domain"`
 		GetActiveDomainByHostname    string `query:"get-active-domain-by-hostname"`
 		GetUserDomainState           string `query:"get-user-domain-state"`

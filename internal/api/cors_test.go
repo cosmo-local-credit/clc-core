@@ -11,7 +11,7 @@ import (
 
 func TestCORSPreflightAllowsWildcardPagesPreview(t *testing.T) {
 	e := echo.New()
-	e.Use(middleware.CORSWithConfig(newCORSConfig([]string{
+	e.Use(middleware.CORSWithConfig((&API{}).domainCORSConfig([]string{
 		"https://staging.cosmolocal.credit",
 		"https://*.clc-app.pages.dev",
 	})))
@@ -33,11 +33,14 @@ func TestCORSPreflightAllowsWildcardPagesPreview(t *testing.T) {
 	if got := res.Header().Get(echo.HeaderAccessControlAllowCredentials); got != "true" {
 		t.Fatalf("allow credentials = %q, want true", got)
 	}
+	if got := res.Header().Get(echo.HeaderAccessControlMaxAge); got != "300" {
+		t.Fatalf("preflight max age = %q, want 300 seconds", got)
+	}
 }
 
 func TestCORSPreflightRejectsMultiLabelPagesSubdomain(t *testing.T) {
 	e := echo.New()
-	e.Use(middleware.CORSWithConfig(newCORSConfig([]string{
+	e.Use(middleware.CORSWithConfig((&API{}).domainCORSConfig([]string{
 		"https://*.clc-app.pages.dev",
 	})))
 	e.POST("/auth/nonce", func(c *echo.Context) error {

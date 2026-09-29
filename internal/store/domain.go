@@ -9,6 +9,16 @@ import (
 )
 
 type (
+	// DomainDirectoryEntry exposes only public metadata for a ready space.
+	DomainDirectoryEntry struct {
+		ID          uint64 `db:"id" json:"id"`
+		Slug        string `db:"slug" json:"slug"`
+		Name        string `db:"name" json:"name"`
+		Description string `db:"description" json:"description"`
+		IsGlobal    bool   `db:"is_global" json:"isGlobal"`
+		Hostname    string `db:"hostname" json:"hostname"`
+	}
+
 	// Domain is a space identity, independent of its hostnames and memberships.
 	Domain struct {
 		ID          uint64    `db:"id"`
@@ -29,6 +39,13 @@ type (
 		DomainRevision       uint64  `db:"domain_revision"`
 	}
 )
+
+// ListActiveDomains returns a bounded directory, ordered by stable ID.
+func (pg *Pg) ListActiveDomains(ctx context.Context, tx pgx.Tx, after uint64, limit int) ([]DomainDirectoryEntry, error) {
+	domains := make([]DomainDirectoryEntry, 0)
+	err := pgxscan.Select(ctx, tx, &domains, pg.queries.ListActiveDomains, after, limit)
+	return domains, err
+}
 
 // GetDomainByID reads a space for internal configuration/management purposes.
 // It deliberately includes archived spaces; it does not authorize discovery.

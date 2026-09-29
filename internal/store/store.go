@@ -14,6 +14,7 @@ type (
 		Pool() *pgxpool.Pool
 		Bootstrap() error
 		GetDomainByID(context.Context, pgx.Tx, uint64) (Domain, error)
+		ListActiveDomains(context.Context, pgx.Tx, uint64, int) ([]DomainDirectoryEntry, error)
 		GetGlobalDomain(context.Context, pgx.Tx) (Domain, error)
 		GetActiveDomainByHostname(context.Context, pgx.Tx, string) (Domain, error)
 		GetUserDomainState(context.Context, pgx.Tx, uint64) (UserDomainState, error)
