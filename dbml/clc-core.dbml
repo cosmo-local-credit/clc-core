@@ -128,6 +128,7 @@ Table "platform_contracts" {
 
 Table "deployed_tokens" {
   "id" int4 [pk, not null, increment]
+  "origin_domain_id" int4 [note: 'Nullable for legacy records; immutable once assigned (migration 039 trigger).']
   "otx_id" int4 [unique, not null]
   "platform_contract_id" int4 [not null]
   "address" text [unique]
@@ -156,6 +157,7 @@ Table "deployed_tokens" {
   }
 
   Indexes {
+    origin_domain_id [name: "deployed_tokens_origin_domain_idx"]
     (`lower(address)`) [type: btree, unique, name: "deployed_tokens_address_lower_key"]
   }
 }
@@ -183,6 +185,7 @@ Table "protocol_addresses" {
 
 Table "deployed_pools" {
   "id" int4 [pk, not null, increment]
+  "origin_domain_id" int4 [note: 'Nullable for legacy records; immutable once assigned (migration 039 trigger).']
   "otx_id" int4 [unique, not null]
   "platform_contract_id" int4 [not null]
   "address" text [unique]
@@ -217,6 +220,7 @@ Table "deployed_pools" {
   }
 
   Indexes {
+    origin_domain_id [name: "deployed_pools_origin_domain_idx"]
     (`lower(address)`) [type: btree, unique, name: "deployed_pools_address_lower_key"]
   }
 }
@@ -239,6 +243,8 @@ Table "oracle_feeds" {
 }
 
 Table "users" {
+  "registration_domain_id" int4 [note: 'Assigned once at domain onboarding; not current browsing space.']
+  "domain_revision" int8 [not null, default: 0, check: `domain_revision >= 0`]
   "id" int4 [pk, not null, increment]
   "blockchain_address" text [unique, not null, check: `blockchain_address ~ '^0x[0-9a-fA-F]{40}$'::text`]
   "name" text [not null]
@@ -259,6 +265,7 @@ Table "users" {
   }
 
   Indexes {
+    registration_domain_id [name: "users_registration_domain_idx", note: 'Partial: registration_domain_id IS NOT NULL.']
     (`lower(blockchain_address)`) [type: btree, unique, name: "users_blockchain_address_lower_key"]
     status [type: btree, name: "users_status_idx"]
   }
@@ -299,6 +306,7 @@ Table "voucher_type" {
 
 Table "vouchers" {
   "id" int4 [pk, not null, increment]
+  "origin_domain_id" int4 [note: 'Nullable for legacy records; immutable once assigned (migration 039 trigger).']
   "chain_id" int4 [not null]
   "address" text [not null]
   "name" text
@@ -340,6 +348,7 @@ Table "vouchers" {
   }
 
   Indexes {
+    (origin_domain_id, id) [name: "vouchers_origin_domain_id_idx"]
     (chain_id, address) [type: btree, unique, name: "vouchers_chain_id_address_key"]
     (chain_id, `lower(address)`) [type: btree, unique, name: "vouchers_chain_address_lower_key"]
   }
@@ -356,6 +365,7 @@ Table "voucher_tags" {
 
 Table "pools" {
   "id" int4 [pk, not null, increment]
+  "origin_domain_id" int4 [note: 'Nullable for legacy records; immutable once assigned (migration 039 trigger).']
   "chain_id" int4 [not null]
   "address" text [not null]
   "name" text
@@ -401,6 +411,7 @@ Table "pools" {
   }
 
   Indexes {
+    (origin_domain_id, id) [name: "pools_origin_domain_id_idx"]
     (chain_id, address) [type: btree, unique, name: "pools_chain_id_address_key"]
     (chain_id, `lower(address)`) [type: btree, unique, name: "pools_chain_address_lower_key"]
   }
@@ -440,6 +451,7 @@ Table "report_status_type" {
 
 Table "reports" {
   "id" int4 [pk, not null, increment]
+  "origin_domain_id" int4 [note: 'Nullable for legacy records; immutable once assigned (migration 039 trigger).']
   "source_id" int4 [unique]
   "title" text [not null]
   "body" jsonb [not null]
@@ -467,6 +479,8 @@ Table "reports" {
   }
 
   Indexes {
+    (origin_domain_id, id) [name: "reports_origin_domain_id_idx"]
+    (origin_domain_id, updated_at, id) [name: "reports_origin_domain_feed_idx", note: 'Partial: status = APPROVED; updated_at and id descending.']
     (status, created_at, id) [type: btree, name: "reports_status_created_idx"]
     (author_address, created_at, id) [type: btree, name: "reports_author_created_idx"]
   }
@@ -722,3 +736,74 @@ Ref "voucher_tags_voucher_id_fkey":"vouchers"."id" < "voucher_tags"."voucher_id"
 Ref "vouchers_platform_contract_id_fkey":"platform_contracts"."id" < "vouchers"."platform_contract_id"
 
 Ref "vouchers_voucher_type_fkey":"voucher_type"."value" < "vouchers"."voucher_type"
+
+// Domain foundation (migration 039). No membership or catalog API is enabled yet.
+Table "domains" {
+  "id" int4 [pk, not null, increment]
+  "slug" text [unique, not null, note: 'Lowercase ASCII slug, at most 63 characters; editable without changing space ID.']
+  "name" text [not null, check: `btrim(name) <> ''`]
+  "description" text [not null, default: '']
+  "is_global" bool [not null, default: false, note: 'Identifies the protected global Sarafu space.']
+  "status" text [not null, default: 'active', check: `status IN ('active', 'archived')`]
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  Indexes {
+    is_global [unique, name: 'domains_one_global_key', note: 'Partial: is_global.']
+  }
+  Note: 'Triggers prevent changing Sarafu identity, archiving/deleting it, while allowing slug renaming.'
+}
+
+Table "domain_hosts" {
+  "id" int4 [pk, not null, increment]
+  "domain_id" int4 [unique, not null]
+  "hostname" text [unique, not null, note: 'Normalized ASCII/IDNA DNS name without scheme, port or trailing dot; immutable mapping.']
+  "status" text [not null, default: 'pending', check: `status IN ('pending', 'verified', 'active', 'disabled')`]
+  "verified_at" timestamptz
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  Checks {
+    `status NOT IN ('verified', 'active') OR verified_at IS NOT NULL` [name: 'domain_hosts_verified_state']
+  }
+}
+
+Table "user_domains" {
+  "user_id" int4 [not null]
+  "domain_id" int4 [not null]
+  "status" text [not null, default: 'active', check: `status IN ('active', 'left', 'suspended')`]
+  "joined_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "left_at" timestamptz
+  Checks {
+    `(status = 'left') = (left_at IS NOT NULL) AND (left_at IS NULL OR left_at >= joined_at)` [name: 'user_domains_left_at_valid']
+  }
+  Indexes {
+    (user_id, domain_id) [pk]
+    (domain_id, user_id) [name: 'user_domains_active_domain_idx', note: 'Partial: status = active.']
+  }
+}
+
+Table "domain_audit_events" {
+  "id" int8 [pk, not null, increment]
+  "domain_id" int4 [not null]
+  "actor_key" text [not null, check: `btrim(actor_key) <> ''`]
+  "action" text [not null, check: `btrim(action) <> ''`]
+  "entity_type" text [not null, check: `btrim(entity_type) <> ''`]
+  "entity_key" text [not null, check: `btrim(entity_key) <> ''`]
+  "before_state" jsonb [note: 'SQL NULL or an object of at most 16384 bytes serialized as text.']
+  "after_state" jsonb [note: 'SQL NULL or an object of at most 16384 bytes serialized as text.']
+  "reason" text [not null, default: '']
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  Indexes {
+    (domain_id, created_at, id) [name: 'domain_audit_events_domain_created_idx', note: 'created_at and id descending.']
+  }
+}
+
+Ref: domain_hosts.domain_id > domains.id
+Ref: user_domains.user_id > users.id
+Ref: user_domains.domain_id > domains.id
+Ref: users.registration_domain_id > domains.id
+Ref: vouchers.origin_domain_id > domains.id
+Ref: pools.origin_domain_id > domains.id
+Ref: reports.origin_domain_id > domains.id
+Ref: deployed_tokens.origin_domain_id > domains.id
+Ref: deployed_pools.origin_domain_id > domains.id
+Ref: domain_audit_events.domain_id > domains.id
