@@ -41,9 +41,11 @@ type (
 		ListOfferingUnits(context.Context, pgx.Tx) ([]string, error)
 		FindOfferingUnit(context.Context, pgx.Tx, string) (string, error)
 		InsertCustomOfferingUnit(context.Context, pgx.Tx, string) error
-		ListCustomVocabulary(context.Context, pgx.Tx) (CustomVocabulary, error)
+		ListVocabulary(context.Context, pgx.Tx) (Vocabulary, error)
 		LockTokenTag(context.Context, pgx.Tx, string) (VocabularyEntry, error)
 		LockOfferingUnit(context.Context, pgx.Tx, string) (VocabularyEntry, error)
+		RenameVocabulary(context.Context, pgx.Tx, bool, string, string) (string, error)
+		HasUnfinishedTagDeployment(context.Context, pgx.Tx, string) (bool, error)
 		DeleteCustomTokenTag(context.Context, pgx.Tx, string) (TagVocabularyUsage, error)
 		DeleteCustomOfferingUnit(context.Context, pgx.Tx, string) (UnitVocabularyUsage, error)
 		GetProtocolAddress(context.Context, pgx.Tx, string) (string, error)

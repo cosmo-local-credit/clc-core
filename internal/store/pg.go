@@ -43,10 +43,13 @@ type (
 		ListOfferingUnits            string `query:"list-offering-units"`
 		FindOfferingUnit             string `query:"find-offering-unit"`
 		InsertCustomOfferingUnit     string `query:"insert-custom-offering-unit"`
-		ListCustomTokenTags          string `query:"list-custom-token-tags"`
-		ListCustomOfferingUnits      string `query:"list-custom-offering-units"`
+		ListTokenTagVocabulary       string `query:"list-token-tag-vocabulary"`
+		ListOfferingUnitVocabulary   string `query:"list-offering-unit-vocabulary"`
 		LockTokenTag                 string `query:"lock-token-tag"`
 		LockOfferingUnit             string `query:"lock-offering-unit"`
+		RenameTokenTag               string `query:"rename-token-tag"`
+		RenameCustomOfferingUnit     string `query:"rename-custom-offering-unit"`
+		HasUnfinishedTagDeployment   string `query:"has-unfinished-tag-deployment"`
 		DeleteCustomTokenTag         string `query:"delete-custom-token-tag"`
 		DeleteCustomOfferingUnit     string `query:"delete-custom-offering-unit"`
 		GetProtocolAddress           string `query:"get-protocol-address"`
