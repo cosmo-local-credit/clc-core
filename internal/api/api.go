@@ -175,9 +175,16 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 
+	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
+
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
+
+	apiGroup.GET("/vouchers/:address/reviews/me", a.voucherReviewAccessHandler, a.requireUserAuth())
+	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
+	apiGroup.PUT("/vouchers/:address/reviews/:id/reply", a.voucherReviewReplyHandler, a.requireUserAuth())
+	apiGroup.POST("/vouchers/:address/reviews/:id/flag", a.voucherReviewFlagHandler, a.requireUserAuth())
 
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
@@ -296,6 +303,8 @@ func New(o APIOpts) *API {
 
 	// Global post moderation reads. The write half stays on apiGroup with the
 	// other report mutations, where the role check is already per-handler.
+	adminGroup.GET("/review-notifications", a.reviewNotificationsHandler)
+	adminGroup.PUT("/review-notifications/:id", a.reviewModerateHandler)
 	adminGroup.GET("/reports", a.adminReportsListHandler)
 	adminGroup.GET("/reports/:id", a.adminReportByIDHandler)
 

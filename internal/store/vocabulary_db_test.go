@@ -77,7 +77,7 @@ func TestVocabularyMigrationPreservesLegacyOfferingUnits(t *testing.T) {
 	_, err = tx.Exec(ctx, `ALTER TABLE offerings ADD CONSTRAINT offerings_unit_fk
 		FOREIGN KEY(unit) REFERENCES offering_unit(value) NOT VALID`)
 	require.NoError(t, err)
-	migration, err := os.ReadFile("../../migrations/039_editable_vocabulary.sql")
+	migration, err := os.ReadFile("../../migrations/040_editable_vocabulary.sql")
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, string(migration))
 	require.NoError(t, err, "upgrade must accept existing imported free-text units")
