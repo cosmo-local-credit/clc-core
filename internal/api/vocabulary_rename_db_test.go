@@ -120,11 +120,32 @@ func TestAdminRenameVocabularyOutcomes(t *testing.T) {
 			}
 		})
 	}
-	for path, value := range map[string]string{"tags": builtInTag(t, a), "units": "kg"} {
-		res, _ := offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vocabulary/"+path, admin,
-			map[string]any{"value": value, "replacement": vocabularyValue("Protected")})
-		require.Equal(t, http.StatusConflict, res.Code, res.Body.String())
-	}
+}
+
+// The shipped tags are editable per deployment; the shipped units are the apps'
+// translation keys and stay as they are.
+func TestAdminRenameBuiltInVocabulary(t *testing.T) {
+	a, priv := newOfferingAPI(t)
+	defer deleteVocabularyFixtures(t, a)
+	admin := offeringToken(t, priv, offeringOperatorAddr, "SUPERADMIN")
+
+	// A marked stand-in, so the shared test database keeps its real built-ins.
+	builtIn := vocabularyValue("Shipped")
+	_, err := a.store.Pool().Exec(context.Background(), `INSERT INTO token_tag (value,is_custom) VALUES ($1,false)`, builtIn)
+	require.NoError(t, err)
+	res, result := offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vocabulary/tags", admin,
+		map[string]any{"value": builtIn, "replacement": builtIn + " Renamed"})
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	require.Equal(t, builtIn+" Renamed", result["value"])
+	_, custom, found := vocabularyExists(t, a, "token_tag", builtIn+" Renamed")
+	require.True(t, found)
+	require.False(t, custom, "a renamed built-in stays built-in, so it still cannot be deleted")
+
+	res, _ = offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vocabulary/units", admin,
+		map[string]any{"value": "kg", "replacement": vocabularyValue("Kilogram")})
+	require.Equal(t, http.StatusConflict, res.Code, res.Body.String())
+	_, _, found = vocabularyExists(t, a, "offering_unit", "kg")
+	require.True(t, found)
 }
 
 func TestAdminRenameVocabularyDeploymentJobs(t *testing.T) {
@@ -158,7 +179,8 @@ func TestAdminRenameVocabularyDeploymentJobs(t *testing.T) {
 						map[string]any{"value": value, "replacement": value + " New"})
 					return res.Code
 				}
-				if state == "completed" || state == "cancelled" {
+				// A discarded job never runs again, so it never writes its tags.
+				if state == "completed" || state == "cancelled" || state == "discarded" {
 					require.Equal(t, http.StatusOK, rename())
 					return
 				}

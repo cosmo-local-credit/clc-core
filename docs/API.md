@@ -75,6 +75,7 @@
    - [Tag filters are still closed](#123-tag-filters-are-still-closed)
    - [GET /api/v2/admin/vocabulary](#124-get-apiv2adminvocabulary)
    - [DELETE /api/v2/admin/vocabulary/tags and .../units](#125-delete-apiv2adminvocabularytags-and-units)
+   - [PUT /api/v2/admin/vocabulary/tags and .../units](#126-put-apiv2adminvocabularytags-and-units)
 
 ---
 
@@ -2672,28 +2673,29 @@ it with an empty page hides that.
 
 ### 12.4 `GET /api/v2/admin/vocabulary`
 
-`SUPERADMIN`-only. Lists **custom values only** — built-ins are not deletable,
-so listing them would only offer an operator a button that returns `409`.
+`SUPERADMIN`-only. Lists **every value**, built-in and custom, each flagged by
+`isCustom`. Only custom values can be deleted (§12.5); built-in tags can be
+renamed (§12.6), so the console lists them too.
 
 ```json
 {
   "ok": true,
-  "description": "Custom vocabulary",
+  "description": "Vocabulary",
   "result": {
     "tags": [
       {
-        "value": "Urban Farming",
+        "value": "Urban Farming", "isCustom": true,
         "deployedTokens": 0, "deployedPools": 0,
         "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0
       }
     ],
-    "units": [{ "value": "Produce Crate", "offerings": 4 }]
+    "units": [{ "value": "Produce Crate", "isCustom": true, "offerings": 4 }]
   }
 }
 ```
 
-The per-resource counts exist so the console can describe what a deletion will
-remove before the operator commits to it.
+The per-resource counts exist so the console can describe what a deletion or a
+rename will reach before the operator commits to it.
 
 ### 12.5 `DELETE /api/v2/admin/vocabulary/tags` and `.../units`
 
@@ -2740,3 +2742,42 @@ a row still points at it.
 
 Deletion does not blacklist: the next catalog write that names the value creates
 it again.
+
+### 12.6 `PUT /api/v2/admin/vocabulary/tags` and `.../units`
+
+`SUPERADMIN`-only. Renames a value everywhere it is used:
+
+```http
+PUT /api/v2/admin/vocabulary/tags
+{ "value": "Urban Farming", "replacement": "Community Gardens" }
+```
+
+`value` is located case-insensitively and locked `FOR UPDATE`. `replacement` is
+trimmed and its inner whitespace collapsed, but its casing is kept as sent, so a
+rename can fix casing (`kwh` → `kWh`). It follows the creation rules otherwise:
+at most 100 characters and no commas for a tag, at most 32 for a unit.
+
+| Response | When |
+|---|---|
+| `400 E02` / `E04` | malformed body, blank value, or an invalid replacement |
+| `404 E03` | no such value |
+| `409 E16` | the replacement already exists (case-insensitively) |
+| `409 E16` | the value is a built-in unit |
+| `409 E16` | a queued or running voucher or pool deployment names the tag |
+| `200` | renamed; `result.value` is the stored spelling |
+
+Every reference follows in the same transaction: the tag and unit foreign keys
+are `ON UPDATE CASCADE` (migration 040), so vouchers, pools, posts, offerings and
+deployments keep their association under the new name.
+
+- **Built-in tags** can be renamed and stay built-in, so they remain undeletable.
+  This is how a deployment makes the shipped defaults its own.
+- **Built-in units** cannot: the apps translate them by their stored spelling,
+  and a rename would strip every locale's label from that unit.
+- **A deployment job** saves its tags as names in the job's arguments, outside
+  any foreign key, and writes them when it runs. A tag named by a job that can
+  still run is refused until the job finishes; `completed`, `cancelled` and
+  `discarded` jobs never run again and do not block.
+
+Like deletion, a rename does not blacklist the old spelling: the next catalog
+write that names it creates it as a new custom value.

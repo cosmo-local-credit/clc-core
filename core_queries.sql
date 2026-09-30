@@ -238,9 +238,10 @@ SELECT value FROM offering_unit WHERE lower(value) = lower($1) FOR KEY SHARE;
 INSERT INTO offering_unit (value, is_custom) VALUES ($1, true)
 ON CONFLICT DO NOTHING;
 
---name: list-custom-token-tags
+--name: list-token-tag-vocabulary
 SELECT
     tt.value,
+    tt.is_custom,
     (SELECT count(*) FROM deployed_token_tags dtt WHERE dtt.tag_value = tt.value) AS deployed_tokens,
     (SELECT count(*) FROM deployed_pool_tags dpt WHERE dpt.tag_value = tt.value) AS deployed_pools,
     (SELECT count(*) FROM voucher_tags vt WHERE vt.tag_value = tt.value) AS vouchers,
@@ -248,15 +249,14 @@ SELECT
     (SELECT count(*) FROM report_tags rt WHERE rt.tag_value = tt.value) AS posts,
     (SELECT count(*) FROM offering_tags ot WHERE ot.tag_value = tt.value) AS offerings
 FROM token_tag tt
-WHERE tt.is_custom
 ORDER BY tt.value;
 
---name: list-custom-offering-units
+--name: list-offering-unit-vocabulary
 SELECT
     ou.value,
+    ou.is_custom,
     (SELECT count(*) FROM offerings o WHERE o.unit = ou.value) AS offerings
 FROM offering_unit ou
-WHERE ou.is_custom
 ORDER BY ou.value;
 
 --name: lock-token-tag
@@ -269,8 +269,8 @@ SELECT value, is_custom FROM offering_unit
 WHERE lower(value) = lower($1)
 FOR UPDATE;
 
---name: rename-custom-token-tag
-UPDATE token_tag SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
+--name: rename-token-tag
+UPDATE token_tag SET value = $2 WHERE value = $1 RETURNING value;
 
 --name: rename-custom-offering-unit
 UPDATE offering_unit SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
@@ -279,7 +279,7 @@ UPDATE offering_unit SET value = $2 WHERE value = $1 AND is_custom RETURNING val
 SELECT EXISTS (
     SELECT 1 FROM river_job
     WHERE kind IN ('TOKEN_DEPLOY', 'POOL_DEPLOY')
-      AND state NOT IN ('completed', 'cancelled')
+      AND state NOT IN ('completed', 'cancelled', 'discarded')
       AND args->'tags' ? $1
 );
 

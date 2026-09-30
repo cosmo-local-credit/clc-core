@@ -129,7 +129,7 @@ func (a *API) adminVocabularyHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	vocabulary, err := a.store.ListCustomVocabulary(ctx, tx)
+	vocabulary, err := a.store.ListVocabulary(ctx, tx)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -137,7 +137,7 @@ func (a *API) adminVocabularyHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok: true, Description: "Custom vocabulary", Result: map[string]any{
+		Ok: true, Description: "Vocabulary", Result: map[string]any{
 			"tags": vocabulary.Tags, "units": vocabulary.Units,
 		},
 	})
@@ -284,8 +284,10 @@ func (a *API) renameVocabulary(c *echo.Context, tag bool) error {
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
-	if !entry.IsCustom {
-		return vocabularyConflictError(c, "only custom vocabulary values can be renamed")
+	// The apps translate the built-in units by their stored spelling, so renaming
+	// one would strip every locale's label from it. Built-in tags carry no labels.
+	if !tag && !entry.IsCustom {
+		return vocabularyConflictError(c, "built-in offering units cannot be renamed")
 	}
 	if tag && req.Replacement != entry.Value {
 		pending, err := a.store.HasUnfinishedTagDeployment(ctx, tx, entry.Value)
@@ -296,7 +298,7 @@ func (a *API) renameVocabulary(c *echo.Context, tag bool) error {
 			return vocabularyConflictError(c, "This tag is being used by an unfinished voucher or pool deployment. Please try again after the deployment finishes.")
 		}
 	}
-	renamed, err := a.store.RenameCustomVocabulary(ctx, tx, tag, entry.Value, req.Replacement)
+	renamed, err := a.store.RenameVocabulary(ctx, tx, tag, entry.Value, req.Replacement)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
