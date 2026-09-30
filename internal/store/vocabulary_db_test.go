@@ -51,7 +51,7 @@ func TestVocabularyRenameCascadesEveryTagReference(t *testing.T) {
 		_, err := tx.Exec(ctx, `INSERT INTO `+ref.table+` (`+ref.column+`,tag_value) VALUES ($1,$2)`, ref.id, old)
 		require.NoError(t, err)
 	}
-	renamed, err := pg.RenameCustomVocabulary(ctx, tx, true, old, replacement)
+	renamed, err := pg.RenameVocabulary(ctx, tx, true, old, replacement)
 	require.NoError(t, err)
 	require.Equal(t, replacement, renamed)
 	for _, ref := range references {
@@ -89,6 +89,25 @@ func TestVocabularyMigrationPreservesLegacyOfferingUnits(t *testing.T) {
 	var pgErr *pgconn.PgError
 	require.ErrorAs(t, err, &pgErr)
 	require.Equal(t, "23503", pgErr.Code)
+}
+
+// A key whose name differs from Postgres's default must still be replaced, not
+// left beside the cascading one where it would reject every rename.
+func TestVocabularyMigrationReplacesKeysWhateverTheirName(t *testing.T) {
+	_, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, err := tx.Exec(ctx, `ALTER TABLE voucher_tags RENAME CONSTRAINT voucher_tags_tag_value_fkey TO voucher_tags_legacy_fk`)
+	require.NoError(t, err)
+	migration, err := os.ReadFile("../../migrations/040_editable_vocabulary.sql")
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, string(migration))
+	require.NoError(t, err)
+	var keys []string
+	require.NoError(t, tx.QueryRow(ctx, `
+		SELECT array_agg(conname || ':' || confupdtype::text ORDER BY conname) FROM pg_constraint
+		WHERE contype = 'f' AND conrelid = 'voucher_tags'::regclass AND confrelid = 'token_tag'::regclass`).Scan(&keys))
+	require.Equal(t, []string{"voucher_tags_tag_value_fkey:c"}, keys)
 }
 
 func TestVocabularyReferencesHoldLockUntilWriterFinishes(t *testing.T) {
