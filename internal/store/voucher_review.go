@@ -155,12 +155,14 @@ func FlagVoucherReview(ctx context.Context, tx pgx.Tx, voucherID, id uint64, aut
 // LatestVoucherRedemption reads only successful, positive transfers from this
 // reviewer to this voucher's issuer. The configured application chain is checked
 // by the API before calling; the indexer tables themselves have no chain ID.
+// Tracker rows use checksum-case addresses; imported rows may be lowercase.
+// Compare both sides in lowercase so the same address always matches.
 func LatestVoucherRedemption(ctx context.Context, txDB FederationStore, voucher, reviewer, issuer string) (*time.Time, error) {
 	var latest *time.Time
 	err := txDB.Pool().QueryRow(ctx, `SELECT max(tx.date_block AT TIME ZONE 'UTC')
         FROM token_transfer tt JOIN tx ON tx.id=tt.tx_id
-        WHERE tt.contract_address=$1 AND tt.sender_address=$2 AND tt.recipient_address=$3
-        AND tt.sender_address<>tt.recipient_address AND tt.transfer_value>0 AND tx.success
+        WHERE lower(tt.contract_address)=$1 AND lower(tt.sender_address)=$2 AND lower(tt.recipient_address)=$3
+        AND lower(tt.sender_address)<>lower(tt.recipient_address) AND tt.transfer_value>0 AND tx.success
         AND tx.date_block <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')`, strings.ToLower(voucher), strings.ToLower(reviewer), strings.ToLower(issuer)).Scan(&latest)
 	return latest, err
 }

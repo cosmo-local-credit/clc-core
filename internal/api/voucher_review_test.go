@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
@@ -114,6 +115,15 @@ func TestVoucherReviewsHTTP(t *testing.T) {
 	require.NoError(t, err)
 	_, err = fed.Exec(ctx, `INSERT INTO token_transfer VALUES (10,10,$1,$2,$3,1)`, address, reviewer, owner)
 	require.NoError(t, err)
+	// Imported lowercase rows and checksum-case rows emitted by eth-tracker
+	// must both unlock the same review for the authenticated wallet.
+	lowercaseAccess := request(http.MethodGet, root+"/me", userToken, nil, http.StatusOK)
+	require.NotNil(t, lowercaseAccess["editableUntil"])
+	_, err = fed.Exec(ctx, `UPDATE token_transfer SET contract_address=$1, sender_address=$2, recipient_address=$3 WHERE id=10`,
+		common.HexToAddress(address).Hex(), common.HexToAddress(reviewer).Hex(), common.HexToAddress(owner).Hex())
+	require.NoError(t, err)
+	checksumAccess := request(http.MethodGet, root+"/me", userToken, nil, http.StatusOK)
+	require.Equal(t, lowercaseAccess["editableUntil"], checksumAccess["editableUntil"], "indexed address casing must not hide a redemption")
 	request(http.MethodPut, root+"/me", userToken, map[string]any{"stars": 6}, http.StatusBadRequest)
 	request(http.MethodPut, root+"/me", userToken, write, http.StatusOK)
 	request(http.MethodPut, root+"/me", userToken, map[string]any{"stars": 4, "comment": "Updated"}, http.StatusOK)
