@@ -144,7 +144,7 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 			INSERT INTO vouchers (chain_id, address, name, symbol, decimals, active,
 			    geo_lat, geo_lng, location_name, owner_address)
 			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
-			        $1, 'ZQO', 6, $2, -1.29, 36.82, $3, $4)
+			        $1, 'ZQO' || gen_random_uuid()::TEXT, 6, $2, -1.29, 36.82, $3, $4)
 			RETURNING id, address`, name, active, offeringMarker, owner).Scan(&id, &address); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("seed voucher %q: %v", name, err)

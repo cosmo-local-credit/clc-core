@@ -102,11 +102,8 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Uniqueness on the label, inside the transaction that goes on to enqueue the
-	// deploy. Not a reservation: the deployed_pools row is written later, by the
-	// worker, so two requests milliseconds apart can still both pass. That window
-	// is narrower than the one a worker-side constraint would leave, where the
-	// rejection lands after the deploy transaction is signed.
+	// Give an early conflict response; the atomic reservation below also
+	// protects against concurrent requests claiming the same recipient name.
 	nameTaken, err := a.store.PoolDisplayNameTaken(ctx, tx, req.Name, nil)
 	if err != nil {
 		return handlePostgresError(c, err)
@@ -174,6 +171,9 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 
 	trackingID := uuid.NewString()
+	if err := a.store.ReserveDeploymentIdentity(ctx, tx, trackingID, "pool", req.Name, req.Symbol); err != nil {
+		return handlePostgresError(c, err)
+	}
 
 	args := worker.DeployPoolArgs{
 		TrackingID:                 trackingID,
@@ -286,8 +286,8 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Uniqueness on the label; see deployPoolHandler for why this is a read
-	// inside the transaction rather than a database constraint.
+	// Preserve the existing voucher label check. Only recipient names and
+	// voucher/pool symbols participate in the shared atomic claims.
 	nameTaken, err := a.store.VoucherDisplayNameTaken(ctx, tx, req.Name, nil)
 	if err != nil {
 		return handlePostgresError(c, err)
@@ -330,6 +330,9 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 
 	trackingID := uuid.NewString()
+	if err := a.store.ReserveDeploymentIdentity(ctx, tx, trackingID, "voucher", req.Name, req.Symbol); err != nil {
+		return handlePostgresError(c, err)
+	}
 
 	_, err = a.queueClient.InsertTx(ctx, tx, worker.DeployTokenArgs{
 		TrackingID:            trackingID,

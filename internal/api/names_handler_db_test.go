@@ -86,7 +86,7 @@ func seedNameLookupFixtures(t *testing.T, a *API) (nameLookupFixtures, func()) {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO deployed_tokens
 			    (otx_id, platform_contract_id, status, symbol, name, decimals, admin)
-			VALUES ($1, $2, $3, 'ZQNM', $4, 6, $5)`,
+			VALUES ($1, $2, $3, 'ZQNM' || gen_random_uuid()::TEXT, $4, 6, $5)`,
 			otxID, tokenPlatformID, status, name, admin); err != nil {
 			t.Fatalf("insert %s token name %q: %v", status, name, err)
 		}
@@ -172,7 +172,7 @@ func TestNamesLookupReadsCatalogAndOpenDeployments(t *testing.T) {
 		{label: "open deploy", kind: "voucher", name: "Zqnamelookup Pending", available: false},
 		{label: "failed deploy is reusable", kind: "voucher", name: "Zqnamelookup Failed", available: true},
 		{label: "free name", kind: "voucher", name: "Zqnamelookup Unused", available: true},
-		// Kinds are separate namespaces, as with symbols.
+		// Voucher labels are separate from pool recipient names.
 		{label: "pool name from voucher kind", kind: "voucher", name: nameLookupPool, available: true},
 		{label: "pool name", kind: "pool", name: nameLookupPool, available: false},
 		{label: "voucher name from pool kind", kind: "pool", name: nameLookupVoucher, available: true},

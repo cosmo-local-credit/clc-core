@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -12,6 +14,7 @@ type (
 	User struct {
 		ID                uint64    `db:"id"               json:"id"`
 		EthereumAddress   string    `db:"ethereum_address" json:"ethereumAddress"`
+		Username          *string   `db:"username" json:"username"`
 		Name              string    `db:"name"             json:"name"`
 		Email             string    `db:"email"            json:"email"`
 		Phone             string    `db:"phone"            json:"phone"`
@@ -32,11 +35,12 @@ type (
 	}
 
 	UserProfileUpdate struct {
-		Address string
-		Name    string
-		Email   string
-		Phone   string
-		Country string
+		Address  string
+		Username *string
+		Name     string
+		Email    string
+		Phone    string
+		Country  string
 		// These fields use patch semantics so an older app that omits them does
 		// not erase a newer profile. A non-nil empty bio or website clears it.
 		PreferredCurrency *string
@@ -171,6 +175,23 @@ func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, m
 
 func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfileUpdate) (User, error) {
 	var u User
+	if update.Username == nil && strings.TrimSpace(update.Name) != "" {
+		var current *string
+		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE lower(blockchain_address) = lower($1) FOR UPDATE`, update.Address).Scan(&current); err != nil {
+			return u, err
+		}
+		if current == nil {
+			name, err := pg.assignUsername(ctx, tx, update.Address, update.Name)
+			if err != nil && !errors.Is(err, ErrNoUsernameAvailable) {
+				return u, err
+			}
+			// Exhausted suggestions must not prevent profile completion. A later
+			// profile save can retry or supply an explicitly chosen username.
+			if err == nil {
+				update.Username = &name
+			}
+		}
+	}
 
 	row, err := tx.Query(
 		ctx,
@@ -189,6 +210,7 @@ func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfi
 		update.GeoLng,
 		update.ClearAvatar,
 		update.AvatarURL,
+		update.Username,
 	)
 	if err != nil {
 		return u, err
