@@ -34,6 +34,7 @@ func pendingSIWEEmail(address string) string {
 func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) (store.UserProfileUpdate, error) {
 	update := store.UserProfileUpdate{
 		Address:           address,
+		Username:          req.Username,
 		Name:              req.Name,
 		Email:             req.Email,
 		Phone:             req.Phone,
@@ -48,6 +49,13 @@ func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) 
 		AvatarURL:         req.AvatarURL,
 	}
 
+	if req.Username != nil {
+		name := strings.ToLower(strings.TrimSpace(*req.Username))
+		if !store.ValidUsername(name) {
+			return update, errors.New("username must be 3–24 letters, digits or hyphens, with at least one letter and no edge hyphens")
+		}
+		update.Username = &name
+	}
 	if req.ClearLocation && (req.LocationName != nil || req.GeoLat != nil || req.GeoLng != nil) {
 		return update, errors.New("location fields and clearLocation cannot both be supplied")
 	}
@@ -225,6 +233,7 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 		Result: map[string]any{
 			"address":           user.EthereumAddress,
 			"name":              user.Name,
+			"username":          user.Username,
 			"email":             user.Email,
 			"phone":             user.Phone,
 			"country":           user.Country,
@@ -294,6 +303,7 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		Result: map[string]any{
 			"address":           user.EthereumAddress,
 			"name":              user.Name,
+			"username":          user.Username,
 			"email":             user.Email,
 			"phone":             user.Phone,
 			"country":           user.Country,

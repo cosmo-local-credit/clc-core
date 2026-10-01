@@ -86,7 +86,7 @@ func TestVoucherDisplayNameTakenSeesCatalogAndOpenDeploys(t *testing.T) {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO deployed_tokens
 			    (otx_id, platform_contract_id, status, symbol, name, decimals, admin)
-			VALUES ($1, $2, $3, 'ZQN', $4, 6, '0x33c573149db22e759fB9A38Bcc461C12855c2633')`,
+			VALUES ($1, $2, $3, 'ZQN' || $4, $4, 6, '0x33c573149db22e759fB9A38Bcc461C12855c2633')`,
 			otxID, platformID, status, name)
 		require.NoError(t, err, "seed %s deploy %q", status, name)
 	}
@@ -146,7 +146,7 @@ func TestPoolDisplayNameTakenSeesCatalogAndOpenDeploys(t *testing.T) {
 			    otx_id, platform_contract_id, status, name, symbol, decimals,
 			    token_registry_address, limiter_address, fee_policy_address, quoter_address,
 			    protocol_fee_controller_address, fees_decoupled, admin
-			) VALUES ($1, $2, $3, $4, 'ZQPN', 6, $5, $5, $5, $5, $5, false, $5)`,
+			) VALUES ($1, $2, $3, $4, 'ZQPN' || $3, 6, $5, $5, $5, $5, $5, false, $5)`,
 			otxID, platformID, status, name, addr)
 		require.NoError(t, err, "seed %s pool deploy %q", status, name)
 	}

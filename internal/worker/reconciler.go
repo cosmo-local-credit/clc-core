@@ -147,6 +147,19 @@ func (NonceReconcilerArgs) InsertOpts() river.InsertOpts {
 // on GET /api/v2/otx/track/:trackingId, whose own query costs well under a
 // millisecond.
 func (w *NonceReconcilerWorker) Work(ctx context.Context, job *river.Job[NonceReconcilerArgs]) error {
+	// Queue lifecycle cleanup must run even when no chain transactions exist.
+	tx, err := w.wc.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := w.wc.store.ReconcileDeploymentIdentities(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
 	// -- Phase 1: read the work list. No lock, committed immediately. -------
 	signer, candidates, err := w.loadCandidates(ctx, job.Args.Signer)
 	if err != nil {

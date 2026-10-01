@@ -25,7 +25,7 @@ func seedTaggedVoucher(t *testing.T, tx pgx.Tx, direct []string, viaOffering []s
 	var voucherID uint64
 	require.NoError(t, tx.QueryRow(ctx, `
 		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, active, geo_lat, geo_lng)
-		VALUES (42220, $1, 'Tagged', 'ZQT', 6, TRUE, -1.29, 36.82)
+		VALUES (42220, $1, 'Tagged', 'ZQT' || $1, 6, TRUE, -1.29, 36.82)
 		RETURNING id`, randomAddress(t, tx)).Scan(&voucherID))
 
 	for _, tag := range direct {
