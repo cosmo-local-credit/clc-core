@@ -3,10 +3,8 @@ package store
 import (
 	"context"
 	"errors"
-	"fmt"
 	"regexp"
 	"strings"
-	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -24,27 +22,34 @@ func ValidUsername(name string) bool {
 
 // Suggestions do not claim a name. The constraint remains authoritative at save.
 func (pg *Pg) SuggestUsername(ctx context.Context, tx pgx.Tx, hint string) (string, error) {
-	stem := usernameStem(hint)
-	for i := 0; i < 100; i++ {
-		candidate := usernameCandidate(stem, i)
-		var taken bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity_claims
-            WHERE namespace = 'recipient' AND name = $1)`, candidate).Scan(&taken); err != nil {
-			return "", err
-		}
-		if !taken {
-			return candidate, nil
-		}
+	return availableUsername(ctx, tx, usernameStem(hint))
+}
+
+// Check all ordinary suffix candidates in one database round trip. Selection
+// does not reserve the name; the unique constraint still arbitrates concurrent saves.
+func availableUsername(ctx context.Context, tx pgx.Tx, stem string) (string, error) {
+	if !ValidUsername(stem) {
+		return "", ErrNoUsernameAvailable
 	}
-	return "", ErrNoUsernameAvailable
+	var candidate string
+	err := tx.QueryRow(ctx, `SELECT candidate FROM (
+        SELECT i, $1::TEXT || CASE WHEN i = 0 THEN '' ELSE i::TEXT END AS candidate
+        FROM generate_series(0,99) i
+    ) candidates WHERE NOT EXISTS (
+        SELECT 1 FROM identity_claims WHERE namespace = 'recipient' AND name = candidate
+    ) ORDER BY i LIMIT 1`, stem).Scan(&candidate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNoUsernameAvailable
+	}
+	return candidate, err
 }
 
 func usernameStem(hint string) string {
 	var b strings.Builder
-	for _, r := range strings.ToLower(hint) {
+	for _, r := range strings.Join(strings.Fields(strings.ToLower(hint)), "-") {
 		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
 			b.WriteRune(r)
-		} else if unicode.IsSpace(r) || r == '-' {
+		} else if r == '-' {
 			b.WriteByte('-')
 		}
 	}
@@ -52,33 +57,25 @@ func usernameStem(hint string) string {
 	if len(stem) > 20 {
 		stem = strings.TrimRight(stem[:20], "-")
 	}
-	if !usernameLetter.MatchString(stem) {
-		stem = "user"
-	}
-	if len(stem) < 3 {
-		stem += "user"
-	}
+	// Use the provided full name; never invent a generic or random identity.
+	// Invalid stems defer automatic assignment until a username is chosen.
 	return stem
-}
-
-func usernameCandidate(stem string, attempt int) string {
-	if attempt == 0 {
-		return stem
-	}
-	return fmt.Sprintf("%s%d", stem, attempt)
 }
 
 // A savepoint lets automatic assignment recover from a concurrent unique claim
 // without aborting the surrounding profile transaction.
 func (pg *Pg) assignUsername(ctx context.Context, tx pgx.Tx, address, hint string) (string, error) {
 	stem := usernameStem(hint)
-	for i := 0; i < 100; i++ {
-		candidate := usernameCandidate(stem, i)
+	for i := 0; i < 3; i++ {
+		candidate, err := availableUsername(ctx, tx, stem)
+		if err != nil {
+			return "", err
+		}
 		if _, err := tx.Exec(ctx, "SAVEPOINT username_claim"); err != nil {
 			return "", err
 		}
 		var saved string
-		err := tx.QueryRow(ctx, `UPDATE users SET username = $2 WHERE lower(blockchain_address) = lower($1) RETURNING username`, address, candidate).Scan(&saved)
+		err = tx.QueryRow(ctx, `UPDATE users SET username = $2 WHERE lower(blockchain_address) = lower($1) RETURNING username`, address, candidate).Scan(&saved)
 		if err == nil {
 			_, err = tx.Exec(ctx, "RELEASE SAVEPOINT username_claim")
 			return saved, err
@@ -116,12 +113,32 @@ const recipientProjection = `WITH recipients AS (
     FROM pools WHERE ($2::BIGINT = 0 OR chain_id = $2) AND COALESCE(display_name, name) IS NOT NULL
 ) SELECT kind, name, alias, address, chain_id FROM recipients `
 
-func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, chainID int64, kind string) ([]Recipient, error) {
-	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(NormalizeDeployName(query))
-	rows, err := tx.Query(ctx, recipientProjection+`WHERE ($3 = '' OR kind = $3)
+// Start with the unique current claim, then use existing address indexes to
+// load its public owner. Deployment reservations never resolve as recipients.
+const recipientForwardLookup = `SELECT 'user'::TEXT AS kind,
+    COALESCE(NULLIF(u.name, ''), u.username) AS name, u.username AS alias,
+    u.blockchain_address AS address, $2::BIGINT AS chain_id
+FROM identity_claims c JOIN users u ON lower(u.blockchain_address) = c.owner_key
+WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
+  AND c.owner_kind = 'user' AND u.username IS NOT NULL AND u.status = 'APPROVED'
+UNION ALL
+SELECT 'pool', COALESCE(p.display_name, p.name), COALESCE(p.display_name, p.name),
+    p.address, p.chain_id
+FROM identity_claims c JOIN pools p ON p.chain_id = CASE
+    WHEN c.owner_kind = 'pool' AND NOT starts_with(c.owner_key, 'deploy:')
+    THEN split_part(c.owner_key, ':', 1)::BIGINT END
+    AND lower(p.address) = split_part(c.owner_key, ':', 2)
+WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
+  AND c.owner_kind = 'pool' AND ($2::BIGINT = 0 OR p.chain_id = $2)`
+
+const recipientSearchQuery = recipientProjection + `WHERE ($3 = '' OR kind = $3)
         AND normalize_identity_name(alias) LIKE '%' || $1 || '%' ESCAPE '\'
         ORDER BY (normalize_identity_name(alias) = $4) DESC,
-                 lower(alias), kind, address LIMIT 20`, escaped, chainID, kind, NormalizeDeployName(query))
+                 lower(alias), kind, address LIMIT 20`
+
+func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, chainID int64, kind string) ([]Recipient, error) {
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(NormalizeDeployName(query))
+	rows, err := tx.Query(ctx, recipientSearchQuery, escaped, chainID, kind, NormalizeDeployName(query))
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +155,11 @@ func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, cha
 }
 
 func (pg *Pg) ResolveRecipient(ctx context.Context, tx pgx.Tx, name string, chainID int64, reverse bool) (Recipient, error) {
-	predicate := `WHERE normalize_identity_name(alias) = normalize_identity_name($1)`
+	query := recipientForwardLookup + ` LIMIT 2`
 	if reverse {
-		predicate = `WHERE lower(address) = lower($1)`
+		query = recipientProjection + `WHERE lower(address) = lower($1) LIMIT 2`
 	}
-	rows, err := tx.Query(ctx, recipientProjection+predicate+` LIMIT 2`, name, chainID)
+	rows, err := tx.Query(ctx, query, name, chainID)
 	if err != nil {
 		return Recipient{}, err
 	}
@@ -182,12 +199,14 @@ func (pg *Pg) ReserveDeploymentIdentity(ctx context.Context, tx pgx.Tx, tracking
 // insertion and reservation share a transaction, so an active reservation cannot
 // be visible before its job. Durable deployments retain their claims until the
 // deployment status explicitly fails or catalog promotion transfers ownership.
+const recipientDeploymentOwnersQuery = `SELECT owner_key FROM identity_claims
+        WHERE starts_with(owner_key, 'deploy:') FOR UPDATE SKIP LOCKED`
+
 func (pg *Pg) ReconcileDeploymentIdentities(ctx context.Context, tx pgx.Tx) error {
 	// Lock first, then inspect deployment state in a fresh statement snapshot.
 	// A worker persisting its deployment also writes these claims via triggers;
 	// skip it while in flight and never delete using a pre-commit snapshot.
-	rows, err := tx.Query(ctx, `SELECT owner_key FROM identity_claims
-        WHERE starts_with(owner_key, 'deploy:') FOR UPDATE SKIP LOCKED`)
+	rows, err := tx.Query(ctx, recipientDeploymentOwnersQuery)
 	if err != nil {
 		return err
 	}

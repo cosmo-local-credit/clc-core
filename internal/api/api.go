@@ -197,7 +197,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/symbols", a.symbolsLookupHandler)
 	apiGroup.GET("/names", a.namesLookupHandler)
 	apiGroup.GET("/recipients", a.recipientSearchHandler)
-	router.GET(apiVersion+"/recipients/suggest", a.usernameSuggestHandler)
+	router.GET(apiVersion+"/recipients/suggest", a.usernameSuggestHandler, a.marketRateLimitMiddleware())
 	apiGroup.GET("/recipients/resolve/:name", a.recipientResolveHandler)
 	apiGroup.GET("/recipients/reverse/:address", a.recipientReverseHandler)
 	apiGroup.GET("/oracle-feeds", a.oracleFeedsHandler)

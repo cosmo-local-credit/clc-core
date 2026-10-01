@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
@@ -25,7 +26,105 @@ func recipientTestStore(t *testing.T) *Pg {
 	pg, err := NewPgStore(PgOpts{DSN: dsn, Logg: slog.New(slog.DiscardHandler), MigrationsFolderPath: "../../migrations", QueriesFolderPath: "../../core_queries.sql"})
 	require.NoError(t, err)
 	t.Cleanup(pg.Pool().Close)
-	return pg.(*Pg)
+	concrete, ok := pg.(*Pg)
+	require.True(t, ok, "expected PostgreSQL store")
+	return concrete
+}
+
+func TestRecipientFullNameSuggestionsAddNumbersOnlyWhenTaken(t *testing.T) {
+	pg := recipientTestStore(t)
+	ctx := context.Background()
+	tx, err := pg.Pool().Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+	name, err := pg.SuggestUsername(ctx, tx, "Sohail Khan")
+	require.NoError(t, err)
+	require.Equal(t, "sohail-khan", name)
+	_, err = tx.Exec(ctx, `INSERT INTO pools(chain_id,address,name,symbol)
+        SELECT 100, '0x' || md5(i::TEXT) || '00000000',
+            'sohail-khan' || CASE WHEN i=0 THEN '' ELSE i::TEXT END, 'FNAME' || i::TEXT
+        FROM generate_series(0,1) i`)
+	require.NoError(t, err)
+	name, err = pg.SuggestUsername(ctx, tx, "Sohail Khan")
+	require.NoError(t, err)
+	require.Equal(t, "sohail-khan2", name)
+	address := randomAddress(t, tx)
+	_, err = pg.InsertUser(ctx, tx, User{EthereumAddress: address, Name: "Sohail Khan", Email: "full-name@example.test", Role: "USER", Status: "APPROVED"})
+	require.NoError(t, err)
+	saved, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{Address: address, Name: "Sohail Khan", Email: "full-name@example.test"})
+	require.NoError(t, err)
+	require.Equal(t, "sohail-khan2", *saved.Username)
+
+	// A non-Latin name cannot form an ASCII username. Keep profile save working
+	// without generating user99 or a random identity.
+	otherAddress := randomAddress(t, tx)
+	_, err = pg.InsertUser(ctx, tx, User{EthereumAddress: otherAddress, Name: "李明", Email: "manual-name@example.test", Role: "USER", Status: "APPROVED"})
+	require.NoError(t, err)
+	_, err = pg.SuggestUsername(ctx, tx, "李明")
+	require.ErrorIs(t, err, ErrNoUsernameAvailable)
+	saved, err = pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{Address: otherAddress, Name: "李明", Email: "manual-name@example.test"})
+	require.NoError(t, err)
+	require.Nil(t, saved.Username)
+}
+
+func TestRecipientConcurrentAutomaticAssignment(t *testing.T) {
+	pg := recipientTestStore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	hint := "race-" + uuid.NewString()[:8]
+	addresses := []string{}
+	seed, err := pg.Pool().Begin(ctx)
+	require.NoError(t, err)
+	defer seed.Rollback(ctx)
+	for range 4 {
+		address := randomAddress(t, seed)
+		_, err = seed.Exec(ctx, `INSERT INTO users(blockchain_address,name,email,status)
+            VALUES($1,$2,$3,'APPROVED')`, address, hint, address+"@example.test")
+		require.NoError(t, err)
+		addresses = append(addresses, address)
+	}
+	require.NoError(t, seed.Commit(ctx))
+	t.Cleanup(func() {
+		_, err := pg.Pool().Exec(context.Background(), `DELETE FROM users WHERE blockchain_address = ANY($1::TEXT[])`, addresses)
+		if err != nil {
+			t.Errorf("cleanup concurrent username fixtures: %v", err)
+		}
+	})
+	type result struct {
+		name string
+		err  error
+	}
+	results := make(chan result, len(addresses))
+	start := make(chan struct{})
+	for _, address := range addresses {
+		go func() {
+			tx, err := pg.Pool().Begin(ctx)
+			if err != nil {
+				results <- result{err: err}
+				return
+			}
+			defer tx.Rollback(ctx)
+			<-start
+			name, err := pg.assignUsername(ctx, tx, address, hint)
+			if err == nil {
+				err = tx.Commit(ctx)
+			}
+			results <- result{name: name, err: err}
+		}()
+	}
+	close(start)
+	names := map[string]bool{}
+	for range addresses {
+		r := <-results
+		// A bounded retry can defer a heavily contended assignment safely.
+		if errors.Is(r.err, ErrNoUsernameAvailable) {
+			continue
+		}
+		require.NoError(t, r.err)
+		require.False(t, names[r.name], "two users must never receive the same username")
+		names[r.name] = true
+	}
+	require.True(t, names[hint], "one concurrent request must claim the base name")
 }
 
 func TestRecipientCurrentNamesAndSymbols(t *testing.T) {
@@ -116,7 +215,12 @@ func TestRecipientConcurrentClaimHasOneWinner(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	require.NoError(t, first.Commit(ctx))
-	defer pg.Pool().Exec(ctx, `DELETE FROM pools WHERE address=$1`, firstAddress)
+	t.Cleanup(func() {
+		_, err := pg.Pool().Exec(context.Background(), `DELETE FROM pools WHERE address=$1`, firstAddress)
+		if err != nil {
+			t.Errorf("cleanup concurrent pool fixture: %v", err)
+		}
+	})
 	select {
 	case err := <-result:
 		var unique *pgconn.PgError
