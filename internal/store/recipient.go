@@ -136,9 +136,32 @@ const recipientSearchQuery = recipientProjection + `WHERE ($3 = '' OR kind = $3)
         ORDER BY (normalize_identity_name(alias) = $4) DESC,
                  lower(alias), kind, address LIMIT 20`
 
+var recipientPhonePattern = regexp.MustCompile(`^\+?[0-9\s()-]*[0-9][0-9\s()-]*$`)
+var recipientPhoneFormatting = regexp.MustCompile(`[+\s()-]`)
+
+const recipientPhoneSearchQuery = `SELECT 'user'::TEXT AS kind,
+    COALESCE(NULLIF(name, ''), username) AS name, username AS alias,
+    blockchain_address AS address, $2::BIGINT AS chain_id
+FROM users
+WHERE username IS NOT NULL AND status = 'APPROVED' AND ($3 = '' OR $3 = 'user')
+  AND starts_with(regexp_replace(phone, '[+[:space:]()-]', '', 'g'), $1)
+ORDER BY (regexp_replace(phone, '[+[:space:]()-]', '', 'g') = $4) DESC,
+         lower(username), blockchain_address LIMIT 20`
+
 func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, chainID int64, kind string) ([]Recipient, error) {
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(NormalizeDeployName(query))
-	rows, err := tx.Query(ctx, recipientSearchQuery, escaped, chainID, kind, NormalizeDeployName(query))
+	searchQuery := recipientSearchQuery
+	exact := NormalizeDeployName(query)
+	if recipientPhonePattern.MatchString(strings.TrimSpace(query)) {
+		// Match the digits as stored, including leading zeros. No country inference.
+		escaped = recipientPhoneFormatting.ReplaceAllString(strings.TrimSpace(query), "")
+		if len(escaped) < 3 {
+			return []Recipient{}, nil
+		}
+		exact = escaped
+		searchQuery = recipientPhoneSearchQuery
+	}
+	rows, err := tx.Query(ctx, searchQuery, escaped, chainID, kind, exact)
 	if err != nil {
 		return nil, err
 	}

@@ -2781,3 +2781,19 @@ deployments keep their association under the new name.
 
 Like deletion, a rename does not blacklist the old spelling: the next catalog
 write that names it creates it as a new custom value.
+
+## Recipient search
+
+Authenticated `GET /api/v2/recipients?q=…` returns up to 20 recipient identities
+in `result.recipients`. Text searches current usernames and effective pool names.
+Phone-shaped input searches approved users with usernames by their stored phone
+prefix, after at least three digits. An optional leading `+`, spaces, parentheses
+and hyphens are ignored when comparing; every digit, including leading zeros
+and `00`, is preserved. `071` is not converted to an international number.
+Exact phone matches rank first, followed by username/address order. The existing
+optional `kind=user|pool` parameter still applies; pool contact phones are excluded.
+Phone numbers are not included in the response.
+
+Sending to a complete wallet address uses direct address entry, with optional
+`GET /api/v2/recipients/reverse/:address` for its current identity label. Unknown
+addresses remain valid destinations; partial addresses do not trigger discovery.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,74 @@ func recipientTestStore(t *testing.T) *Pg {
 	concrete, ok := pg.(*Pg)
 	require.True(t, ok, "expected PostgreSQL store")
 	return concrete
+}
+
+func TestRecipientPhoneSearchMatchesLiteralPrefixes(t *testing.T) {
+	pg := recipientTestStore(t)
+	ctx := context.Background()
+	tx, err := pg.Pool().Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+	marker := "phone-" + uuid.NewString()[:8]
+	for i, phone := range []string{"071", "(071) 234-5678", "+254712345678", "00712345678"} {
+		_, err := tx.Exec(ctx, `INSERT INTO users(blockchain_address,name,email,username,phone,status)
+            VALUES($1,'Phone User',$2,$3,$4,'APPROVED')`, randomAddress(t, tx),
+			marker+fmt.Sprint(i)+"@example.test", marker+fmt.Sprint(i), phone)
+		require.NoError(t, err)
+	}
+	// Matching contact fields do not expose pending/unnamed users or pools.
+	_, err = tx.Exec(ctx, `INSERT INTO users(blockchain_address,name,email,username,phone,status)
+        VALUES($1,'Pending',$2,$3,'071999','PENDING'),($4,'Unnamed',$5,NULL,'071888','APPROVED')`,
+		randomAddress(t, tx), marker+"pending@example.test", marker+"pending",
+		randomAddress(t, tx), marker+"unnamed@example.test")
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `INSERT INTO pools(chain_id,address,name,symbol,phone)
+        VALUES(100,$1,$2,$3,'071777')`, randomAddress(t, tx), marker+"pool", marker+"symbol")
+	require.NoError(t, err)
+
+	for _, query := range []string{"071", " (071) ", "+071"} {
+		found, err := pg.SearchRecipients(ctx, tx, query, 100, "")
+		require.NoError(t, err)
+		require.Len(t, found, 2)
+		require.Equal(t, marker+"0", found[0].Alias, "exact phone first")
+		require.Equal(t, marker+"1", found[1].Alias)
+	}
+	for query, alias := range map[string]string{"+254 712": marker + "2", "007": marker + "3"} {
+		found, err := pg.SearchRecipients(ctx, tx, query, 100, "user")
+		require.NoError(t, err)
+		require.Len(t, found, 1)
+		require.Equal(t, alias, found[0].Alias)
+	}
+	for _, query := range []string{"07", "+0(7)", "999999"} {
+		found, err := pg.SearchRecipients(ctx, tx, query, 100, "")
+		require.NoError(t, err)
+		require.Empty(t, found)
+	}
+	found, err := pg.SearchRecipients(ctx, tx, "071", 100, "pool")
+	require.NoError(t, err)
+	require.Empty(t, found)
+
+	// Keep prefix results bounded, even when many profiles share the prefix.
+	_, err = tx.Exec(ctx, `INSERT INTO users(blockchain_address,name,email,username,phone,status)
+        SELECT '0x' || md5($1 || i::TEXT) || '00000000', 'Phone User',
+            $1 || i::TEXT || '@example.test', $1 || i::TEXT, '071555' || i::TEXT, 'APPROVED'
+        FROM generate_series(1,10000) i`, marker+"limit")
+	require.NoError(t, err)
+	found, err = pg.SearchRecipients(ctx, tx, "071", 100, "")
+	require.NoError(t, err)
+	require.Len(t, found, 20)
+	require.Equal(t, marker+"0", found[0].Alias)
+	rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+recipientPhoneSearchQuery, "071", 100, "", "071")
+	require.NoError(t, err)
+	plan, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	t.Log("Phone prefix plan on 10,000 matching profiles:\n" + strings.Join(plan, "\n"))
+
+	// Phone input does not change name discovery.
+	found, err = pg.SearchRecipients(ctx, tx, marker+"pool", 100, "")
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	require.Equal(t, "pool", found[0].Kind)
 }
 
 func TestRecipientFullNameSuggestionsAddNumbersOnlyWhenTaken(t *testing.T) {
