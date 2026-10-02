@@ -35,9 +35,8 @@ func (a *API) recipientRead(c *echo.Context, read func(pgx.Tx) (any, error)) err
 
 func (a *API) recipientSearchHandler(c *echo.Context) error {
 	query := strings.TrimSpace(c.QueryParam("q"))
-	kind := c.QueryParam("kind")
-	if query == "" || len([]rune(query)) > 120 || (kind != "" && kind != "user" && kind != "pool") {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{Ok: false, ErrCode: apiresp.ErrCodeValidationFailed, Description: "provide a search term and an optional user or pool kind"})
+	if query == "" || len([]rune(query)) > 120 {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{Ok: false, ErrCode: apiresp.ErrCodeValidationFailed, Description: "provide a search term between 1 and 120 characters"})
 	}
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
@@ -45,7 +44,7 @@ func (a *API) recipientSearchHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	recipients, err := a.store.SearchRecipients(ctx, tx, query, a.chainID, kind)
+	recipients, err := a.store.SearchRecipients(ctx, tx, query)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -58,7 +57,7 @@ func (a *API) recipientSearchHandler(c *echo.Context) error {
 
 func (a *API) recipientResolveHandler(c *echo.Context) error {
 	return a.recipientRead(c, func(tx pgx.Tx) (any, error) {
-		return a.store.ResolveRecipient(c.Request().Context(), tx, c.Param("name"), a.chainID, false)
+		return a.store.ResolveRecipient(c.Request().Context(), tx, c.Param("name"), false)
 	})
 }
 
@@ -68,7 +67,7 @@ func (a *API) recipientReverseHandler(c *echo.Context) error {
 		return handleBindError(c, &echo.HTTPError{Message: "invalid address"})
 	}
 	return a.recipientRead(c, func(tx pgx.Tx) (any, error) {
-		return a.store.ResolveRecipient(c.Request().Context(), tx, address, a.chainID, true)
+		return a.store.ResolveRecipient(c.Request().Context(), tx, address, true)
 	})
 }
 

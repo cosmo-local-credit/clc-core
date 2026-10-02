@@ -12,8 +12,8 @@ import (
 type (
 	Store interface {
 		SuggestUsername(context.Context, pgx.Tx, string) (string, error)
-		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)
-		ResolveRecipient(context.Context, pgx.Tx, string, int64, bool) (Recipient, error)
+		SearchRecipients(context.Context, pgx.Tx, string) ([]Recipient, error)
+		ResolveRecipient(context.Context, pgx.Tx, string, bool) (Recipient, error)
 		ReserveDeploymentIdentity(context.Context, pgx.Tx, string, string, string, string) error
 		ReconcileDeploymentIdentities(context.Context, pgx.Tx) error
 		Pool() *pgxpool.Pool

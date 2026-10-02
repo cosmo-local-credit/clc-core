@@ -100,45 +100,42 @@ type Recipient struct {
 	Name    string `json:"name"`
 	Alias   string `json:"alias"`
 	Address string `json:"address"`
-	ChainID int64  `json:"chainId"`
 }
 
 const recipientProjection = `WITH recipients AS (
     SELECT 'user'::TEXT AS kind, COALESCE(NULLIF(name, ''), username) AS name,
-           username AS alias, blockchain_address AS address, $2::BIGINT AS chain_id
+           username AS alias, blockchain_address AS address
     FROM users WHERE username IS NOT NULL AND status = 'APPROVED'
     UNION ALL
-    SELECT 'pool', COALESCE(display_name, name), COALESCE(display_name, name), address,
-           chain_id
-    FROM pools WHERE ($2::BIGINT = 0 OR chain_id = $2) AND COALESCE(display_name, name) IS NOT NULL
-) SELECT kind, name, alias, address, chain_id FROM recipients `
+    SELECT 'pool', COALESCE(display_name, name), COALESCE(display_name, name), address
+    FROM pools WHERE COALESCE(display_name, name) IS NOT NULL
+) SELECT kind, name, alias, address FROM recipients `
 
 // Start with the unique current claim, then use existing address indexes to
 // load its public owner. Deployment reservations never resolve as recipients.
 const recipientForwardLookup = `SELECT 'user'::TEXT AS kind,
     COALESCE(NULLIF(u.name, ''), u.username) AS name, u.username AS alias,
-    u.blockchain_address AS address, $2::BIGINT AS chain_id
+    u.blockchain_address AS address
 FROM identity_claims c JOIN users u ON lower(u.blockchain_address) = c.owner_key
 WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
   AND c.owner_kind = 'user' AND u.username IS NOT NULL AND u.status = 'APPROVED'
 UNION ALL
 SELECT 'pool', COALESCE(p.display_name, p.name), COALESCE(p.display_name, p.name),
-    p.address, p.chain_id
+    p.address
 FROM identity_claims c JOIN pools p ON p.chain_id = CASE
     WHEN c.owner_kind = 'pool' AND NOT starts_with(c.owner_key, 'deploy:')
     THEN split_part(c.owner_key, ':', 1)::BIGINT END
     AND lower(p.address) = split_part(c.owner_key, ':', 2)
 WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
-  AND c.owner_kind = 'pool' AND ($2::BIGINT = 0 OR p.chain_id = $2)`
+  AND c.owner_kind = 'pool'`
 
-const recipientSearchQuery = recipientProjection + `WHERE ($3 = '' OR kind = $3)
-        AND normalize_identity_name(alias) LIKE '%' || $1 || '%' ESCAPE '\'
-        ORDER BY (normalize_identity_name(alias) = $4) DESC,
+const recipientSearchQuery = recipientProjection + `WHERE normalize_identity_name(alias) LIKE '%' || $1 || '%' ESCAPE '\'
+        ORDER BY (normalize_identity_name(alias) = $2) DESC,
                  lower(alias), kind, address LIMIT 20`
 
-func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, chainID int64, kind string) ([]Recipient, error) {
+func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string) ([]Recipient, error) {
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(NormalizeDeployName(query))
-	rows, err := tx.Query(ctx, recipientSearchQuery, escaped, chainID, kind, NormalizeDeployName(query))
+	rows, err := tx.Query(ctx, recipientSearchQuery, escaped, NormalizeDeployName(query))
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +143,7 @@ func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, cha
 	result := []Recipient{}
 	for rows.Next() {
 		var r Recipient
-		if err := rows.Scan(&r.Kind, &r.Name, &r.Alias, &r.Address, &r.ChainID); err != nil {
+		if err := rows.Scan(&r.Kind, &r.Name, &r.Alias, &r.Address); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -154,12 +151,12 @@ func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, cha
 	return result, rows.Err()
 }
 
-func (pg *Pg) ResolveRecipient(ctx context.Context, tx pgx.Tx, name string, chainID int64, reverse bool) (Recipient, error) {
+func (pg *Pg) ResolveRecipient(ctx context.Context, tx pgx.Tx, name string, reverse bool) (Recipient, error) {
 	query := recipientForwardLookup + ` LIMIT 2`
 	if reverse {
 		query = recipientProjection + `WHERE lower(address) = lower($1) LIMIT 2`
 	}
-	rows, err := tx.Query(ctx, query, name, chainID)
+	rows, err := tx.Query(ctx, query, name)
 	if err != nil {
 		return Recipient{}, err
 	}
@@ -167,7 +164,7 @@ func (pg *Pg) ResolveRecipient(ctx context.Context, tx pgx.Tx, name string, chai
 	var found Recipient
 	count := 0
 	for rows.Next() {
-		if err := rows.Scan(&found.Kind, &found.Name, &found.Alias, &found.Address, &found.ChainID); err != nil {
+		if err := rows.Scan(&found.Kind, &found.Name, &found.Alias, &found.Address); err != nil {
 			return Recipient{}, err
 		}
 		count++

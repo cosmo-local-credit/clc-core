@@ -42,8 +42,8 @@ func TestRecipientLookupIndexes(t *testing.T) {
 		name, query, args string
 		indexes           []string
 	}{
-		{"search", recipientSearchQuery, "'pool10000',100,'','pool10000'", []string{"users_recipient_name_trgm_idx", "pools_recipient_name_trgm_idx"}},
-		{"forward", recipientForwardLookup + " LIMIT 2", "'" + marker + "-pool10000',100", []string{"identity_claims_name_key", "users_blockchain_address_lower_key", "pools_chain_address_lower_key"}},
+		{"search", recipientSearchQuery, "'pool10000','pool10000'", []string{"users_recipient_name_trgm_idx", "pools_recipient_name_trgm_idx"}},
+		{"forward", recipientForwardLookup + " LIMIT 2", "'" + marker + "-pool10000'", []string{"identity_claims_name_key", "users_blockchain_address_lower_key", "pools_chain_address_lower_key"}},
 		{"cleanup", recipientDeploymentOwnersQuery, "", []string{"identity_claims_deployment_owner_idx"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
