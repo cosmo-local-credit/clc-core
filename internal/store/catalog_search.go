@@ -71,6 +71,8 @@ type (
 		// Owner restricts the page to rows belonging to one address: a voucher's
 		// owner_address, a report's author_address. Empty means no restriction.
 		Owner string
+		// Nearby is resolved from the viewer profile, independently of optional search filters.
+		Nearby *CatalogLocation
 	}
 
 	// VoucherRef is the stable public identity of a voucher. Numeric database
@@ -259,7 +261,7 @@ func normalizeCatalogTags(raw []string) []string {
 // Active reports whether the filter narrows anything. When it does not, callers
 // use the existing static statements unchanged.
 func (f CatalogFilter) Active() bool {
-	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || f.Owner != ""
+	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || f.Owner != "" || f.Nearby != nil
 }
 
 // prefixOnly reports whether the term is short enough that it matches as a

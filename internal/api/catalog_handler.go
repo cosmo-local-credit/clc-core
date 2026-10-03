@@ -188,6 +188,9 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 		return v.ID
 	}, catalogListHooks{
 		validate: func(tx pgx.Tx) (bool, error) {
+			if handled, err := a.resolveNearbyCatalog(c, tx, &search); handled || err != nil {
+				return handled, err
+			}
 			return a.rejectUnknownTags(c, tx, search.filter.Tags)
 		},
 		extras: catalogTagFacetExtras(search, pagination, func(tx pgx.Tx) ([]store.TagFacet, error) {

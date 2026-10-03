@@ -98,6 +98,7 @@ func composeMarketVoucherPage(
 				"v.geo_lat IS NOT NULL",
 				boundsPredicate(args, bounds),
 				ownerPredicate(args, "v.owner_address", filter),
+				nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
 				voucherTagPredicate(args, filter),
 				cursorPredicate(args, "v.id", page, cursor),
 			) +
@@ -116,6 +117,7 @@ func composeMarketVoucherPage(
 			"v.geo_lat IS NOT NULL",
 			boundsPredicate(args, bounds),
 			ownerPredicate(args, "v.owner_address", filter),
+			nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
 			searchPredicate(args, filter, "v"),
 			voucherTagPredicate(args, filter),
 		) +
@@ -168,6 +170,7 @@ func composeMarketVoucherTagCounts(bounds *MarketVoucherBounds, filter CatalogFi
 			"v.geo_lat IS NOT NULL",
 			boundsPredicate(args, bounds),
 			ownerPredicate(args, "v.owner_address", filter),
+			nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
 			searchPredicate(args, filter, "v"),
 		) + `
 )
