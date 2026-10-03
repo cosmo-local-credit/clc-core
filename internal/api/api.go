@@ -168,9 +168,9 @@ func New(o APIOpts) *API {
 
 	// Public market catalog. Registered on the root router, NOT on apiGroup:
 	// flexibleAuthMiddleware is mandatory authentication despite its name, and
-	// the Market tab must work for signed-out visitors. It carries its own
-	// per-IP rate limit in place of authentication.
-	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware())
+	// ordinary catalog/detail reads remain public. Nearby list reads opt into
+	// user authentication. All market reads retain their per-IP rate limit.
+	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())

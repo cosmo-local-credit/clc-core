@@ -99,14 +99,18 @@ func (a *API) voucherByAddressHandler(c *echo.Context) error {
 	})
 }
 
-// setMarketCacheHeaders marks a successful public market response cacheable.
-// The representation is identical for guests and signed-in users, so no
+// setMarketCacheHeaders keeps nearby lists private; ordinary market responses
+// remain public. Their representation is identical for guests and signed-in users, so no
 // authorization or cookie value may change it. Origin is *merged* into Vary
 // rather than overwriting it: AllowCredentials is true in the global CORS
 // policy, which makes origin variance mandatory even though this client
 // deliberately sends no credentials.
 func setMarketCacheHeaders(c *echo.Context) {
 	header := c.Response().Header()
+	if c.QueryParam("nearby") == "true" {
+		header.Set("Cache-Control", "private, no-store")
+		return
+	}
 	header.Set("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
 
 	for _, existing := range header.Values("Vary") {
