@@ -559,34 +559,6 @@ INSERT INTO voucher_type (value) VALUES
     ('UNKNOWN')
 ON CONFLICT (value) DO NOTHING;
 
--- Map marker glyphs and colours a voucher may carry (migration 043).
-CREATE TABLE IF NOT EXISTS voucher_marker_icon (
-    value TEXT PRIMARY KEY,
-    CONSTRAINT voucher_marker_icon_value_valid CHECK (value ~ '^[a-z][a-z-]{0,31}$')
-);
-INSERT INTO voucher_marker_icon (value) VALUES
-    ('basket'),
-    ('hand-coin'),
-    ('coupon'),
-    ('food'),
-    ('farm'),
-    ('tools'),
-    ('health')
-ON CONFLICT (value) DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS voucher_marker_color (
-    value TEXT PRIMARY KEY,
-    CONSTRAINT voucher_marker_color_value_valid CHECK (value ~ '^[a-z][a-z-]{0,31}$')
-);
-INSERT INTO voucher_marker_color (value) VALUES
-    ('blue'),
-    ('purple'),
-    ('orange'),
-    ('pink'),
-    ('cyan'),
-    ('brown')
-ON CONFLICT (value) DO NOTHING;
-
 CREATE TABLE IF NOT EXISTS vouchers (
     id                    INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     chain_id              INT NOT NULL,
@@ -610,8 +582,6 @@ CREATE TABLE IF NOT EXISTS vouchers (
     phone                 TEXT,
     icon_url              TEXT,
     banner_url            TEXT,
-    marker_icon           TEXT,
-    marker_color          TEXT,
     terms                 TEXT,
     contract_version      TEXT,
     active                BOOLEAN NOT NULL DEFAULT true,
@@ -638,10 +608,6 @@ CREATE TABLE IF NOT EXISTS vouchers (
         CHECK (display_name IS NULL
             OR (display_name = btrim(display_name)
                 AND char_length(display_name) BETWEEN 1 AND 120)),
-    CONSTRAINT vouchers_marker_icon_fk
-        FOREIGN KEY (marker_icon) REFERENCES voucher_marker_icon(value),
-    CONSTRAINT vouchers_marker_color_fk
-        FOREIGN KEY (marker_color) REFERENCES voucher_marker_color(value),
     CONSTRAINT vouchers_geo_valid CHECK (
         ((geo_lat IS NULL) = (geo_lng IS NULL))
         AND (geo_lat IS NULL OR geo_lat BETWEEN -90 AND 90)

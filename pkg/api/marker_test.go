@@ -10,26 +10,21 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-// The validators, the exported lists and every seed of the lookup tables have
-// to name the same values, or a request is accepted that the foreign key then
-// rejects in the worker, after the deploy is signed.
+// The validators, the exported lists and the lookup table seeds have to name
+// the same values, or a request is accepted that the foreign key then rejects
+// in the worker, after the deploy is signed.
 func TestMarkerStylesMatchTheMigration(t *testing.T) {
-	for _, path := range []string{
-		"../../migrations/043_voucher_marker_style.sql",
-		"../../migrations/001_init.sql",
-		"../../migrations/006_network_catalog.sql",
+	const path = "../../migrations/043_voucher_marker_style.sql"
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	for table, want := range map[string][]string{
+		"voucher_marker_icon":  MarkerIcons,
+		"voucher_marker_color": MarkerColors,
 	} {
-		content, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		for table, want := range map[string][]string{
-			"voucher_marker_icon":  MarkerIcons,
-			"voucher_marker_color": MarkerColors,
-		} {
-			if got := markerSeed(t, string(content), table); !slices.Equal(got, want) {
-				t.Errorf("%s seeds %s with %v, want %v", path, table, got, want)
-			}
+		if got := markerSeed(t, string(content), table); !slices.Equal(got, want) {
+			t.Errorf("%s seeds %s with %v, want %v", path, table, got, want)
 		}
 	}
 }

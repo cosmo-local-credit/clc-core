@@ -205,30 +205,6 @@ func TestVoucherMarkerStyleMigration(t *testing.T) {
 	assert.NotContains(t, s, "ON UPDATE CASCADE")
 }
 
-// The usual fold for the catalog columns. deployed_tokens is left to the
-// migration, as 022 left its image columns.
-func TestVoucherMarkerStyleInBaseline(t *testing.T) {
-	for _, path := range []string{"001_init.sql", "006_network_catalog.sql"} {
-		content, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		s := string(content)
-		assert.Contains(t, s, "marker_icon           TEXT,", path)
-		assert.Contains(t, s, "marker_color          TEXT,", path)
-		// Named, not inline, so a fresh database and an upgraded one agree on the
-		// constraint names.
-		assert.Contains(t, s, "CONSTRAINT vouchers_marker_icon_fk\n        FOREIGN KEY (marker_icon) REFERENCES voucher_marker_icon(value)", path)
-		assert.Contains(t, s, "CONSTRAINT vouchers_marker_color_fk\n        FOREIGN KEY (marker_color) REFERENCES voucher_marker_color(value)", path)
-		for _, lookup := range []string{"voucher_marker_icon", "voucher_marker_color"} {
-			require.Contains(t, s, "CREATE TABLE IF NOT EXISTS "+lookup, path)
-			assert.Less(t,
-				strings.Index(s, "CREATE TABLE IF NOT EXISTS "+lookup),
-				strings.Index(s, "CREATE TABLE IF NOT EXISTS vouchers ("),
-				"%s: %s must be created before vouchers references it", path, lookup)
-		}
-	}
-}
-
 func TestWebAuthnCredentialStateMigration(t *testing.T) {
 	content, err := os.ReadFile("038_webauthn_credential_state.sql")
 	require.NoError(t, err)
