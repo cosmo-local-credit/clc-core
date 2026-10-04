@@ -19,11 +19,20 @@ func TestMarkerStylesMatchTheMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
+	const educationPath = "../../migrations/045_education_marker_icon.sql"
+	education, err := os.ReadFile(educationPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", educationPath, err)
+	}
 	for table, want := range map[string][]string{
 		"voucher_marker_icon":  MarkerIcons,
 		"voucher_marker_color": MarkerColors,
 	} {
-		if got := markerSeed(t, string(content), table); !slices.Equal(got, want) {
+		got := markerSeed(t, string(content), table)
+		if table == "voucher_marker_icon" {
+			got = append(got, markerSeed(t, string(education), table)...)
+		}
+		if !slices.Equal(got, want) {
 			t.Errorf("%s seeds %s with %v, want %v", path, table, got, want)
 		}
 	}

@@ -750,7 +750,7 @@ Submits a request to deploy an ERC-20 token contract. The deployment is queued a
 | `expiryTimestamp` | `string` (ISO 8601) | No | Optional expiry date for the token |
 | `iconUrl` | `string` (http/https URL) | No | Off-chain catalog image, carried to the voucher on confirmation |
 | `bannerUrl` | `string` (http/https URL) | No | Off-chain catalog header image, same path as `iconUrl` |
-| `markerIcon` | `string` | No | Map marker glyph: `basket`, `hand-coin`, `coupon`, `food`, `farm`, `tools` or `health`. Omitted means automatic |
+| `markerIcon` | `string` | No | Map marker glyph: `basket`, `hand-coin`, `coupon`, `food`, `farm`, `tools`, `health` or `education`. Omitted means automatic |
 | `markerColor` | `string` | No | Map marker colour: `blue`, `purple`, `orange`, `pink`, `cyan` or `brown`. Omitted means automatic |
 
 A marker value outside those sets is rejected with `400` before the deploy is
