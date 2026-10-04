@@ -24,7 +24,7 @@ import (
 const (
 	marketVoucherPageProjection = `
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-    v.location_name, v.geo_lat, v.geo_lng,
+    v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color,
     CASE dominant.commodity_type
         WHEN 'GOOD' THEN 'goods'
         WHEN 'SERVICE' THEN 'services'

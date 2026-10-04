@@ -60,6 +60,7 @@ type (
 		pretium         *pretium.PretiumClient
 		trustProxy      bool
 		marketLimiter   *marketRateLimiter
+		poolLimiter     *marketRateLimiter
 		marketFacets    *marketFacetCache
 	}
 )
@@ -90,9 +91,11 @@ func New(o APIOpts) *API {
 		pretium:         o.Pretium,
 		trustProxy:      o.TrustProxy,
 		marketLimiter:   newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
+		poolLimiter:     newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
 		marketFacets:    newMarketFacetCache(time.Now),
 	}
 	a.marketLimiter.startSweeper()
+	a.poolLimiter.startSweeper()
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
 	router := echo.New()
@@ -174,8 +177,18 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
-
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
+
+	// Network pool catalog (imported + clc-core deploys; reads the pools
+	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
+	// membership/ownership for the authenticated user only. Public for the same
+	// reason as the market catalog — the map's voucher card lists the pools that
+	// hold a voucher — but a signed-in caller is not throttled; see
+	// poolCatalogMiddleware. Pool writes stay on apiGroup.
+	router.GET(apiVersion+"/pools", a.poolsListHandler, a.poolCatalogMiddleware())
+	router.GET(apiVersion+"/pools/:address", a.poolsByAddressHandler, a.poolCatalogMiddleware())
+	router.GET(apiVersion+"/pools/:address/vouchers", a.poolVouchersListHandler, a.poolCatalogMiddleware())
+	router.GET(apiVersion+"/pools/:address/offerings", a.poolOfferingsListHandler, a.poolCatalogMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
@@ -207,13 +220,6 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
-	// Network pool catalog (imported + clc-core deploys; reads the pools
-	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
-	// membership/ownership for the authenticated user only.
-	apiGroup.GET("/pools", a.poolsListHandler)
-	apiGroup.GET("/pools/:address/vouchers", a.poolVouchersListHandler)
-	apiGroup.GET("/pools/:address/offerings", a.poolOfferingsListHandler)
-
 	// Approved post reads are public. Nearby reads and mutations require a user session.
 	router.GET(apiVersion+"/reports", a.reportsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/reports/:id", a.reportByIDHandler, a.marketRateLimitMiddleware())
@@ -221,7 +227,6 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
 	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
-	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
 
 	// Owner catalog writes. On apiGroup with requireUserAuth, like report

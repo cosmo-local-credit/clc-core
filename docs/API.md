@@ -85,7 +85,7 @@
 |---|---|
 | Base URL | `http(s)://<host>/` |
 | Protected API prefix | `/api/v2` |
-| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
+| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings), [`GET /api/v2/pools`](#59-get-apiv2pools), [`GET /api/v2/pools/:address`](#510-get-apiv2poolsaddress), `GET /api/v2/pools/:address/vouchers`, [`GET /api/v2/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) |
 | Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
 | Default chain | Celo Mainnet (`chainId: 42220`) |
 | Content-Type | `application/json` |
@@ -750,6 +750,11 @@ Submits a request to deploy an ERC-20 token contract. The deployment is queued a
 | `expiryTimestamp` | `string` (ISO 8601) | No | Optional expiry date for the token |
 | `iconUrl` | `string` (http/https URL) | No | Off-chain catalog image, carried to the voucher on confirmation |
 | `bannerUrl` | `string` (http/https URL) | No | Off-chain catalog header image, same path as `iconUrl` |
+| `markerIcon` | `string` | No | Map marker glyph: `basket`, `hand-coin`, `coupon`, `food`, `farm`, `tools` or `health`. Omitted means automatic |
+| `markerColor` | `string` | No | Map marker colour: `blue`, `purple`, `orange`, `pink`, `cyan` or `brown`. Omitted means automatic |
+
+A marker value outside those sets is rejected with `400` before the deploy is
+queued, for the same reason as the image schemes below.
 
 Image URLs must be `http` or `https`. Other schemes — including `data:` — are
 rejected with `400` before the deploy is queued, because the catalog column that
@@ -945,7 +950,7 @@ See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
 
 Returns **all confirmed** (on-chain) SwapPool contracts across all users — the global pools catalog for the app. Cursor pagination matches activity and `/users/me/pools`.
 
-**Auth:** user JWT cookie or service JWT
+**Auth:** none required. The four pool reads — this route, [`/pools/:address`](#510-get-apiv2poolsaddress), `/pools/:address/vouchers` and [`/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) — are public so the map's voucher card can list the pools that hold a voucher. A request with a valid user or service JWT is served exactly as before and is not rate limited. Any other request, including one whose session has expired, is served as signed out and limited per client IP (60 a minute, burst 60, `429` with `Retry-After`) by a budget separate from the market catalog's. Pool writes (`PUT /api/v2/pools/:address/profile`) still require a user JWT.
 
 **Query parameters:**
 
@@ -1018,9 +1023,9 @@ cursor pages.
 
 ### 5.10 `GET /api/v2/pools/:address`
 
-Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any authenticated client may load any confirmed pool.
+Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any client may load any confirmed pool.
 
-**Auth:** user JWT cookie or service JWT
+**Auth:** none required — see [5.9](#59-get-apiv2pools)
 
 **Path parameters:**
 
@@ -1879,7 +1884,9 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
         "locationName": "C96, KEN",
         "geoLat": -1.450979,
         "geoLng": 38.235115,
-        "kind": "voucher"
+        "kind": "voucher",
+        "markerIcon": null,
+        "markerColor": null
       }
     ],
     "first": 2710,
@@ -1900,6 +1907,8 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
 | `geoLat` | number | Never null — rows without complete coordinates are excluded. |
 | `geoLng` | number | Never null. |
 | `kind` | string | `"goods"`, `"services"`, or `"voucher"`. |
+| `markerIcon` | string \| null | The issuer's map marker glyph, from the `voucher_marker_icon` lookup. `null` means automatic: draw it from `kind`. A client must treat a value it does not recognise as `null`. |
+| `markerColor` | string \| null | The issuer's map marker colour, from `voucher_marker_color`. Same rules as `markerIcon`, and independent of it. |
 
 **Included rows.** Only vouchers that are `active` **and** have complete
 coordinates. There is no `internal` predicate: `internal` is an import
@@ -2032,7 +2041,9 @@ checksummed form.
       "phone": "+254700000000",
       "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
       "bannerUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
-      "kind": "goods"
+      "kind": "goods",
+      "markerIcon": "basket",
+      "markerColor": "pink"
     }
   }
 }
@@ -2040,7 +2051,7 @@ checksummed form.
 
 | Field | Type | Notes |
 |---|---|---|
-| `id`, `chainId`, `address`, `name`, `symbol`, `locationName`, `kind` | — | Identical semantics to the [list contract](#92-response). |
+| `id`, `chainId`, `address`, `name`, `symbol`, `locationName`, `kind`, `markerIcon`, `markerColor` | — | Identical semantics to the [list contract](#92-response). |
 | `decimals` | integer \| null | ERC-20 decimals. |
 | `ownerAddress` | string \| null | Issuer's wallet, stored casing preserved. |
 | `description` | string \| null | |
@@ -2050,6 +2061,14 @@ checksummed form.
 | `email`, `website`, `phone` | string \| null | Issuer contact, as imported. |
 | `iconUrl` | string \| null | Profile image. Absent for roughly two thirds of the imported catalog, so clients need a real fallback. |
 | `bannerUrl` | string \| null | Wide header image. Absent about as often as `iconUrl`. |
+
+**Changing the marker.** `PUT /api/v2/vouchers/:address/profile` (the owner or
+a superadmin) and `PUT /api/v2/admin/vouchers/:address/profile` accept
+`markerIcon` and `markerColor` with the values listed under
+[5.5](#55-post-apiv2contractstoken). Unlike the rest of that assign-all body,
+an omitted marker field keeps its stored value, so a client that predates the
+marker cannot reset it; `""` returns that half to automatic, and anything else
+outside the sets is a `400`.
 
 **Visibility.** Only `active` vouchers resolve. A deactivated voucher returns
 `404` with a body **byte-identical** to an address that never existed, so the
@@ -2147,10 +2166,9 @@ Returns every available offering published against a voucher the pool allows.
 The pool detail screen lists these in its default Offerings tab, instead of
 walking the pool's vouchers one request at a time.
 
-**Authentication required** — this route sits on the authenticated API group
-with the other `/api/v2/pools/*` routes, because the pool screen itself requires
-a session. It is therefore `no-store` and carries no public cache policy, unlike
-the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
+**Auth:** none required — see [5.9](#59-get-apiv2pools). Unlike
+the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings),
+it carries no public cache policy.
 
 ```http
 GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20

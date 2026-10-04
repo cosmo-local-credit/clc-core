@@ -62,6 +62,10 @@ func TestLoadMarketVoucherQueries(t *testing.T) {
 		if !strings.Contains(query, "v.icon_url") {
 			t.Errorf("%s must select icon_url for the catalog list", name)
 		}
+		// The map draws every row's pin, so the marker rides on the list.
+		if !strings.Contains(query, "v.marker_icon, v.marker_color") {
+			t.Errorf("%s must select the marker for the map", name)
+		}
 		// `internal` is an import artifact, not a visibility flag (MIGRATION.md 4.7).
 		if strings.Contains(query, "internal") {
 			t.Errorf("%s must not filter on the internal import artifact", name)
@@ -116,10 +120,26 @@ func TestLoadMarketVoucherDetailQuery(t *testing.T) {
 	if !strings.Contains(query, "v.name AS contract_name") {
 		t.Error("detail must retain the immutable contract name beside the display name")
 	}
-	for _, column := range []string{"v.icon_url", "v.banner_url", "v.email", "v.owner_address", "v.voucher_uoa"} {
+	for _, column := range []string{"v.icon_url", "v.banner_url", "v.email", "v.owner_address", "v.voucher_uoa", "v.marker_icon", "v.marker_color"} {
 		if !strings.Contains(query, column) {
 			t.Errorf("detail must select %s, which the card or page renders", column)
 		}
+	}
+}
+
+// A filtered page and an unfiltered one must return the same fields, so the
+// projection carries what the static list statements select.
+func TestMarketVoucherPageProjectionCarriesTheMarker(t *testing.T) {
+	if !strings.Contains(marketVoucherPageProjection, "v.marker_icon, v.marker_color") {
+		t.Error("the filtered page projection must select the marker the static statements do")
+	}
+
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatalf("load core queries: %v", err)
+	}
+	if !strings.Contains(queries.AdminGetVoucherByAddress, "v.marker_icon, v.marker_color") {
+		t.Error("the console's voucher read must carry the marker its editor sends back")
 	}
 }
 

@@ -53,6 +53,8 @@ type (
 		GeoLng                *float64 `json:"geoLng"`
 		IconURL               string   `json:"iconUrl"`
 		BannerURL             string   `json:"bannerUrl"`
+		MarkerIcon            string   `json:"markerIcon"`
+		MarkerColor           string   `json:"markerColor"`
 		Tags                  []string `json:"tags"`
 	}
 
@@ -161,6 +163,8 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		GeoLng:             args.GeoLng,
 		IconURL:            nilIfEmpty(args.IconURL),
 		BannerURL:          nilIfEmpty(args.BannerURL),
+		MarkerIcon:         nilIfEmpty(args.MarkerIcon),
+		MarkerColor:        nilIfEmpty(args.MarkerColor),
 	})
 	if err != nil {
 		return err
