@@ -15,7 +15,15 @@ import (
 // Verdict is what the dispatcher should do about a transaction the node would
 // not accept. Every rejection gets one — an unclassified rejection is
 // VerdictUnknown, never a silent success.
-type Verdict int
+type (
+	Verdict int
+
+	DispatchError struct {
+		Err         error
+		OriginalErr error
+		Verdict     Verdict
+	}
+)
 
 const (
 	// VerdictInPool — the pool already holds these exact bytes. Nothing to do
@@ -85,14 +93,6 @@ var (
 	ErrInvalidTx                = errors.New("clc-core: transaction rejected as invalid")
 	ErrUnknownRejection         = errors.New("clc-core: unrecognised rpc rejection")
 	ErrNetwork                  = errors.New("clc-core: network related error")
-)
-
-type (
-	DispatchError struct {
-		Err         error
-		OriginalErr error
-		Verdict     Verdict
-	}
 )
 
 func (e *DispatchError) Error() string {

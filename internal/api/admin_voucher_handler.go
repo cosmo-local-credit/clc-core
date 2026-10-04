@@ -12,7 +12,9 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-var errInvalidVoucherStatus = errors.New("status must be one of: all, active, retired")
+var (
+	errInvalidVoucherStatus = errors.New("status must be one of: all, active, retired")
+)
 
 // The console's voucher reads, and the restore that depends on them.
 //

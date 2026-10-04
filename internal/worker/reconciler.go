@@ -32,9 +32,22 @@ type (
 
 		wc *WorkerContainer
 	}
+
+	// reconcileAction is what the reconciler decides to do with one transaction.
+	reconcileAction int
 )
 
 const (
+	// actionSettle — a receipt exists; record SUCCESS or REVERTED.
+	actionSettle reconcileAction = iota
+	// actionSupersede — the chain moved past this nonce without this
+	// transaction, so something else consumed it.
+	actionSupersede
+	// actionRepublish — this is the head the chain is waiting for.
+	actionRepublish
+	// actionWait — correctly queued behind the head; nothing to do.
+	actionWait
+
 	NonceReconcilerID = "NONCE_RECONCILER"
 
 	// reconcileInterval is the periodic sweep. A stuck head is detected within
@@ -51,21 +64,6 @@ const (
 	// missing on 2026-09-04, where the gap opened at 08:10 and was found by
 	// hand at 09:16.
 	stuckThreshold = 5 * time.Minute
-)
-
-// reconcileAction is what the reconciler decides to do with one transaction.
-type reconcileAction int
-
-const (
-	// actionSettle — a receipt exists; record SUCCESS or REVERTED.
-	actionSettle reconcileAction = iota
-	// actionSupersede — the chain moved past this nonce without this
-	// transaction, so something else consumed it.
-	actionSupersede
-	// actionRepublish — this is the head the chain is waiting for.
-	actionRepublish
-	// actionWait — correctly queued behind the head; nothing to do.
-	actionWait
 )
 
 // decideReconcileAction is the reconciler's decision, separated from its IO so

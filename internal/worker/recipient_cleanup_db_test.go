@@ -14,13 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type cleanupFailureStore struct {
-	store.Store
+type (
+	cleanupFailureStore struct {
+		store.Store
 
-	pool         *pgxpool.Pool
-	cleanupCalls int
-	nonceCalls   int
-}
+		pool         *pgxpool.Pool
+		cleanupCalls int
+		nonceCalls   int
+	}
+)
 
 func (s *cleanupFailureStore) Pool() *pgxpool.Pool { return s.pool }
 

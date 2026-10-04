@@ -143,9 +143,11 @@ func (a *API) adminVocabularyHandler(c *echo.Context) error {
 	})
 }
 
-type deleteVocabularyRequest struct {
-	Value string `json:"value" validate:"required"`
-}
+type (
+	deleteVocabularyRequest struct {
+		Value string `json:"value" validate:"required"`
+	}
+)
 
 func (a *API) adminDeleteTokenTagHandler(c *echo.Context) error {
 	return a.deleteVocabularyValue(c, true)

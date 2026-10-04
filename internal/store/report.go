@@ -20,13 +20,15 @@ const (
 	ReportStatusRejected  = "REJECTED"
 )
 
-// ReportStatuses is the vocabulary in workflow order.
-var ReportStatuses = []string{
-	ReportStatusDraft,
-	ReportStatusSubmitted,
-	ReportStatusApproved,
-	ReportStatusRejected,
-}
+var (
+	// ReportStatuses is the vocabulary in workflow order.
+	ReportStatuses = []string{
+		ReportStatusDraft,
+		ReportStatusSubmitted,
+		ReportStatusApproved,
+		ReportStatusRejected,
+	}
+)
 
 // NormalizeReportStatus upper-cases and validates one requested status.
 // Case-insensitive in, canonical out, like tagMatch. An empty string means no

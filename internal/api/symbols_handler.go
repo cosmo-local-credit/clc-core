@@ -9,7 +9,9 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-var symbolPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9]{1,6}$`)
+var (
+	symbolPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9]{1,6}$`)
+)
 
 // symbolsLookupHandler returns the occupied candidates under one generated
 // symbol stem. It is an advisory read rather than a reservation; catalog rows

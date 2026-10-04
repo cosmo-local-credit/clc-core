@@ -3,7 +3,7 @@ package relayer
 import (
 	"bytes"
 	"context"
-	"crypto/elliptic"
+	"crypto/ecdh"
 	"errors"
 	"fmt"
 	"math/big"
@@ -40,12 +40,11 @@ type (
 
 // ErrInvalidRegistration marks a registration the caller is not entitled to.
 // The API maps it to a 400 before anything is queued.
-var ErrInvalidRegistration = errors.New("invalid webauthn registration")
-
 var (
-	registerKeyArgs = mustRegisterKeyArgs()
-	wrappedSigArgs  = mustWrappedSigArgs()
+	ErrInvalidRegistration = errors.New("invalid webauthn registration")
 
+	registerKeyArgs  = mustRegisterKeyArgs()
+	wrappedSigArgs   = mustWrappedSigArgs()
 	funcIsRegistered = w3.MustNewFunc("isRegistered(bytes32)", "bool")
 )
 
@@ -66,6 +65,19 @@ func mustWrappedSigArgs() abi.Arguments {
 		panic(err)
 	}
 	return abi.Arguments{{Type: t}, {Type: t}}
+}
+
+// p256OnCurve reports whether (x, y) is a valid uncompressed P-256 point.
+func p256OnCurve(x, y *big.Int) bool {
+	if x.BitLen() > 256 || y.BitLen() > 256 {
+		return false
+	}
+	encoded := make([]byte, 65)
+	encoded[0] = 4
+	x.FillBytes(encoded[1:33])
+	y.FillBytes(encoded[33:])
+	_, err := ecdh.P256().NewPublicKey(encoded)
+	return err == nil
 }
 
 func invalidRegistration(format string, args ...any) error {
@@ -97,7 +109,7 @@ func (r *Relayer) VerifyRegistration(p RegistrationProof) (common.Hash, error) {
 	if !okX || !okY || x.Sign() <= 0 || y.Sign() <= 0 {
 		return common.Hash{}, invalidRegistration("publicKeyX / publicKeyY must be positive decimal integers")
 	}
-	if !elliptic.P256().IsOnCurve(x, y) {
+	if !p256OnCurve(x, y) {
 		return common.Hash{}, invalidRegistration("public key is not a P-256 point")
 	}
 
@@ -175,9 +187,13 @@ func unwrapRootSignature(wrapped []byte) ([]byte, error) {
 	if !ok || len(sig) != crypto.SignatureLength {
 		return nil, errors.New("root signature must be 65 bytes")
 	}
+	hookData, ok := values[1].([]byte)
+	if !ok {
+		return nil, errors.New("signature wrapping is not canonical")
+	}
 	// Re-encode and compare so trailing bytes or a non-canonical layout cannot
 	// ride along into the transaction the relayer signs.
-	reencoded, err := wrappedSigArgs.Pack(sig, values[1].([]byte))
+	reencoded, err := wrappedSigArgs.Pack(sig, hookData)
 	if err != nil || !bytes.Equal(reencoded, wrapped) {
 		return nil, errors.New("signature wrapping is not canonical")
 	}

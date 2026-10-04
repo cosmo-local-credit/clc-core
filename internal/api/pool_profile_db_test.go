@@ -7,7 +7,9 @@ import (
 	"testing"
 )
 
-const poolProfileMarker = "Zqpoolprofile"
+const (
+	poolProfileMarker = "Zqpoolprofile"
+)
 
 type (
 	poolProfileFixtures struct {

@@ -17,7 +17,9 @@ import (
 //
 // Every value created here carries the marker below so cleanup cannot reach a
 // built-in or another suite's row.
-const vocabularyMarker = "Zqvocab"
+const (
+	vocabularyMarker = "Zqvocab"
+)
 
 func vocabularyValue(suffix string) string {
 	return vocabularyMarker + " " + suffix
@@ -259,14 +261,12 @@ func TestConcurrentWritesCreateOneCustomTag(t *testing.T) {
 	var wg sync.WaitGroup
 	codes := make([]int, len(spellings))
 	for i, spelling := range spellings {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			res, _ := offeringRequest(t, a, http.MethodPut,
 				"/api/v2/vouchers/"+fx.ownedAddress+"/profile", token,
 				map[string]any{"displayName": "Malii Fresh", "tags": []string{spelling}})
 			codes[i] = res.Code
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -541,9 +541,13 @@ func TestAdminDeleteCustomUnitKeepsTheOfferings(t *testing.T) {
 	if _, _, found := vocabularyExists(t, a, "offering_unit", vocabularyValue("Wheelbarrow")); found {
 		t.Error("the unit survived its deletion")
 	}
+	id, ok := offeringID.(float64)
+	if !ok {
+		t.Fatalf("offering id = %T, want float64", offeringID)
+	}
 	var unit *string
 	if err := a.store.Pool().QueryRow(context.Background(),
-		`SELECT unit FROM offerings WHERE id = $1`, int64(offeringID.(float64))).Scan(&unit); err != nil {
+		`SELECT unit FROM offerings WHERE id = $1`, int64(id)).Scan(&unit); err != nil {
 		t.Fatalf("read the offering: %v", err)
 	}
 	if unit != nil {

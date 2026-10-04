@@ -43,6 +43,13 @@ type (
 
 		wc *WorkerContainer
 	}
+
+	// RelayRegistration is the WebAuthn credential a registration relay carries.
+	RelayRegistration struct {
+		CredentialID string
+		PublicKeyX   string
+		PublicKeyY   string
+	}
 )
 
 func (RelayDelegateArgs) Kind() string { return store.RELAY_DELEGATE }
@@ -108,13 +115,6 @@ func (w *RelayDelegateWorker) Work(ctx context.Context, job *river.Job[RelayDele
 }
 
 func (RelayArgs) Kind() string { return "RELAY" }
-
-// RelayRegistration is the WebAuthn credential a registration relay carries.
-type RelayRegistration struct {
-	CredentialID string
-	PublicKeyX   string
-	PublicKeyY   string
-}
 
 // Registration returns the credential carried by the relay, or nil when the
 // relay is not a registration. All three fields must be present.

@@ -10,17 +10,81 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-var ErrAmbiguousRecipient = errors.New("recipient is ambiguous")
-var ErrNoUsernameAvailable = errors.New("no username available for this hint")
+// Recipient exposes public identity only, never profile contacts or admin data.
+type (
+	Recipient struct {
+		Kind    string `json:"kind"`
+		Name    string `json:"name"`
+		Alias   string `json:"alias"`
+		Address string `json:"address"`
+		ChainID int64  `json:"chainId"`
+	}
+)
 
-var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,22}[a-z0-9]$`)
-var usernameLetter = regexp.MustCompile(`[a-z]`)
+const (
+	recipientProjection = `WITH recipients AS (
+    SELECT 'user'::TEXT AS kind, COALESCE(NULLIF(name, ''), username) AS name,
+           username AS alias, blockchain_address AS address, $2::BIGINT AS chain_id
+    FROM users WHERE username IS NOT NULL AND status = 'APPROVED'
+    UNION ALL
+    SELECT 'pool', COALESCE(display_name, name), COALESCE(display_name, name), address,
+           chain_id
+    FROM pools WHERE ($2::BIGINT = 0 OR chain_id = $2) AND COALESCE(display_name, name) IS NOT NULL
+) SELECT kind, name, alias, address, chain_id FROM recipients `
+
+	// recipientForwardLookup starts with the unique current claim, then uses
+	// existing address indexes to load its public owner. Deployment reservations
+	// never resolve as recipients.
+	recipientForwardLookup = `SELECT 'user'::TEXT AS kind,
+    COALESCE(NULLIF(u.name, ''), u.username) AS name, u.username AS alias,
+    u.blockchain_address AS address, $2::BIGINT AS chain_id
+FROM identity_claims c JOIN users u ON lower(u.blockchain_address) = c.owner_key
+WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
+  AND c.owner_kind = 'user' AND u.username IS NOT NULL AND u.status = 'APPROVED'
+UNION ALL
+SELECT 'pool', COALESCE(p.display_name, p.name), COALESCE(p.display_name, p.name),
+    p.address, p.chain_id
+FROM identity_claims c JOIN pools p ON p.chain_id = CASE
+    WHEN c.owner_kind = 'pool' AND NOT starts_with(c.owner_key, 'deploy:')
+    THEN split_part(c.owner_key, ':', 1)::BIGINT END
+    AND lower(p.address) = split_part(c.owner_key, ':', 2)
+WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
+  AND c.owner_kind = 'pool' AND ($2::BIGINT = 0 OR p.chain_id = $2)`
+
+	recipientSearchQuery = recipientProjection + `WHERE ($3 = '' OR kind = $3)
+        AND normalize_identity_name(alias) LIKE '%' || $1 || '%' ESCAPE '\'
+        ORDER BY (normalize_identity_name(alias) = $4) DESC,
+                 lower(alias), kind, address LIMIT 20`
+
+	recipientPhoneSearchQuery = `SELECT 'user'::TEXT AS kind,
+    COALESCE(NULLIF(name, ''), username) AS name, username AS alias,
+    blockchain_address AS address, $2::BIGINT AS chain_id
+FROM users
+WHERE username IS NOT NULL AND status = 'APPROVED' AND ($3 = '' OR $3 = 'user')
+  AND starts_with(regexp_replace(phone, '[+[:space:]()-]', '', 'g'), $1)
+ORDER BY (regexp_replace(phone, '[+[:space:]()-]', '', 'g') = $4) DESC,
+         lower(username), blockchain_address LIMIT 20`
+
+	recipientDeploymentOwnersQuery = `SELECT owner_key FROM identity_claims
+        WHERE starts_with(owner_key, 'deploy:') FOR UPDATE SKIP LOCKED`
+)
+
+var (
+	ErrAmbiguousRecipient  = errors.New("recipient is ambiguous")
+	ErrNoUsernameAvailable = errors.New("no username available for this hint")
+
+	usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,22}[a-z0-9]$`)
+	usernameLetter  = regexp.MustCompile(`[a-z]`)
+
+	recipientPhonePattern    = regexp.MustCompile(`^\+?[0-9\s()-]*[0-9][0-9\s()-]*$`)
+	recipientPhoneFormatting = regexp.MustCompile(`[+\s()-]`)
+)
 
 func ValidUsername(name string) bool {
 	return usernamePattern.MatchString(name) && usernameLetter.MatchString(name)
 }
 
-// Suggestions do not claim a name. The constraint remains authoritative at save.
+// SuggestUsername does not claim a name. The constraint remains authoritative at save.
 func (pg *Pg) SuggestUsername(ctx context.Context, tx pgx.Tx, hint string) (string, error) {
 	return availableUsername(ctx, tx, usernameStem(hint))
 }
@@ -66,7 +130,7 @@ func usernameStem(hint string) string {
 // without aborting the surrounding profile transaction.
 func (pg *Pg) assignUsername(ctx context.Context, tx pgx.Tx, address, hint string) (string, error) {
 	stem := usernameStem(hint)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		candidate, err := availableUsername(ctx, tx, stem)
 		if err != nil {
 			return "", err
@@ -87,66 +151,12 @@ func (pg *Pg) assignUsername(ctx context.Context, tx pgx.Tx, address, hint strin
 			return "", releaseErr
 		}
 		var unique *pgconn.PgError
-		if !(errors.As(err, &unique) && unique.Code == "23505" && unique.ConstraintName == "identity_claims_name_key") {
+		if !errors.As(err, &unique) || unique.Code != "23505" || unique.ConstraintName != "identity_claims_name_key" {
 			return "", err
 		}
 	}
 	return "", ErrNoUsernameAvailable
 }
-
-// Recipient exposes public identity only, never profile contacts or admin data.
-type Recipient struct {
-	Kind    string `json:"kind"`
-	Name    string `json:"name"`
-	Alias   string `json:"alias"`
-	Address string `json:"address"`
-	ChainID int64  `json:"chainId"`
-}
-
-const recipientProjection = `WITH recipients AS (
-    SELECT 'user'::TEXT AS kind, COALESCE(NULLIF(name, ''), username) AS name,
-           username AS alias, blockchain_address AS address, $2::BIGINT AS chain_id
-    FROM users WHERE username IS NOT NULL AND status = 'APPROVED'
-    UNION ALL
-    SELECT 'pool', COALESCE(display_name, name), COALESCE(display_name, name), address,
-           chain_id
-    FROM pools WHERE ($2::BIGINT = 0 OR chain_id = $2) AND COALESCE(display_name, name) IS NOT NULL
-) SELECT kind, name, alias, address, chain_id FROM recipients `
-
-// Start with the unique current claim, then use existing address indexes to
-// load its public owner. Deployment reservations never resolve as recipients.
-const recipientForwardLookup = `SELECT 'user'::TEXT AS kind,
-    COALESCE(NULLIF(u.name, ''), u.username) AS name, u.username AS alias,
-    u.blockchain_address AS address, $2::BIGINT AS chain_id
-FROM identity_claims c JOIN users u ON lower(u.blockchain_address) = c.owner_key
-WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
-  AND c.owner_kind = 'user' AND u.username IS NOT NULL AND u.status = 'APPROVED'
-UNION ALL
-SELECT 'pool', COALESCE(p.display_name, p.name), COALESCE(p.display_name, p.name),
-    p.address, p.chain_id
-FROM identity_claims c JOIN pools p ON p.chain_id = CASE
-    WHEN c.owner_kind = 'pool' AND NOT starts_with(c.owner_key, 'deploy:')
-    THEN split_part(c.owner_key, ':', 1)::BIGINT END
-    AND lower(p.address) = split_part(c.owner_key, ':', 2)
-WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
-  AND c.owner_kind = 'pool' AND ($2::BIGINT = 0 OR p.chain_id = $2)`
-
-const recipientSearchQuery = recipientProjection + `WHERE ($3 = '' OR kind = $3)
-        AND normalize_identity_name(alias) LIKE '%' || $1 || '%' ESCAPE '\'
-        ORDER BY (normalize_identity_name(alias) = $4) DESC,
-                 lower(alias), kind, address LIMIT 20`
-
-var recipientPhonePattern = regexp.MustCompile(`^\+?[0-9\s()-]*[0-9][0-9\s()-]*$`)
-var recipientPhoneFormatting = regexp.MustCompile(`[+\s()-]`)
-
-const recipientPhoneSearchQuery = `SELECT 'user'::TEXT AS kind,
-    COALESCE(NULLIF(name, ''), username) AS name, username AS alias,
-    blockchain_address AS address, $2::BIGINT AS chain_id
-FROM users
-WHERE username IS NOT NULL AND status = 'APPROVED' AND ($3 = '' OR $3 = 'user')
-  AND starts_with(regexp_replace(phone, '[+[:space:]()-]', '', 'g'), $1)
-ORDER BY (regexp_replace(phone, '[+[:space:]()-]', '', 'g') = $4) DESC,
-         lower(username), blockchain_address LIMIT 20`
 
 func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, chainID int64, kind string) ([]Recipient, error) {
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(NormalizeDeployName(query))
@@ -222,9 +232,6 @@ func (pg *Pg) ReserveDeploymentIdentity(ctx context.Context, tx pgx.Tx, tracking
 // insertion and reservation share a transaction, so an active reservation cannot
 // be visible before its job. Durable deployments retain their claims until the
 // deployment status explicitly fails or catalog promotion transfers ownership.
-const recipientDeploymentOwnersQuery = `SELECT owner_key FROM identity_claims
-        WHERE starts_with(owner_key, 'deploy:') FOR UPDATE SKIP LOCKED`
-
 func (pg *Pg) ReconcileDeploymentIdentities(ctx context.Context, tx pgx.Tx) error {
 	// Lock first, then inspect deployment state in a fresh statement snapshot.
 	// A worker persisting its deployment also writes these claims via triggers;

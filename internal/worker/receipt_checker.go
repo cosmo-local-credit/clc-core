@@ -29,9 +29,11 @@ type (
 
 func (ReceiptCheckerArgs) Kind() string { return "RECEIPT_CHECKER" }
 
-// receiptCheckerAttempts bounds the poller. Past this the reconciler takes
-// over, so the tail no longer has to be long enough to cover a stuck nonce.
-const receiptCheckerAttempts = 20
+const (
+	// receiptCheckerAttempts bounds the poller. Past this the reconciler takes
+	// over, so the tail no longer has to be long enough to cover a stuck nonce.
+	receiptCheckerAttempts = 20
+)
 
 // NextRetry polls quickly at first (one block on Celo and Gnosis alike, ~5s)
 // then backs off to avoid hammering the RPC on slow or stuck transactions.

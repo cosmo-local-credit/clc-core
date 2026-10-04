@@ -16,11 +16,13 @@ const (
 	nearbyBoundsMargin = 1.001
 )
 
-// CatalogLocation is the saved viewer location, not a client-selected radius.
-type CatalogLocation struct {
-	Lat float64
-	Lng float64
-}
+type (
+	// CatalogLocation is the saved viewer location, not a client-selected radius.
+	CatalogLocation struct {
+		Lat float64
+		Lng float64
+	}
+)
 
 func NewCatalogLocation(lat, lng *float64) (*CatalogLocation, error) {
 	if lat == nil || lng == nil || math.IsNaN(*lat) || math.IsNaN(*lng) ||

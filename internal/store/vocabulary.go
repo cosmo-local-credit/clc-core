@@ -7,49 +7,51 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type VocabularyEntry struct {
-	Value    string `db:"value" json:"value"`
-	IsCustom bool   `db:"is_custom" json:"isCustom"`
-}
+type (
+	VocabularyEntry struct {
+		Value    string `db:"value" json:"value"`
+		IsCustom bool   `db:"is_custom" json:"isCustom"`
+	}
 
-type TagVocabularyUsage struct {
-	DeployedTokens int64 `db:"deployed_tokens" json:"deployedTokens"`
-	DeployedPools  int64 `db:"deployed_pools" json:"deployedPools"`
-	Vouchers       int64 `db:"vouchers" json:"vouchers"`
-	Pools          int64 `db:"pools" json:"pools"`
-	Posts          int64 `db:"posts" json:"posts"`
-	Offerings      int64 `db:"offerings" json:"offerings"`
-	Deleted        bool  `db:"deleted" json:"-"`
-}
+	TagVocabularyUsage struct {
+		DeployedTokens int64 `db:"deployed_tokens" json:"deployedTokens"`
+		DeployedPools  int64 `db:"deployed_pools" json:"deployedPools"`
+		Vouchers       int64 `db:"vouchers" json:"vouchers"`
+		Pools          int64 `db:"pools" json:"pools"`
+		Posts          int64 `db:"posts" json:"posts"`
+		Offerings      int64 `db:"offerings" json:"offerings"`
+		Deleted        bool  `db:"deleted" json:"-"`
+	}
+
+	UnitVocabularyUsage struct {
+		Offerings int64 `db:"offerings" json:"offerings"`
+		Deleted   bool  `db:"deleted" json:"-"`
+	}
+
+	TagVocabulary struct {
+		TagVocabularyUsage
+
+		Value    string `db:"value"     json:"value"`
+		IsCustom bool   `db:"is_custom" json:"isCustom"`
+	}
+
+	UnitVocabulary struct {
+		UnitVocabularyUsage
+
+		Value    string `db:"value"     json:"value"`
+		IsCustom bool   `db:"is_custom" json:"isCustom"`
+	}
+
+	// Vocabulary is every value in both vocabularies, built-in and custom, so the
+	// console can rename the shipped defaults as well as clean up additions.
+	Vocabulary struct {
+		Tags  []TagVocabulary  `json:"tags"`
+		Units []UnitVocabulary `json:"units"`
+	}
+)
 
 func (u TagVocabularyUsage) Total() int64 {
 	return u.DeployedTokens + u.DeployedPools + u.Vouchers + u.Pools + u.Posts + u.Offerings
-}
-
-type UnitVocabularyUsage struct {
-	Offerings int64 `db:"offerings" json:"offerings"`
-	Deleted   bool  `db:"deleted" json:"-"`
-}
-
-type TagVocabulary struct {
-	TagVocabularyUsage
-
-	Value    string `db:"value"     json:"value"`
-	IsCustom bool   `db:"is_custom" json:"isCustom"`
-}
-
-type UnitVocabulary struct {
-	UnitVocabularyUsage
-
-	Value    string `db:"value"     json:"value"`
-	IsCustom bool   `db:"is_custom" json:"isCustom"`
-}
-
-// Vocabulary is every value in both vocabularies, built-in and custom, so the
-// console can rename the shipped defaults as well as clean up additions.
-type Vocabulary struct {
-	Tags  []TagVocabulary  `json:"tags"`
-	Units []UnitVocabulary `json:"units"`
 }
 
 func (pg *Pg) FindTokenTag(ctx context.Context, tx pgx.Tx, value string) (string, error) {

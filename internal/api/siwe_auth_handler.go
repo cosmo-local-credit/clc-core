@@ -438,12 +438,14 @@ func (a *API) webAuthnCredentialsHandler(c *echo.Context) error {
 
 // webAuthnCredentialSummary is the public shape of one credential row. The
 // tracking id is only meaningful, and only sent, while the row is pending.
-type webAuthnCredentialSummary struct {
-	CredentialID string    `json:"credentialId"`
-	State        string    `json:"state"`
-	CreatedAt    time.Time `json:"createdAt"`
-	TrackingID   *string   `json:"trackingId"`
-}
+type (
+	webAuthnCredentialSummary struct {
+		CredentialID string    `json:"credentialId"`
+		State        string    `json:"state"`
+		CreatedAt    time.Time `json:"createdAt"`
+		TrackingID   *string   `json:"trackingId"`
+	}
+)
 
 func webAuthnCredentialSummaries(creds []store.WebAuthnCredential) []webAuthnCredentialSummary {
 	out := make([]webAuthnCredentialSummary, 0, len(creds))
