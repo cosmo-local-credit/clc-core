@@ -78,6 +78,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
 	assert.Contains(t, sqlFiles, "043_voucher_marker_style.sql")
+	assert.Contains(t, sqlFiles, "044_pool_geo_index.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -122,7 +123,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "040_editable_vocabulary.sql" ||
 				name == "041_recipient_identities.sql" ||
 				name == "042_recipient_lookup_indexes.sql" ||
-				name == "043_voucher_marker_style.sql",
+				name == "043_voucher_marker_style.sql" ||
+				name == "044_pool_geo_index.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -175,7 +177,18 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"041_recipient_identities.sql",
 		"042_recipient_lookup_indexes.sql",
 		"043_voucher_marker_style.sql",
+		"044_pool_geo_index.sql",
 	}, files)
+}
+
+func TestPoolGeoIndexMigration(t *testing.T) {
+	content, err := os.ReadFile("044_pool_geo_index.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "CREATE INDEX IF NOT EXISTS pools_geo_gist_idx")
+	assert.Contains(t, s, "USING gist (point(geo_lng, geo_lat))")
+	assert.NotContains(t, s, "CREATE EXTENSION")
 }
 
 func TestVoucherMarkerStyleMigration(t *testing.T) {
