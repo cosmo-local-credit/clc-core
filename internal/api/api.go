@@ -214,11 +214,9 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/pools/:address/vouchers", a.poolVouchersListHandler)
 	apiGroup.GET("/pools/:address/offerings", a.poolOfferingsListHandler)
 
-	// Report feed for the Posts tab. Authenticated like the pool routes: Posts
-	// is a private home tab. Reads also accept service credentials; mutations
-	// require a user JWT so authorship always names a user wallet.
-	apiGroup.GET("/reports", a.reportsListHandler)
-	apiGroup.GET("/reports/:id", a.reportByIDHandler)
+	// Approved post reads are public. Nearby reads and mutations require a user session.
+	router.GET(apiVersion+"/reports", a.reportsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/reports/:id", a.reportByIDHandler, a.marketRateLimitMiddleware())
 	apiGroup.POST("/reports", a.reportCreateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
