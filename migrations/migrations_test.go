@@ -77,6 +77,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
+	assert.Contains(t, sqlFiles, "043_voucher_marker_style.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -120,7 +121,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "039_voucher_reviews.sql" ||
 				name == "040_editable_vocabulary.sql" ||
 				name == "041_recipient_identities.sql" ||
-				name == "042_recipient_lookup_indexes.sql",
+				name == "042_recipient_lookup_indexes.sql" ||
+				name == "043_voucher_marker_style.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -172,7 +174,59 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"040_editable_vocabulary.sql",
 		"041_recipient_identities.sql",
 		"042_recipient_lookup_indexes.sql",
+		"043_voucher_marker_style.sql",
 	}, files)
+}
+
+func TestVoucherMarkerStyleMigration(t *testing.T) {
+	content, err := os.ReadFile("043_voucher_marker_style.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Lookup tables, so a new glyph or colour is an INSERT.
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS voucher_marker_icon")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS voucher_marker_color")
+	assert.Equal(t, 2, strings.Count(s, "ON CONFLICT (value) DO NOTHING"))
+	// Both ends of the promotion carry the choice.
+	for _, table := range []string{"vouchers", "deployed_tokens"} {
+		assert.Contains(t, s, "ALTER TABLE "+table+"\n    ADD COLUMN IF NOT EXISTS marker_icon TEXT;")
+		assert.Contains(t, s, "ALTER TABLE "+table+"\n    ADD COLUMN IF NOT EXISTS marker_color TEXT;")
+		assert.Contains(t, s, "CONSTRAINT "+table+"_marker_icon_fk")
+		assert.Contains(t, s, "CONSTRAINT "+table+"_marker_color_fk")
+	}
+	// Re-running must be a no-op.
+	assert.Equal(t, 4, strings.Count(s, "DROP CONSTRAINT IF EXISTS"))
+	assert.Equal(t, 4, strings.Count(s, "ADD CONSTRAINT"))
+	// NULL means automatic: nothing is defaulted or backfilled, and a rename
+	// must not silently rewrite a value clients key their drawing on.
+	assert.NotContains(t, s, "NOT NULL")
+	assert.NotContains(t, s, "DEFAULT")
+	assert.NotContains(t, s, "UPDATE vouchers")
+	assert.NotContains(t, s, "ON UPDATE CASCADE")
+}
+
+// The usual fold for the catalog columns. deployed_tokens is left to the
+// migration, as 022 left its image columns.
+func TestVoucherMarkerStyleInBaseline(t *testing.T) {
+	for _, path := range []string{"001_init.sql", "006_network_catalog.sql"} {
+		content, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		s := string(content)
+		assert.Contains(t, s, "marker_icon           TEXT,", path)
+		assert.Contains(t, s, "marker_color          TEXT,", path)
+		// Named, not inline, so a fresh database and an upgraded one agree on the
+		// constraint names.
+		assert.Contains(t, s, "CONSTRAINT vouchers_marker_icon_fk\n        FOREIGN KEY (marker_icon) REFERENCES voucher_marker_icon(value)", path)
+		assert.Contains(t, s, "CONSTRAINT vouchers_marker_color_fk\n        FOREIGN KEY (marker_color) REFERENCES voucher_marker_color(value)", path)
+		for _, lookup := range []string{"voucher_marker_icon", "voucher_marker_color"} {
+			require.Contains(t, s, "CREATE TABLE IF NOT EXISTS "+lookup, path)
+			assert.Less(t,
+				strings.Index(s, "CREATE TABLE IF NOT EXISTS "+lookup),
+				strings.Index(s, "CREATE TABLE IF NOT EXISTS vouchers ("),
+				"%s: %s must be created before vouchers references it", path, lookup)
+		}
+	}
 }
 
 func TestWebAuthnCredentialStateMigration(t *testing.T) {

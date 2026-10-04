@@ -149,6 +149,8 @@ func (a *API) saveVoucherProfile(
 		GeoLng:       req.GeoLng,
 		IconURL:      req.IconURL,
 		BannerURL:    req.BannerURL,
+		MarkerIcon:   req.MarkerIcon,
+		MarkerColor:  req.MarkerColor,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

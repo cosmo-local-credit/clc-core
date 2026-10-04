@@ -69,8 +69,8 @@ WHERE chain_id = $1 AND contract_type = $2::contract_type;
 INSERT INTO deployed_tokens (
     otx_id, platform_contract_id, status, symbol, name, decimals, admin,
     description, website, email, phone, terms, voucher_uoa, voucher_value,
-    location_name, geo_lat, geo_lng, icon_url, banner_url
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    location_name, geo_lat, geo_lng, icon_url, banner_url, marker_icon, marker_color
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 RETURNING id;
 
 --name: confirm-deployed-token
@@ -103,6 +103,7 @@ WHERE otx_id = $1 AND status = 'PENDING';
 -- no opinion about (sink, and active/internal state). The icon and banner are
 -- part of the request now, so they merge on the same COALESCE terms: a deploy
 -- that carried an image sets it, one that did not leaves an imported image alone.
+-- The map marker merges the same way.
 --name: upsert-voucher-from-deploy
 WITH deploy AS (
     SELECT
@@ -126,6 +127,8 @@ WITH deploy AS (
         dt.geo_lng,
         dt.icon_url,
         dt.banner_url,
+        dt.marker_icon,
+        dt.marker_color,
         dt.platform_contract_id
     FROM deployed_tokens dt
     INNER JOIN platform_contracts pc ON pc.id = dt.platform_contract_id
@@ -135,8 +138,8 @@ upserted AS (
     INSERT INTO vouchers (
         chain_id, address, name, symbol, decimals, owner_address, voucher_type,
         description, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng,
-        email, website, phone, terms, icon_url, banner_url, contract_version,
-        platform_contract_id
+        email, website, phone, terms, icon_url, banner_url, marker_icon,
+        marker_color, contract_version, platform_contract_id
     )
     SELECT
         d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
@@ -146,7 +149,7 @@ upserted AS (
         'GIFTABLE',
         d.description, d.voucher_uoa, d.voucher_value, d.location_name,
         d.geo_lat, d.geo_lng, d.email, d.website, d.phone, d.terms,
-        d.icon_url, d.banner_url,
+        d.icon_url, d.banner_url, d.marker_icon, d.marker_color,
         NULLIF(d.contract_version, ''), d.platform_contract_id
     FROM deploy d
     ON CONFLICT (chain_id, lower(address)) DO UPDATE SET
@@ -167,6 +170,8 @@ upserted AS (
         terms                = COALESCE(EXCLUDED.terms,          vouchers.terms),
         icon_url             = COALESCE(EXCLUDED.icon_url,       vouchers.icon_url),
         banner_url           = COALESCE(EXCLUDED.banner_url,     vouchers.banner_url),
+        marker_icon          = COALESCE(EXCLUDED.marker_icon,    vouchers.marker_icon),
+        marker_color         = COALESCE(EXCLUDED.marker_color,   vouchers.marker_color),
         contract_version     = COALESCE(EXCLUDED.contract_version, vouchers.contract_version),
         platform_contract_id = EXCLUDED.platform_contract_id
     RETURNING id
@@ -195,7 +200,8 @@ INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
        COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
-       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url,
+       dt.marker_icon, dt.marker_color, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
@@ -208,7 +214,8 @@ GROUP BY dt.id, v.id, o.tracking_id;
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
        COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
-       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url,
+       dt.marker_icon, dt.marker_color, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
@@ -1230,11 +1237,12 @@ ON CONFLICT (pool_id, tag_value) DO NOTHING;
 -- expressing it as empty rather than omitting it. vouchers_geo_valid backstops
 -- the both-or-neither coordinate rule the handler checks first.
 --
--- display_name and the two image columns are the exceptions, for the reason update-pool-profile
--- gives: NULL preserves and '' clears, so a client that sends no image fields
--- cannot blank a voucher's images. vouchers_image_urls_http rejects anything
--- that is not http(s), which is why '' has to become NULL rather than staying an
--- empty string.
+-- display_name, the two image columns and the two marker columns are the
+-- exceptions, for the reason update-pool-profile gives: NULL preserves and ''
+-- clears, so a client that sends no image or marker fields cannot blank them.
+-- vouchers_image_urls_http rejects anything that is not http(s), and the marker
+-- foreign keys anything unseeded, which is why '' has to become NULL rather
+-- than staying an empty string.
 --name: update-voucher-profile
 UPDATE vouchers
 SET display_name  = CASE WHEN $2::TEXT IS NULL THEN display_name ELSE NULLIF(btrim($2), '') END,
@@ -1249,7 +1257,9 @@ SET display_name  = CASE WHEN $2::TEXT IS NULL THEN display_name ELSE NULLIF(btr
     geo_lat       = $11,
     geo_lng       = $12,
     icon_url      = CASE WHEN $13::TEXT IS NULL THEN icon_url   ELSE NULLIF($13, '') END,
-    banner_url    = CASE WHEN $14::TEXT IS NULL THEN banner_url ELSE NULLIF($14, '') END
+    banner_url    = CASE WHEN $14::TEXT IS NULL THEN banner_url ELSE NULLIF($14, '') END,
+    marker_icon   = CASE WHEN $15::TEXT IS NULL THEN marker_icon  ELSE NULLIF($15, '') END,
+    marker_color  = CASE WHEN $16::TEXT IS NULL THEN marker_color ELSE NULLIF($16, '') END
 WHERE lower(address) = lower($1)
 RETURNING id;
 
@@ -1730,7 +1740,7 @@ RETURNING id;
 --name: list-market-vouchers
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-        v.location_name, v.geo_lat, v.geo_lng
+        v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
     ORDER BY v.id DESC
@@ -1759,7 +1769,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-next
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-        v.location_name, v.geo_lat, v.geo_lng
+        v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.id < $1
     ORDER BY v.id DESC
@@ -1789,7 +1799,7 @@ ORDER BY page.id DESC;
 WITH page AS MATERIALIZED (
     SELECT * FROM (
         SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-            v.location_name, v.geo_lat, v.geo_lng
+            v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL AND v.id > $1
         ORDER BY v.id ASC
@@ -1819,7 +1829,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-bounded
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-        v.location_name, v.geo_lat, v.geo_lng
+        v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
         AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
@@ -1849,7 +1859,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-next-bounded
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-        v.location_name, v.geo_lat, v.geo_lng
+        v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
         AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
@@ -1881,7 +1891,7 @@ ORDER BY page.id DESC;
 WITH page AS MATERIALIZED (
     SELECT * FROM (
         SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-            v.location_name, v.geo_lat, v.geo_lng
+            v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL
             AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
@@ -1925,6 +1935,7 @@ SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
     v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
     v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url,
+    v.marker_icon, v.marker_color,
     COALESCE((
         SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
         FROM voucher_tags vt
@@ -1960,6 +1971,7 @@ SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
     v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
     v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url, v.active,
+    v.marker_icon, v.marker_color,
     COALESCE((
         SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
         FROM voucher_tags vt
