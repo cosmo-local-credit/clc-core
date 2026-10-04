@@ -76,12 +76,3 @@ func nearbyPredicate(args *sqlArgs, location *CatalogLocation, lat, lng string) 
 		"power(sin(radians(" + lng + " - " + viewerLng + ") / 2), 2)" +
 		")))) <= " + strconv.FormatFloat(nearbyRadiusMeters, 'f', -1, 64) + " ELSE false END)"
 }
-
-func nearbyCreatorPredicate(args *sqlArgs, location *CatalogLocation) string {
-	if location == nil {
-		return ""
-	}
-	return "EXISTS (SELECT 1 FROM users creator WHERE " +
-		"lower(creator.blockchain_address) = lower(r.author_address) AND " +
-		nearbyPredicate(args, location, "creator.geo_lat", "creator.geo_lng") + ")"
-}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,6 +27,26 @@ func TestNearbyCatalogRoutes(t *testing.T) {
 	defer cleanup()
 	_, err = a.store.Pool().Exec(ctx, "UPDATE vouchers SET geo_lat=0,geo_lng=0 WHERE id=$1", ids[0])
 	require.NoError(t, err)
+	var postIDs []uint64
+	for _, post := range []struct {
+		title, status string
+		lat           float64
+	}{
+		{"Zqnearbyroute local", "APPROVED", 0},
+		{"Zqnearbyroute distant", "APPROVED", 60},
+		{"Zqnearbyroute draft", "DRAFT", 0},
+	} {
+		var id uint64
+		err := a.store.Pool().QueryRow(ctx, `INSERT INTO reports
+			(title,status,author_address,geo_lat,geo_lng) VALUES ($1,$2,$3,$4,0) RETURNING id`,
+			post.title, post.status, address, post.lat).Scan(&id)
+		require.NoError(t, err)
+		postIDs = append(postIDs, id)
+		t.Cleanup(func() {
+			_, err := a.store.Pool().Exec(ctx, "DELETE FROM reports WHERE id=$1", id)
+			require.NoError(t, err)
+		})
+	}
 	token := offeringToken(t, private, address, "USER")
 	request := func(path string, signed bool) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -44,7 +65,7 @@ func TestNearbyCatalogRoutes(t *testing.T) {
 			res = request(path, true)
 			require.Equal(t, http.StatusOK, res.Code, res.Body.String())
 			require.Equal(t, "private, no-store", res.Header().Get("Cache-Control"))
-			if endpoint == "vouchers" {
+			if endpoint == "vouchers" || endpoint == "reports" {
 				require.Contains(t, res.Body.String(), "Zqnearbyroute local")
 				require.NotContains(t, res.Body.String(), "Zqnearbyroute distant")
 			}
@@ -52,8 +73,17 @@ func TestNearbyCatalogRoutes(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, res.Code)
 		})
 	}
+	res := request("/api/v2/reports?q=Zqnearbyroute&facets=true", false)
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	require.Contains(t, res.Body.String(), "Zqnearbyroute local")
+	require.Contains(t, res.Body.String(), "Zqnearbyroute distant")
+	require.NotContains(t, res.Body.String(), "Zqnearbyroute draft")
+	res = request(fmt.Sprintf("/api/v2/reports/%d", postIDs[0]), false)
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	res = request(fmt.Sprintf("/api/v2/reports/%d", postIDs[2]), false)
+	require.Equal(t, http.StatusNotFound, res.Code, res.Body.String())
 	// Ordinary public reads and their cache remain separate.
-	res := request("/api/v2/vouchers?q=Zqnearbyroute&facets=true", false)
+	res = request("/api/v2/vouchers?q=Zqnearbyroute&facets=true", false)
 	require.Equal(t, http.StatusOK, res.Code)
 	require.Contains(t, res.Body.String(), "Zqnearbyroute distant")
 	require.Contains(t, res.Header().Get("Cache-Control"), "public")

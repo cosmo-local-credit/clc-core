@@ -154,7 +154,7 @@ func TestNearbyCatalogPagesAndFacets(t *testing.T) {
 	}
 }
 
-func TestNearbyPostsUseCurrentCreatorLocation(t *testing.T) {
+func TestNearbyPostsUsePostLocation(t *testing.T) {
 	pg, tx, cleanup := newCatalogSearchTestPg(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -162,35 +162,62 @@ func TestNearbyPostsUseCurrentCreatorLocation(t *testing.T) {
 	_, err := tx.Exec(ctx, `INSERT INTO users (blockchain_address,name,email,geo_lat,geo_lng) VALUES ($1,'Nearby test user','nearby-' || $1 || '@example.test',0,0)`, author)
 	require.NoError(t, err)
 	id := seedSearchReport(t, tx, "Zqnearbyreport", "distance fixture", "Art")
-	_, err = tx.Exec(ctx, "UPDATE reports SET author_address=lower($1),geo_lat=60,geo_lng=0 WHERE id=$2", author, id)
+	voucher := seedSearchVoucher(t, tx, "Zqnearbyreport voucher", "ZQNRV")
+	_, err = tx.Exec(ctx, "INSERT INTO report_vouchers (report_id,voucher_id) VALUES ($1,$2)", id, voucher)
 	require.NoError(t, err)
-	filter := mustFilter(t, "Zqnearbyreport", nil, TagMatchAny)
-	filter.Nearby = &CatalogLocation{}
-	for _, term := range []string{"Zqnearbyreport", ""} {
-		filter.Term = term
-		rows, err := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 20)
-		require.NoError(t, err)
-		require.Len(t, rows, 1)
-		require.Equal(t, id, rows[0].ID)
+	_, err = tx.Exec(ctx, "UPDATE reports SET author_address=lower($1) WHERE id=$2", author, id)
+	require.NoError(t, err)
+	boundary := 1_000_000.0 / 6_371_008.8 * 180 / math.Pi
+	for _, tc := range []struct {
+		name      string
+		authorLat float64
+		postLng   any
+		want      int
+	}{
+		{"near post far author", 60, 0.0, 1},
+		{"author moves nearby", 0, 0.0, 1},
+		{"far post near author", 0, 60.0, 0},
+		{"boundary included", 60, boundary, 1},
+		{"beyond boundary", 0, boundary + 0.000001, 0},
+		{"no post location", 0, nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tx.Exec(ctx, "UPDATE users SET geo_lat=$1 WHERE blockchain_address=$2", tc.authorLat, author)
+			require.NoError(t, err)
+			var lat any = 0.0
+			if tc.postLng == nil {
+				lat = nil
+			}
+			_, err = tx.Exec(ctx, "UPDATE reports SET geo_lat=$1,geo_lng=$2 WHERE id=$3", lat, tc.postLng, id)
+			require.NoError(t, err)
+			filter := mustFilter(t, "Zqnearbyreport", nil, TagMatchAny)
+			filter.Nearby = &CatalogLocation{}
+			for _, term := range []string{"Zqnearbyreport", ""} {
+				filter.Term = term
+				rows, err := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 20)
+				require.NoError(t, err)
+				require.Len(t, rows, tc.want)
+				if tc.want == 1 {
+					require.Equal(t, id, rows[0].ID)
+				}
+			}
+			filter.Term = "Zqnearbyreport"
+			facets, err := pg.ListReportTagFacets(ctx, tx, filter)
+			require.NoError(t, err)
+			var count uint64
+			for _, facet := range facets {
+				if facet.Tag == "Art" {
+					count = facet.Count
+				}
+			}
+			require.EqualValues(t, tc.want, count)
+			vouchers, err := pg.ListReportVoucherFacets(ctx, tx, filter)
+			require.NoError(t, err)
+			require.Len(t, vouchers, tc.want)
+			filter.Nearby = nil
+			rows, err := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 20)
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+		})
 	}
-	_, err = tx.Exec(ctx, "UPDATE reports SET geo_lat=NULL,geo_lng=NULL WHERE id=$1", id)
-	require.NoError(t, err)
-	rows, err := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 20)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	// Moving the creator excludes the post, irrespective of its own location.
-	_, err = tx.Exec(ctx, "UPDATE users SET geo_lat=60 WHERE blockchain_address=$1", author)
-	require.NoError(t, err)
-	rows, err = pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 20)
-	require.NoError(t, err)
-	require.Empty(t, rows)
-	facets, err := pg.ListReportTagFacets(ctx, tx, filter)
-	require.NoError(t, err)
-	for _, facet := range facets {
-		require.Zero(t, facet.Count)
-	}
-	filter.Nearby = nil
-	rows, err = pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 20)
-	require.NoError(t, err)
-	require.NotEmpty(t, rows)
 }

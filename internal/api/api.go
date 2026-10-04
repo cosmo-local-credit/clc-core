@@ -184,8 +184,9 @@ func New(o APIOpts) *API {
 	// membership/ownership for the authenticated user only. Public for the same
 	// reason as the market catalog — the map's voucher card lists the pools that
 	// hold a voucher — but a signed-in caller is not throttled; see
-	// poolCatalogMiddleware. Pool writes stay on apiGroup.
-	router.GET(apiVersion+"/pools", a.poolsListHandler, a.poolCatalogMiddleware())
+	// poolCatalogMiddleware. Nearby list reads need a session, as on the
+	// market. Pool writes stay on apiGroup.
+	router.GET(apiVersion+"/pools", a.poolsListHandler, a.poolCatalogMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/pools/:address", a.poolsByAddressHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/vouchers", a.poolVouchersListHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/offerings", a.poolOfferingsListHandler, a.poolCatalogMiddleware())
@@ -220,11 +221,9 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
-	// Report feed for the Posts tab. Authenticated: Posts is a private home
-	// tab. Reads also accept service credentials; mutations
-	// require a user JWT so authorship always names a user wallet.
-	apiGroup.GET("/reports", a.reportsListHandler)
-	apiGroup.GET("/reports/:id", a.reportByIDHandler)
+	// Approved post reads are public. Nearby reads and mutations require a user session.
+	router.GET(apiVersion+"/reports", a.reportsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/reports/:id", a.reportByIDHandler, a.marketRateLimitMiddleware())
 	apiGroup.POST("/reports", a.reportCreateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
