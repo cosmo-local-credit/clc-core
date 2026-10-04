@@ -85,7 +85,7 @@
 |---|---|
 | Base URL | `http(s)://<host>/` |
 | Protected API prefix | `/api/v2` |
-| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
+| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings), [`GET /api/v2/pools`](#59-get-apiv2pools), [`GET /api/v2/pools/:address`](#510-get-apiv2poolsaddress), `GET /api/v2/pools/:address/vouchers`, [`GET /api/v2/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) |
 | Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
 | Default chain | Celo Mainnet (`chainId: 42220`) |
 | Content-Type | `application/json` |
@@ -945,7 +945,7 @@ See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
 
 Returns **all confirmed** (on-chain) SwapPool contracts across all users — the global pools catalog for the app. Cursor pagination matches activity and `/users/me/pools`.
 
-**Auth:** user JWT cookie or service JWT
+**Auth:** none required. The four pool reads — this route, [`/pools/:address`](#510-get-apiv2poolsaddress), `/pools/:address/vouchers` and [`/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) — are public so the map's voucher card can list the pools that hold a voucher. A request with a valid user or service JWT is served exactly as before and is not rate limited. Any other request, including one whose session has expired, is served as signed out and limited per client IP (60 a minute, burst 60, `429` with `Retry-After`) by a budget separate from the market catalog's. Pool writes (`PUT /api/v2/pools/:address/profile`) still require a user JWT.
 
 **Query parameters:**
 
@@ -1018,9 +1018,9 @@ cursor pages.
 
 ### 5.10 `GET /api/v2/pools/:address`
 
-Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any authenticated client may load any confirmed pool.
+Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any client may load any confirmed pool.
 
-**Auth:** user JWT cookie or service JWT
+**Auth:** none required — see [5.9](#59-get-apiv2pools)
 
 **Path parameters:**
 
@@ -2147,10 +2147,9 @@ Returns every available offering published against a voucher the pool allows.
 The pool detail screen lists these in its default Offerings tab, instead of
 walking the pool's vouchers one request at a time.
 
-**Authentication required** — this route sits on the authenticated API group
-with the other `/api/v2/pools/*` routes, because the pool screen itself requires
-a session. It is therefore `no-store` and carries no public cache policy, unlike
-the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
+**Auth:** none required — see [5.9](#59-get-apiv2pools). Unlike
+the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings),
+it carries no public cache policy.
 
 ```http
 GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20

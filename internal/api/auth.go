@@ -169,63 +169,76 @@ func (a *API) storageTokenHandler(c *echo.Context) error {
 func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			// 1. Try user JWT from __clc_auth cookie.
-			if cookie, err := c.Cookie(userAuthCookieName); err == nil && cookie.Value != "" {
-				if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil {
-					c.Set("callerType", "user")
-					c.Set("callerUserID", claims.UserID)
-					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
-					c.Set("callerRole", claims.Role)
-					return next(c)
-				}
+			if a.authenticateCaller(c) {
+				return next(c)
 			}
-
-			// 2. Extract token from Authorization header or legacy cookie.
-			tokenStr := ""
-			if authHeader := c.Request().Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
-				tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
-			} else if cookie, err := c.Cookie(serviceAuthCookieName); err == nil {
-				tokenStr = cookie.Value
-			}
-
-			if tokenStr != "" {
-				// 2a. Try service JWT first. A genuine service token also
-				// unmarshals successfully as a UserJWTClaims (same signing
-				// key, unknown fields ignored by json.Unmarshal), so service
-				// tokens must be checked — and gated on claims.Service — before
-				// falling back to the permissive user-JWT parse below.
-				token, parseErr := jwt.ParseWithClaims(tokenStr, &JWTCustomClaims{},
-					func(t *jwt.Token) (any, error) {
-						if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
-							return nil, errors.New("unexpected signing method")
-						}
-						return a.verifyingKey, nil
-					},
-				)
-				if parseErr == nil && token.Valid {
-					if claims, ok := token.Claims.(*JWTCustomClaims); ok && claims.Service {
-						c.Set("callerType", "service")
-						c.Set("callerAddress", strings.ToLower(claims.PublicKey))
-						c.Set("callerRole", "SERVICE")
-						c.Set("publicKey", claims.PublicKey)
-						c.Set("service", claims.Service)
-						return next(c)
-					}
-				}
-
-				// 2b. Fall back to user JWT — allows clients to send Bearer <user-jwt>.
-				if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
-					c.Set("callerType", "user")
-					c.Set("callerUserID", claims.UserID)
-					c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
-					c.Set("callerRole", claims.Role)
-					return next(c)
-				}
-			}
-
 			return handleJWTAuthError(c, "valid authentication required")
 		}
 	}
+}
+
+// authenticateCaller sets the context keys flexibleAuthMiddleware documents
+// from the first valid credential on the request, and reports whether it
+// found one. It writes no response, so a public route can fall back to
+// treating the caller as signed out.
+func (a *API) authenticateCaller(c *echo.Context) bool {
+	// 1. Try user JWT from __clc_auth cookie.
+	if cookie, err := c.Cookie(userAuthCookieName); err == nil && cookie.Value != "" {
+		if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil {
+			c.Set("callerType", "user")
+			c.Set("callerUserID", claims.UserID)
+			c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
+			c.Set("callerRole", claims.Role)
+			return true
+		}
+	}
+
+	// 2. Extract token from Authorization header or legacy cookie.
+	tokenStr := ""
+	if authHeader := c.Request().Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+	} else if cookie, err := c.Cookie(serviceAuthCookieName); err == nil {
+		tokenStr = cookie.Value
+	}
+
+	if tokenStr == "" {
+		return false
+	}
+
+	// 2a. Try service JWT first. A genuine service token also
+	// unmarshals successfully as a UserJWTClaims (same signing
+	// key, unknown fields ignored by json.Unmarshal), so service
+	// tokens must be checked — and gated on claims.Service — before
+	// falling back to the permissive user-JWT parse below.
+	token, parseErr := jwt.ParseWithClaims(tokenStr, &JWTCustomClaims{},
+		func(t *jwt.Token) (any, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
+				return nil, errors.New("unexpected signing method")
+			}
+			return a.verifyingKey, nil
+		},
+	)
+	if parseErr == nil && token.Valid {
+		if claims, ok := token.Claims.(*JWTCustomClaims); ok && claims.Service {
+			c.Set("callerType", "service")
+			c.Set("callerAddress", strings.ToLower(claims.PublicKey))
+			c.Set("callerRole", "SERVICE")
+			c.Set("publicKey", claims.PublicKey)
+			c.Set("service", claims.Service)
+			return true
+		}
+	}
+
+	// 2b. Fall back to user JWT — allows clients to send Bearer <user-jwt>.
+	if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
+		c.Set("callerType", "user")
+		c.Set("callerUserID", claims.UserID)
+		c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
+		c.Set("callerRole", claims.Role)
+		return true
+	}
+
+	return false
 }
 
 // requireUserAuth rejects requests that arrived via a service JWT.
