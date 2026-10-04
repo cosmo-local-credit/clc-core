@@ -1,10 +1,11 @@
 name: test
 
+# Contributors check locally. This runs when a commit lands on develop or master.
 on:
   push:
     branches:
       - develop
-  pull_request:
+      - master
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,7 +14,7 @@ concurrency:
 jobs:
   test:
     name: test
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
