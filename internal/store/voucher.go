@@ -23,8 +23,9 @@ type (
 	// VoucherProfile is a voucher's editable off-chain record.
 	//
 	// Every field is a pointer and every one is assigned, so a caller sends the
-	// whole record: nil clears. The exceptions are IconURL and BannerURL, where
-	// nil preserves and a pointer to "" clears — see update-voucher-profile.
+	// whole record: nil clears. The exceptions are IconURL, BannerURL and the
+	// two marker fields, where nil preserves and a pointer to "" clears — see
+	// update-voucher-profile.
 	//
 	// DisplayName is the one name a catalog editor owns: it is an off-chain
 	// override for the immutable deployed ERC20 name. Nil preserves it and an
@@ -44,6 +45,8 @@ type (
 		GeoLng       *float64
 		IconURL      *string
 		BannerURL    *string
+		MarkerIcon   *string
+		MarkerColor  *string
 	}
 )
 
@@ -70,8 +73,8 @@ func (pg *Pg) ListVoucherMetadataByAddresses(ctx context.Context, tx pgx.Tx, add
 // Assign-all, like UpdatePoolProfile: an omitted field clears rather than
 // preserves, because patch semantics over nullable columns cannot express
 // clearing a field at all — JSON gives no way to tell an absent key from a null.
-// DisplayName and the image fields are deliberate compatibility exceptions;
-// nil preserves their value and an empty string clears it.
+// DisplayName, the image fields and the marker are deliberate compatibility
+// exceptions; nil preserves their value and an empty string clears it.
 func (pg *Pg) UpdateVoucherProfile(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -96,6 +99,8 @@ func (pg *Pg) UpdateVoucherProfile(
 		profile.GeoLng,
 		profile.IconURL,
 		profile.BannerURL,
+		profile.MarkerIcon,
+		profile.MarkerColor,
 	).Scan(&id)
 	return id, err
 }

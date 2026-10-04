@@ -85,6 +85,11 @@ type (
 		IconURL   string   `json:"iconUrl,omitempty"   validate:"omitempty,http_url"`
 		BannerURL string   `json:"bannerUrl,omitempty" validate:"omitempty,http_url"`
 		Tags      []string `json:"tags,omitempty"`
+		// The map marker's glyph and colour, from MarkerIcons and MarkerColors.
+		// Empty means automatic. Checked here because the worker's foreign key
+		// would only reject a bad value after the deploy is signed.
+		MarkerIcon  string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health"`
+		MarkerColor string `json:"markerColor,omitempty" validate:"omitempty,oneof=blue purple orange pink cyan brown"`
 	}
 
 	RegisterVersionRequest struct {
@@ -326,6 +331,10 @@ type (
 		IconURL   *string  `json:"iconUrl,omitempty"   validate:"omitempty,http_url|eq="`
 		BannerURL *string  `json:"bannerUrl,omitempty" validate:"omitempty,http_url|eq="`
 		Tags      []string `json:"tags,omitempty"`
+		// The map marker, preserved on omission like the images so an older
+		// client cannot reset it. "" returns that half to automatic.
+		MarkerIcon  *string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health|eq="`
+		MarkerColor *string `json:"markerColor,omitempty" validate:"omitempty,oneof=blue purple orange pink cyan brown|eq="`
 	}
 
 	// UpdateVoucherDisplayNameRequest is the narrow owner-facing mutation for a
@@ -460,6 +469,14 @@ var BuiltInOfferingUnits = []string{
 // OfferingUnits remains as a compatibility alias for clients that only need
 // the seeded values. It is not the validation boundary for offering writes.
 var OfferingUnits = BuiltInOfferingUnits
+
+// MarkerIcons and MarkerColors are the map marker glyphs and colours a voucher
+// may carry, seeded by migration 043. Clients draw each one, so the set is
+// closed: the request validators list the same values.
+var (
+	MarkerIcons  = []string{"basket", "hand-coin", "coupon", "food", "farm", "tools", "health"}
+	MarkerColors = []string{"blue", "purple", "orange", "pink", "cyan", "brown"}
+)
 
 const (
 	ErrCodeInternalServerError = "E01"

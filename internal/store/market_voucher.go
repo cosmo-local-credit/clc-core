@@ -26,6 +26,10 @@ type (
 		GeoLat float64 `db:"geo_lat" json:"geoLat"`
 		GeoLng float64 `db:"geo_lng" json:"geoLng"`
 		Kind   string  `db:"kind"    json:"kind"`
+		// The issuer's marker choice. Null means automatic: the client draws
+		// that half from Kind.
+		MarkerIcon  *string `db:"marker_icon"  json:"markerIcon"`
+		MarkerColor *string `db:"marker_color" json:"markerColor"`
 	}
 
 	// MarketVoucherDetail is the public detail view of one voucher, backing the
@@ -62,8 +66,10 @@ type (
 		// client can iterate without a nil check and an untagged voucher is
 		// distinguishable from one whose tags failed to load only by the request
 		// failing.
-		Tags []string `db:"tags" json:"tags"`
-		Kind string   `db:"kind" json:"kind"`
+		Tags        []string `db:"tags"         json:"tags"`
+		Kind        string   `db:"kind"         json:"kind"`
+		MarkerIcon  *string  `db:"marker_icon"  json:"markerIcon"`
+		MarkerColor *string  `db:"marker_color" json:"markerColor"`
 	}
 
 	// MarketVoucherBounds is an optional viewport filter. A single box may never

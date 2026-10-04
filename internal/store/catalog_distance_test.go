@@ -20,6 +20,36 @@ func TestCatalogLocationValidation(t *testing.T) {
 	require.True(t, (CatalogFilter{Nearby: location}).Active())
 }
 
+func TestNearbyBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		viewer       CatalogLocation
+		fullLng      bool
+		minLat, maxL float64
+	}{
+		{"equator", CatalogLocation{Lat: 0, Lng: 0}, false, -9, 9},
+		{"nairobi", CatalogLocation{Lat: -1.29, Lng: 36.82}, false, -10.3, 7.7},
+		{"antimeridian", CatalogLocation{Lat: 0, Lng: 179}, true, -9, 9},
+		{"pole", CatalogLocation{Lat: 89, Lng: 0}, true, 80, 90},
+		{"south pole", CatalogLocation{Lat: -90, Lng: 10}, true, -90, -81},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			box := tc.viewer.bounds()
+			require.InDelta(t, tc.minLat, box.MinLat, 0.1)
+			require.InDelta(t, tc.maxL, box.MaxLat, 0.1)
+			if tc.fullLng {
+				require.Equal(t, -180.0, box.MinLng)
+				require.Equal(t, 180.0, box.MaxLng)
+				return
+			}
+			require.Less(t, box.MinLng, tc.viewer.Lng)
+			require.Greater(t, box.MaxLng, tc.viewer.Lng)
+			require.Greater(t, box.MinLng, -180.0)
+			require.Less(t, box.MaxLng, 180.0)
+		})
+	}
+}
+
 // Execute the actual SQL predicate, including null handling and the inclusive
 // boundary. This catches errors that a second Go distance implementation would miss.
 func TestNearbyDistanceSQL(t *testing.T) {

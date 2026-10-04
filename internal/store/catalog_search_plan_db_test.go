@@ -298,6 +298,24 @@ func TestBoundedVoucherSearchRetainsGeoIndexUnderGenericPlan(t *testing.T) {
 	}
 }
 
+// The nearby filter's bounding box must let the GiST point index drive the
+// voucher page, with and without a search term. The exact distance expression
+// alone cannot use an index.
+func TestNearbyVoucherPageUsesGeoIndexUnderGenericPlan(t *testing.T) {
+	_, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+
+	seedFivefoldVouchers(t, tx)
+
+	nearby := &CatalogLocation{Lat: -1.29, Lng: 36.82}
+	for label, term := range map[string]string{"reducer only": "", "search": "sarafu"} {
+		query := composeMarketVoucherPage(nil, CatalogFilter{Term: term, Nearby: nearby}, CatalogFirstPage, 0, 100)
+		plan := explainGenericPlan(t, tx, query.sql)
+
+		assertIndexDrives(t, "nearby "+label, plan, "vouchers_geo_gist_idx")
+	}
+}
+
 // The unfiltered map pages must keep the plans migration 008 measured: the
 // primary key drives the unbounded page, the GiST index the bounded one. This
 // guards against the search work regressing the endpoint's hot path.
