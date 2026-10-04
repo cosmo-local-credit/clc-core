@@ -184,8 +184,9 @@ func New(o APIOpts) *API {
 	// membership/ownership for the authenticated user only. Public for the same
 	// reason as the market catalog — the map's voucher card lists the pools that
 	// hold a voucher — but a signed-in caller is not throttled; see
-	// poolCatalogMiddleware. Pool writes stay on apiGroup.
-	router.GET(apiVersion+"/pools", a.poolsListHandler, a.poolCatalogMiddleware())
+	// poolCatalogMiddleware. Nearby list reads need a session, as on the
+	// market. Pool writes stay on apiGroup.
+	router.GET(apiVersion+"/pools", a.poolsListHandler, a.poolCatalogMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/pools/:address", a.poolsByAddressHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/vouchers", a.poolVouchersListHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/offerings", a.poolOfferingsListHandler, a.poolCatalogMiddleware())
