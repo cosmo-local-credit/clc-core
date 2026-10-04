@@ -657,10 +657,6 @@ func TestUpsertVoucherFromDeployKeepsExistingImagesWhenTheDeployHasNone(t *testi
 
 	address := randomAddress(t, tx)
 	existing := "https://content.example/voucher/imported_400_aaaaaaaa.webp"
-	_, err := tx.Exec(ctx, `
-		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, icon_url)
-		VALUES (42220, $1, 'Imported', 'IMP', 6, $2)`, address, existing)
-	require.NoError(t, err)
 
 	otxID := seedDeployOTX(t, tx, TOKEN_PROXY_DEPLOY)
 	deployedID, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
@@ -674,6 +670,11 @@ func TestUpsertVoucherFromDeployKeepsExistingImagesWhenTheDeployHasNone(t *testi
 	require.NoError(t, err)
 
 	_, err = pg.ConfirmDeployedToken(ctx, tx, otxID, address)
+	require.NoError(t, err)
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, icon_url)
+		VALUES (42220, $1, 'Imported', 'IMP', 6, $2)`, address, existing)
 	require.NoError(t, err)
 
 	voucherID, err := pg.UpsertVoucherFromDeploy(ctx, tx, deployedID)

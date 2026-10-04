@@ -109,7 +109,7 @@ func seedAccountFixtures(t *testing.T, a *API) func() {
 			INSERT INTO vouchers (chain_id, address, name, symbol, decimals, active,
 			    geo_lat, geo_lng, location_name, owner_address)
 			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
-			        $1, 'ZQA', 6, $2, -1.29, 36.82, $3, $4)
+			        $1, 'ZQA' || gen_random_uuid()::TEXT, 6, $2, -1.29, 36.82, $3, $4)
 			RETURNING id`, name, active, accountMarker, owner).Scan(&id); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("seed voucher %q: %v", name, err)
@@ -129,7 +129,7 @@ func seedAccountFixtures(t *testing.T, a *API) func() {
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO pools (chain_id, address, name, symbol, decimals, location_name, owner_address)
 			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
-			        $1, 'ZQP', 6, $2, $3)
+			        $1, 'ZQP' || gen_random_uuid()::TEXT, 6, $2, $3)
 			RETURNING id`, name, accountMarker, owner).Scan(&id); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("seed pool %q: %v", name, err)

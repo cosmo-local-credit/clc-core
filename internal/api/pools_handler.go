@@ -52,6 +52,9 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
+	if handled, vErr := a.resolveNearbyCatalog(c, tx, &search); handled || vErr != nil {
+		return vErr
+	}
 	if handled, vErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || vErr != nil {
 		return vErr
 	}

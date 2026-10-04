@@ -372,9 +372,10 @@ func TestAdminVocabularyRequiresSuperadmin(t *testing.T) {
 	}
 }
 
-// The admin table exists to answer "what breaks if I remove this", so the
-// listing has to carry the per-resource counts, and only custom values.
-func TestAdminVocabularyListsCustomValuesWithUsage(t *testing.T) {
+// The admin table exists to answer "what breaks if I remove or rename this",
+// so the listing carries the per-resource counts, and flags the built-ins that
+// can be renamed but never deleted.
+func TestAdminVocabularyListsEveryValueWithUsage(t *testing.T) {
 	a, priv := newOfferingAPI(t)
 	fx, cleanup := seedOfferingFixtures(t, a)
 	defer cleanup()
@@ -398,19 +399,26 @@ func TestAdminVocabularyListsCustomValuesWithUsage(t *testing.T) {
 		t.Fatalf("status = %d, want 200 body=%s", res.Code, res.Body.String())
 	}
 
+	shippedTag := builtInTag(t, a)
 	tags, _ := result["tags"].([]any)
-	var tag map[string]any
+	var tag, builtIn map[string]any
 	for _, entry := range tags {
 		row, _ := entry.(map[string]any)
-		if row["value"] == vocabularyValue("Seedlings") {
+		switch row["value"] {
+		case vocabularyValue("Seedlings"):
 			tag = row
-		}
-		if row["value"] == "food" {
-			t.Errorf("listing contains the built-in tag %q; only custom values are deletable", row["value"])
+		case shippedTag:
+			builtIn = row
 		}
 	}
 	if tag == nil {
 		t.Fatalf("tags = %#v, want the custom value", tags)
+	}
+	if tag["isCustom"] != true {
+		t.Errorf("custom tag isCustom = %v, want true", tag["isCustom"])
+	}
+	if builtIn == nil || builtIn["isCustom"] != false {
+		t.Errorf("built-in tag %q = %#v, want it listed with isCustom false", shippedTag, builtIn)
 	}
 	if got := tag["vouchers"]; got != float64(1) {
 		t.Errorf("vouchers = %v, want 1", got)
@@ -420,18 +428,24 @@ func TestAdminVocabularyListsCustomValuesWithUsage(t *testing.T) {
 	}
 
 	units, _ := result["units"].([]any)
-	var unit map[string]any
+	var unit, kg map[string]any
 	for _, entry := range units {
 		row, _ := entry.(map[string]any)
-		if row["value"] == vocabularyValue("Seed Tray") {
+		switch row["value"] {
+		case vocabularyValue("Seed Tray"):
 			unit = row
-		}
-		if row["value"] == "kg" {
-			t.Errorf("listing contains the built-in unit %q", row["value"])
+		case "kg":
+			kg = row
 		}
 	}
 	if unit == nil {
 		t.Fatalf("units = %#v, want the custom value", units)
+	}
+	if unit["isCustom"] != true {
+		t.Errorf("custom unit isCustom = %v, want true", unit["isCustom"])
+	}
+	if kg == nil || kg["isCustom"] != false {
+		t.Errorf("built-in unit kg = %#v, want it listed with isCustom false", kg)
 	}
 	if got := unit["offerings"]; got != float64(1) {
 		t.Errorf("offerings = %v, want 1", got)

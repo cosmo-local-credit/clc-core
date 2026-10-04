@@ -222,7 +222,7 @@ LIMIT 1;
 SELECT value FROM token_tag ORDER BY value;
 
 --name: find-token-tag
-SELECT value FROM token_tag WHERE lower(value) = lower($1);
+SELECT value FROM token_tag WHERE lower(value) = lower($1) FOR KEY SHARE;
 
 --name: insert-custom-token-tag
 INSERT INTO token_tag (value, is_custom) VALUES ($1, true)
@@ -232,15 +232,16 @@ ON CONFLICT DO NOTHING;
 SELECT value FROM offering_unit ORDER BY value;
 
 --name: find-offering-unit
-SELECT value FROM offering_unit WHERE lower(value) = lower($1);
+SELECT value FROM offering_unit WHERE lower(value) = lower($1) FOR KEY SHARE;
 
 --name: insert-custom-offering-unit
 INSERT INTO offering_unit (value, is_custom) VALUES ($1, true)
 ON CONFLICT DO NOTHING;
 
---name: list-custom-token-tags
+--name: list-token-tag-vocabulary
 SELECT
     tt.value,
+    tt.is_custom,
     (SELECT count(*) FROM deployed_token_tags dtt WHERE dtt.tag_value = tt.value) AS deployed_tokens,
     (SELECT count(*) FROM deployed_pool_tags dpt WHERE dpt.tag_value = tt.value) AS deployed_pools,
     (SELECT count(*) FROM voucher_tags vt WHERE vt.tag_value = tt.value) AS vouchers,
@@ -248,15 +249,14 @@ SELECT
     (SELECT count(*) FROM report_tags rt WHERE rt.tag_value = tt.value) AS posts,
     (SELECT count(*) FROM offering_tags ot WHERE ot.tag_value = tt.value) AS offerings
 FROM token_tag tt
-WHERE tt.is_custom
 ORDER BY tt.value;
 
---name: list-custom-offering-units
+--name: list-offering-unit-vocabulary
 SELECT
     ou.value,
+    ou.is_custom,
     (SELECT count(*) FROM offerings o WHERE o.unit = ou.value) AS offerings
 FROM offering_unit ou
-WHERE ou.is_custom
 ORDER BY ou.value;
 
 --name: lock-token-tag
@@ -268,6 +268,20 @@ FOR UPDATE;
 SELECT value, is_custom FROM offering_unit
 WHERE lower(value) = lower($1)
 FOR UPDATE;
+
+--name: rename-token-tag
+UPDATE token_tag SET value = $2 WHERE value = $1 RETURNING value;
+
+--name: rename-custom-offering-unit
+UPDATE offering_unit SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
+
+--name: has-unfinished-tag-deployment
+SELECT EXISTS (
+    SELECT 1 FROM river_job
+    WHERE kind IN ('TOKEN_DEPLOY', 'POOL_DEPLOY')
+      AND state NOT IN ('completed', 'cancelled', 'discarded')
+      AND args->'tags' ? $1
+);
 
 --name: delete-custom-token-tag
 WITH
@@ -333,58 +347,16 @@ SELECT
 -- predicate mirrors the client's bare-stem plus numeric-suffix candidates;
 -- unrelated symbols which merely share the prefix do not occupy it.
 --name: list-taken-voucher-symbols
-SELECT symbol
-FROM (
-    SELECT upper(symbol) AS symbol
-    FROM vouchers
-    WHERE upper(symbol) = $1
-       OR (
-            length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
-            AND starts_with(upper(symbol), $1)
-            AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
-       )
-    UNION
-    SELECT upper(symbol) AS symbol
-    FROM deployed_tokens
-    WHERE status IN ('PENDING', 'CONFIRMED')
-      AND (
-            upper(symbol) = $1
-            OR (
-                length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
-                AND starts_with(upper(symbol), $1)
-                AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
-            )
-      )
-) occupied
-ORDER BY symbol
-LIMIT 128;
+SELECT upper(name) AS symbol FROM identity_claims
+WHERE namespace = 'symbol' AND starts_with(name, lower($1))
+  AND (name = lower($1) OR substring(name FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
+ORDER BY name LIMIT 128;
 
 --name: list-taken-pool-symbols
-SELECT symbol
-FROM (
-    SELECT upper(symbol) AS symbol
-    FROM pools
-    WHERE upper(symbol) = $1
-       OR (
-            length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
-            AND starts_with(upper(symbol), $1)
-            AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
-       )
-    UNION
-    SELECT upper(symbol) AS symbol
-    FROM deployed_pools
-    WHERE status IN ('PENDING', 'CONFIRMED')
-      AND (
-            upper(symbol) = $1
-            OR (
-                length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
-                AND starts_with(upper(symbol), $1)
-                AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
-            )
-      )
-) occupied
-ORDER BY symbol
-LIMIT 128;
+SELECT upper(name) AS symbol FROM identity_claims
+WHERE namespace = 'symbol' AND starts_with(name, lower($1))
+  AND (name = lower($1) OR substring(name FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
+ORDER BY name LIMIT 128;
 
 -- A display name is occupied by a catalog row or by a deploy which may still
 -- land on-chain. FAILED deploys are deliberately reusable, as with symbols, and
@@ -410,18 +382,9 @@ SELECT EXISTS (
 );
 
 --name: pool-display-name-taken
-SELECT EXISTS (
-    SELECT 1
-    FROM pools
-    WHERE lower(regexp_replace(btrim(COALESCE(display_name, name)), '\s+', ' ', 'g')) = $1
-      AND ($2::TEXT IS NULL OR lower(address) <> lower($2))
-    UNION ALL
-    SELECT 1
-    FROM deployed_pools
-    WHERE status IN ('PENDING', 'CONFIRMED')
-      AND lower(regexp_replace(btrim(name), '\s+', ' ', 'g')) = $1
-      AND ($2::TEXT IS NULL OR address IS NULL OR lower(address) <> lower($2))
-);
+SELECT EXISTS (SELECT 1 FROM identity_claims
+WHERE namespace = 'recipient' AND name = $1
+  AND ($2::TEXT IS NULL OR owner_kind <> 'pool' OR owner_key NOT LIKE '%:' || lower($2)));
 
 --name: get-protocol-address
 SELECT address FROM protocol_addresses WHERE key = $1;
@@ -700,21 +663,21 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
 VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE LOWER(blockchain_address) = LOWER($1)
 LIMIT 1;
 
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -722,19 +685,19 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
 -- Every onboarding preference preserves on omission so older clients cannot
@@ -752,9 +715,10 @@ SET name = $2,
     location_name = CASE WHEN $9 THEN NULL ELSE COALESCE($10, location_name) END,
     geo_lat = CASE WHEN $9 THEN NULL ELSE COALESCE($11::DOUBLE PRECISION, geo_lat) END,
     geo_lng = CASE WHEN $9 THEN NULL ELSE COALESCE($12::DOUBLE PRECISION, geo_lng) END,
-    avatar_url = CASE WHEN $13 THEN NULL ELSE COALESCE($14, avatar_url) END
+    avatar_url = CASE WHEN $13 THEN NULL ELSE COALESCE($14, avatar_url) END,
+    username = COALESCE($15, username)
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 -- User shares
 --name: insert-user-share

@@ -86,7 +86,7 @@ func seedSymbolLookupFixtures(t *testing.T, a *API) func() {
 			t.Fatalf("insert %s token symbol %s: %v", status, symbol, err)
 		}
 	}
-	insertTokenDeploy("ZQSY", "PENDING") // UNION must de-duplicate this catalog symbol.
+	// A distinct pending deployment cannot claim an existing catalog symbol.
 	insertTokenDeploy("ZQSY2", "PENDING")
 	insertTokenDeploy("ZQSY3", "FAILED")
 
@@ -117,7 +117,7 @@ func seedSymbolLookupFixtures(t *testing.T, a *API) func() {
 			) VALUES (
 			    $1, $2, $3, $4, $5, 6,
 			    $6, $6, $6, $6, $6, false, $6
-			)`, otxID, poolPlatformID, status, symbolLookupMarker, symbol, admin); err != nil {
+		)`, otxID, poolPlatformID, status, symbolLookupMarker+" "+symbol, symbol, admin); err != nil {
 			t.Fatalf("insert %s pool symbol %s: %v", status, symbol, err)
 		}
 	}
@@ -189,8 +189,9 @@ func TestSymbolsLookupReadsCatalogAndOpenDeployments(t *testing.T) {
 	}{
 		{kind: "voucher", prefix: "zqsy", want: []string{"ZQSY", "ZQSY1", "ZQSY2"}},
 		{kind: "pool", prefix: "ZQPL", want: []string{"ZQPL", "ZQPL1"}},
-		// Kinds have separate namespaces even when a prefix exists in the other.
-		{kind: "voucher", prefix: "ZQPL", want: []string{}},
+		// Both creation flows must see claims from the shared symbol namespace.
+		{kind: "voucher", prefix: "ZQPL", want: []string{"ZQPL", "ZQPL1"}},
+		{kind: "pool", prefix: "ZQSY", want: []string{"ZQSY", "ZQSY1", "ZQSY2"}},
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%s_%s", tc.kind, tc.prefix), func(t *testing.T) {

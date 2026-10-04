@@ -94,7 +94,7 @@ func seedFivefoldVouchers(t *testing.T, tx pgx.Tx) {
 		        || ' ' ||
 		    (ARRAY['Network','Coop','Group','Collective','Trust','Circle','Fund','Union','Hub','Farm'])[1 + ((g / 20) % 10)]
 		        || ' ' || g,
-		    upper(substr(md5(g::TEXT), 1, 4)), 6, TRUE,
+		    'SV' || g::TEXT, 6, TRUE,
 		    -4.7 + (g % 900) * 0.01, 33.9 + (g % 800) * 0.01, 'Scale Fixture'
 		FROM generate_series(1, $1) g`, rows); err != nil {
 		t.Fatalf("seed vouchers at scale: %v", err)
@@ -364,7 +364,7 @@ func TestPoolSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 		    '0x' || lpad(to_hex(4000000000 + g), 40, '0'),
 		    (ARRAY['Sarafu','Kijani','Mkulima','Chama','Ubuntu','Nafaka','Maziwa','Jembe','Shamba','Tosha'])[1 + (g % 10)]
 		        || ' Pool ' || g,
-		    upper(substr(md5(g::TEXT), 1, 4)), 6
+		    'SP' || g::TEXT, 6
 		FROM generate_series(1, 5000) g`); err != nil {
 		t.Fatalf("seed pools at scale: %v", err)
 	}

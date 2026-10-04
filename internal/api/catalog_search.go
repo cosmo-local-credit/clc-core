@@ -57,10 +57,11 @@ type (
 		// than the page, so recomputing it per cursor page would return the
 		// same answer at the same cost.
 		facets bool
+		nearby bool
 	}
 )
 
-// parseCatalogSearch reads `q`, `tags`, `tagMatch`, and `facets`.
+// parseCatalogSearch reads `q`, `tags`, `tagMatch`, `facets`, and `nearby`.
 //
 // `tags` accepts repetition (`tags=Art&tags=Culture`) and comma-separated
 // values (`tags=Art,Culture`) interchangeably; no token_tag value contains a
@@ -102,7 +103,11 @@ func parseCatalogSearch(c *echo.Context) (catalogSearchRequest, error) {
 		return catalogSearchRequest{}, err
 	}
 
-	return catalogSearchRequest{filter: filter, facets: facets}, nil
+	nearby := query.Get("nearby")
+	if nearby != "" && nearby != "true" && nearby != "false" {
+		return catalogSearchRequest{}, errors.New("nearby must be true or false")
+	}
+	return catalogSearchRequest{filter: filter, facets: facets, nearby: nearby == "true"}, nil
 }
 
 // parseCatalogRelationshipSearch extends the shared text/tag parser for entity

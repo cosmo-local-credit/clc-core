@@ -84,6 +84,9 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	// Unknown tags fail the whole request before anything is read. Dropping them silently
 	// would answer a different question than the caller asked and report a facet count for a
 	// filter that was never applied.
+	if handled, vErr := a.resolveNearbyCatalog(c, tx, &search); handled || vErr != nil {
+		return vErr
+	}
 	if handled, vErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || vErr != nil {
 		return vErr
 	}
