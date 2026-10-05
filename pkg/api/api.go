@@ -88,7 +88,7 @@ type (
 		// The map marker's glyph and colour, from MarkerIcons and MarkerColors.
 		// Empty means automatic. Checked here because the worker's foreign key
 		// would only reject a bad value after the deploy is signed.
-		MarkerIcon  string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health"`
+		MarkerIcon  string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health education"`
 		MarkerColor string `json:"markerColor,omitempty" validate:"omitempty,oneof=blue purple orange pink cyan brown"`
 	}
 
@@ -333,7 +333,7 @@ type (
 		Tags      []string `json:"tags,omitempty"`
 		// The map marker, preserved on omission like the images so an older
 		// client cannot reset it. "" returns that half to automatic.
-		MarkerIcon  *string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health|eq="`
+		MarkerIcon  *string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health education|eq="`
 		MarkerColor *string `json:"markerColor,omitempty" validate:"omitempty,oneof=blue purple orange pink cyan brown|eq="`
 	}
 
@@ -472,9 +472,9 @@ var (
 	OfferingUnits = BuiltInOfferingUnits
 
 	// MarkerIcons and MarkerColors are the map marker glyphs and colours a voucher
-	// may carry, seeded by migration 043. Clients draw each one, so the set is
-	// closed: the request validators list the same values.
-	MarkerIcons  = []string{"basket", "hand-coin", "coupon", "food", "farm", "tools", "health"}
+	// may carry, seeded by migrations 043 and 045. Clients draw each one, so the
+	// set is closed: the request validators list the same values.
+	MarkerIcons  = []string{"basket", "hand-coin", "coupon", "food", "farm", "tools", "health", "education"}
 	MarkerColors = []string{"blue", "purple", "orange", "pink", "cyan", "brown"}
 )
 
