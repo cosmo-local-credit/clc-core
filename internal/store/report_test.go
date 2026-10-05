@@ -1,6 +1,8 @@
 package store
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestNormalizeReportStatus(t *testing.T) {
 	for _, testCase := range []struct {

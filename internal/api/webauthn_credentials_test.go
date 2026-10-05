@@ -25,7 +25,9 @@ import (
 	gocalibur "github.com/grassrootseconomics/go-calibur"
 )
 
-const webAuthnTestCalibur = "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00"
+const (
+	webAuthnTestCalibur = "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00"
+)
 
 func TestWebAuthnCredentialsRequiresAUserSession(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(nil)

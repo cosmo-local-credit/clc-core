@@ -53,28 +53,28 @@ type (
 		Tags      []string `json:"tags,omitempty"`
 	}
 
-	// Terms is either a link to the publisher's terms or the terms themselves,
-	// written as Markdown. The column is TEXT with no format constraint, so the
-	// only rule is a size cap; clients tell the two apart by whether the value
-	// parses as an http(s) URL.
 	DeployTokenRequest struct {
 		// max mirrors vouchers_display_name_valid (migration 030), for the reason
 		// DeployPoolRequest gives above.
-		Name            string   `json:"name" validate:"required,max=120"`
-		Symbol          string   `json:"symbol" validate:"required"`
-		Decimals        string   `json:"decimals" validate:"required"`
-		Owner           string   `json:"owner" validate:"required,eth_addr_checksum"`
-		ExpiryTimestamp string   `json:"expiryTimestamp,omitempty" validate:"omitempty"`
-		Description     string   `json:"description,omitempty"`
-		Website         string   `json:"website,omitempty" validate:"omitempty,url"`
-		Email           string   `json:"email,omitempty" validate:"omitempty,email"`
-		Phone           string   `json:"phone,omitempty"`
-		Terms           string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
-		VoucherUoa      string   `json:"voucherUoa,omitempty"`
-		VoucherValue    *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
-		LocationName    string   `json:"locationName,omitempty"`
-		GeoLat          *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
-		GeoLng          *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
+		Name            string `json:"name" validate:"required,max=120"`
+		Symbol          string `json:"symbol" validate:"required"`
+		Decimals        string `json:"decimals" validate:"required"`
+		Owner           string `json:"owner" validate:"required,eth_addr_checksum"`
+		ExpiryTimestamp string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
+		Description     string `json:"description,omitempty"`
+		Website         string `json:"website,omitempty" validate:"omitempty,url"`
+		Email           string `json:"email,omitempty" validate:"omitempty,email"`
+		Phone           string `json:"phone,omitempty"`
+		// Terms is either a link to the publisher's terms or the terms themselves,
+		// written as Markdown. The column is TEXT with no format constraint, so the
+		// only rule is a size cap; clients tell the two apart by whether the value
+		// parses as an http(s) URL.
+		Terms        string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
+		VoucherUoa   string   `json:"voucherUoa,omitempty"`
+		VoucherValue *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
+		LocationName string   `json:"locationName,omitempty"`
+		GeoLat       *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
+		GeoLng       *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
 		// Off-chain catalog metadata, carried through the deploy so a voucher
 		// created with an icon still has one once its address exists. Never
 		// written on-chain.
@@ -444,36 +444,36 @@ type (
 	}
 )
 
-// BuiltInOfferingUnits is the initial set seeded by the database.
-//
-// Writes may also introduce a custom value. This slice stays exported for
-// callers that need to distinguish translated built-in labels from custom text.
-var BuiltInOfferingUnits = []string{
-	"kg",
-	"g",
-	"litre",
-	"item",
-	"hour",
-	"day",
-	"bag",
-	"unit",
-	"bundle",
-	"piece",
-	"dozen",
-	"serving",
-	"trip",
-	"session",
-	"metre",
-}
-
-// OfferingUnits remains as a compatibility alias for clients that only need
-// the seeded values. It is not the validation boundary for offering writes.
-var OfferingUnits = BuiltInOfferingUnits
-
-// MarkerIcons and MarkerColors are the map marker glyphs and colours a voucher
-// may carry, seeded by migrations 043 and 045. Clients draw each one, so the set is
-// closed: the request validators list the same values.
 var (
+	// BuiltInOfferingUnits is the initial set seeded by the database.
+	//
+	// Writes may also introduce a custom value. This slice stays exported for
+	// callers that need to distinguish translated built-in labels from custom text.
+	BuiltInOfferingUnits = []string{
+		"kg",
+		"g",
+		"litre",
+		"item",
+		"hour",
+		"day",
+		"bag",
+		"unit",
+		"bundle",
+		"piece",
+		"dozen",
+		"serving",
+		"trip",
+		"session",
+		"metre",
+	}
+
+	// OfferingUnits remains as a compatibility alias for clients that only need
+	// the seeded values. It is not the validation boundary for offering writes.
+	OfferingUnits = BuiltInOfferingUnits
+
+	// MarkerIcons and MarkerColors are the map marker glyphs and colours a voucher
+	// may carry, seeded by migrations 043 and 045. Clients draw each one, so the
+	// set is closed: the request validators list the same values.
 	MarkerIcons  = []string{"basket", "hand-coin", "coupon", "food", "farm", "tools", "health", "education"}
 	MarkerColors = []string{"blue", "purple", "orange", "pink", "cyan", "brown"}
 )

@@ -16,10 +16,12 @@ const (
 	nameLookupPool    = "Zqnamelookup Pool"
 )
 
-type nameLookupFixtures struct {
-	voucherAddress string
-	poolAddress    string
-}
+type (
+	nameLookupFixtures struct {
+		voucherAddress string
+		poolAddress    string
+	}
+)
 
 func seedNameLookupFixtures(t *testing.T, a *API) (nameLookupFixtures, func()) {
 	t.Helper()

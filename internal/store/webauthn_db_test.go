@@ -19,13 +19,15 @@ import (
 // succeeded. Skipped unless CORE_TEST_DSN points at a database; runs inside a
 // rolled-back transaction.
 
-type webAuthnTestEnv struct {
-	t      *testing.T
-	pg     *Pg
-	tx     pgx.Tx
-	signer string
-	nonce  uint64
-}
+type (
+	webAuthnTestEnv struct {
+		t      *testing.T
+		pg     *Pg
+		tx     pgx.Tx
+		signer string
+		nonce  uint64
+	}
+)
 
 func newWebAuthnTestEnv(t *testing.T) (*webAuthnTestEnv, func()) {
 	pg, tx, cleanup := newCatalogSearchTestPg(t)

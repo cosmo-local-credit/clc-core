@@ -14,9 +14,9 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-const ownerAddress = "0x11a573149db22e759fB9A38Bcc461C12855c2600"
-
-func stringPtr(s string) *string { return &s }
+const (
+	ownerAddress = "0x11a573149db22e759fB9A38Bcc461C12855c2600"
+)
 
 // Authority follows the voucher relationship, not offerings.seller_address.
 // Casing is irrelevant because the middleware checksums a claim while imported
@@ -28,17 +28,17 @@ func TestCanWriteVoucherOfferings(t *testing.T) {
 		ownerAddress  *string
 		want          bool
 	}{
-		"owner exact":            {ownerAddress, "USER", stringPtr(ownerAddress), true},
-		"owner lowercased":       {ownerAddress, "USER", stringPtr(strings.ToLower(ownerAddress)), true},
-		"owner uppercase caller": {strings.ToUpper(ownerAddress), "USER", stringPtr(ownerAddress), true},
-		"different user":         {otherAddress, "USER", stringPtr(ownerAddress), false},
-		"superadmin any voucher": {otherAddress, "SUPERADMIN", stringPtr(ownerAddress), true},
+		"owner exact":            {ownerAddress, "USER", new(ownerAddress), true},
+		"owner lowercased":       {ownerAddress, "USER", new(strings.ToLower(ownerAddress)), true},
+		"owner uppercase caller": {strings.ToUpper(ownerAddress), "USER", new(ownerAddress), true},
+		"different user":         {otherAddress, "USER", new(ownerAddress), false},
+		"superadmin any voucher": {otherAddress, "SUPERADMIN", new(ownerAddress), true},
 		"superadmin ownerless":   {otherAddress, "SUPERADMIN", nil, true},
 		"user ownerless":         {ownerAddress, "USER", nil, false},
-		"no caller address":      {"", "USER", stringPtr(ownerAddress), false},
+		"no caller address":      {"", "USER", new(ownerAddress), false},
 		// An empty owner string is not a match for an empty caller: two unknowns
 		// are not the same person.
-		"empty owner string": {"", "USER", stringPtr(""), false},
+		"empty owner string": {"", "USER", new(""), false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := canWriteVoucherOfferings(tc.callerAddress, tc.callerRole, tc.ownerAddress); got != tc.want {
@@ -60,12 +60,12 @@ func TestOfferingSeller(t *testing.T) {
 		wantOK        bool
 	}{
 		"owner creates for self": {
-			ownerAddress, "USER", stringPtr(ownerAddress), ownerAddress, true,
+			ownerAddress, "USER", new(ownerAddress), ownerAddress, true,
 		},
 		// The voucher owner, not the superadmin: a normal create must not rewrite
 		// provenance just because an operator performed it.
 		"superadmin creates for an owned voucher": {
-			otherAddress, "SUPERADMIN", stringPtr(ownerAddress), ownerAddress, true,
+			otherAddress, "SUPERADMIN", new(ownerAddress), ownerAddress, true,
 		},
 		"superadmin creates for an ownerless voucher": {
 			otherAddress, "SUPERADMIN", nil, otherAddress, true,
@@ -74,7 +74,7 @@ func TestOfferingSeller(t *testing.T) {
 			ownerAddress, "USER", nil, "", false,
 		},
 		"stranger creates for an owned voucher": {
-			otherAddress, "USER", stringPtr(ownerAddress), "", false,
+			otherAddress, "USER", new(ownerAddress), "", false,
 		},
 		// seller_address is format-checked NOT NULL, so a superadmin session with
 		// no usable address cannot create rather than writing a junk value.
@@ -86,7 +86,7 @@ func TestOfferingSeller(t *testing.T) {
 		},
 		// An owner recorded as the empty string is no owner at all.
 		"empty owner falls through to the superadmin path": {
-			otherAddress, "SUPERADMIN", stringPtr(""), otherAddress, true,
+			otherAddress, "SUPERADMIN", new(""), otherAddress, true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -424,14 +424,14 @@ func offeringUnitSeed(t *testing.T, sql string) []string {
 	}
 
 	var units []string
-	for _, line := range strings.Split(sql[start:start+end], "\n") {
+	for line := range strings.SplitSeq(sql[start:start+end], "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "('") {
 			continue
 		}
 		value := line[2:]
-		if idx := strings.Index(value, "'"); idx != -1 {
-			units = append(units, value[:idx])
+		if before, _, ok := strings.Cut(value, "'"); ok {
+			units = append(units, before)
 		}
 	}
 	return units

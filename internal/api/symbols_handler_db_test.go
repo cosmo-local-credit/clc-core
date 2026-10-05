@@ -11,7 +11,9 @@ import (
 	"github.com/google/uuid"
 )
 
-const symbolLookupMarker = "Zqsymbollookup"
+const (
+	symbolLookupMarker = "Zqsymbollookup"
+)
 
 func seedSymbolLookupFixtures(t *testing.T, a *API) func() {
 	t.Helper()

@@ -52,11 +52,11 @@ func TestFeeCapTracksBaseFeeAboveTheFloor(t *testing.T) {
 func TestBaseFeeMultiplierCoversAnEIP1559Rise(t *testing.T) {
 	baseFee := big.NewInt(1_000_000_000)
 
-	cap := new(big.Int).Mul(baseFee, big.NewInt(baseFeeMultiplier))
+	feeCap := new(big.Int).Mul(baseFee, big.NewInt(baseFeeMultiplier))
 
 	next := new(big.Int).Set(baseFee)
 	blocks := 0
-	for next.Cmp(cap) <= 0 {
+	for next.Cmp(feeCap) <= 0 {
 		next.Mul(next, big.NewInt(1125))
 		next.Div(next, big.NewInt(1000))
 		blocks++

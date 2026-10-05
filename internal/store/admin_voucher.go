@@ -53,6 +53,7 @@ type (
 	// projection plus `active`, and without the `active` predicate.
 	AdminVoucherDetail struct {
 		MarketVoucherDetail
+
 		Active bool `db:"active" json:"active"`
 	}
 )
@@ -66,27 +67,11 @@ const (
 	AdminVoucherStatusActive AdminVoucherStatus = 1
 	// AdminVoucherStatusRetired lists only retired vouchers — the restore queue.
 	AdminVoucherStatusRetired AdminVoucherStatus = 2
-)
 
-// predicate returns the visibility fragment for a status. It is a compile-time
-// constant per enum value, never built from request text.
-func (s AdminVoucherStatus) predicate() string {
-	switch s {
-	case AdminVoucherStatusActive:
-		return "v.active"
-	case AdminVoucherStatusRetired:
-		return "NOT v.active"
-	case AdminVoucherStatusAll:
-		return ""
-	default:
-		return ""
-	}
-}
-
-// adminVoucherPageProjection hydrates one already-selected page of voucher IDs.
-// Same candidate-first shape as marketVoucherPageProjection, and the same
-// derivation of `kind`, with `active` added.
-const adminVoucherPageProjection = `
+	// adminVoucherPageProjection hydrates one already-selected page of voucher IDs.
+	// Same candidate-first shape as marketVoucherPageProjection, and the same
+	// derivation of `kind`, with `active` added.
+	adminVoucherPageProjection = `
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
     v.location_name, v.geo_lat, v.geo_lng, v.active,
     CASE dominant.commodity_type
@@ -105,6 +90,22 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) dominant ON TRUE
 ORDER BY v.id DESC;`
+)
+
+// predicate returns the visibility fragment for a status. It is a compile-time
+// constant per enum value, never built from request text.
+func (s AdminVoucherStatus) predicate() string {
+	switch s {
+	case AdminVoucherStatusActive:
+		return "v.active"
+	case AdminVoucherStatusRetired:
+		return "NOT v.active"
+	case AdminVoucherStatusAll:
+		return ""
+	default:
+		return ""
+	}
+}
 
 // composeAdminVoucherPage builds one page of the console's catalog.
 //

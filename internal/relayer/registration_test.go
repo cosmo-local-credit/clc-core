@@ -15,11 +15,13 @@ import (
 	gocalibur "github.com/grassrootseconomics/go-calibur"
 )
 
-type registrationFixture struct {
-	rootKey *ecdsa.PrivateKey
-	user    common.Address
-	x, y    *big.Int
-}
+type (
+	registrationFixture struct {
+		rootKey *ecdsa.PrivateKey
+		user    common.Address
+		x, y    *big.Int
+	}
+)
 
 func newRegistrationFixture(t *testing.T) registrationFixture {
 	t.Helper()
@@ -204,8 +206,15 @@ func TestVerifyRegistrationRejects(t *testing.T) {
 		"unwrapped signature": func(t *testing.T, f registrationFixture) RegistrationProof {
 			batch := f.batch(t)
 			wrapped := f.sign(t, r, f.rootKey, f.user, batch)
-			values, _ := wrappedSigArgs.Unpack(wrapped)
-			return f.proof(batch, values[0].([]byte))
+			values, err := wrappedSigArgs.Unpack(wrapped)
+			if err != nil {
+				t.Fatalf("unpack signature: %v", err)
+			}
+			sig, ok := values[0].([]byte)
+			if !ok {
+				t.Fatalf("signature type = %T, want []byte", values[0])
+			}
+			return f.proof(batch, sig)
 		},
 		"point not on curve": func(t *testing.T, f registrationFixture) RegistrationProof {
 			f.y = new(big.Int).Add(f.y, big.NewInt(1))
