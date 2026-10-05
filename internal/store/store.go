@@ -11,6 +11,11 @@ import (
 
 type (
 	Store interface {
+		SuggestUsername(context.Context, pgx.Tx, string) (string, error)
+		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)
+		ResolveRecipient(context.Context, pgx.Tx, string, int64, bool) (Recipient, error)
+		ReserveDeploymentIdentity(context.Context, pgx.Tx, string, string, string, string) error
+		ReconcileDeploymentIdentities(context.Context, pgx.Tx) error
 		Pool() *pgxpool.Pool
 		Bootstrap() error
 		InsertKeyPair(context.Context, pgx.Tx, keypair.Key) error
@@ -34,15 +39,18 @@ type (
 		GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 		ListTakenVoucherSymbols(context.Context, pgx.Tx, string) ([]string, error)
+		VoucherDisplayNameTaken(context.Context, pgx.Tx, string, *string) (bool, error)
 		ListTokenTags(context.Context, pgx.Tx) ([]string, error)
 		FindTokenTag(context.Context, pgx.Tx, string) (string, error)
 		InsertCustomTokenTag(context.Context, pgx.Tx, string) error
 		ListOfferingUnits(context.Context, pgx.Tx) ([]string, error)
 		FindOfferingUnit(context.Context, pgx.Tx, string) (string, error)
 		InsertCustomOfferingUnit(context.Context, pgx.Tx, string) error
-		ListCustomVocabulary(context.Context, pgx.Tx) (CustomVocabulary, error)
+		ListVocabulary(context.Context, pgx.Tx) (Vocabulary, error)
 		LockTokenTag(context.Context, pgx.Tx, string) (VocabularyEntry, error)
 		LockOfferingUnit(context.Context, pgx.Tx, string) (VocabularyEntry, error)
+		RenameVocabulary(context.Context, pgx.Tx, bool, string, string) (string, error)
+		HasUnfinishedTagDeployment(context.Context, pgx.Tx, string) (bool, error)
 		DeleteCustomTokenTag(context.Context, pgx.Tx, string) (TagVocabularyUsage, error)
 		DeleteCustomOfferingUnit(context.Context, pgx.Tx, string) (UnitVocabularyUsage, error)
 		GetProtocolAddress(context.Context, pgx.Tx, string) (string, error)
@@ -56,6 +64,7 @@ type (
 		ReplacePoolTags(context.Context, pgx.Tx, uint64, []string) error
 		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)
 		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
+		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
@@ -64,6 +73,7 @@ type (
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 		ListTakenPoolSymbols(context.Context, pgx.Tx, string) ([]string, error)
+		PoolDisplayNameTaken(context.Context, pgx.Tx, string, *string) (bool, error)
 		InsertDeployedPoolTag(context.Context, pgx.Tx, uint64, string) error
 		GetOracleFeedByName(context.Context, pgx.Tx, int64, string) (OracleFeed, error)
 		ListOracleFeeds(context.Context, pgx.Tx, int64) ([]OracleFeed, error)
@@ -85,6 +95,7 @@ type (
 		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)
 		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
 		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
+		ListUserShareTxHashes(context.Context, pgx.Tx, []string, uint64) ([]string, error)
 		ListUsersFiltered(context.Context, pgx.Tx, UserFilter, CatalogPage, uint64, uint64) ([]User, error)
 		AccountRelationshipCounts(context.Context, pgx.Tx, string) (AccountRelationshipCounts, error)
 		ListAccountPools(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Pool, error)
@@ -156,6 +167,8 @@ type (
 		ListMarketVouchersNext(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVouchersPrevious(context.Context, pgx.Tx, *MarketVoucherBounds, uint64, uint64) ([]MarketVoucher, error)
 		GetMarketVoucherByAddress(context.Context, pgx.Tx, string) (MarketVoucherDetail, error)
+		ListAdminVouchers(context.Context, pgx.Tx, CatalogFilter, AdminVoucherStatus, CatalogPage, uint64, uint64) ([]AdminVoucher, error)
+		GetAdminVoucherByAddress(context.Context, pgx.Tx, string) (AdminVoucherDetail, error)
 
 		// Catalog search and tag filtering (PG_SEARCH_PLAN.md Slices 1 and 2).
 		ListMarketVouchersFiltered(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter, CatalogPage, uint64, uint64) ([]MarketVoucher, error)
@@ -174,8 +187,12 @@ type (
 		InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error
 		GetUpgradeMetaByOTXID(context.Context, pgx.Tx, uint64) (UpgradeMeta, error)
 
-		UpsertWebAuthnCredential(context.Context, pgx.Tx, WebAuthnCredential) error
+		RecordWebAuthnRegistration(context.Context, pgx.Tx, WebAuthnCredential) error
 		GetWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
+		GetActiveWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
+		ListWebAuthnCredentialsByAddress(context.Context, pgx.Tx, string) ([]WebAuthnCredential, error)
+		ListLegacyWebAuthnCredentials(context.Context, pgx.Tx) ([]WebAuthnCredential, error)
+		ResolveLegacyWebAuthnCredential(context.Context, pgx.Tx, string, string) error
 		SetNonceIfHigher(context.Context, pgx.Tx, string, uint64) error
 	}
 )

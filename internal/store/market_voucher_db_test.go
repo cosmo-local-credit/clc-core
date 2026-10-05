@@ -57,7 +57,7 @@ func seedMarketVoucher(t *testing.T, tx pgx.Tx, lat, lng float64, active bool, c
 	err := tx.QueryRow(ctx, `
 		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, active, geo_lat, geo_lng, location_name)
 		VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
-		        'Market Fixture', 'FIX', 6, $1, $2, $3, 'Fixture Location')
+		        'Market Fixture', 'FIX' || gen_random_uuid()::TEXT, 6, $1, $2, $3, 'Fixture Location')
 		RETURNING id`, active, lat, lng).Scan(&id)
 	if err != nil {
 		t.Fatalf("seed voucher: %v", err)

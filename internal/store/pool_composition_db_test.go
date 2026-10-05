@@ -130,9 +130,14 @@ func TestPoolCompositionHandlesAnAggregatorSharedByTwoFeeds(t *testing.T) {
 
 	poolID, _, _, _, quoter, _, token := seedComposablePool(t, tx)
 
-	var shared string
-	require.NoError(t, tx.QueryRow(ctx, `
-		SELECT address FROM oracle_feeds GROUP BY address HAVING COUNT(*) > 1 LIMIT 1`).Scan(&shared))
+	// Create the shared aggregator in this transaction instead of depending on
+	// imported feeds being present in the test database.
+	shared := randomAddress(t, tx)
+	_, err := tx.Exec(ctx, `
+		INSERT INTO oracle_feeds (chain_id, name, address)
+		VALUES (42220, $1, $3), (42220, $2, $3)`,
+		"Shared aggregator first "+shared, "Shared aggregator second "+shared, shared)
+	require.NoError(t, err)
 
 	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, shared)
 	require.NoError(t, err)

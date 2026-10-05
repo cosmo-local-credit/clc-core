@@ -34,9 +34,10 @@
    - [GET /api/v2/account/status/:address](#54-get-apiv2accountstatusaddress)
    - [POST /api/v2/contracts/token](#55-post-apiv2contractstoken)
    - [POST /api/v2/contracts/pool](#56-post-apiv2contractspool)
-   - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#57-pretium-backend-endpoints-apiv2pretium)
-   - [GET /api/v2/pools](#58-get-apiv2pools)
-   - [GET /api/v2/pools/:address](#59-get-apiv2poolsaddress)
+   - [GET /api/v2/names](#57-get-apiv2names)
+   - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#58-pretium-backend-endpoints-apiv2pretium)
+   - [GET /api/v2/pools](#59-get-apiv2pools)
+   - [GET /api/v2/pools/:address](#510-get-apiv2poolsaddress)
 6. [User-Only Endpoints (`/api/v2/users/*`)](#6-user-only-endpoints-apiv2users)
    - [GET /api/v2/users/me](#61-get-apiv2usersme)
    - [GET /api/v2/users/me/tokens](#62-get-apiv2usersmetokens)
@@ -74,6 +75,7 @@
    - [Tag filters are still closed](#123-tag-filters-are-still-closed)
    - [GET /api/v2/admin/vocabulary](#124-get-apiv2adminvocabulary)
    - [DELETE /api/v2/admin/vocabulary/tags and .../units](#125-delete-apiv2adminvocabularytags-and-units)
+   - [PUT /api/v2/admin/vocabulary/tags and .../units](#126-put-apiv2adminvocabularytags-and-units)
 
 ---
 
@@ -83,7 +85,7 @@
 |---|---|
 | Base URL | `http(s)://<host>/` |
 | Protected API prefix | `/api/v2` |
-| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
+| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings), [`GET /api/v2/pools`](#59-get-apiv2pools), [`GET /api/v2/pools/:address`](#510-get-apiv2poolsaddress), `GET /api/v2/pools/:address/vouchers`, [`GET /api/v2/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) |
 | Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
 | Default chain | Celo Mainnet (`chainId: 42220`) |
 | Content-Type | `application/json` |
@@ -741,18 +743,31 @@ Submits a request to deploy an ERC-20 token contract. The deployment is queued a
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | `string` | Yes | Full token name |
-| `symbol` | `string` | Yes | Ticker symbol (e.g. `MTK`) |
+| `name` | `string` | Yes | Full token name, up to 120 characters. Must be unique — see below |
+| `symbol` | `string` | Yes | Ticker symbol (e.g. `MTK`). Not required to be unique |
 | `decimals` | `string` (int) | Yes | Token decimal places (e.g. `"6"`) |
 | `owner` | `string` | Yes | Checksummed Ethereum address of the token owner |
 | `expiryTimestamp` | `string` (ISO 8601) | No | Optional expiry date for the token |
 | `iconUrl` | `string` (http/https URL) | No | Off-chain catalog image, carried to the voucher on confirmation |
 | `bannerUrl` | `string` (http/https URL) | No | Off-chain catalog header image, same path as `iconUrl` |
+| `markerIcon` | `string` | No | Map marker glyph: `basket`, `hand-coin`, `coupon`, `food`, `farm`, `tools`, `health` or `education`. Omitted means automatic |
+| `markerColor` | `string` | No | Map marker colour: `blue`, `purple`, `orange`, `pink`, `cyan` or `brown`. Omitted means automatic |
+
+A marker value outside those sets is rejected with `400` before the deploy is
+queued, for the same reason as the image schemes below.
 
 Image URLs must be `http` or `https`. Other schemes — including `data:` — are
 rejected with `400` before the deploy is queued, because the catalog column that
 finally receives them is HTTP-only and by then the transaction would already be
 signed and its nonce spent.
+
+`name` is trimmed and its inner whitespace collapsed before anything else
+happens, and the collapsed form is what reaches the ERC-20 constructor. It must
+not already be in use by another voucher, whether by a catalog row or by a
+deploy still in flight. The comparison ignores case and whitespace, so
+`"  community   MARKET "` collides with `"Community Market"`. A deploy that
+previously failed releases its name. Use
+[`GET /api/v2/names`](#57-get-apiv2names) to check before submitting.
 
 **Response `200`:**
 
@@ -770,8 +785,9 @@ signed and its nonce spent.
 
 | HTTP | `code` | Condition |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, bad address) |
+| `400` | `E04` | Validation failure (missing fields, bad address, name over 120 characters or blank after trimming) |
 | `403` | `E11` | User has reached their `maxTokens` quota |
+| `409` | `E16` | `name` is already used by another voucher or an in-flight deploy |
 
 ---
 
@@ -801,8 +817,8 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | `string` | Yes | Pool name |
-| `symbol` | `string` | Yes | Pool symbol |
+| `name` | `string` | Yes | Pool name, up to 80 characters. Unique among pools, on the same terms as a token name |
+| `symbol` | `string` | Yes | Pool symbol. Not required to be unique |
 | `decimals` | `string` (int) | Yes | Decimal precision |
 | `owner` | `string` | Yes | Checksummed owner address |
 | `quoterType` | `string` | Yes | Pricing strategy — see below |
@@ -838,12 +854,63 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 | HTTP | `code` | Condition |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter) |
+| `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter, name over 80 characters or blank after trimming) |
 | `403` | `E11` | User has reached their `maxPools` quota |
+| `409` | `E16` | `name` is already used by another pool or an in-flight deploy |
 
 ---
 
-### 5.7 `Pretium Backend Endpoints (/api/v2/pretium/*)`
+### 5.7 `GET /api/v2/names`
+
+Reports whether a voucher or pool name is still free, so a creation form can say
+so before the user has filled in everything else.
+
+This is an advisory read, not a reservation. Nothing is held: the deploy request
+is the claim, and it re-runs the same check. Two clients told a name is free
+moments apart can still race, and the loser gets `409` from the deploy.
+
+**Auth:** user JWT or service JWT
+
+**Query parameters:**
+
+| Name | Required | Description |
+|---|---|---|
+| `kind` | Yes | `voucher` or `pool`. The two are separate namespaces |
+| `name` | Yes | The name to check. Trimmed and inner-whitespace-collapsed before comparison; at most 120 characters for a voucher, 80 for a pool |
+| `exclude` | No | A contract address whose own name should not count as a conflict, for a rename form checking the value already in its field |
+
+A name is occupied by a catalog row or by a deploy that may still land on-chain
+(`PENDING` or `CONFIRMED`). A deploy that `FAILED` releases its name. Where a
+voucher or pool carries an off-chain display name, that label is what is
+compared, not the immutable contract name it overrides.
+
+**Response `200`:**
+
+```/dev/null/name-availability-response.json#L1-9
+{
+  "ok": true,
+  "description": "Name availability",
+  "result": {
+    "kind": "voucher",
+    "name": "Community Market",
+    "available": false
+  }
+}
+```
+
+`result.name` echoes the normalized form the comparison used, so a client can
+show the user exactly what was checked. Responses are sent `Cache-Control: no-store`.
+
+**Error cases:**
+
+| HTTP | `code` | Condition |
+|---|---|---|
+| `400` | `E04` | `kind` is not `voucher` or `pool`; `name` is blank or over the limit for that kind; `exclude` is not an address |
+| `401` | `E06` | Missing or invalid credentials |
+
+---
+
+### 5.8 `Pretium Backend Endpoints (/api/v2/pretium/*)`
 
 These routes proxy the configured Pretium Ramp service for cash in/out flows.
 
@@ -879,11 +946,11 @@ See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
 
 ---
 
-### 5.8 `GET /api/v2/pools`
+### 5.9 `GET /api/v2/pools`
 
 Returns **all confirmed** (on-chain) SwapPool contracts across all users — the global pools catalog for the app. Cursor pagination matches activity and `/users/me/pools`.
 
-**Auth:** user JWT cookie or service JWT
+**Auth:** none required. The four pool reads — this route, [`/pools/:address`](#510-get-apiv2poolsaddress), `/pools/:address/vouchers` and [`/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) — are public so the map's voucher card can list the pools that hold a voucher. A request with a valid user or service JWT is served exactly as before and is not rate limited. Any other request, including one whose session has expired, is served as signed out and limited per client IP (60 a minute, burst 60, `429` with `Retry-After`) by a budget separate from the market catalog's. Pool writes (`PUT /api/v2/pools/:address/profile`) still require a user JWT.
 
 **Query parameters:**
 
@@ -954,11 +1021,11 @@ cursor pages.
 
 ---
 
-### 5.9 `GET /api/v2/pools/:address`
+### 5.10 `GET /api/v2/pools/:address`
 
-Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any authenticated client may load any confirmed pool.
+Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any client may load any confirmed pool.
 
-**Auth:** user JWT cookie or service JWT
+**Auth:** none required — see [5.9](#59-get-apiv2pools)
 
 **Path parameters:**
 
@@ -1661,6 +1728,56 @@ Latest indexed envelopes from `chain_data_v2.tx`, classified from live event tab
 
 ---
 
+### 7.13 `GET /api/v2/admin/vouchers`
+
+The console's voucher catalog. Same `q`, `tags`, `tagMatch` and `owner`
+parameters as the public list in [section 9](#9-public-market-catalog-get-apiv2vouchers),
+and the same cursor pagination (`perPage` default/max 100, `cursor`, `next`).
+
+It differs from the public list in exactly two ways, and both are the point:
+
+- **No visibility gate.** The public list filters `active` vouchers with
+  complete coordinates. This one filters neither, so retired and ungeolocated
+  vouchers are reachable. Each row carries `active` so the console can render
+  status.
+- **No `bbox`.** The console lists rather than maps, and a viewport filter would
+  silently exclude the very rows this endpoint exists to reach.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `status` | `string` | `all` | `all`, `active`, or `retired` (case-insensitive). An unrecognised value is `400 E04`, never a silently widened page |
+
+Responses are `Cache-Control: no-store`. The public market responses are
+cacheable because they are identical for every caller; this one is scoped to a
+role and must never be served to anyone else.
+
+### 7.14 `GET /api/v2/admin/vouchers/:address`
+
+One voucher whatever its visibility. The projection is
+[9.6](#96-voucher-detail-get-apiv2vouchersaddress)'s plus `active`, and there is
+no `active` predicate: `404` means the catalog does not hold the address, not
+that the voucher is retired.
+
+This route is why retiring is reversible at all. Without it, retiring a voucher
+would also remove the only screen an operator could restore it from.
+
+### 7.15 `PUT /api/v2/admin/vouchers/:address/restore`
+
+Returns a retired voucher to the public catalog. `SUPERADMIN`-only and no
+request body. Success is `200 OK` with description `Voucher restored` and the
+restored row under `result.voucher`.
+
+Deliberately not the mirror image of
+[9.8](#98-retire-a-voucher-delete-apiv2vouchersaddress): an owner may take their
+own voucher out of circulation, but putting one back is an operator decision, so
+there is no owner-facing route and no toggle an owner can flip back and forth.
+
+Restoring an already-active voucher is idempotent in state and still `200`. It
+is not an error — the caller asked for a state the row is already in, and a
+`409` would make the console handle a case with no user-visible difference.
+
+---
+
 ## 8. SIWE Message Construction
 
 The following is a client-side example using the [`siwe`](https://www.npmjs.com/package/siwe) JavaScript library. This pattern applies to `/auth/signup`, `/auth/signin`, and `/auth/siwe/verify`.
@@ -1767,7 +1884,9 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
         "locationName": "C96, KEN",
         "geoLat": -1.450979,
         "geoLng": 38.235115,
-        "kind": "voucher"
+        "kind": "voucher",
+        "markerIcon": null,
+        "markerColor": null
       }
     ],
     "first": 2710,
@@ -1788,6 +1907,8 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
 | `geoLat` | number | Never null — rows without complete coordinates are excluded. |
 | `geoLng` | number | Never null. |
 | `kind` | string | `"goods"`, `"services"`, or `"voucher"`. |
+| `markerIcon` | string \| null | The issuer's map marker glyph, from the `voucher_marker_icon` lookup. `null` means automatic: draw it from `kind`. A client must treat a value it does not recognise as `null`. |
+| `markerColor` | string \| null | The issuer's map marker colour, from `voucher_marker_color`. Same rules as `markerIcon`, and independent of it. |
 
 **Included rows.** Only vouchers that are `active` **and** have complete
 coordinates. There is no `internal` predicate: `internal` is an import
@@ -1920,7 +2041,9 @@ checksummed form.
       "phone": "+254700000000",
       "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
       "bannerUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
-      "kind": "goods"
+      "kind": "goods",
+      "markerIcon": "basket",
+      "markerColor": "pink"
     }
   }
 }
@@ -1928,7 +2051,7 @@ checksummed form.
 
 | Field | Type | Notes |
 |---|---|---|
-| `id`, `chainId`, `address`, `name`, `symbol`, `locationName`, `kind` | — | Identical semantics to the [list contract](#92-response). |
+| `id`, `chainId`, `address`, `name`, `symbol`, `locationName`, `kind`, `markerIcon`, `markerColor` | — | Identical semantics to the [list contract](#92-response). |
 | `decimals` | integer \| null | ERC-20 decimals. |
 | `ownerAddress` | string \| null | Issuer's wallet, stored casing preserved. |
 | `description` | string \| null | |
@@ -1938,6 +2061,14 @@ checksummed form.
 | `email`, `website`, `phone` | string \| null | Issuer contact, as imported. |
 | `iconUrl` | string \| null | Profile image. Absent for roughly two thirds of the imported catalog, so clients need a real fallback. |
 | `bannerUrl` | string \| null | Wide header image. Absent about as often as `iconUrl`. |
+
+**Changing the marker.** `PUT /api/v2/vouchers/:address/profile` (the owner or
+a superadmin) and `PUT /api/v2/admin/vouchers/:address/profile` accept
+`markerIcon` and `markerColor` with the values listed under
+[5.5](#55-post-apiv2contractstoken). Unlike the rest of that assign-all body,
+an omitted marker field keeps its stored value, so a client that predates the
+marker cannot reset it; `""` returns that half to automatic, and anything else
+outside the sets is a `400`.
 
 **Visibility.** Only `active` vouchers resolve. A deactivated voucher returns
 `404` with a body **byte-identical** to an address that never existed, so the
@@ -1950,6 +2081,55 @@ Caching and rate limiting are exactly as in [9.3](#93-caching) and
 > **Swagger drift.** `docs/swagger.yaml` predates the catalog surface and does
 > not describe these routes. Reconciling it is tracked as separate follow-up
 > work.
+
+### 9.8 Retire a voucher (`DELETE /api/v2/vouchers/:address`)
+
+Requires a user JWT. The caller must be either the voucher's current
+`ownerAddress` or a `SUPERADMIN`; the catalog row is locked and checked in the
+same transaction as the write, so authorization cannot race a concurrent
+ownership change. Another signed-in user receives `403 E10`, a service
+credential `403`, and no session `401`. No request body is required.
+
+```http
+DELETE /api/v2/vouchers/0x1B4a4f08D796C72efB377f629130a15eb0B78942
+Cookie: __clc_auth=<owner-or-admin-jwt>
+```
+
+Success is `200 OK` with description `Voucher retired` and **no `result`**. The
+other catalog writes return the saved row so a client can seed its cache, but
+the row this one writes is no longer visible to
+[9.6](#96-voucher-detail-get-apiv2vouchersaddress) — reading it back would
+answer `404`. A client's correct next move is to drop the voucher from its cache,
+not to re-read it.
+
+**Soft, not destructive.** The endpoint flips `vouchers.active`, the same
+visibility gate every market, search and offering statement already filters on.
+Nothing is deleted: the reports and offerings that reference the voucher keep
+their foreign keys, and a restore returns it intact. Deleting instead was
+measured and rejected — 65% of report→voucher links ride on rows a delete would
+take with them.
+
+**Visibility afterwards.** The voucher stops resolving from
+[9](#9-public-market-catalog-get-apiv2vouchers), [9.6](#96-voucher-detail-get-apiv2vouchersaddress)
+and [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings), and its 404
+body is byte-identical to an address that never existed. It remains visible to
+the console reads in [7.13](#713-get-apiv2adminvouchers) and
+[7.14](#714-get-apiv2adminvouchersaddress), and to the surfaces that deliberately
+ignore `active`: pool composition, symbol occupancy, report linking and
+federation balance metadata. A retired voucher's symbol stays taken, so a new
+deploy cannot collide with it.
+
+| State | Repeat `DELETE` |
+|---|---|
+| Active | `200`, retired |
+| Already retired | `409` `voucher is already retired` |
+| Unknown address | `404`, body identical to a retired-voucher read |
+
+Activity is checked before ownership on purpose: answering `409` to the owner
+and `403` to everyone else would leak that the address exists.
+
+There is no owner-facing restore. Putting a voucher back is an operator
+decision — see [7.15](#715-put-apiv2adminvouchersaddressrestore).
 
 ### 9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)
 
@@ -1986,10 +2166,9 @@ Returns every available offering published against a voucher the pool allows.
 The pool detail screen lists these in its default Offerings tab, instead of
 walking the pool's vouchers one request at a time.
 
-**Authentication required** — this route sits on the authenticated API group
-with the other `/api/v2/pools/*` routes, because the pool screen itself requires
-a session. It is therefore `no-store` and carries no public cache policy, unlike
-the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
+**Auth:** none required — see [5.9](#59-get-apiv2pools). Unlike
+the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings),
+it carries no public cache policy.
 
 ```http
 GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20
@@ -2512,28 +2691,29 @@ it with an empty page hides that.
 
 ### 12.4 `GET /api/v2/admin/vocabulary`
 
-`SUPERADMIN`-only. Lists **custom values only** — built-ins are not deletable,
-so listing them would only offer an operator a button that returns `409`.
+`SUPERADMIN`-only. Lists **every value**, built-in and custom, each flagged by
+`isCustom`. Only custom values can be deleted (§12.5); built-in tags can be
+renamed (§12.6), so the console lists them too.
 
 ```json
 {
   "ok": true,
-  "description": "Custom vocabulary",
+  "description": "Vocabulary",
   "result": {
     "tags": [
       {
-        "value": "Urban Farming",
+        "value": "Urban Farming", "isCustom": true,
         "deployedTokens": 0, "deployedPools": 0,
         "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0
       }
     ],
-    "units": [{ "value": "Produce Crate", "offerings": 4 }]
+    "units": [{ "value": "Produce Crate", "isCustom": true, "offerings": 4 }]
   }
 }
 ```
 
-The per-resource counts exist so the console can describe what a deletion will
-remove before the operator commits to it.
+The per-resource counts exist so the console can describe what a deletion or a
+rename will reach before the operator commits to it.
 
 ### 12.5 `DELETE /api/v2/admin/vocabulary/tags` and `.../units`
 
@@ -2580,3 +2760,58 @@ a row still points at it.
 
 Deletion does not blacklist: the next catalog write that names the value creates
 it again.
+
+### 12.6 `PUT /api/v2/admin/vocabulary/tags` and `.../units`
+
+`SUPERADMIN`-only. Renames a value everywhere it is used:
+
+```http
+PUT /api/v2/admin/vocabulary/tags
+{ "value": "Urban Farming", "replacement": "Community Gardens" }
+```
+
+`value` is located case-insensitively and locked `FOR UPDATE`. `replacement` is
+trimmed and its inner whitespace collapsed, but its casing is kept as sent, so a
+rename can fix casing (`kwh` → `kWh`). It follows the creation rules otherwise:
+at most 100 characters and no commas for a tag, at most 32 for a unit.
+
+| Response | When |
+|---|---|
+| `400 E02` / `E04` | malformed body, blank value, or an invalid replacement |
+| `404 E03` | no such value |
+| `409 E16` | the replacement already exists (case-insensitively) |
+| `409 E16` | the value is a built-in unit |
+| `409 E16` | a queued or running voucher or pool deployment names the tag |
+| `200` | renamed; `result.value` is the stored spelling |
+
+Every reference follows in the same transaction: the tag and unit foreign keys
+are `ON UPDATE CASCADE` (migration 040), so vouchers, pools, posts, offerings and
+deployments keep their association under the new name.
+
+- **Built-in tags** can be renamed and stay built-in, so they remain undeletable.
+  This is how a deployment makes the shipped defaults its own.
+- **Built-in units** cannot: the apps translate them by their stored spelling,
+  and a rename would strip every locale's label from that unit.
+- **A deployment job** saves its tags as names in the job's arguments, outside
+  any foreign key, and writes them when it runs. A tag named by a job that can
+  still run is refused until the job finishes; `completed`, `cancelled` and
+  `discarded` jobs never run again and do not block.
+
+Like deletion, a rename does not blacklist the old spelling: the next catalog
+write that names it creates it as a new custom value.
+
+## Recipient search
+
+Authenticated `GET /api/v2/recipients?q=…` returns up to 20 recipient identities
+in `result.recipients`. Text searches current usernames and effective pool names.
+Phone-shaped input searches approved users with usernames by their stored phone
+prefix, after at least three digits. An optional leading `+`, spaces, parentheses
+and hyphens are ignored when comparing; every digit, including leading zeros
+and `00`, is preserved. `071` is not converted to an international number.
+Exact phone matches rank first, followed by username/address order. The existing
+optional `kind=user|pool` parameter still applies; pool contact phones are excluded.
+Phone numbers are not included in the response.
+
+Sending to a complete wallet address uses direct address entry, with optional
+`GET /api/v2/recipients/reverse/:address` for its current identity label. Unknown
+addresses remain valid destinations; partial addresses do not trigger discovery.

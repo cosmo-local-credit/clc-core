@@ -36,16 +36,20 @@ type (
 		GetDeployedTokenByAddress    string `query:"get-deployed-token-by-address"`
 		GetDeployedTokenByTrackingID string `query:"get-deployed-token-by-tracking-id"`
 		ListTakenVoucherSymbols      string `query:"list-taken-voucher-symbols"`
+		VoucherDisplayNameTaken      string `query:"voucher-display-name-taken"`
 		ListTokenTags                string `query:"list-token-tags"`
 		FindTokenTag                 string `query:"find-token-tag"`
 		InsertCustomTokenTag         string `query:"insert-custom-token-tag"`
 		ListOfferingUnits            string `query:"list-offering-units"`
 		FindOfferingUnit             string `query:"find-offering-unit"`
 		InsertCustomOfferingUnit     string `query:"insert-custom-offering-unit"`
-		ListCustomTokenTags          string `query:"list-custom-token-tags"`
-		ListCustomOfferingUnits      string `query:"list-custom-offering-units"`
+		ListTokenTagVocabulary       string `query:"list-token-tag-vocabulary"`
+		ListOfferingUnitVocabulary   string `query:"list-offering-unit-vocabulary"`
 		LockTokenTag                 string `query:"lock-token-tag"`
 		LockOfferingUnit             string `query:"lock-offering-unit"`
+		RenameTokenTag               string `query:"rename-token-tag"`
+		RenameCustomOfferingUnit     string `query:"rename-custom-offering-unit"`
+		HasUnfinishedTagDeployment   string `query:"has-unfinished-tag-deployment"`
 		DeleteCustomTokenTag         string `query:"delete-custom-token-tag"`
 		DeleteCustomOfferingUnit     string `query:"delete-custom-offering-unit"`
 		GetProtocolAddress           string `query:"get-protocol-address"`
@@ -57,6 +61,7 @@ type (
 		GetDeployedPoolByAddress     string `query:"get-deployed-pool-by-address"`
 		GetDeployedPoolByTrackingID  string `query:"get-deployed-pool-by-tracking-id"`
 		ListTakenPoolSymbols         string `query:"list-taken-pool-symbols"`
+		PoolDisplayNameTaken         string `query:"pool-display-name-taken"`
 		InsertDeployedPoolTag        string `query:"insert-deployed-pool-tag"`
 		LockPoolForProfileUpdate     string `query:"lock-pool-for-profile-update"`
 		UpdatePoolProfile            string `query:"update-pool-profile"`
@@ -64,6 +69,7 @@ type (
 		InsertPoolTag                string `query:"insert-pool-tag"`
 		UpdateVoucherProfile         string `query:"update-voucher-profile"`
 		UpdateVoucherDisplayName     string `query:"update-voucher-display-name"`
+		SetVoucherActive             string `query:"set-voucher-active"`
 		DeleteVoucherTags            string `query:"delete-voucher-tags"`
 		InsertVoucherTag             string `query:"insert-voucher-tag"`
 		SetPoolTokenMembership       string `query:"set-pool-token-membership"`
@@ -92,6 +98,7 @@ type (
 		UpdateUserProfile             string `query:"update-user-profile"`
 		InsertUserShare               string `query:"insert-user-share"`
 		GetUserShareByTxHash          string `query:"get-user-share-by-tx-hash"`
+		ListUserShareTxHashes         string `query:"list-user-share-tx-hashes"`
 		AccountRelationshipCounts     string `query:"account-relationship-counts"`
 		CountUserTokens               string `query:"count-user-tokens"`
 		CountUserPools                string `query:"count-user-pools"`
@@ -116,9 +123,16 @@ type (
 		InsertUpgradeMeta     string `query:"insert-upgrade-meta"`
 		GetUpgradeMetaByOTXID string `query:"get-upgrade-meta-by-otx-id"`
 
-		UpsertWebAuthnCredential string `query:"upsert-webauthn-credential"`
-		GetWebAuthnCredential    string `query:"get-webauthn-credential"`
-		SetNonceIfHigher         string `query:"set-nonce-if-higher"`
+		InsertWebAuthnCredential         string `query:"insert-webauthn-credential"`
+		RearmWebAuthnCredential          string `query:"rearm-webauthn-credential"`
+		GetWebAuthnCredentialForUpdate   string `query:"get-webauthn-credential-for-update"`
+		GetWebAuthnCredential            string `query:"get-webauthn-credential"`
+		GetActiveWebAuthnCredential      string `query:"get-active-webauthn-credential"`
+		ListWebAuthnCredentialsByAddress string `query:"list-webauthn-credentials-by-address"`
+		SettleWebAuthnRegistration       string `query:"settle-webauthn-registration"`
+		ListLegacyWebAuthnCredentials    string `query:"list-legacy-webauthn-credentials"`
+		ResolveLegacyWebAuthnCredential  string `query:"resolve-legacy-webauthn-credential"`
+		SetNonceIfHigher                 string `query:"set-nonce-if-higher"`
 
 		ListVoucherMetadataByAddresses string `query:"list-voucher-metadata-by-addresses"`
 
@@ -174,6 +188,7 @@ type (
 		ListMarketVouchersPrevBounded string `query:"list-market-vouchers-prev-bounded"`
 
 		GetMarketVoucherByAddress string `query:"get-market-voucher-by-address"`
+		AdminGetVoucherByAddress  string `query:"admin-get-voucher-by-address"`
 
 		// Catalog search support. The filtered voucher and pool statements are
 		// composed in Go from constant fragments (internal/store/catalog_search.go)

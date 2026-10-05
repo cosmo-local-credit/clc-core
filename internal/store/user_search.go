@@ -84,7 +84,7 @@ const (
 	// same transaction share a created_at. id is generated always as identity, so
 	// id descending is created_at descending with the ties broken.
 	userPageProjection = `
-SELECT u.id, u.blockchain_address AS ethereum_address, u.name,
+SELECT u.id, u.blockchain_address AS ethereum_address, u.username, u.name,
     COALESCE(u.email, '') AS email, COALESCE(u.phone, '') AS phone,
     COALESCE(u.country, '') AS country,
     u.preferred_currency, u.bio, u.website,

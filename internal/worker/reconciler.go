@@ -32,9 +32,22 @@ type (
 
 		wc *WorkerContainer
 	}
+
+	// reconcileAction is what the reconciler decides to do with one transaction.
+	reconcileAction int
 )
 
 const (
+	// actionSettle — a receipt exists; record SUCCESS or REVERTED.
+	actionSettle reconcileAction = iota
+	// actionSupersede — the chain moved past this nonce without this
+	// transaction, so something else consumed it.
+	actionSupersede
+	// actionRepublish — this is the head the chain is waiting for.
+	actionRepublish
+	// actionWait — correctly queued behind the head; nothing to do.
+	actionWait
+
 	NonceReconcilerID = "NONCE_RECONCILER"
 
 	// reconcileInterval is the periodic sweep. A stuck head is detected within
@@ -51,21 +64,6 @@ const (
 	// missing on 2026-09-04, where the gap opened at 08:10 and was found by
 	// hand at 09:16.
 	stuckThreshold = 5 * time.Minute
-)
-
-// reconcileAction is what the reconciler decides to do with one transaction.
-type reconcileAction int
-
-const (
-	// actionSettle — a receipt exists; record SUCCESS or REVERTED.
-	actionSettle reconcileAction = iota
-	// actionSupersede — the chain moved past this nonce without this
-	// transaction, so something else consumed it.
-	actionSupersede
-	// actionRepublish — this is the head the chain is waiting for.
-	actionRepublish
-	// actionWait — correctly queued behind the head; nothing to do.
-	actionWait
 )
 
 // decideReconcileAction is the reconciler's decision, separated from its IO so
@@ -147,6 +145,14 @@ func (NonceReconcilerArgs) InsertOpts() river.InsertOpts {
 // on GET /api/v2/otx/track/:trackingId, whose own query costs well under a
 // millisecond.
 func (w *NonceReconcilerWorker) Work(ctx context.Context, job *river.Job[NonceReconcilerArgs]) error {
+	// The default-signer sweep also cleans abandoned names. A cleanup failure
+	// must not prevent nonce recovery, and per-signer jobs need no global cleanup.
+	if job.Args.Signer == "" {
+		if err := w.cleanupDeploymentIdentities(ctx); err != nil {
+			w.wc.logg.Warn("recipient reservation cleanup failed; continuing nonce reconciliation", "error", err)
+		}
+	}
+
 	// -- Phase 1: read the work list. No lock, committed immediately. -------
 	signer, candidates, err := w.loadCandidates(ctx, job.Args.Signer)
 	if err != nil {
@@ -205,6 +211,20 @@ func (w *NonceReconcilerWorker) Work(ctx context.Context, job *river.Job[NonceRe
 
 	// -- Phase 3: apply, under the lock. ------------------------------------
 	return w.apply(ctx, signer, chainNonce, receipts)
+}
+
+// cleanupDeploymentIdentities isolates cleanup so errors leave no transaction
+// open while the caller continues nonce recovery.
+func (w *NonceReconcilerWorker) cleanupDeploymentIdentities(ctx context.Context) error {
+	tx, err := w.wc.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := w.wc.store.ReconcileDeploymentIdentities(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // loadCandidates resolves the signer and reads its unsettled transactions.

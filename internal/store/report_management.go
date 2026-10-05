@@ -22,24 +22,28 @@ import (
 //     post is a new moderation task, and id order would bury it at its original
 //     creation position.
 
-// managedReportPageProjection hydrates one already-selected page of report IDs.
-// The column list is the feed's own plus status, which every management summary
-// needs. The outer ORDER BY is unconditional: a backward page scans ascending
-// and is restored to newest-first here.
-const managedReportPageProjection = "\nSELECT " + reportSummaryColumns + ",\n    r.status" +
-	"\nFROM page" +
-	"\nINNER JOIN reports r ON r.id = page.id" +
-	"\nORDER BY r.updated_at DESC, r.id DESC;"
+const (
+	// managedReportPageProjection hydrates one already-selected page of report IDs.
+	// The column list is the feed's own plus status, which every management summary
+	// needs. The outer ORDER BY is unconditional: a backward page scans ascending
+	// and is restored to newest-first here.
+	managedReportPageProjection = "\nSELECT " + reportSummaryColumns + ",\n    r.status" +
+		"\nFROM page" +
+		"\nINNER JOIN reports r ON r.id = page.id" +
+		"\nORDER BY r.updated_at DESC, r.id DESC;"
+)
 
-// ManagedReportFilter is the validated narrowing for a management list. Status
-// is separate from CatalogFilter because the catalog has one visible status by
-// definition.
-type ManagedReportFilter struct {
-	Filter CatalogFilter
-	// Status is one value from ReportStatuses, or "" for every status. It is
-	// validated before it reaches here and crosses as a bound parameter.
-	Status string
-}
+type (
+	// ManagedReportFilter is the validated narrowing for a management list. Status
+	// is separate from CatalogFilter because the catalog has one visible status by
+	// definition.
+	ManagedReportFilter struct {
+		Filter CatalogFilter
+		// Status is one value from ReportStatuses, or "" for every status. It is
+		// validated before it reaches here and crosses as a bound parameter.
+		Status string
+	}
+)
 
 // reportStatusPredicate restricts a page to one workflow state. Exact equality:
 // the only multi-state view is "all", which is the absent filter.

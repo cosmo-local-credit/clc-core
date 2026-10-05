@@ -15,10 +15,15 @@ type (
 		Ok          bool   `json:"ok"`
 		Description string `json:"description"`
 		ErrCode     string `json:"code"`
+		// Result carries machine-readable detail for the few errors a client
+		// acts on, e.g. the tracking id of an already-pending registration.
+		Result map[string]any `json:"result,omitempty"`
 	}
 
 	DeployPoolRequest struct {
-		Name          string `json:"name" validate:"required"`
+		// max mirrors pools_display_name_valid (migration 032): a name that
+		// deploys must also be settable as a display_name override later.
+		Name          string `json:"name" validate:"required,max=80"`
 		Symbol        string `json:"symbol" validate:"required"`
 		Decimals      string `json:"decimals" validate:"required"`
 		Owner         string `json:"owner" validate:"required,eth_addr_checksum"`
@@ -48,26 +53,28 @@ type (
 		Tags      []string `json:"tags,omitempty"`
 	}
 
-	// Terms is either a link to the publisher's terms or the terms themselves,
-	// written as Markdown. The column is TEXT with no format constraint, so the
-	// only rule is a size cap; clients tell the two apart by whether the value
-	// parses as an http(s) URL.
 	DeployTokenRequest struct {
-		Name            string   `json:"name" validate:"required"`
-		Symbol          string   `json:"symbol" validate:"required"`
-		Decimals        string   `json:"decimals" validate:"required"`
-		Owner           string   `json:"owner" validate:"required,eth_addr_checksum"`
-		ExpiryTimestamp string   `json:"expiryTimestamp,omitempty" validate:"omitempty"`
-		Description     string   `json:"description,omitempty"`
-		Website         string   `json:"website,omitempty" validate:"omitempty,url"`
-		Email           string   `json:"email,omitempty" validate:"omitempty,email"`
-		Phone           string   `json:"phone,omitempty"`
-		Terms           string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
-		VoucherUoa      string   `json:"voucherUoa,omitempty"`
-		VoucherValue    *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
-		LocationName    string   `json:"locationName,omitempty"`
-		GeoLat          *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
-		GeoLng          *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
+		// max mirrors vouchers_display_name_valid (migration 030), for the reason
+		// DeployPoolRequest gives above.
+		Name            string `json:"name" validate:"required,max=120"`
+		Symbol          string `json:"symbol" validate:"required"`
+		Decimals        string `json:"decimals" validate:"required"`
+		Owner           string `json:"owner" validate:"required,eth_addr_checksum"`
+		ExpiryTimestamp string `json:"expiryTimestamp,omitempty" validate:"omitempty"`
+		Description     string `json:"description,omitempty"`
+		Website         string `json:"website,omitempty" validate:"omitempty,url"`
+		Email           string `json:"email,omitempty" validate:"omitempty,email"`
+		Phone           string `json:"phone,omitempty"`
+		// Terms is either a link to the publisher's terms or the terms themselves,
+		// written as Markdown. The column is TEXT with no format constraint, so the
+		// only rule is a size cap; clients tell the two apart by whether the value
+		// parses as an http(s) URL.
+		Terms        string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
+		VoucherUoa   string   `json:"voucherUoa,omitempty"`
+		VoucherValue *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
+		LocationName string   `json:"locationName,omitempty"`
+		GeoLat       *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
+		GeoLng       *float64 `json:"geoLng,omitempty" validate:"omitempty,min=-180,max=180"`
 		// Off-chain catalog metadata, carried through the deploy so a voucher
 		// created with an icon still has one once its address exists. Never
 		// written on-chain.
@@ -78,6 +85,11 @@ type (
 		IconURL   string   `json:"iconUrl,omitempty"   validate:"omitempty,http_url"`
 		BannerURL string   `json:"bannerUrl,omitempty" validate:"omitempty,http_url"`
 		Tags      []string `json:"tags,omitempty"`
+		// The map marker's glyph and colour, from MarkerIcons and MarkerColors.
+		// Empty means automatic. Checked here because the worker's foreign key
+		// would only reject a bad value after the deploy is signed.
+		MarkerIcon  string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health education"`
+		MarkerColor string `json:"markerColor,omitempty" validate:"omitempty,oneof=blue purple orange pink cyan brown"`
 	}
 
 	RegisterVersionRequest struct {
@@ -319,6 +331,10 @@ type (
 		IconURL   *string  `json:"iconUrl,omitempty"   validate:"omitempty,http_url|eq="`
 		BannerURL *string  `json:"bannerUrl,omitempty" validate:"omitempty,http_url|eq="`
 		Tags      []string `json:"tags,omitempty"`
+		// The map marker, preserved on omission like the images so an older
+		// client cannot reset it. "" returns that half to automatic.
+		MarkerIcon  *string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health education|eq="`
+		MarkerColor *string `json:"markerColor,omitempty" validate:"omitempty,oneof=blue purple orange pink cyan brown|eq="`
 	}
 
 	// UpdateVoucherDisplayNameRequest is the narrow owner-facing mutation for a
@@ -332,10 +348,11 @@ type (
 	// values preserve stored data; ClearLocation explicitly removes the pin, and
 	// ClearAvatar does the same for the profile image.
 	UpdateProfileRequest struct {
-		Name    string `json:"name"          validate:"omitempty,max=80"`
-		Email   string `json:"email"         validate:"omitempty,email"`
-		Phone   string `json:"phone"`
-		Country string `json:"country"       validate:"omitempty,len=2"`
+		Username *string `json:"username,omitempty"`
+		Name     string  `json:"name"          validate:"omitempty,max=80"`
+		Email    string  `json:"email"         validate:"omitempty,email"`
+		Phone    string  `json:"phone"`
+		Country  string  `json:"country"       validate:"omitempty,len=2"`
 		// Profile preferences are pointers because clients predating them must be
 		// able to update their contact details without clearing them. Website's
 		// explicit empty-string alternative clears a saved value; `omitempty` does
@@ -427,31 +444,39 @@ type (
 	}
 )
 
-// BuiltInOfferingUnits is the initial set seeded by the database.
-//
-// Writes may also introduce a custom value. This slice stays exported for
-// callers that need to distinguish translated built-in labels from custom text.
-var BuiltInOfferingUnits = []string{
-	"kg",
-	"g",
-	"litre",
-	"item",
-	"hour",
-	"day",
-	"bag",
-	"unit",
-	"bundle",
-	"piece",
-	"dozen",
-	"serving",
-	"trip",
-	"session",
-	"metre",
-}
+var (
+	// BuiltInOfferingUnits is the initial set seeded by the database.
+	//
+	// Writes may also introduce a custom value. This slice stays exported for
+	// callers that need to distinguish translated built-in labels from custom text.
+	BuiltInOfferingUnits = []string{
+		"kg",
+		"g",
+		"litre",
+		"item",
+		"hour",
+		"day",
+		"bag",
+		"unit",
+		"bundle",
+		"piece",
+		"dozen",
+		"serving",
+		"trip",
+		"session",
+		"metre",
+	}
 
-// OfferingUnits remains as a compatibility alias for clients that only need
-// the seeded values. It is not the validation boundary for offering writes.
-var OfferingUnits = BuiltInOfferingUnits
+	// OfferingUnits remains as a compatibility alias for clients that only need
+	// the seeded values. It is not the validation boundary for offering writes.
+	OfferingUnits = BuiltInOfferingUnits
+
+	// MarkerIcons and MarkerColors are the map marker glyphs and colours a voucher
+	// may carry, seeded by migrations 043 and 045. Clients draw each one, so the
+	// set is closed: the request validators list the same values.
+	MarkerIcons  = []string{"basket", "hand-coin", "coupon", "food", "farm", "tools", "health", "education"}
+	MarkerColors = []string{"blue", "purple", "orange", "pink", "cyan", "brown"}
+)
 
 const (
 	ErrCodeInternalServerError = "E01"

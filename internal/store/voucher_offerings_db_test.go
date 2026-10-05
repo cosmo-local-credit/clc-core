@@ -83,7 +83,7 @@ func seedPoolWithVoucher(t *testing.T, tx pgx.Tx, voucherID uint64, isAllowed bo
 	err := tx.QueryRow(ctx, `
 		INSERT INTO pools (chain_id, address, name, symbol, decimals)
 		VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
-		        'Pool Fixture', 'PFIX', 6)
+		        'Pool Fixture ' || gen_random_uuid()::TEXT, 'PFIX' || gen_random_uuid()::TEXT, 6)
 		RETURNING id, address`).Scan(&poolID, &address)
 	if err != nil {
 		t.Fatalf("seed pool: %v", err)

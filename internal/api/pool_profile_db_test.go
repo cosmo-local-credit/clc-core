@@ -7,12 +7,15 @@ import (
 	"testing"
 )
 
-const poolProfileMarker = "Zqpoolprofile"
+const (
+	poolProfileMarker = "Zqpoolprofile"
+)
 
 type (
 	poolProfileFixtures struct {
 		ownedAddress     string
 		ownedID          uint64
+		ownedSymbol      string
 		otherAddress     string
 		ownerlessAddress string
 		ids              []int64
@@ -28,28 +31,28 @@ func seedPoolProfileFixtures(t *testing.T, a *API) (poolProfileFixtures, func())
 	}
 
 	var fx poolProfileFixtures
-	insert := func(owner *string, suffix string) (uint64, string) {
+	insert := func(owner *string, suffix string) (uint64, string, string) {
 		var id uint64
-		var address string
+		var address, symbol string
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO pools (chain_id, address, name, symbol, decimals, owner_address,
 			    description, unit_of_account, email, location_name, geo_lat, geo_lng)
 			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
-			    $1, 'ZQP', 6, $2, 'Before', 'KES', 'before@example.org', $3, -1.29, 36.82)
-			RETURNING id, address`, poolProfileMarker+suffix, owner, poolProfileMarker).
-			Scan(&id, &address); err != nil {
+			    $1, 'ZQP' || gen_random_uuid()::TEXT, 6, $2, 'Before', 'KES', 'before@example.org', $3, -1.29, 36.82)
+			RETURNING id, address, symbol`, poolProfileMarker+suffix, owner, poolProfileMarker).
+			Scan(&id, &address, &symbol); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("seed pool %q: %v", suffix, err)
 		}
 		fx.ids = append(fx.ids, int64(id))
-		return id, address
+		return id, address, symbol
 	}
 
 	owner := strings.ToLower(offeringOwnerAddress)
-	fx.ownedID, fx.ownedAddress = insert(&owner, " Owned")
+	fx.ownedID, fx.ownedAddress, fx.ownedSymbol = insert(&owner, " Owned")
 	otherOwner := strings.ToLower(offeringStrangerAddr)
-	_, fx.otherAddress = insert(&otherOwner, " Other")
-	_, fx.ownerlessAddress = insert(nil, " Imported")
+	_, fx.otherAddress, _ = insert(&otherOwner, " Other")
+	_, fx.ownerlessAddress, _ = insert(nil, " Imported")
 
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit seed: %v", err)
@@ -133,7 +136,7 @@ func TestPoolOwnerCanEditTheWholeProfileWithoutTouchingChainFacts(t *testing.T) 
 		Scan(&contractName, &displayName, &symbol); err != nil {
 		t.Fatalf("read updated pool: %v", err)
 	}
-	if contractName != poolProfileMarker+" Owned" || displayName != "The Last of Us 2" || symbol != "ZQP" {
+	if contractName != poolProfileMarker+" Owned" || displayName != "The Last of Us 2" || symbol != fixtures.ownedSymbol {
 		t.Errorf("chain/catalog names or symbol changed unexpectedly: contract=%q display=%q symbol=%q",
 			contractName, displayName, symbol)
 	}
@@ -167,5 +170,42 @@ func TestPoolProfileMutationRejectsNonOwnersAndAcceptsSuperadmins(t *testing.T) 
 		if res.Code != http.StatusOK {
 			t.Errorf("superadmin status = %d, want 200 body=%s", res.Code, res.Body.String())
 		}
+	}
+}
+
+// The profile route can set the same override the narrow display-name route
+// does, so it has to refuse a label another pool already shows. Both callers go
+// through savePoolProfile, which is where the check lives.
+func TestPoolProfileMutationRejectsADisplayNameAnotherPoolHolds(t *testing.T) {
+	a, signingKey := newOfferingAPI(t)
+	fixtures, cleanup := seedPoolProfileFixtures(t, a)
+	defer cleanup()
+	owner := offeringToken(t, signingKey, offeringOwnerAddress, "USER")
+	target := "/api/v2/pools/" + fixtures.ownedAddress + "/profile"
+
+	res, _ := offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": "  " + strings.ToLower(poolProfileMarker) + "   other  "})
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 body=%s", res.Code, res.Body.String())
+	}
+
+	// Clearing the override is never a conflict: it falls back to the contract
+	// name, which was already unique enough to deploy.
+	res, _ = offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": ""})
+	if res.Code != http.StatusOK {
+		t.Fatalf("clearing status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+
+	// And the pool's own label does not collide with itself.
+	res, _ = offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": "Zqpoolprofile Fresh Label"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("first rename status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+	res, _ = offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": "Zqpoolprofile Fresh Label"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("re-save status = %d, want 200 body=%s", res.Code, res.Body.String())
 	}
 }

@@ -657,10 +657,6 @@ func TestUpsertVoucherFromDeployKeepsExistingImagesWhenTheDeployHasNone(t *testi
 
 	address := randomAddress(t, tx)
 	existing := "https://content.example/voucher/imported_400_aaaaaaaa.webp"
-	_, err := tx.Exec(ctx, `
-		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, icon_url)
-		VALUES (42220, $1, 'Imported', 'IMP', 6, $2)`, address, existing)
-	require.NoError(t, err)
 
 	otxID := seedDeployOTX(t, tx, TOKEN_PROXY_DEPLOY)
 	deployedID, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
@@ -676,6 +672,11 @@ func TestUpsertVoucherFromDeployKeepsExistingImagesWhenTheDeployHasNone(t *testi
 	_, err = pg.ConfirmDeployedToken(ctx, tx, otxID, address)
 	require.NoError(t, err)
 
+	_, err = tx.Exec(ctx, `
+		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, icon_url)
+		VALUES (42220, $1, 'Imported', 'IMP', 6, $2)`, address, existing)
+	require.NoError(t, err)
+
 	voucherID, err := pg.UpsertVoucherFromDeploy(ctx, tx, deployedID)
 	require.NoError(t, err)
 
@@ -684,4 +685,69 @@ func TestUpsertVoucherFromDeployKeepsExistingImagesWhenTheDeployHasNone(t *testi
 		`SELECT icon_url FROM vouchers WHERE id = $1`, voucherID).Scan(&gotIcon))
 	require.NotNil(t, gotIcon, "an image-less deploy must not clear an imported icon")
 	assert.Equal(t, existing, *gotIcon)
+}
+
+// The marker an issuer picked at deploy reaches the catalog row the map reads,
+// and a deploy with no marker leaves the catalog's automatic.
+func TestUpsertVoucherFromDeployCarriesTheMarker(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	promote := func(symbol string, icon, color *string) (*string, *string) {
+		otxID := seedDeployOTX(t, tx, TOKEN_PROXY_DEPLOY)
+		deployedID, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
+			OTXID:              otxID,
+			PlatformContractID: platformContractID(t, tx, "ERC20"),
+			Symbol:             symbol,
+			Name:               symbol + " Pinned Voucher",
+			Decimals:           6,
+			Admin:              randomAddress(t, tx),
+			MarkerIcon:         icon,
+			MarkerColor:        color,
+		})
+		require.NoError(t, err)
+
+		_, err = pg.ConfirmDeployedToken(ctx, tx, otxID, randomAddress(t, tx))
+		require.NoError(t, err)
+
+		voucherID, err := pg.UpsertVoucherFromDeploy(ctx, tx, deployedID)
+		require.NoError(t, err)
+
+		var gotIcon, gotColor *string
+		require.NoError(t, tx.QueryRow(ctx,
+			`SELECT marker_icon, marker_color FROM vouchers WHERE id = $1`, voucherID).Scan(&gotIcon, &gotColor))
+		return gotIcon, gotColor
+	}
+
+	icon, color := "health", "pink"
+	gotIcon, gotColor := promote("PIN", &icon, &color)
+	require.NotNil(t, gotIcon)
+	require.NotNil(t, gotColor)
+	assert.Equal(t, icon, *gotIcon)
+	assert.Equal(t, color, *gotColor)
+
+	gotIcon, gotColor = promote("AUTO", nil, nil)
+	assert.Nil(t, gotIcon)
+	assert.Nil(t, gotColor)
+}
+
+// The lookup tables are the authority: a value no client can draw never lands.
+func TestDeployedTokenRejectsAnUnseededMarker(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	rocket := "rocket"
+	_, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
+		OTXID:              seedDeployOTX(t, tx, TOKEN_PROXY_DEPLOY),
+		PlatformContractID: platformContractID(t, tx, "ERC20"),
+		Symbol:             "BAD",
+		Name:               "Unpinned Voucher",
+		Decimals:           6,
+		Admin:              randomAddress(t, tx),
+		MarkerIcon:         &rocket,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "deployed_tokens_marker_icon_fk")
 }

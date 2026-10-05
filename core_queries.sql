@@ -69,8 +69,8 @@ WHERE chain_id = $1 AND contract_type = $2::contract_type;
 INSERT INTO deployed_tokens (
     otx_id, platform_contract_id, status, symbol, name, decimals, admin,
     description, website, email, phone, terms, voucher_uoa, voucher_value,
-    location_name, geo_lat, geo_lng, icon_url, banner_url
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    location_name, geo_lat, geo_lng, icon_url, banner_url, marker_icon, marker_color
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 RETURNING id;
 
 --name: confirm-deployed-token
@@ -103,6 +103,7 @@ WHERE otx_id = $1 AND status = 'PENDING';
 -- no opinion about (sink, and active/internal state). The icon and banner are
 -- part of the request now, so they merge on the same COALESCE terms: a deploy
 -- that carried an image sets it, one that did not leaves an imported image alone.
+-- The map marker merges the same way.
 --name: upsert-voucher-from-deploy
 WITH deploy AS (
     SELECT
@@ -126,6 +127,8 @@ WITH deploy AS (
         dt.geo_lng,
         dt.icon_url,
         dt.banner_url,
+        dt.marker_icon,
+        dt.marker_color,
         dt.platform_contract_id
     FROM deployed_tokens dt
     INNER JOIN platform_contracts pc ON pc.id = dt.platform_contract_id
@@ -135,8 +138,8 @@ upserted AS (
     INSERT INTO vouchers (
         chain_id, address, name, symbol, decimals, owner_address, voucher_type,
         description, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng,
-        email, website, phone, terms, icon_url, banner_url, contract_version,
-        platform_contract_id
+        email, website, phone, terms, icon_url, banner_url, marker_icon,
+        marker_color, contract_version, platform_contract_id
     )
     SELECT
         d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
@@ -146,7 +149,7 @@ upserted AS (
         'GIFTABLE',
         d.description, d.voucher_uoa, d.voucher_value, d.location_name,
         d.geo_lat, d.geo_lng, d.email, d.website, d.phone, d.terms,
-        d.icon_url, d.banner_url,
+        d.icon_url, d.banner_url, d.marker_icon, d.marker_color,
         NULLIF(d.contract_version, ''), d.platform_contract_id
     FROM deploy d
     ON CONFLICT (chain_id, lower(address)) DO UPDATE SET
@@ -167,6 +170,8 @@ upserted AS (
         terms                = COALESCE(EXCLUDED.terms,          vouchers.terms),
         icon_url             = COALESCE(EXCLUDED.icon_url,       vouchers.icon_url),
         banner_url           = COALESCE(EXCLUDED.banner_url,     vouchers.banner_url),
+        marker_icon          = COALESCE(EXCLUDED.marker_icon,    vouchers.marker_icon),
+        marker_color         = COALESCE(EXCLUDED.marker_color,   vouchers.marker_color),
         contract_version     = COALESCE(EXCLUDED.contract_version, vouchers.contract_version),
         platform_contract_id = EXCLUDED.platform_contract_id
     RETURNING id
@@ -195,7 +200,8 @@ INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
        COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
-       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url,
+       dt.marker_icon, dt.marker_color, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
@@ -208,7 +214,8 @@ GROUP BY dt.id, v.id, o.tracking_id;
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
        COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
-       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url, dt.created_at, dt.updated_at, o.tracking_id,
+       dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url,
+       dt.marker_icon, dt.marker_color, dt.created_at, dt.updated_at, o.tracking_id,
        COALESCE(array_agg(dtt.tag_value ORDER BY dtt.tag_value) FILTER (WHERE dtt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM deployed_tokens dt
 INNER JOIN otx o ON dt.otx_id = o.id
@@ -222,7 +229,7 @@ LIMIT 1;
 SELECT value FROM token_tag ORDER BY value;
 
 --name: find-token-tag
-SELECT value FROM token_tag WHERE lower(value) = lower($1);
+SELECT value FROM token_tag WHERE lower(value) = lower($1) FOR KEY SHARE;
 
 --name: insert-custom-token-tag
 INSERT INTO token_tag (value, is_custom) VALUES ($1, true)
@@ -232,15 +239,16 @@ ON CONFLICT DO NOTHING;
 SELECT value FROM offering_unit ORDER BY value;
 
 --name: find-offering-unit
-SELECT value FROM offering_unit WHERE lower(value) = lower($1);
+SELECT value FROM offering_unit WHERE lower(value) = lower($1) FOR KEY SHARE;
 
 --name: insert-custom-offering-unit
 INSERT INTO offering_unit (value, is_custom) VALUES ($1, true)
 ON CONFLICT DO NOTHING;
 
---name: list-custom-token-tags
+--name: list-token-tag-vocabulary
 SELECT
     tt.value,
+    tt.is_custom,
     (SELECT count(*) FROM deployed_token_tags dtt WHERE dtt.tag_value = tt.value) AS deployed_tokens,
     (SELECT count(*) FROM deployed_pool_tags dpt WHERE dpt.tag_value = tt.value) AS deployed_pools,
     (SELECT count(*) FROM voucher_tags vt WHERE vt.tag_value = tt.value) AS vouchers,
@@ -248,15 +256,14 @@ SELECT
     (SELECT count(*) FROM report_tags rt WHERE rt.tag_value = tt.value) AS posts,
     (SELECT count(*) FROM offering_tags ot WHERE ot.tag_value = tt.value) AS offerings
 FROM token_tag tt
-WHERE tt.is_custom
 ORDER BY tt.value;
 
---name: list-custom-offering-units
+--name: list-offering-unit-vocabulary
 SELECT
     ou.value,
+    ou.is_custom,
     (SELECT count(*) FROM offerings o WHERE o.unit = ou.value) AS offerings
 FROM offering_unit ou
-WHERE ou.is_custom
 ORDER BY ou.value;
 
 --name: lock-token-tag
@@ -268,6 +275,20 @@ FOR UPDATE;
 SELECT value, is_custom FROM offering_unit
 WHERE lower(value) = lower($1)
 FOR UPDATE;
+
+--name: rename-token-tag
+UPDATE token_tag SET value = $2 WHERE value = $1 RETURNING value;
+
+--name: rename-custom-offering-unit
+UPDATE offering_unit SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
+
+--name: has-unfinished-tag-deployment
+SELECT EXISTS (
+    SELECT 1 FROM river_job
+    WHERE kind IN ('TOKEN_DEPLOY', 'POOL_DEPLOY')
+      AND state NOT IN ('completed', 'cancelled', 'discarded')
+      AND args->'tags' ? $1
+);
 
 --name: delete-custom-token-tag
 WITH
@@ -333,58 +354,44 @@ SELECT
 -- predicate mirrors the client's bare-stem plus numeric-suffix candidates;
 -- unrelated symbols which merely share the prefix do not occupy it.
 --name: list-taken-voucher-symbols
-SELECT symbol
-FROM (
-    SELECT upper(symbol) AS symbol
-    FROM vouchers
-    WHERE upper(symbol) = $1
-       OR (
-            length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
-            AND starts_with(upper(symbol), $1)
-            AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
-       )
-    UNION
-    SELECT upper(symbol) AS symbol
-    FROM deployed_tokens
-    WHERE status IN ('PENDING', 'CONFIRMED')
-      AND (
-            upper(symbol) = $1
-            OR (
-                length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
-                AND starts_with(upper(symbol), $1)
-                AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
-            )
-      )
-) occupied
-ORDER BY symbol
-LIMIT 128;
+SELECT upper(name) AS symbol FROM identity_claims
+WHERE namespace = 'symbol' AND starts_with(name, lower($1))
+  AND (name = lower($1) OR substring(name FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
+ORDER BY name LIMIT 128;
 
 --name: list-taken-pool-symbols
-SELECT symbol
-FROM (
-    SELECT upper(symbol) AS symbol
-    FROM pools
-    WHERE upper(symbol) = $1
-       OR (
-            length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
-            AND starts_with(upper(symbol), $1)
-            AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
-       )
-    UNION
-    SELECT upper(symbol) AS symbol
-    FROM deployed_pools
+SELECT upper(name) AS symbol FROM identity_claims
+WHERE namespace = 'symbol' AND starts_with(name, lower($1))
+  AND (name = lower($1) OR substring(name FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
+ORDER BY name LIMIT 128;
+
+-- A display name is occupied by a catalog row or by a deploy which may still
+-- land on-chain. FAILED deploys are deliberately reusable, as with symbols, and
+-- a retired voucher keeps its label: the address stays resolvable and reusing
+-- the name would make old references ambiguous.
+--
+-- $1 is the caller-normalized name (trimmed, inner whitespace collapsed,
+-- lowercased) -- normalizeDeployName in Go produces exactly what the indexed
+-- expression here produces. $2 excludes the row being renamed so an owner can
+-- re-save its own name; it is NULL on deploy.
+--name: voucher-display-name-taken
+SELECT EXISTS (
+    SELECT 1
+    FROM vouchers
+    WHERE lower(regexp_replace(btrim(COALESCE(display_name, name)), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR lower(address) <> lower($2))
+    UNION ALL
+    SELECT 1
+    FROM deployed_tokens
     WHERE status IN ('PENDING', 'CONFIRMED')
-      AND (
-            upper(symbol) = $1
-            OR (
-                length(upper(symbol)) BETWEEN length($1) + 1 AND length($1) + 2
-                AND starts_with(upper(symbol), $1)
-                AND substring(upper(symbol) FROM length($1) + 1) ~ '^[0-9]+$'
-            )
-      )
-) occupied
-ORDER BY symbol
-LIMIT 128;
+      AND lower(regexp_replace(btrim(name), '\s+', ' ', 'g')) = $1
+      AND ($2::TEXT IS NULL OR address IS NULL OR lower(address) <> lower($2))
+);
+
+--name: pool-display-name-taken
+SELECT EXISTS (SELECT 1 FROM identity_claims
+WHERE namespace = 'recipient' AND name = $1
+  AND ($2::TEXT IS NULL OR owner_kind <> 'pool' OR owner_key NOT LIKE '%:' || lower($2)));
 
 --name: get-protocol-address
 SELECT address FROM protocol_addresses WHERE key = $1;
@@ -663,21 +670,21 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
 VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE LOWER(blockchain_address) = LOWER($1)
 LIMIT 1;
 
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -685,19 +692,19 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = $2, max_tokens = $3
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 --name: update-user-profile
 -- Every onboarding preference preserves on omission so older clients cannot
@@ -715,9 +722,10 @@ SET name = $2,
     location_name = CASE WHEN $9 THEN NULL ELSE COALESCE($10, location_name) END,
     geo_lat = CASE WHEN $9 THEN NULL ELSE COALESCE($11::DOUBLE PRECISION, geo_lat) END,
     geo_lng = CASE WHEN $9 THEN NULL ELSE COALESCE($12::DOUBLE PRECISION, geo_lng) END,
-    avatar_url = CASE WHEN $13 THEN NULL ELSE COALESCE($14, avatar_url) END
+    avatar_url = CASE WHEN $13 THEN NULL ELSE COALESCE($14, avatar_url) END,
+    username = COALESCE($15, username)
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
 
 -- User shares
 --name: insert-user-share
@@ -752,6 +760,16 @@ INNER JOIN users owner ON owner.id = us.owner_user_id
 WHERE LOWER(us.tx_hash) = LOWER($1)
   AND $2 IN (us.owner_user_id, us.authorized_user_id)
 LIMIT 1;
+
+-- Which of the given transaction hashes carry a private attachment the caller
+-- may read. Same visibility rule as get-user-share-by-tx-hash (owner or
+-- authorized recipient), but for a whole page of transfers at once, so the
+-- activity list can flag them without one request per row.
+--name: list-user-share-tx-hashes
+SELECT DISTINCT LOWER(us.tx_hash) AS tx_hash
+FROM user_shares us
+WHERE LOWER(us.tx_hash) = ANY($1::text[])
+  AND $2 IN (us.owner_user_id, us.authorized_user_id);
 
 -- User deployments
 --name: count-user-tokens
@@ -968,18 +986,94 @@ SELECT id, otx_id, proxy_address, contract_type, new_implementation, version, cr
 FROM upgrade_meta
 WHERE otx_id = $1;
 
--- Insert (idempotently) a WebAuthn credential registered during relayer
--- registration. Re-registering with the same credential_id is a no-op.
---name: upsert-webauthn-credential
-INSERT INTO webauthn_credentials (credential_id, address, key_hash, public_key_x, public_key_y)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (credential_id) DO NOTHING;
+-- Record a WebAuthn credential carried by a registration relay. Written in the
+-- relay worker's transaction, beside the OTX it waits on, and always 'pending':
+-- only a successful receipt for tracking_id makes it usable (see
+-- settle-webauthn-registration). Conflicts are decided by the caller under
+-- get-webauthn-credential-for-update, never silently here.
+--name: insert-webauthn-credential
+INSERT INTO webauthn_credentials (credential_id, address, key_hash, public_key_x, public_key_y, tracking_id, state)
+VALUES ($1, $2, $3, $4, $5, $6::uuid, 'pending');
 
--- Look up a WebAuthn credential by its credential_id for recovery flow.
+-- Re-arm a failed registration of the same credential -> address/key mapping
+-- under a new tracking id.
+--name: rearm-webauthn-credential
+UPDATE webauthn_credentials
+SET tracking_id = $2::uuid, state = 'pending'
+WHERE credential_id = $1 AND state IN ('failed', 'unverified');
+
+-- Any-state lookup, locked, for deciding whether a registration conflicts.
+--name: get-webauthn-credential-for-update
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE credential_id = $1
+FOR UPDATE;
+
+-- Any-state lookup without a lock, for the relay handler's early rejection.
 --name: get-webauthn-credential
-SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y, created_at
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
 FROM webauthn_credentials
 WHERE credential_id = $1;
+
+-- The only lookup a sign-in or recovery path may use: a credential whose
+-- registration the chain confirmed. Pending, failed and legacy rows are
+-- indistinguishable from an unknown credential here.
+--name: get-active-webauthn-credential
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE credential_id = $1 AND state = 'active';
+
+-- Every credential mapped to one wallet, for the holder's own Settings screen.
+-- Reads persisted state only; no chain call sits behind this.
+--name: list-webauthn-credentials-by-address
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE address = $1
+ORDER BY created_at DESC, credential_id;
+
+-- Re-derive a pending registration's state from every transaction carrying its
+-- tracking id, after one of them changed status. A fee bump or republish adds a
+-- replacement row under the same tracking id, so one row's REVERTED or LOW_NONCE
+-- is not the outcome while another row is still in flight:
+--   any SUCCESS                      -> active
+--   every row terminal, none SUCCESS -> failed
+--   otherwise                        -> still pending
+-- The terminal set matches store.terminalDispatchStatuses.
+--name: settle-webauthn-registration
+UPDATE webauthn_credentials c
+SET state = CASE
+    WHEN EXISTS (
+        SELECT 1 FROM otx o INNER JOIN dispatch d ON d.otx_id = o.id
+        WHERE o.tracking_id = c.tracking_id AND d.status = 'SUCCESS'
+    ) THEN 'active'
+    WHEN NOT EXISTS (
+        SELECT 1 FROM otx o INNER JOIN dispatch d ON d.otx_id = o.id
+        WHERE o.tracking_id = c.tracking_id
+          AND d.status NOT IN ('SUCCESS', 'REVERTED', 'LOW_NONCE', 'INVALID_TX')
+    ) THEN 'failed'
+    ELSE 'pending'
+END
+WHERE c.tracking_id = (SELECT tracking_id FROM otx WHERE id = $1)
+  AND c.state = 'pending';
+
+-- Rows written before migration 038, awaiting the one-time chain check.
+--name: list-legacy-webauthn-credentials
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE state = 'legacy'
+ORDER BY created_at, credential_id;
+
+-- Move one legacy row to its verdict. Guarded on state so a concurrent
+-- registration of the same credential is never overwritten.
+--name: resolve-legacy-webauthn-credential
+UPDATE webauthn_credentials
+SET state = $2
+WHERE credential_id = $1 AND state = 'legacy';
 
 -- Fast-forward the relayer noncestore to the on-chain pending nonce, if
 -- the stored next_nonce is behind.
@@ -1143,11 +1237,12 @@ ON CONFLICT (pool_id, tag_value) DO NOTHING;
 -- expressing it as empty rather than omitting it. vouchers_geo_valid backstops
 -- the both-or-neither coordinate rule the handler checks first.
 --
--- display_name and the two image columns are the exceptions, for the reason update-pool-profile
--- gives: NULL preserves and '' clears, so a client that sends no image fields
--- cannot blank a voucher's images. vouchers_image_urls_http rejects anything
--- that is not http(s), which is why '' has to become NULL rather than staying an
--- empty string.
+-- display_name, the two image columns and the two marker columns are the
+-- exceptions, for the reason update-pool-profile gives: NULL preserves and ''
+-- clears, so a client that sends no image or marker fields cannot blank them.
+-- vouchers_image_urls_http rejects anything that is not http(s), and the marker
+-- foreign keys anything unseeded, which is why '' has to become NULL rather
+-- than staying an empty string.
 --name: update-voucher-profile
 UPDATE vouchers
 SET display_name  = CASE WHEN $2::TEXT IS NULL THEN display_name ELSE NULLIF(btrim($2), '') END,
@@ -1162,7 +1257,9 @@ SET display_name  = CASE WHEN $2::TEXT IS NULL THEN display_name ELSE NULLIF(btr
     geo_lat       = $11,
     geo_lng       = $12,
     icon_url      = CASE WHEN $13::TEXT IS NULL THEN icon_url   ELSE NULLIF($13, '') END,
-    banner_url    = CASE WHEN $14::TEXT IS NULL THEN banner_url ELSE NULLIF($14, '') END
+    banner_url    = CASE WHEN $14::TEXT IS NULL THEN banner_url ELSE NULLIF($14, '') END,
+    marker_icon   = CASE WHEN $15::TEXT IS NULL THEN marker_icon  ELSE NULLIF($15, '') END,
+    marker_color  = CASE WHEN $16::TEXT IS NULL THEN marker_color ELSE NULLIF($16, '') END
 WHERE lower(address) = lower($1)
 RETURNING id;
 
@@ -1172,6 +1269,18 @@ RETURNING id;
 --name: update-voucher-display-name
 UPDATE vouchers
 SET display_name = $2
+WHERE id = $1;
+
+-- Retiring and restoring are the same column write; only who may ask differs,
+-- and that is decided in the handler against the locked row. `active` is the
+-- catalog's visibility gate — every market, search and offering statement
+-- filters on it — so flipping it here removes a voucher from the public
+-- catalog without touching the report and offering rows that reference it
+-- (42.md 3.1: deactivate, do not delete).
+--name: set-voucher-active
+UPDATE vouchers
+SET active = $2,
+    updated_at = CURRENT_TIMESTAMP
 WHERE id = $1;
 
 -- Tags are a junction, so a replace is a clear and a re-insert, both inside the
@@ -1631,7 +1740,7 @@ RETURNING id;
 --name: list-market-vouchers
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-        v.location_name, v.geo_lat, v.geo_lng
+        v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
     ORDER BY v.id DESC
@@ -1660,7 +1769,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-next
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-        v.location_name, v.geo_lat, v.geo_lng
+        v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.id < $1
     ORDER BY v.id DESC
@@ -1690,7 +1799,7 @@ ORDER BY page.id DESC;
 WITH page AS MATERIALIZED (
     SELECT * FROM (
         SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-            v.location_name, v.geo_lat, v.geo_lng
+            v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL AND v.id > $1
         ORDER BY v.id ASC
@@ -1720,7 +1829,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-bounded
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-        v.location_name, v.geo_lat, v.geo_lng
+        v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
         AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
@@ -1750,7 +1859,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-next-bounded
 WITH page AS MATERIALIZED (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-        v.location_name, v.geo_lat, v.geo_lng
+        v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
         AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
@@ -1782,7 +1891,7 @@ ORDER BY page.id DESC;
 WITH page AS MATERIALIZED (
     SELECT * FROM (
         SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
-            v.location_name, v.geo_lat, v.geo_lng
+            v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL
             AND point(v.geo_lng, v.geo_lat) <@ box(point($1, $2), point($3, $4))
@@ -1826,6 +1935,7 @@ SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
     v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
     v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url,
+    v.marker_icon, v.marker_color,
     COALESCE((
         SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
         FROM voucher_tags vt
@@ -1848,6 +1958,40 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) dominant ON TRUE
 WHERE lower(v.address) = lower($1) AND v.active;
+
+-- The console's read of one voucher. Identical projection to
+-- get-market-voucher-by-address plus `active`, and deliberately without the
+-- `v.active` predicate: a retired voucher is invisible to every public
+-- statement, so without this an operator could retire one and then have no
+-- screen left to restore it from. Mounted under /api/v2/admin, where
+-- requireSuperAdmin has already decided the caller may see it.
+--name: admin-get-voucher-by-address
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
+    v.name AS contract_name, v.symbol, v.decimals, v.owner_address,
+    v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
+    v.location_name, v.geo_lat, v.geo_lng,
+    v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url, v.active,
+    v.marker_icon, v.marker_color,
+    COALESCE((
+        SELECT array_agg(vt.tag_value ORDER BY vt.tag_value)
+        FROM voucher_tags vt
+        WHERE vt.voucher_id = v.id
+    ), ARRAY[]::TEXT[]) AS tags,
+    CASE dominant.commodity_type
+        WHEN 'GOOD' THEN 'goods'
+        WHEN 'SERVICE' THEN 'services'
+        ELSE 'voucher'
+    END AS kind
+FROM vouchers v
+LEFT JOIN LATERAL (
+    SELECT o.commodity_type
+    FROM offerings o
+    WHERE o.voucher_id = v.id AND o.available
+    GROUP BY o.commodity_type
+    ORDER BY COUNT(*) DESC, o.commodity_type ASC
+    LIMIT 1
+) dominant ON TRUE
+WHERE lower(v.address) = lower($1);
 
 -- Report feed. Ordered by updated_at because that is the timestamp the feed
 -- shows; on the imported catalog it bears almost no relation to id order.

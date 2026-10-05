@@ -17,7 +17,9 @@ import (
 //
 // Every value created here carries the marker below so cleanup cannot reach a
 // built-in or another suite's row.
-const vocabularyMarker = "Zqvocab"
+const (
+	vocabularyMarker = "Zqvocab"
+)
 
 func vocabularyValue(suffix string) string {
 	return vocabularyMarker + " " + suffix
@@ -259,14 +261,12 @@ func TestConcurrentWritesCreateOneCustomTag(t *testing.T) {
 	var wg sync.WaitGroup
 	codes := make([]int, len(spellings))
 	for i, spelling := range spellings {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			res, _ := offeringRequest(t, a, http.MethodPut,
 				"/api/v2/vouchers/"+fx.ownedAddress+"/profile", token,
 				map[string]any{"displayName": "Malii Fresh", "tags": []string{spelling}})
 			codes[i] = res.Code
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -372,9 +372,10 @@ func TestAdminVocabularyRequiresSuperadmin(t *testing.T) {
 	}
 }
 
-// The admin table exists to answer "what breaks if I remove this", so the
-// listing has to carry the per-resource counts, and only custom values.
-func TestAdminVocabularyListsCustomValuesWithUsage(t *testing.T) {
+// The admin table exists to answer "what breaks if I remove or rename this",
+// so the listing carries the per-resource counts, and flags the built-ins that
+// can be renamed but never deleted.
+func TestAdminVocabularyListsEveryValueWithUsage(t *testing.T) {
 	a, priv := newOfferingAPI(t)
 	fx, cleanup := seedOfferingFixtures(t, a)
 	defer cleanup()
@@ -398,19 +399,26 @@ func TestAdminVocabularyListsCustomValuesWithUsage(t *testing.T) {
 		t.Fatalf("status = %d, want 200 body=%s", res.Code, res.Body.String())
 	}
 
+	shippedTag := builtInTag(t, a)
 	tags, _ := result["tags"].([]any)
-	var tag map[string]any
+	var tag, builtIn map[string]any
 	for _, entry := range tags {
 		row, _ := entry.(map[string]any)
-		if row["value"] == vocabularyValue("Seedlings") {
+		switch row["value"] {
+		case vocabularyValue("Seedlings"):
 			tag = row
-		}
-		if row["value"] == "food" {
-			t.Errorf("listing contains the built-in tag %q; only custom values are deletable", row["value"])
+		case shippedTag:
+			builtIn = row
 		}
 	}
 	if tag == nil {
 		t.Fatalf("tags = %#v, want the custom value", tags)
+	}
+	if tag["isCustom"] != true {
+		t.Errorf("custom tag isCustom = %v, want true", tag["isCustom"])
+	}
+	if builtIn == nil || builtIn["isCustom"] != false {
+		t.Errorf("built-in tag %q = %#v, want it listed with isCustom false", shippedTag, builtIn)
 	}
 	if got := tag["vouchers"]; got != float64(1) {
 		t.Errorf("vouchers = %v, want 1", got)
@@ -420,18 +428,24 @@ func TestAdminVocabularyListsCustomValuesWithUsage(t *testing.T) {
 	}
 
 	units, _ := result["units"].([]any)
-	var unit map[string]any
+	var unit, kg map[string]any
 	for _, entry := range units {
 		row, _ := entry.(map[string]any)
-		if row["value"] == vocabularyValue("Seed Tray") {
+		switch row["value"] {
+		case vocabularyValue("Seed Tray"):
 			unit = row
-		}
-		if row["value"] == "kg" {
-			t.Errorf("listing contains the built-in unit %q", row["value"])
+		case "kg":
+			kg = row
 		}
 	}
 	if unit == nil {
 		t.Fatalf("units = %#v, want the custom value", units)
+	}
+	if unit["isCustom"] != true {
+		t.Errorf("custom unit isCustom = %v, want true", unit["isCustom"])
+	}
+	if kg == nil || kg["isCustom"] != false {
+		t.Errorf("built-in unit kg = %#v, want it listed with isCustom false", kg)
 	}
 	if got := unit["offerings"]; got != float64(1) {
 		t.Errorf("offerings = %v, want 1", got)
@@ -527,9 +541,13 @@ func TestAdminDeleteCustomUnitKeepsTheOfferings(t *testing.T) {
 	if _, _, found := vocabularyExists(t, a, "offering_unit", vocabularyValue("Wheelbarrow")); found {
 		t.Error("the unit survived its deletion")
 	}
+	id, ok := offeringID.(float64)
+	if !ok {
+		t.Fatalf("offering id = %T, want float64", offeringID)
+	}
 	var unit *string
 	if err := a.store.Pool().QueryRow(context.Background(),
-		`SELECT unit FROM offerings WHERE id = $1`, int64(offeringID.(float64))).Scan(&unit); err != nil {
+		`SELECT unit FROM offerings WHERE id = $1`, int64(id)).Scan(&unit); err != nil {
 		t.Fatalf("read the offering: %v", err)
 	}
 	if unit != nil {

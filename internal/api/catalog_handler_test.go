@@ -133,46 +133,41 @@ func TestPublicCatalogServerErrorsAreNotCached(t *testing.T) {
 	}
 }
 
-// The pool offerings route is deliberately authenticated, unlike its
-// voucher-scoped sibling: the pool screen requires a session, so this route sits
-// on the API group with every other /api/v2/pools/* route.
-func TestPoolOfferingsRouteRequiresAuthenticationAndIsNotPubliclyCached(t *testing.T) {
+// The pool offerings route is public with the other pool reads, but unlike its
+// voucher-scoped sibling it carries no public cache policy.
+func TestPoolOfferingsRouteIsPublicAndNotPubliclyCached(t *testing.T) {
 	a := New(APIOpts{
 		Logg: slog.New(slog.DiscardHandler),
 		CORS: []string{"https://app.example"},
 	})
 
-	// A malformed address would be a 400 from the handler itself, so a 401 here
-	// proves the request never reached it.
+	// A malformed address is a 400 from the handler itself, so a 400 here
+	// proves a signed-out request reached it.
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/pools/not-an-address/offerings?perPage=20", nil)
 	req.RemoteAddr = "198.51.100.90:1234"
 	res := httptest.NewRecorder()
 	a.router.ServeHTTP(res, req)
 
-	if res.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d for an unauthenticated pool request", res.Code, http.StatusUnauthorized)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want public handler status %d", res.Code, http.StatusBadRequest)
 	}
 	if got := res.Header().Get("Cache-Control"); strings.Contains(got, "public") {
-		t.Fatalf("Cache-Control = %q, want no public caching on an authenticated route", got)
+		t.Fatalf("Cache-Control = %q, want no public caching on a pool route", got)
 	}
 }
 
-// The report feed is authenticated: Posts is a private home tab.
-func TestReportRoutesRequireAuthentication(t *testing.T) {
+// Public post reads reach input validation without a session.
+func TestReportRoutesAllowGuests(t *testing.T) {
 	a := New(APIOpts{
 		Logg: slog.New(slog.DiscardHandler),
 		CORS: []string{"https://app.example"},
 	})
 
-	// Malformed input would be a 400 from the handler, so a 401 proves the
-	// request never reached it.
+	// Malformed input returns 400 from the public handler.
 	for _, path := range []string{
 		"/api/v2/reports?perPage=notanumber",
 		"/api/v2/reports/not-a-number",
-		// The filter parameters are behind the same gate: a 400-worthy filter must still be
-		// rejected as unauthenticated, or search would be a way to probe the feed unauthenticated.
 		"/api/v2/reports?q=a",
-		"/api/v2/reports?tags=NotATag",
 		"/api/v2/reports?tagMatch=sideways",
 		"/api/v2/reports?facets=maybe",
 	} {
@@ -181,8 +176,8 @@ func TestReportRoutesRequireAuthentication(t *testing.T) {
 		res := httptest.NewRecorder()
 		a.router.ServeHTTP(res, req)
 
-		if res.Code != http.StatusUnauthorized {
-			t.Fatalf("%s: status = %d, want %d", path, res.Code, http.StatusUnauthorized)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want %d", path, res.Code, http.StatusBadRequest)
 		}
 	}
 }

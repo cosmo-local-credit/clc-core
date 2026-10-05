@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,79 @@ func TestVoucherProfileMutationRejectsNonOwnersAndRetiredVouchers(t *testing.T) 
 		map[string]any{"description": "Steward correction"})
 	if res.Code != http.StatusOK {
 		t.Errorf("superadmin status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+}
+
+// saveVoucherProfile carries the same uniqueness check the narrow display-name
+// route has, so the wider profile route cannot be used to sidestep it.
+func TestVoucherProfileMutationRejectsADisplayNameAnotherVoucherHolds(t *testing.T) {
+	a, signingKey := newOfferingAPI(t)
+	fixtures, cleanup := seedOfferingFixtures(t, a)
+	defer cleanup()
+	owner := offeringToken(t, signingKey, offeringOwnerAddress, "USER")
+	target := "/api/v2/vouchers/" + fixtures.ownedAddress + "/profile"
+
+	res, _ := offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": "  " + strings.ToLower(offeringMarker) + "   other  "})
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 body=%s", res.Code, res.Body.String())
+	}
+
+	// Clearing falls back to the contract name and is always allowed.
+	res, _ = offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"displayName": ""})
+	if res.Code != http.StatusOK {
+		t.Fatalf("clearing status = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+}
+
+// The marker follows the image fields' rule rather than assign-all: omitted
+// keeps it, so a client that predates it cannot reset an issuer's choice, and
+// "" returns that half to automatic.
+func TestVoucherProfileMarkerIsKeptUntilChangedOrCleared(t *testing.T) {
+	a, signingKey := newOfferingAPI(t)
+	// The package's live tests already sit near the server's connection limit,
+	// so this one hands its pool back once its fixtures are gone.
+	defer a.store.Pool().Close()
+	fixtures, cleanup := seedOfferingFixtures(t, a)
+	defer cleanup()
+	owner := offeringToken(t, signingKey, offeringOwnerAddress, "USER")
+	target := "/api/v2/vouchers/" + fixtures.ownedAddress + "/profile"
+
+	put := func(body map[string]any) map[string]any {
+		t.Helper()
+		res, result := offeringRequest(t, a, http.MethodPut, target, owner, body)
+		if res.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 body=%s", res.Code, res.Body.String())
+		}
+		voucher, ok := result["voucher"].(map[string]any)
+		if !ok {
+			t.Fatalf("result.voucher = %#v, want object", result["voucher"])
+		}
+		return voucher
+	}
+
+	voucher := put(map[string]any{"markerIcon": "health", "markerColor": "pink"})
+	if voucher["markerIcon"] != "health" || voucher["markerColor"] != "pink" {
+		t.Fatalf("marker = %#v/%#v, want health/pink", voucher["markerIcon"], voucher["markerColor"])
+	}
+
+	voucher = put(map[string]any{"description": "No marker fields sent"})
+	if voucher["markerIcon"] != "health" || voucher["markerColor"] != "pink" {
+		t.Errorf("an omitted marker changed to %#v/%#v", voucher["markerIcon"], voucher["markerColor"])
+	}
+
+	voucher = put(map[string]any{"markerIcon": ""})
+	if voucher["markerIcon"] != nil {
+		t.Errorf("markerIcon = %#v, want null after clearing", voucher["markerIcon"])
+	}
+	if voucher["markerColor"] != "pink" {
+		t.Errorf("markerColor = %#v, want it kept while only the icon was cleared", voucher["markerColor"])
+	}
+
+	res, _ := offeringRequest(t, a, http.MethodPut, target, owner,
+		map[string]any{"markerColor": "red"})
+	if res.Code != http.StatusBadRequest {
+		t.Errorf("unseeded colour status = %d, want 400 body=%s", res.Code, res.Body.String())
 	}
 }

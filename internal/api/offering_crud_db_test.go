@@ -38,17 +38,23 @@ const (
 	canonicalLegacyUnit = "50kg Sack"
 )
 
-type offeringFixtures struct {
-	ownedAddress     string
-	ownedID          uint64
-	inactiveAddress  string
-	ownerlessAddress string
-	// An imported row whose unit is free text the canonical set does not contain
-	// and whose seller is nobody's current owner.
-	legacyOfferingID uint64
-	otherVoucherAddr string
-	otherOfferingID  uint64
-}
+type (
+	offeringFixtures struct {
+		ownedAddress     string
+		ownedID          uint64
+		inactiveAddress  string
+		ownerlessAddress string
+		// An imported row whose unit is free text the canonical set does not contain
+		// and whose seller is nobody's current owner.
+		legacyOfferingID uint64
+		otherVoucherAddr string
+		otherOfferingID  uint64
+		// Every voucher this fixture seeded. Cleanup deletes by id because a profile
+		// write replaces the whole record: a test that omits locationName clears the
+		// marker these rows were once found by, and the row would leak.
+		voucherIDs []int64
+	}
+)
 
 func newOfferingAPI(t *testing.T) (*API, ed25519.PrivateKey) {
 	t.Helper()
@@ -140,11 +146,12 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 			INSERT INTO vouchers (chain_id, address, name, symbol, decimals, active,
 			    geo_lat, geo_lng, location_name, owner_address)
 			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
-			        $1, 'ZQO', 6, $2, -1.29, 36.82, $3, $4)
+			        $1, 'ZQO' || gen_random_uuid()::TEXT, 6, $2, -1.29, 36.82, $3, $4)
 			RETURNING id, address`, name, active, offeringMarker, owner).Scan(&id, &address); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("seed voucher %q: %v", name, err)
 		}
+		fx.voucherIDs = append(fx.voucherIDs, int64(id))
 		return id, address
 	}
 
@@ -194,7 +201,7 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 	if _, err := tx.Exec(ctx, `
 		ALTER TABLE offerings
 		    ADD CONSTRAINT offerings_unit_fk
-		        FOREIGN KEY (unit) REFERENCES offering_unit(value)
+		        FOREIGN KEY (unit) REFERENCES offering_unit(value) ON UPDATE CASCADE
 		        NOT VALID`); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("restore unit constraint: %v", err)
@@ -212,15 +219,25 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 		}
 		defer cleanup.Rollback(ctx)
 
-		for _, statement := range []string{
-			`DELETE FROM offering_tags WHERE offering_id IN
+		for _, statement := range []struct {
+			query string
+			arg   any
+		}{
+			{`DELETE FROM offering_tags WHERE offering_id IN
 			     (SELECT id FROM offerings WHERE location_name = $1
-			      OR voucher_id IN (SELECT id FROM vouchers WHERE location_name = $1))`,
-			`DELETE FROM offerings WHERE location_name = $1
-			     OR voucher_id IN (SELECT id FROM vouchers WHERE location_name = $1)`,
-			`DELETE FROM vouchers WHERE location_name = $1`,
+			      OR voucher_id IN (SELECT id FROM vouchers WHERE location_name = $1))`, offeringMarker},
+			{`DELETE FROM offering_tags WHERE offering_id IN
+			     (SELECT id FROM offerings WHERE voucher_id = ANY($1::BIGINT[]))`, fx.voucherIDs},
+			{`DELETE FROM offerings WHERE location_name = $1
+			     OR voucher_id IN (SELECT id FROM vouchers WHERE location_name = $1)`, offeringMarker},
+			{`DELETE FROM offerings WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			{`DELETE FROM report_vouchers WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			{`DELETE FROM voucher_tags WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			{`DELETE FROM vouchers WHERE id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			// Anything a test seeded under the marker that is not one of ours.
+			{`DELETE FROM vouchers WHERE location_name = $1`, offeringMarker},
 		} {
-			if _, err := cleanup.Exec(ctx, statement, offeringMarker); err != nil {
+			if _, err := cleanup.Exec(ctx, statement.query, statement.arg); err != nil {
 				t.Errorf("cleanup: %v", err)
 				return
 			}
@@ -328,8 +345,9 @@ func TestOfferingCreateLinksTheVoucherAndSelectsTheSeller(t *testing.T) {
 	}
 
 	offering := offeringFrom(t, result)
-	if got := offering["voucherAddress"]; !strings.EqualFold(got.(string), fx.ownedAddress) {
-		t.Errorf("voucherAddress = %v, want %q", got, fx.ownedAddress)
+	got, ok := offering["voucherAddress"].(string)
+	if !ok || !strings.EqualFold(got, fx.ownedAddress) {
+		t.Errorf("voucherAddress = %v, want %q", offering["voucherAddress"], fx.ownedAddress)
 	}
 	// Server-selected from the locked voucher owner, and never from JSON.
 	if got, _ := offering["sellerAddress"].(string); !strings.EqualFold(got, offeringOwnerAddress) {

@@ -71,6 +71,15 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "034_symbol_occupancy_indexes.sql")
 	assert.Contains(t, sqlFiles, "035_pool_deploy_fee_settings.sql")
 	assert.Contains(t, sqlFiles, "036_custom_vocabulary.sql")
+	assert.Contains(t, sqlFiles, "037_deploy_name_occupancy_indexes.sql")
+	assert.Contains(t, sqlFiles, "038_webauthn_credential_state.sql")
+	assert.Contains(t, sqlFiles, "039_voucher_reviews.sql")
+	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
+	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
+	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
+	assert.Contains(t, sqlFiles, "043_voucher_marker_style.sql")
+	assert.Contains(t, sqlFiles, "044_pool_geo_index.sql")
+	assert.Contains(t, sqlFiles, "045_education_marker_icon.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -108,7 +117,16 @@ func TestMigrationFiles(t *testing.T) {
 				name == "033_pool_owner_index.sql" ||
 				name == "034_symbol_occupancy_indexes.sql" ||
 				name == "035_pool_deploy_fee_settings.sql" ||
-				name == "036_custom_vocabulary.sql",
+				name == "036_custom_vocabulary.sql" ||
+				name == "037_deploy_name_occupancy_indexes.sql" ||
+				name == "038_webauthn_credential_state.sql" ||
+				name == "039_voucher_reviews.sql" ||
+				name == "040_editable_vocabulary.sql" ||
+				name == "041_recipient_identities.sql" ||
+				name == "042_recipient_lookup_indexes.sql" ||
+				name == "043_voucher_marker_style.sql" ||
+				name == "044_pool_geo_index.sql" ||
+				name == "045_education_marker_icon.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -154,7 +172,95 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"034_symbol_occupancy_indexes.sql",
 		"035_pool_deploy_fee_settings.sql",
 		"036_custom_vocabulary.sql",
+		"037_deploy_name_occupancy_indexes.sql",
+		"038_webauthn_credential_state.sql",
+		"039_voucher_reviews.sql",
+		"040_editable_vocabulary.sql",
+		"041_recipient_identities.sql",
+		"042_recipient_lookup_indexes.sql",
+		"043_voucher_marker_style.sql",
+		"044_pool_geo_index.sql",
+		"045_education_marker_icon.sql",
 	}, files)
+}
+
+func TestPoolGeoIndexMigration(t *testing.T) {
+	content, err := os.ReadFile("044_pool_geo_index.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	assert.Contains(t, s, "CREATE INDEX IF NOT EXISTS pools_geo_gist_idx")
+	assert.Contains(t, s, "USING gist (point(geo_lng, geo_lat))")
+	assert.NotContains(t, s, "CREATE EXTENSION")
+}
+
+func TestVoucherMarkerStyleMigration(t *testing.T) {
+	content, err := os.ReadFile("043_voucher_marker_style.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Lookup tables, so a new glyph or colour is an INSERT.
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS voucher_marker_icon")
+	assert.Contains(t, s, "CREATE TABLE IF NOT EXISTS voucher_marker_color")
+	assert.Equal(t, 2, strings.Count(s, "ON CONFLICT (value) DO NOTHING"))
+	// Both ends of the promotion carry the choice.
+	for _, table := range []string{"vouchers", "deployed_tokens"} {
+		assert.Contains(t, s, "ALTER TABLE "+table+"\n    ADD COLUMN IF NOT EXISTS marker_icon TEXT;")
+		assert.Contains(t, s, "ALTER TABLE "+table+"\n    ADD COLUMN IF NOT EXISTS marker_color TEXT;")
+		assert.Contains(t, s, "CONSTRAINT "+table+"_marker_icon_fk")
+		assert.Contains(t, s, "CONSTRAINT "+table+"_marker_color_fk")
+	}
+	// Re-running must be a no-op.
+	assert.Equal(t, 4, strings.Count(s, "DROP CONSTRAINT IF EXISTS"))
+	assert.Equal(t, 4, strings.Count(s, "ADD CONSTRAINT"))
+	// NULL means automatic: nothing is defaulted or backfilled, and a rename
+	// must not silently rewrite a value clients key their drawing on.
+	assert.NotContains(t, s, "NOT NULL")
+	assert.NotContains(t, s, "DEFAULT")
+	assert.NotContains(t, s, "UPDATE vouchers")
+	assert.NotContains(t, s, "ON UPDATE CASCADE")
+}
+
+func TestWebAuthnCredentialStateMigration(t *testing.T) {
+	content, err := os.ReadFile("038_webauthn_credential_state.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// Existing rows must land in 'legacy', never 'active': they were written
+	// before registration was proven, and sign-in trusts only active rows.
+	assert.Contains(t, s, "state       TEXT        NOT NULL DEFAULT 'legacy'")
+	assert.Contains(t, s, "ALTER COLUMN state DROP DEFAULT")
+	assert.NotContains(t, s, "DEFAULT 'active'")
+	assert.Contains(t, s, "CHECK (state IN ('pending', 'active', 'failed', 'legacy', 'unverified'))")
+	assert.Contains(t, s, "webauthn_credentials_tracking_id_idx")
+}
+
+func TestDeployNameOccupancyIndexesMigration(t *testing.T) {
+	content, err := os.ReadFile("037_deploy_name_occupancy_indexes.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	for _, want := range []string{
+		"vouchers_normalized_name_idx",
+		"pools_normalized_name_idx",
+		"deployed_tokens_open_normalized_name_idx",
+		"deployed_pools_open_normalized_name_idx",
+	} {
+		assert.Contains(t, s, want)
+	}
+
+	// The indexed expression has to stay byte-identical to the predicate in
+	// voucher-display-name-taken / pool-display-name-taken, or the planner
+	// silently falls back to a sequential scan over the whole catalog.
+	assert.Equal(t, 2, strings.Count(s,
+		`lower(regexp_replace(btrim(COALESCE(display_name, name)), '\s+', ' ', 'g'))`))
+	assert.Equal(t, 2, strings.Count(s,
+		`lower(regexp_replace(btrim(name), '\s+', ' ', 'g'))`))
+
+	assert.Equal(t, 2, strings.Count(s, "WHERE status IN ('PENDING', 'CONFIRMED')"))
+	assert.Equal(t, 4, strings.Count(s, "CREATE INDEX IF NOT EXISTS"))
+	assert.NotContains(t, s, "CREATE UNIQUE INDEX")
+	assert.NotContains(t, s, "CREATE INDEX CONCURRENTLY")
 }
 
 func TestSymbolOccupancyIndexesMigration(t *testing.T) {

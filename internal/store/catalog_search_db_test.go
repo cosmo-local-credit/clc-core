@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -632,8 +633,8 @@ func TestVoucherTagFacetCountsMatchResultQueries(t *testing.T) {
 
 	// Art: 3 vouchers (one of them via two offerings, which must count once).
 	// Culture: 1. Mobility: 0 among the fixtures.
-	for _, tags := range [][]string{{"Art"}, {"Art"}, {"Art", "Culture"}} {
-		id := seedSearchVoucher(t, tx, searchToken+" Facet", "FCT")
+	for i, tags := range [][]string{{"Art"}, {"Art"}, {"Art", "Culture"}} {
+		id := seedSearchVoucher(t, tx, searchToken+" Facet", "FCT"+strconv.Itoa(i))
 		seedTaggedOffering(t, tx, id, true, tags...)
 	}
 	fanout := seedSearchVoucher(t, tx, searchToken+" Fanout", "FAN")
@@ -1231,7 +1232,7 @@ func TestVoucherRelationshipFiltersForReportsAndPools(t *testing.T) {
 		var id uint64
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO pools (chain_id, address, name, symbol, decimals)
-			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'), $1, 'RLP', 6)
+			VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'), $1, 'RLP' || gen_random_uuid()::TEXT, 6)
 			RETURNING id`, name).Scan(&id); err != nil {
 			t.Fatalf("seed relationship pool: %v", err)
 		}

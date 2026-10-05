@@ -72,3 +72,17 @@ func (pg *Pg) GetUserShareByTxHash(ctx context.Context, tx pgx.Tx, txHash string
 	}
 	return share, nil
 }
+
+// ListUserShareTxHashes returns, lowercased, the subset of txHashes that carry
+// a private attachment the caller may read. Callers pass a page of transfer
+// hashes; anything absent from the result has no attachment for this user.
+func (pg *Pg) ListUserShareTxHashes(ctx context.Context, tx pgx.Tx, txHashes []string, callerUserID uint64) ([]string, error) {
+	if len(txHashes) == 0 {
+		return nil, nil
+	}
+	var hashes []string
+	if err := pgxscan.Select(ctx, tx, &hashes, pg.queries.ListUserShareTxHashes, txHashes, callerUserID); err != nil {
+		return nil, err
+	}
+	return hashes, nil
+}

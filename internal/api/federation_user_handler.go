@@ -93,15 +93,51 @@ func (a *API) enrichTokenBalances(ctx context.Context, items []store.FederationT
 	return nil
 }
 
+// noteBearingTxHashes reports which of the given transfer hashes carry a
+// private attachment the caller may read. The attachments live in clc-core's
+// own database while the transfers come from the federation indexer, so the
+// two can only be joined here, in Go.
+//
+// A caller without a user identity — the service token is also accepted on
+// this route — sees no attachments rather than everyone's.
+func (a *API) noteBearingTxHashes(ctx context.Context, txHashes []string, callerUserID uint64) (map[string]bool, error) {
+	noted := make(map[string]bool, len(txHashes))
+	if len(txHashes) == 0 || callerUserID == 0 {
+		return noted, nil
+	}
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	hashes, err := a.store.ListUserShareTxHashes(ctx, tx, txHashes, callerUserID)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range hashes {
+		noted[strings.ToLower(h)] = true
+	}
+	return noted, nil
+}
+
 // enrichTransfers fills token metadata on federation transfers from the local
-// vouchers catalog.
-func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTransfer) error {
+// vouchers catalog, and flags the ones carrying a private attachment.
+func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTransfer, callerUserID uint64) error {
 	meta, err := a.voucherMetadataByAddress(ctx, dedupedLowerAddresses(items,
 		func(t store.FederationTransfer) string { return t.TokenAddress }))
 	if err != nil {
 		return err
 	}
+	noted, err := a.noteBearingTxHashes(ctx, dedupedLowerAddresses(items,
+		func(t store.FederationTransfer) string { return t.TxHash }), callerUserID)
+	if err != nil {
+		return err
+	}
 	for i := range items {
+		items[i].HasNote = noted[strings.ToLower(items[i].TxHash)]
+
 		m, ok := meta[strings.ToLower(items[i].TokenAddress)]
 		if !ok {
 			continue
@@ -232,11 +268,15 @@ func (a *API) accountTransfersHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
+	callerUserID, _, _ := getUserClaims(c)
+
 	return cursorPaginatedFederationList(c, paginatedFederationListCallbacks[store.FederationTransfer]{
 		firstPage: a.federationStore.ListUserTransferHistory,
 		nextPage:  a.federationStore.ListUserTransferHistoryNext,
 		prevPage:  a.federationStore.ListUserTransferHistoryPrevious,
-		enrich:    a.enrichTransfers,
+		enrich: func(ctx context.Context, items []store.FederationTransfer) error {
+			return a.enrichTransfers(ctx, items, callerUserID)
+		},
 	}, req.Address, normalizePagination(apiresp.CursorPaginationRequest{
 		PerPage: req.PerPage,
 		Next:    req.Next,

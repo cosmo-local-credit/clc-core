@@ -37,6 +37,8 @@ type (
 		GeoLng             *float64  `db:"geo_lng"              json:"geoLng"`
 		IconURL            *string   `db:"icon_url"             json:"iconUrl"`
 		BannerURL          *string   `db:"banner_url"           json:"bannerUrl"`
+		MarkerIcon         *string   `db:"marker_icon"          json:"markerIcon"`
+		MarkerColor        *string   `db:"marker_color"         json:"markerColor"`
 		Tags               []string  `db:"tags"                 json:"tags"`
 		TrackingID         string    `db:"tracking_id"          json:"trackingId"`
 		CreatedAt          time.Time `db:"created_at"           json:"createdAt"`
@@ -68,6 +70,8 @@ func (pg *Pg) InsertDeployedToken(ctx context.Context, tx pgx.Tx, dt DeployedTok
 		dt.GeoLng,
 		dt.IconURL,
 		dt.BannerURL,
+		dt.MarkerIcon,
+		dt.MarkerColor,
 	).Scan(&id); err != nil {
 		return id, err
 	}

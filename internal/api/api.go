@@ -60,6 +60,7 @@ type (
 		pretium         *pretium.PretiumClient
 		trustProxy      bool
 		marketLimiter   *marketRateLimiter
+		poolLimiter     *marketRateLimiter
 		marketFacets    *marketFacetCache
 	}
 )
@@ -90,9 +91,11 @@ func New(o APIOpts) *API {
 		pretium:         o.Pretium,
 		trustProxy:      o.TrustProxy,
 		marketLimiter:   newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
+		poolLimiter:     newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
 		marketFacets:    newMarketFacetCache(time.Now),
 	}
 	a.marketLimiter.startSweeper()
+	a.poolLimiter.startSweeper()
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
 	router := echo.New()
@@ -148,6 +151,8 @@ func New(o APIOpts) *API {
 	authGroup.POST("/logout", a.logoutHandler)
 	authGroup.POST("/webauthn/verify", a.webAuthnSigninHandler)
 	authGroup.GET("/session", a.sessionHandler)
+	// Resolves the session inside the handler, like /session; see its comment.
+	authGroup.GET("/webauthn/credentials", a.webAuthnCredentialsHandler)
 
 	// SIWE unified verify (public — returns JWT for approved users)
 	siweGroup := router.Group("/auth/siwe")
@@ -166,16 +171,34 @@ func New(o APIOpts) *API {
 
 	// Public market catalog. Registered on the root router, NOT on apiGroup:
 	// flexibleAuthMiddleware is mandatory authentication despite its name, and
-	// the Market tab must work for signed-out visitors. It carries its own
-	// per-IP rate limit in place of authentication.
-	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware())
+	// ordinary catalog/detail reads remain public. Nearby list reads opt into
+	// user authentication. All market reads retain their per-IP rate limit.
+	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
+
+	// Network pool catalog (imported + clc-core deploys; reads the pools
+	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
+	// membership/ownership for the authenticated user only. Public for the same
+	// reason as the market catalog — the map's voucher card lists the pools that
+	// hold a voucher — but a signed-in caller is not throttled; see
+	// poolCatalogMiddleware. Nearby list reads need a session, as on the
+	// market. Pool writes stay on apiGroup.
+	router.GET(apiVersion+"/pools", a.poolsListHandler, a.poolCatalogMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/pools/:address", a.poolsByAddressHandler, a.poolCatalogMiddleware())
+	router.GET(apiVersion+"/pools/:address/vouchers", a.poolVouchersListHandler, a.poolCatalogMiddleware())
+	router.GET(apiVersion+"/pools/:address/offerings", a.poolOfferingsListHandler, a.poolCatalogMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
+
+	apiGroup.GET("/vouchers/:address/reviews/me", a.voucherReviewAccessHandler, a.requireUserAuth())
+	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
+	apiGroup.PUT("/vouchers/:address/reviews/:id/reply", a.voucherReviewReplyHandler, a.requireUserAuth())
+	apiGroup.POST("/vouchers/:address/reviews/:id/flag", a.voucherReviewFlagHandler, a.requireUserAuth())
 
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
@@ -186,6 +209,11 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/token-tags", a.tokenTagsHandler)
 	apiGroup.GET("/offering-units", a.offeringUnitsHandler)
 	apiGroup.GET("/symbols", a.symbolsLookupHandler)
+	apiGroup.GET("/names", a.namesLookupHandler)
+	apiGroup.GET("/recipients", a.recipientSearchHandler)
+	router.GET(apiVersion+"/recipients/suggest", a.usernameSuggestHandler, a.marketRateLimitMiddleware())
+	apiGroup.GET("/recipients/resolve/:name", a.recipientResolveHandler)
+	apiGroup.GET("/recipients/reverse/:address", a.recipientReverseHandler)
 	apiGroup.GET("/oracle-feeds", a.oracleFeedsHandler)
 	apiGroup.GET("/system", a.systemHandler)
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)
@@ -193,23 +221,13 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/account/otx/:address", a.accountOTXHandler)
 	apiGroup.GET("/account/status/:address", a.accountStatusHandler)
 
-	// Network pool catalog (imported + clc-core deploys; reads the pools
-	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
-	// membership/ownership for the authenticated user only.
-	apiGroup.GET("/pools", a.poolsListHandler)
-	apiGroup.GET("/pools/:address/vouchers", a.poolVouchersListHandler)
-	apiGroup.GET("/pools/:address/offerings", a.poolOfferingsListHandler)
-
-	// Report feed for the Posts tab. Authenticated like the pool routes: Posts
-	// is a private home tab. Reads also accept service credentials; mutations
-	// require a user JWT so authorship always names a user wallet.
-	apiGroup.GET("/reports", a.reportsListHandler)
-	apiGroup.GET("/reports/:id", a.reportByIDHandler)
+	// Approved post reads are public. Nearby reads and mutations require a user session.
+	router.GET(apiVersion+"/reports", a.reportsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/reports/:id", a.reportByIDHandler, a.marketRateLimitMiddleware())
 	apiGroup.POST("/reports", a.reportCreateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
 	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
-	apiGroup.GET("/pools/:address", a.poolsByAddressHandler)
 	apiGroup.GET("/offerings", a.offeringsListHandler)
 
 	// Owner catalog writes. On apiGroup with requireUserAuth, like report
@@ -225,6 +243,10 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/pools/:address/profile", a.updatePoolProfileHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/profile", a.updateVoucherProfileHandler, a.requireUserAuth())
+	// Retiring is an owner capability for the same reason, and the same handler
+	// serves a superadmin through canManageVoucher. Restoring is not symmetric and
+	// lives under /api/v2/admin with the console's voucher reads.
+	apiGroup.DELETE("/vouchers/:address", a.retireVoucherHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")
@@ -277,13 +299,20 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
+	adminGroup.GET("/vouchers", a.adminVouchersListHandler)
+	adminGroup.GET("/vouchers/:address", a.adminVoucherByAddressHandler)
+	adminGroup.PUT("/vouchers/:address/restore", a.adminRestoreVoucherHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 	adminGroup.GET("/vocabulary", a.adminVocabularyHandler)
+	adminGroup.PUT("/vocabulary/tags", a.adminRenameTokenTagHandler)
+	adminGroup.PUT("/vocabulary/units", a.adminRenameOfferingUnitHandler)
 	adminGroup.DELETE("/vocabulary/tags", a.adminDeleteTokenTagHandler)
 	adminGroup.DELETE("/vocabulary/units", a.adminDeleteOfferingUnitHandler)
 
 	// Global post moderation reads. The write half stays on apiGroup with the
 	// other report mutations, where the role check is already per-handler.
+	adminGroup.GET("/review-notifications", a.reviewNotificationsHandler)
+	adminGroup.PUT("/review-notifications/:id", a.reviewModerateHandler)
 	adminGroup.GET("/reports", a.adminReportsListHandler)
 	adminGroup.GET("/reports/:id", a.adminReportByIDHandler)
 

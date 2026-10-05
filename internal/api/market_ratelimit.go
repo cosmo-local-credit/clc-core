@@ -154,20 +154,45 @@ func (l *marketRateLimiter) startSweeper() {
 func (a *API) marketRateLimitMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			allowed, retryAfter := a.marketLimiter.allow(marketClientIP(c.Request(), a.trustProxy))
-			if allowed {
-				return next(c)
-			}
-
-			seconds := max(int(math.Ceil(retryAfter.Seconds())), 1)
-			c.Response().Header().Set("Retry-After", strconv.Itoa(seconds))
-			return c.JSON(http.StatusTooManyRequests, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeLimitExceeded,
-				Description: "rate limit exceeded, retry later",
-			})
+			return a.throttle(c, a.marketLimiter, next)
 		}
 	}
+}
+
+// poolCatalogMiddleware opens the pool reads to signed-out visitors, so the
+// map's voucher card can list the pools that hold a voucher. A caller with a
+// valid credential passes unthrottled and keeps its caller context, exactly as
+// on apiGroup, where these routes used to sit: the burst is sized for a visitor,
+// not for the signed-in pool screens. Anyone else, including a caller whose
+// session has expired, is served as signed out and spends from the pool
+// limiter. That limiter is separate from the market's, so pool lookups cannot
+// eat into the budget the Market tab is sized against.
+func (a *API) poolCatalogMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if a.authenticateCaller(c) {
+				return next(c)
+			}
+			return a.throttle(c, a.poolLimiter, next)
+		}
+	}
+}
+
+// throttle spends one of the client's tokens from limiter, answering 429 with
+// Retry-After once they run out.
+func (a *API) throttle(c *echo.Context, limiter *marketRateLimiter, next echo.HandlerFunc) error {
+	allowed, retryAfter := limiter.allow(marketClientIP(c.Request(), a.trustProxy))
+	if allowed {
+		return next(c)
+	}
+
+	seconds := max(int(math.Ceil(retryAfter.Seconds())), 1)
+	c.Response().Header().Set("Retry-After", strconv.Itoa(seconds))
+	return c.JSON(http.StatusTooManyRequests, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeLimitExceeded,
+		Description: "rate limit exceeded, retry later",
+	})
 }
 
 // marketClientIP resolves the rate-limit key. Forwarding headers are honoured

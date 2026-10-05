@@ -35,6 +35,8 @@ func userIdentityConflict(err error) (apiresp.ErrResponse, bool) {
 		Description: "identity already linked to another account",
 	}
 	switch pgErr.ConstraintName {
+	case "identity_claims_name_key":
+		resp.Description = "username or pool name is already in use"
 	case "users_email_unique":
 		resp.ErrCode = apiresp.ErrCodeEmailConflict
 		resp.Description = "email already linked to another account"
@@ -139,7 +141,32 @@ func handleForbiddenError(c *echo.Context, reason string) error {
 	return errors.New(reason)
 }
 
+// handleConflictError is the 409 for a request that is well-formed but collides
+// with state the server already holds -- a name someone else took, an offering
+// that already exists. Distinct from a 400: nothing about the request needs
+// correcting except the value that clashed.
+func handleConflictError(c *echo.Context, description string) error {
+	return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeConflict,
+		Description: description,
+	})
+}
+
 func handlePostgresError(c *echo.Context, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+		switch pgErr.ConstraintName {
+		case "identity_claims_name_key", "identity_claims_owner_key":
+			return handleConflictError(c, "name or symbol is already in use")
+		case "token_tag_pkey", "token_tag_value_lower_idx", "offering_unit_pkey", "offering_unit_value_lower_idx":
+			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+				Ok: false, ErrCode: apiresp.ErrCodeConflict,
+				Description: "a vocabulary value with this name already exists",
+			})
+		}
+	}
+
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
 			Ok:          false,

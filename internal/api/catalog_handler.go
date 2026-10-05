@@ -86,8 +86,8 @@ func (a *API) voucherOfferingsListHandler(c *echo.Context) error { //nolint:dupl
 }
 
 // poolOfferingsListHandler lists every available offering published against a
-// voucher the pool allows. It sits on the authenticated API group with the
-// other pool routes, because the pool screen itself requires a session.
+// voucher the pool allows. It is public with the other pool reads; see
+// poolCatalogMiddleware.
 func (a *API) poolOfferingsListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
 	return catalogAddressListHandler(c, a, "offerings", "Offerings in pool %s",
 		func(o store.Offering) uint64 { return o.ID },
@@ -188,6 +188,9 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 		return v.ID
 	}, catalogListHooks{
 		validate: func(tx pgx.Tx) (bool, error) {
+			if handled, err := a.resolveNearbyCatalog(c, tx, &search); handled || err != nil {
+				return handled, err
+			}
 			return a.rejectUnknownTags(c, tx, search.filter.Tags)
 		},
 		extras: catalogTagFacetExtras(search, pagination, func(tx pgx.Tx) ([]store.TagFacet, error) {
