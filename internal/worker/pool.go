@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"math/big"
 	"strconv"
 
@@ -62,6 +64,10 @@ type (
 	}
 )
 
+var (
+	funcProtocolFeeRecipient = w3.MustNewFunc("getProtocolFeeRecipient()", "address")
+)
+
 func (DeployPoolArgs) Kind() string { return "POOL_DEPLOY" }
 
 func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolArgs]) error {
@@ -79,6 +85,16 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 
 	gasSettings, err := w.wc.gasOracle.GetSettings()
 	if err != nil {
+		return err
+	}
+
+	// The protocol fee controller is the one pool dependency that is not
+	// deployed per pool, so a bad address in protocol_addresses is baked into
+	// every pool initialized against it and SwapPool has no setter to correct
+	// it. The implementation address passes an eth_getCode check — its
+	// constructor disables initializers, so it answers every getter with a
+	// zero — which is how it came to be seeded there in the first place.
+	if err := w.wc.mustInitializedFeeController(ctx, args.ProtocolFeeController); err != nil {
 		return err
 	}
 
@@ -224,7 +240,7 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	if err != nil {
 		return err
 	}
-	feePolicyDefaultFee := uint64(feePolicyPercent * 10_000)
+	feePolicyDefaultFee := feePercentToPPM(feePolicyPercent)
 	feePolicyPPM := float64(feePolicyDefaultFee)
 
 	feePolicyInit, err := feepolicy.EncodeInit(feepolicy.InitArgs{
@@ -280,6 +296,11 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 				Owner: ownerAddress,
 			})
 			quoterOTXType = store.POOL_RELATIVE_QUOTER_DEPLOY
+		default:
+			// Reachable only for a job queued before quoterType was required.
+			// Falling through left the proxy pointing at the zero address with
+			// empty initialization data.
+			return fmt.Errorf("unsupported quoter type %q", args.QuoterType)
 		}
 		if err != nil {
 			return err
@@ -464,4 +485,35 @@ func (w *DeployPoolWorker) Work(ctx context.Context, job *river.Job[DeployPoolAr
 	}
 
 	return dbTx.Commit(ctx)
+}
+
+// mustInitializedFeeController rejects a protocol fee controller that is not a
+// live initialized instance. The zero address is allowed and means the pool
+// charges no protocol fee, which is what SwapPool reads it as.
+func (w *WorkerContainer) mustInitializedFeeController(ctx context.Context, address string) error {
+	controller := common.HexToAddress(address)
+	if controller == (common.Address{}) {
+		return nil
+	}
+
+	var recipient common.Address
+	if err := w.chainProvider.Client.CallCtx(
+		ctx,
+		eth.CallFunc(controller, funcProtocolFeeRecipient).Returns(&recipient),
+	); err != nil {
+		return fmt.Errorf("protocol fee controller %s is not callable: %w", controller, err)
+	}
+	if recipient == (common.Address{}) {
+		return fmt.Errorf("protocol fee controller %s has no recipient; it is an uninitialized implementation, not a deployed controller", controller)
+	}
+
+	return nil
+}
+
+// feePercentToPPM converts a fee percentage to parts per million. It rounds
+// rather than truncates: float64 holds 0.57 just below the decimal value, so
+// uint64(0.57 * 10_000) is 5699, and 612 of the 10_001 two-decimal percentages
+// the API accepts would be stored a PPM light.
+func feePercentToPPM(percent float64) uint64 {
+	return uint64(math.Round(percent * 10_000))
 }

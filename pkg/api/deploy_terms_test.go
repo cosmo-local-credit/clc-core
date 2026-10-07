@@ -54,7 +54,8 @@ func TestVoucherTermsAcceptMarkdown(t *testing.T) {
 		Name: "Kilifi Pool", Symbol: "KLP", Decimals: "6",
 		Owner:            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
 		FeePolicyDefault: "0", UnitOfAccount: "KES",
-		Terms: markdown,
+		QuoterType: "decimal",
+		Terms:      markdown,
 	}); err != nil {
 		t.Fatalf("deploy pool markdown terms: %v", err)
 	}
@@ -65,7 +66,8 @@ func TestVoucherTermsAcceptMarkdown(t *testing.T) {
 		Name: "Kilifi Pool", Symbol: "KLP", Decimals: "6",
 		Owner:            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
 		FeePolicyDefault: "0", UnitOfAccount: "KES",
-		Terms: strings.Repeat("a", 5001),
+		QuoterType: "decimal",
+		Terms:      strings.Repeat("a", 5001),
 	}); err == nil {
 		t.Fatal("deploy pool terms over 5000 characters should be rejected")
 	}

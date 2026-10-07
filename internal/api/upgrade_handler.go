@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -11,8 +13,98 @@ import (
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
+	"github.com/lmittmann/w3/module/eth"
 	"github.com/riverqueue/river"
 )
+
+var (
+	// keccak256("eip1967.proxy.implementation") - 1, the slot ERC1967Factory
+	// writes a proxy's implementation to.
+	eip1967ImplementationSlot = common.HexToHash("0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc")
+)
+
+type (
+	upgradeTask struct {
+		ContractType   string
+		ProxyAddress   string
+		NewImplAddress string
+		FactoryAddress string
+		Version        string
+	}
+
+	// skippedUpgrade reports a contract the caller might have expected to be
+	// upgraded. An upgrade endpoint that silently drops a contract reads as a
+	// success, and the pool stays on an implementation nobody is tracking.
+	skippedUpgrade struct {
+		Type    string `json:"type"`
+		Address string `json:"address"`
+		Reason  string `json:"reason"`
+	}
+)
+
+// quoterContractType maps a pool's recorded quoter_type to the platform
+// contract whose implementation that proxy may be upgraded to. The shared
+// decimal quoter is stateless and not deployed behind a proxy, so it has no
+// entry; neither does an absent or unrecognized type.
+func quoterContractType(quoterType *string) string {
+	if quoterType == nil {
+		return ""
+	}
+	switch *quoterType {
+	case "oracle":
+		return "ORACLE_QUOTER"
+	case "relative":
+		return "RELATIVE_QUOTER"
+	default:
+		return ""
+	}
+}
+
+// dropCurrentImplementations removes tasks whose proxy already runs the target
+// implementation. The read is best effort: a proxy whose slot cannot be read is
+// left in the batch, since upgrading it again is wasteful but harmless, while
+// skipping it on a failed read would silently leave it behind.
+func (a *API) dropCurrentImplementations(ctx context.Context, tasks []upgradeTask) ([]upgradeTask, []skippedUpgrade) {
+	if a.chainProvider == nil || a.chainProvider.Client == nil {
+		return tasks, nil
+	}
+
+	var (
+		kept    []upgradeTask
+		skipped []skippedUpgrade
+	)
+	for _, task := range tasks {
+		var current common.Hash
+		if err := a.chainProvider.Client.CallCtx(ctx,
+			eth.StorageAt(common.HexToAddress(task.ProxyAddress), eip1967ImplementationSlot, nil).Returns(&current),
+		); err != nil {
+			a.logg.Warn("upgrade: could not read implementation slot", "proxy", task.ProxyAddress, "error", err)
+			kept = append(kept, task)
+			continue
+		}
+
+		if common.BytesToAddress(current.Bytes()) == common.HexToAddress(task.NewImplAddress) {
+			skipped = append(skipped, skippedUpgrade{
+				Type:    task.ContractType,
+				Address: task.ProxyAddress,
+				Reason:  "already on the current implementation",
+			})
+			continue
+		}
+		kept = append(kept, task)
+	}
+
+	return kept, skipped
+}
+
+// skippedOrEmpty keeps the field a JSON array rather than null, so a client can
+// iterate it without a nil check.
+func skippedOrEmpty(skipped []skippedUpgrade) []skippedUpgrade {
+	if skipped == nil {
+		return []skippedUpgrade{}
+	}
+	return skipped
+}
 
 // contractsVersionHandler handles POST /contracts/version.
 // Updates platform_contracts rows with new implementation addresses and version string.
@@ -205,15 +297,10 @@ func (a *API) upgradePoolHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
-	type upgradeTask struct {
-		ContractType   string
-		ProxyAddress   string
-		NewImplAddress string
-		FactoryAddress string
-		Version        string
-	}
-
-	var tasks []upgradeTask
+	var (
+		tasks   []upgradeTask
+		skipped []skippedUpgrade
+	)
 
 	// SWAPPOOL — the pool proxy itself.
 	if pc, ok := pcMap["SWAPPOOL"]; ok {
@@ -259,20 +346,26 @@ func (a *API) upgradePoolHandler(c *echo.Context) error {
 		})
 	}
 
-	// Quoter — skip if it's the shared decimal_quoter singleton (not a proxy).
-	if pool.QuoterAddress != "" && pool.QuoterAddress != decimalQuoterAddr {
-		// Check ORACLE_QUOTER first, then RELATIVE_QUOTER.
-		if pc, ok := pcMap["ORACLE_QUOTER"]; ok {
-			tasks = append(tasks, upgradeTask{
-				ContractType:   "ORACLE_QUOTER",
-				ProxyAddress:   pool.QuoterAddress,
-				NewImplAddress: pc.ImplAddress,
-				FactoryAddress: pc.FactoryAddress,
-				Version:        pc.Version,
+	// Quoter — the pool's own quoter_type picks the implementation. Taking
+	// whichever of the two rows happened to exist in platform_contracts sent
+	// every RelativeQuoter to the OracleQuoter implementation: the layouts
+	// disagree from slot 0 (priceIndex vs oracles/baseCurrency), so the
+	// upgraded quoter reads an unset oracle for every token and reverts,
+	// taking every swap in the pool with it. An unknown type is skipped
+	// rather than guessed. The shared decimal_quoter is not a proxy at all.
+	if pool.QuoterAddress != "" && !strings.EqualFold(pool.QuoterAddress, decimalQuoterAddr) {
+		quoterType := quoterContractType(pool.QuoterType)
+		pc, known := pcMap[quoterType]
+		switch {
+		case quoterType == "":
+			skipped = append(skipped, skippedUpgrade{
+				Type:    "QUOTER",
+				Address: pool.QuoterAddress,
+				Reason:  "pool has no recorded quoterType; upgrade it explicitly",
 			})
-		} else if pc, ok := pcMap["RELATIVE_QUOTER"]; ok {
+		case known:
 			tasks = append(tasks, upgradeTask{
-				ContractType:   "RELATIVE_QUOTER",
+				ContractType:   quoterType,
 				ProxyAddress:   pool.QuoterAddress,
 				NewImplAddress: pc.ImplAddress,
 				FactoryAddress: pc.FactoryAddress,
@@ -280,6 +373,13 @@ func (a *API) upgradePoolHandler(c *echo.Context) error {
 			})
 		}
 	}
+
+	// Re-pointing a proxy at the implementation it already runs costs a
+	// transaction and a nonce to change nothing. A pool fans out to five
+	// contracts, so a version bump that touches one of them would otherwise
+	// spend four wasted transactions per pool.
+	tasks, alreadyCurrent := a.dropCurrentImplementations(ctx, tasks)
+	skipped = append(skipped, alreadyCurrent...)
 
 	if len(tasks) == 0 {
 		if err := tx.Commit(ctx); err != nil {
@@ -290,6 +390,7 @@ func (a *API) upgradePoolHandler(c *echo.Context) error {
 			Description: "No upgrade tasks found for this pool",
 			Result: map[string]any{
 				"upgrades": []any{},
+				"skipped":  skippedOrEmpty(skipped),
 			},
 		})
 	}
@@ -337,6 +438,7 @@ func (a *API) upgradePoolHandler(c *echo.Context) error {
 		Result: map[string]any{
 			"trackingId": trackingID,
 			"upgrades":   upgradeResults,
+			"skipped":    skippedOrEmpty(skipped),
 		},
 	})
 }
