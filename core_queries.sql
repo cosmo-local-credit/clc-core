@@ -986,6 +986,22 @@ SELECT id, otx_id, proxy_address, contract_type, new_implementation, version, cr
 FROM upgrade_meta
 WHERE otx_id = $1;
 
+-- Claim an operation id for a relay submission, in the transaction that queues
+-- its job. DO NOTHING rather than raising: a concurrent claim of the same id
+-- blocks here until the first transaction ends, then either inserts (the first
+-- rolled back) or affects no row (it committed), and the caller reads the
+-- winner with get-relay-operation. Nothing aborts the caller's transaction.
+--name: insert-relay-operation
+INSERT INTO relay_operations (operation_id, user_address, request_digest, tracking_id)
+VALUES ($1::uuid, $2, $3, $4::uuid)
+ON CONFLICT (operation_id) DO NOTHING;
+
+--name: get-relay-operation
+SELECT operation_id::TEXT AS operation_id, user_address, request_digest,
+    tracking_id::TEXT AS tracking_id, created_at
+FROM relay_operations
+WHERE operation_id = $1::uuid;
+
 -- Record a WebAuthn credential carried by a registration relay. Written in the
 -- relay worker's transaction, beside the OTX it waits on, and always 'pending':
 -- only a successful receipt for tracking_id makes it usable (see

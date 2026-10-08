@@ -129,4 +129,7 @@ func TestRelayerHealthHandlerIncludesRelayerAddress(t *testing.T) {
 	if got, ok := body.Result["relayerAddress"].(string); !ok || got != want {
 		t.Fatalf("relayerAddress = %#v, want %q", body.Result["relayerAddress"], want)
 	}
+	if got, ok := body.Result["idempotentRelay"].(bool); !ok || !got {
+		t.Fatalf("idempotentRelay = %#v, want true", body.Result["idempotentRelay"])
+	}
 }

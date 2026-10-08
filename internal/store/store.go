@@ -187,6 +187,7 @@ type (
 		InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error
 		GetUpgradeMetaByOTXID(context.Context, pgx.Tx, uint64) (UpgradeMeta, error)
 
+		ClaimRelayOperation(context.Context, pgx.Tx, RelayOperation) (RelayOperation, bool, error)
 		RecordWebAuthnRegistration(context.Context, pgx.Tx, WebAuthnCredential) error
 		GetWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
 		GetActiveWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)

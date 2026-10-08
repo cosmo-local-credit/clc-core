@@ -123,6 +123,9 @@ type (
 		InsertUpgradeMeta     string `query:"insert-upgrade-meta"`
 		GetUpgradeMetaByOTXID string `query:"get-upgrade-meta-by-otx-id"`
 
+		InsertRelayOperation string `query:"insert-relay-operation"`
+		GetRelayOperation    string `query:"get-relay-operation"`
+
 		InsertWebAuthnCredential         string `query:"insert-webauthn-credential"`
 		RearmWebAuthnCredential          string `query:"rearm-webauthn-credential"`
 		GetWebAuthnCredentialForUpdate   string `query:"get-webauthn-credential-for-update"`
