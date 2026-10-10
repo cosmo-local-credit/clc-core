@@ -178,6 +178,12 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
+	// User-curated catalogs are public to browse; nearby discovery uses the
+	// viewer's saved profile location and therefore requires a user session.
+	router.GET(apiVersion+"/catalogs", a.curatedCatalogListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/catalogs/:id", a.curatedCatalogDetailHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/catalogs/:id/pools", a.curatedMembersHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/catalogs/:id/vouchers", a.curatedMembersHandler, a.marketRateLimitMiddleware())
 
 	// Network pool catalog (imported + clc-core deploys; reads the pools
 	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
@@ -199,6 +205,13 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/reviews/:id/reply", a.voucherReviewReplyHandler, a.requireUserAuth())
 	apiGroup.POST("/vouchers/:address/reviews/:id/flag", a.voucherReviewFlagHandler, a.requireUserAuth())
+	apiGroup.POST("/catalogs", a.curatedCatalogSaveHandler, a.requireUserAuth())
+	apiGroup.PUT("/catalogs/:id", a.curatedCatalogSaveHandler, a.requireUserAuth())
+	apiGroup.GET("/catalogs/:id/membership", a.curatedMembershipHandler, a.requireUserAuth())
+	apiGroup.PUT("/catalogs/:id/pools/:poolId", a.curatedMembershipHandler, a.requireUserAuth())
+	apiGroup.DELETE("/catalogs/:id/pools/:poolId", a.curatedMembershipHandler, a.requireUserAuth())
+	apiGroup.PUT("/catalogs/:id/vouchers/:voucherId", a.curatedMembershipHandler, a.requireUserAuth())
+	apiGroup.DELETE("/catalogs/:id/vouchers/:voucherId", a.curatedMembershipHandler, a.requireUserAuth())
 
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
@@ -271,6 +284,7 @@ func New(o APIOpts) *API {
 	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
+	userGroup.GET("/me/catalogs", a.myCuratedCatalogsHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)

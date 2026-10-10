@@ -14,6 +14,20 @@ import (
 
 type (
 	Queries struct {
+		CreateCuratedCatalog     string `query:"create-curated-catalog"`
+		UpdateCuratedCatalog     string `query:"update-curated-catalog"`
+		LockCuratedCatalog       string `query:"lock-curated-catalog"`
+		AddCuratedPool           string `query:"add-curated-pool"`
+		AddCuratedVoucher        string `query:"add-curated-voucher"`
+		RemoveCuratedPool        string `query:"remove-curated-pool"`
+		RemoveCuratedVoucher     string `query:"remove-curated-voucher"`
+		CuratedPoolMembership    string `query:"curated-pool-membership"`
+		CuratedVoucherMembership string `query:"curated-voucher-membership"`
+		VisibleCuratedPool       string `query:"visible-curated-pool"`
+		VisibleCuratedVoucher    string `query:"visible-curated-voucher"`
+		ListCuratedPools         string `query:"list-curated-pools"`
+		ListCuratedVouchers      string `query:"list-curated-vouchers"`
+
 		InsertKeyPair                string `query:"insert-keypair"`
 		ActivateKeyPair              string `query:"activate-keypair"`
 		LoadMasterKey                string `query:"load-master-key"`

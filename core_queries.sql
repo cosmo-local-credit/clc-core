@@ -2460,3 +2460,47 @@ WHERE otx.signer_account = (SELECT id FROM keystore WHERE public_key = $1)
   AND otx.replaced = false
   AND otx.nonce < $2
   AND dispatch.status = 'PENDING';
+
+--name: create-curated-catalog
+INSERT INTO catalogs(owner_user_id, name, image_url, location_name, geo_lat, geo_lng)
+VALUES ($1,$2,$3,$4,$5,$6) RETURNING id;
+
+--name: update-curated-catalog
+UPDATE catalogs SET name=$2, image_url=$3, location_name=$4, geo_lat=$5, geo_lng=$6 WHERE id=$1;
+
+--name: lock-curated-catalog
+SELECT owner_user_id FROM catalogs WHERE id=$1 FOR UPDATE;
+
+--name: add-curated-pool
+INSERT INTO catalog_pools(catalog_id,pool_id)
+SELECT $1,id FROM pools WHERE id=$2 ON CONFLICT DO NOTHING;
+
+--name: add-curated-voucher
+INSERT INTO catalog_vouchers(catalog_id,voucher_id)
+SELECT $1,id FROM vouchers WHERE id=$2 AND active ON CONFLICT DO NOTHING;
+
+--name: remove-curated-pool
+DELETE FROM catalog_pools WHERE catalog_id=$1 AND pool_id=$2;
+
+--name: remove-curated-voucher
+DELETE FROM catalog_vouchers WHERE catalog_id=$1 AND voucher_id=$2;
+
+--name: curated-pool-membership
+SELECT EXISTS(SELECT 1 FROM catalog_pools WHERE catalog_id=$1 AND pool_id=$2);
+
+--name: curated-voucher-membership
+SELECT EXISTS(SELECT 1 FROM catalog_vouchers WHERE catalog_id=$1 AND voucher_id=$2);
+
+--name: visible-curated-pool
+SELECT id FROM pools WHERE id=$1 FOR SHARE;
+
+--name: visible-curated-voucher
+SELECT id FROM vouchers WHERE id=$1 AND active FOR SHARE;
+
+--name: list-curated-pools
+SELECT p.id,p.chain_id,p.address,COALESCE(p.display_name,p.name,p.address) AS name,p.image_url
+FROM catalog_pools cp JOIN pools p ON p.id=cp.pool_id WHERE cp.catalog_id=$1 AND p.id>$2 ORDER BY p.id LIMIT $3;
+
+--name: list-curated-vouchers
+SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS name,v.icon_url AS image_url
+FROM catalog_vouchers cv JOIN vouchers v ON v.id=cv.voucher_id WHERE cv.catalog_id=$1 AND v.active AND v.id>$2 ORDER BY v.id LIMIT $3;
