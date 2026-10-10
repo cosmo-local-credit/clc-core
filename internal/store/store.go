@@ -11,6 +11,7 @@ import (
 
 type (
 	Store interface {
+		CuratedCatalogStore
 		SuggestUsername(context.Context, pgx.Tx, string) (string, error)
 		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)
 		ResolveRecipient(context.Context, pgx.Tx, string, int64, bool) (Recipient, error)
