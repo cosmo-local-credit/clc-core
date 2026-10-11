@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"net/http"
 	"strconv"
 
@@ -11,12 +13,46 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 )
+
+var (
+	erc20TransferSelector = []byte{0xa9, 0x05, 0x9c, 0xbb}
+)
+
+// directVoucherTransfer recognizes the exact one-call ERC-20 transfer shape
+// used by Send and Redeem. Multi-call flows such as swaps are deliberately not
+// snapshotted here because their settlement value cannot be inferred from a
+// single requested transfer amount.
+func directVoucherTransfer(batch apiresp.CaliburSignedBatch) (tokenAddress, amountRaw string, ok bool) {
+	if len(batch.BatchedCall.Calls) != 1 {
+		return "", "", false
+	}
+	call := batch.BatchedCall.Calls[0]
+	value, valid := new(big.Int).SetString(call.Value, 10)
+	if !valid || value.Sign() != 0 {
+		return "", "", false
+	}
+	data, err := hexutil.Decode(call.Data)
+	if err != nil || len(data) != 68 || !bytes.Equal(data[:4], erc20TransferSelector) {
+		return "", "", false
+	}
+	for _, b := range data[4:16] {
+		if b != 0 {
+			return "", "", false
+		}
+	}
+	amount := new(big.Int).SetBytes(data[36:68])
+	if amount.Sign() <= 0 {
+		return "", "", false
+	}
+	return common.HexToAddress(call.To).Hex(), amount.String(), true
+}
 
 func (a *API) relayerHealthHandler(c *echo.Context) error {
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
@@ -269,6 +305,11 @@ func (a *API) relayHandler(c *echo.Context) error {
 
 	if _, err := a.queueClient.InsertTx(ctx, tx, args, &river.InsertOpts{MaxAttempts: 1}); err != nil {
 		return handlePostgresError(c, err)
+	}
+	if tokenAddress, amountRaw, ok := directVoucherTransfer(req.SignedBatch); ok {
+		if err := a.store.InsertTransferValuationSnapshot(ctx, tx, trackingID, tokenAddress, amountRaw); err != nil {
+			return handlePostgresError(c, err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

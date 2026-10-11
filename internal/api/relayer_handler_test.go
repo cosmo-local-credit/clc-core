@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,9 +11,48 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/labstack/echo/v5"
 	"github.com/riverqueue/river/rivertype"
 )
+
+func transferCalldata(recipient common.Address, amount *big.Int) string {
+	data := make([]byte, 68)
+	copy(data[:4], erc20TransferSelector)
+	copy(data[16:36], recipient.Bytes())
+	amount.FillBytes(data[36:68])
+	return hexutil.Encode(data)
+}
+
+func TestDirectVoucherTransfer(t *testing.T) {
+	token := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	recipient := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	amount := new(big.Int)
+	amount.SetString("123456789012345678901234567890", 10)
+	valid := apiresp.CaliburSignedBatch{BatchedCall: apiresp.CaliburBatchedCall{Calls: []apiresp.CaliburCall{{
+		To: token.Hex(), Value: "0", Data: transferCalldata(recipient, amount),
+	}}}}
+
+	gotToken, gotAmount, ok := directVoucherTransfer(valid)
+	if !ok || gotToken != token.Hex() || gotAmount != amount.String() {
+		t.Fatalf("directVoucherTransfer() = (%q, %q, %v)", gotToken, gotAmount, ok)
+	}
+
+	tests := map[string]apiresp.CaliburSignedBatch{
+		"multiple calls": {BatchedCall: apiresp.CaliburBatchedCall{Calls: append(valid.BatchedCall.Calls, valid.BatchedCall.Calls[0])}},
+		"native value":   {BatchedCall: apiresp.CaliburBatchedCall{Calls: []apiresp.CaliburCall{{To: token.Hex(), Value: "1", Data: transferCalldata(recipient, amount)}}}},
+		"wrong selector": {BatchedCall: apiresp.CaliburBatchedCall{Calls: []apiresp.CaliburCall{{To: token.Hex(), Value: "0", Data: "0x12345678"}}}},
+		"zero amount":    {BatchedCall: apiresp.CaliburBatchedCall{Calls: []apiresp.CaliburCall{{To: token.Hex(), Value: "0", Data: transferCalldata(recipient, big.NewInt(0))}}}},
+		"malformed data": {BatchedCall: apiresp.CaliburBatchedCall{Calls: []apiresp.CaliburCall{{To: token.Hex(), Value: "0", Data: "0xzz"}}}},
+	}
+	for name, batch := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, _, ok := directVoucherTransfer(batch); ok {
+				t.Fatal("directVoucherTransfer() accepted an unsupported batch")
+			}
+		})
+	}
+}
 
 func TestIsPublicRelayerTrackingChain(t *testing.T) {
 	tests := []struct {

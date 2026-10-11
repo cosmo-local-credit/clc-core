@@ -116,6 +116,8 @@ type (
 		InsertUserShare               string `query:"insert-user-share"`
 		GetUserShareByTxHash          string `query:"get-user-share-by-tx-hash"`
 		ListUserShareTxHashes         string `query:"list-user-share-tx-hashes"`
+		InsertTransferValuation       string `query:"insert-transfer-valuation-snapshot"`
+		ListTransferValuations        string `query:"list-transfer-valuation-snapshots-by-tx-hashes"`
 		AccountRelationshipCounts     string `query:"account-relationship-counts"`
 		CountUserTokens               string `query:"count-user-tokens"`
 		CountUserPools                string `query:"count-user-pools"`

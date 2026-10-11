@@ -122,6 +122,35 @@ func (a *API) noteBearingTxHashes(ctx context.Context, txHashes []string, caller
 	return noted, nil
 }
 
+// transferValuationsByTxHash loads immutable submission-time Unit-of-Account
+// snapshots for a page of federation transfers. Transfers predating snapshots
+// or submitted outside the relayer simply have no entry.
+func transferValuationKey(txHash, tokenAddress string) string {
+	return strings.ToLower(txHash) + ":" + strings.ToLower(tokenAddress)
+}
+
+func (a *API) transferValuationsByTxHash(ctx context.Context, txHashes []string) (map[string]store.TransferValuationSnapshot, error) {
+	valuations := make(map[string]store.TransferValuationSnapshot, len(txHashes))
+	if len(txHashes) == 0 {
+		return valuations, nil
+	}
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := a.store.ListTransferValuationSnapshotsByTxHashes(ctx, tx, txHashes)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		valuations[transferValuationKey(row.TxHash, row.TokenAddress)] = row
+	}
+	return valuations, nil
+}
+
 // enrichTransfers fills token metadata on federation transfers from the local
 // vouchers catalog, and flags the ones carrying a private attachment.
 func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTransfer, callerUserID uint64) error {
@@ -135,8 +164,18 @@ func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTrans
 	if err != nil {
 		return err
 	}
+	valuations, err := a.transferValuationsByTxHash(ctx, dedupedLowerAddresses(items,
+		func(t store.FederationTransfer) string { return t.TxHash }))
+	if err != nil {
+		return err
+	}
 	for i := range items {
-		items[i].HasNote = noted[strings.ToLower(items[i].TxHash)]
+		txHash := strings.ToLower(items[i].TxHash)
+		items[i].HasNote = noted[txHash]
+		if valuation, ok := valuations[transferValuationKey(txHash, items[i].TokenAddress)]; ok {
+			items[i].UOAValue = valuation.UOAValue
+			items[i].UOA = valuation.UOA
+		}
 
 		m, ok := meta[strings.ToLower(items[i].TokenAddress)]
 		if !ok {

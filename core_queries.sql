@@ -771,6 +771,52 @@ FROM user_shares us
 WHERE LOWER(us.tx_hash) = ANY($1::text[])
   AND $2 IN (us.owner_user_id, us.authorized_user_id);
 
+-- Snapshot a direct voucher transfer's informational valuation at submission
+-- time. Missing or incomplete voucher metadata deliberately inserts no row;
+-- that transfer remains token-only in activity rather than inventing a value.
+--name: insert-transfer-valuation-snapshot
+INSERT INTO transfer_valuation_snapshots (
+    tracking_id,
+    token_address,
+    token_amount_raw,
+    token_decimals,
+    voucher_value,
+    voucher_uoa,
+    uoa_value
+)
+SELECT $1::uuid,
+    v.address,
+    $3::numeric,
+    v.decimals,
+    v.voucher_value,
+    btrim(v.voucher_uoa),
+    ($3::numeric * v.voucher_value) / power(10::numeric, v.decimals)
+FROM vouchers v
+WHERE lower(v.address) = lower($2)
+  AND v.decimals IS NOT NULL
+  AND v.decimals BETWEEN 0 AND 255
+  AND v.voucher_value IS NOT NULL
+  AND v.voucher_value > 0
+  AND NULLIF(btrim(v.voucher_uoa), '') IS NOT NULL
+  AND btrim(v.voucher_uoa) ~ '^[A-Za-z0-9]{2,16}$'
+ON CONFLICT (tracking_id) DO NOTHING;
+
+-- Resolve snapshots through every OTX sharing the tracking id. This keeps the
+-- original submitted valuation attached when a relayed transaction is replaced.
+--name: list-transfer-valuation-snapshots-by-tx-hashes
+SELECT DISTINCT ON (lower(o.tx_hash))
+    lower(o.tx_hash) AS tx_hash,
+    s.token_address,
+    CASE
+        WHEN position('.' IN s.uoa_value::text) = 0 THEN s.uoa_value::text
+        ELSE rtrim(rtrim(s.uoa_value::text, '0'), '.')
+    END AS uoa_value,
+    s.voucher_uoa
+FROM transfer_valuation_snapshots s
+INNER JOIN otx o ON o.tracking_id = s.tracking_id
+WHERE lower(o.tx_hash) = ANY($1::text[])
+ORDER BY lower(o.tx_hash), o.id DESC;
+
 -- User deployments
 --name: count-user-tokens
 SELECT COUNT(*) FROM user_deployments
