@@ -16,6 +16,8 @@ type (
 		VoucherAddress        string    `db:"voucher_address"  json:"voucherAddress"`
 		VoucherName           *string   `db:"voucher_name"     json:"voucherName"`
 		VoucherSymbol         *string   `db:"voucher_symbol"   json:"voucherSymbol"`
+		VoucherUOA            *string   `db:"voucher_uoa"      json:"voucherUoa"`
+		PriceInUnitOfAccount  *string   `db:"price_in_unit_of_account" json:"priceInUnitOfAccount"`
 		VoucherDecimals       *int32    `db:"voucher_decimals"      json:"voucherDecimals"`
 		VoucherImageURL       *string   `db:"voucher_image_url"     json:"voucherImageUrl"`
 		VoucherLocationName   *string   `db:"voucher_location_name" json:"voucherLocationName"`

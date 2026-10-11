@@ -1,11 +1,16 @@
 package store
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
 
-func TestOfferingDiscoveryComposesAllPublicPredicates(t *testing.T) {
+func TestOfferingDiscoveryUsesNamedQueriesWithAllPublicPredicates(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
 	filter, err := NewCatalogFilter("repair", []string{"Services"}, TagMatchAll)
 	if err != nil {
 		t.Fatal(err)
@@ -15,37 +20,86 @@ func TestOfferingDiscoveryComposesAllPublicPredicates(t *testing.T) {
 		t.Fatal(err)
 	}
 	filter.Nearby = &CatalogLocation{Lat: -1.2, Lng: 36.8}
-	query := composeOfferingPage(filter, OfferingCursor{ID: 20, Distance: 15}, 21)
+	query, args := offeringPageQuery(queries, filter, OfferingCursor{ID: 20, Distance: 15}, 21)
+	if query != queries.ListOfferingsFilteredNearby || len(args) != 14 {
+		t.Fatalf("nearby selection = (%t, %d args)", query == queries.ListOfferingsFilteredNearby, len(args))
+	}
 	for _, fragment := range []string{
 		"o.available", "v.active", "COALESCE(o.geo_lat, v.geo_lat) IS NOT NULL",
 		"o.commodity_name", "o.description", "search_ot.tag_value",
-		"selected_ot.tag_value", "discovery_pt.is_allowed", "distance_meters ASC",
+		"selected_ot.tag_value", "pt.is_allowed", "distance_meters ASC",
 		"v.icon_url AS voucher_image_url", "effective_location_name",
+		"voucher_uoa", "price_in_unit_of_account",
 	} {
-		if !strings.Contains(query.sql, fragment) {
-			t.Errorf("offering query missing %q:\n%s", fragment, query.sql)
+		if !strings.Contains(query, fragment) {
+			t.Errorf("offering query missing %q", fragment)
 		}
 	}
-	assertPlaceholdersMatchArgs(t, "offering discovery", query)
 }
 
-func TestOfferingDiscoveryGlobalAndNearbyCursorOrdering(t *testing.T) {
-	global := composeOfferingPage(CatalogFilter{}, OfferingCursor{ID: 9}, 20)
-	if !strings.Contains(global.sql, "id < $1") || !strings.Contains(global.sql, "page.id DESC") {
-		t.Fatalf("global cursor is not newest-first keyset pagination:\n%s", global.sql)
+func TestOfferingDiscoverySelectsGlobalAndNearbyKeysets(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatal(err)
 	}
-	nearby := composeOfferingPage(CatalogFilter{Nearby: &CatalogLocation{Lat: 0, Lng: 0}}, OfferingCursor{ID: 9, Distance: 12}, 20)
-	if !strings.Contains(nearby.sql, "(distance_meters, id) >") || !strings.Contains(nearby.sql, "distance_meters ASC") {
-		t.Fatalf("nearby cursor is not distance-safe keyset pagination:\n%s", nearby.sql)
+	global, globalArgs := offeringPageQuery(queries, CatalogFilter{}, OfferingCursor{ID: 9}, 20)
+	if global != queries.ListOfferingsFilteredGlobal || len(globalArgs) != 7 || !strings.Contains(global, "id < $6") {
+		t.Fatalf("global query selection or keyset is invalid")
+	}
+	nearby, nearbyArgs := offeringPageQuery(queries, CatalogFilter{Nearby: &CatalogLocation{Lat: 0, Lng: 0}}, OfferingCursor{ID: 9, Distance: 12}, 20)
+	if nearby != queries.ListOfferingsFilteredNearby || len(nearbyArgs) != 14 || !strings.Contains(nearby, "(distance_meters, id) >") {
+		t.Fatalf("nearby query selection or keyset is invalid")
 	}
 }
 
 func TestOfferingFacetOmitsItsOwnTagSelection(t *testing.T) {
-	query := composeOfferingTagCounts(CatalogFilter{Tags: []string{"Art"}, PoolIDs: []uint64{3}})
-	if strings.Contains(query.sql, "selected_ot") {
-		t.Fatalf("facet count must omit its own tag selection:\n%s", query.sql)
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(query.sql, "discovery_pt.pool_id") {
-		t.Fatalf("facet count must retain pool selection:\n%s", query.sql)
+	query, _ := offeringFacetQuery(queries, CatalogFilter{Tags: []string{"Art"}, PoolIDs: []uint64{3}})
+	if strings.Contains(query, "selected_ot") {
+		t.Fatal("facet count must omit its own tag selection")
+	}
+	if !strings.Contains(query, "pt.pool_id") {
+		t.Fatal("facet count must retain pool selection")
+	}
+}
+
+func TestOfferingDiscoveryHasNoInlineSQLComposer(t *testing.T) {
+	source, err := os.ReadFile("offering_search.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"SELECT ", "FROM offerings", "composeOffering"} {
+		if strings.Contains(string(source), forbidden) {
+			t.Fatalf("offering discovery Go source contains inline SQL marker %q", forbidden)
+		}
+	}
+}
+
+func TestEveryOfferingProjectionUsesExactVoucherUOAPrice(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	statements := []string{
+		queries.ListOfferings, queries.ListOfferingsNext, queries.ListOfferingsPrev,
+		queries.ListVoucherOfferings, queries.ListVoucherOfferingsNext, queries.ListVoucherOfferingsPrev,
+		queries.ListPoolOfferings, queries.ListPoolOfferingsNext, queries.ListPoolOfferingsPrev,
+		queries.GetVoucherOffering, queries.GetOfferingForMutation,
+		queries.ListOfferingsFilteredGlobal, queries.ListOfferingsFilteredNearby,
+	}
+	for index, query := range statements {
+		for _, fragment := range []string{
+			"v.voucher_uoa AS voucher_uoa",
+			"(o.price * v.voucher_value)::TEXT",
+			"v.voucher_value > 0",
+			"NULLIF(BTRIM(o.unit), '') IS NOT NULL",
+		} {
+			if !strings.Contains(query, fragment) {
+				t.Errorf("offering statement %d missing %q", index, fragment)
+			}
+		}
 	}
 }
