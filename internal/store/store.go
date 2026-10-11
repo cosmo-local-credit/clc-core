@@ -174,12 +174,15 @@ type (
 		// Catalog search and tag filtering (PG_SEARCH_PLAN.md Slices 1 and 2).
 		ListMarketVouchersFiltered(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter, CatalogPage, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVoucherTagFacets(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter) ([]TagFacet, error)
+		ListOfferingsFiltered(context.Context, pgx.Tx, CatalogFilter, OfferingCursor, uint64) ([]Offering, error)
+		ListOfferingTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		ListPoolsFiltered(context.Context, pgx.Tx, CatalogFilter, CatalogPage, uint64, uint64) ([]Pool, error)
 		ListPoolTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		ListPoolVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		ListReportVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
 		ResolveVoucherRefs(context.Context, pgx.Tx, []VoucherRef) ([]uint64, error)
+		ResolvePoolRefs(context.Context, pgx.Tx, []PoolRef) ([]uint64, error)
 		CountVouchersOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 

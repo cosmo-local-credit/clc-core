@@ -178,6 +178,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/offerings", a.offeringsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	// User-curated catalogs are public to browse; nearby discovery uses the
 	// viewer's saved profile location and therefore requires a user session.
 	router.GET(apiVersion+"/catalogs", a.curatedCatalogListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
@@ -241,7 +242,6 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
 	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
-	apiGroup.GET("/offerings", a.offeringsListHandler)
 
 	// Owner catalog writes. On apiGroup with requireUserAuth, like report
 	// mutations: a normal pool or voucher owner needs these capabilities, so they

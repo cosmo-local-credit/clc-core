@@ -18,8 +18,10 @@ func TestCuratedCatalogValidation(t *testing.T) {
 		return store.CuratedCatalogWrite{Name: "  Čaršija 🌱  ", LocationName: "Sarajevo", GeoLat: &zero, GeoLng: &zero}
 	}
 	w := valid()
+	w.Description = "  Community growers and repairers  "
 	require.NoError(t, validateCuratedWrite(&w))
 	require.Equal(t, "Čaršija 🌱", w.Name)
+	require.Equal(t, "Community growers and repairers", w.Description)
 	blank := ""
 	w.ImageURL = &blank
 	require.NoError(t, validateCuratedWrite(&w))
@@ -30,6 +32,7 @@ func TestCuratedCatalogValidation(t *testing.T) {
 	}{
 		{"empty name", func(w *store.CuratedCatalogWrite) { w.Name = "  " }},
 		{"too long", func(w *store.CuratedCatalogWrite) { w.Name = strings.Repeat("ž", 121) }},
+		{"description too long", func(w *store.CuratedCatalogWrite) { w.Description = strings.Repeat("ž", 501) }},
 		{"missing location", func(w *store.CuratedCatalogWrite) { w.GeoLat = nil }},
 		{"nan", func(w *store.CuratedCatalogWrite) { n := math.NaN(); w.GeoLat = &n }},
 		{"invalid latitude", func(w *store.CuratedCatalogWrite) { n := 91.0; w.GeoLat = &n }},
@@ -42,12 +45,12 @@ func TestCuratedCatalogValidation(t *testing.T) {
 }
 
 func TestCuratedCursorIsBoundToViewerLocationAndList(t *testing.T) {
-	origin := curatedOrigin(7, &store.CatalogLocation{Lat: 43, Lng: 18})
+	origin := curatedOrigin(7, &store.CatalogLocation{Lat: 43, Lng: 18}, "")
 	raw := encodeCuratedCursor(store.CuratedCatalogCursor{ID: 4, Distance: 20, Origin: origin})
 	got, err := curatedCursor(raw, origin)
 	require.NoError(t, err)
 	require.Equal(t, uint64(4), got.ID)
-	for _, scope := range []string{"public", curatedOrigin(8, &store.CatalogLocation{Lat: 43, Lng: 18}), curatedOrigin(7, &store.CatalogLocation{Lat: 43.000001, Lng: 18}), "members:1:false"} {
+	for _, scope := range []string{"public", curatedOrigin(8, &store.CatalogLocation{Lat: 43, Lng: 18}, ""), curatedOrigin(7, &store.CatalogLocation{Lat: 43.000001, Lng: 18}, ""), curatedOrigin(7, &store.CatalogLocation{Lat: 43, Lng: 18}, "different"), "members:1:false"} {
 		_, err = curatedCursor(raw, scope)
 		require.Error(t, err)
 	}

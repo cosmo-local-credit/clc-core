@@ -2,8 +2,13 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -36,6 +41,11 @@ type (
 		// written — cache headers, for instance.
 		onSuccess func(*echo.Context)
 	}
+
+	offeringCursorEnvelope struct {
+		store.OfferingCursor
+		Scope string `json:"scope"`
+	}
 )
 
 func (a *API) poolVouchersListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
@@ -55,18 +65,108 @@ func (a *API) poolVouchersListHandler(c *echo.Context) error { //nolint:dupl // 
 }
 
 func (a *API) offeringsListHandler(c *echo.Context) error {
-	pagination, err := bindCatalogPagination(c)
+	search, err := parseMarketDiscoverySearch(c)
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+	size, err := curatedPageSize(c)
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback(ctx)
+	if err = a.store.SetCatalogStatementTimeout(ctx, tx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	if handled, readErr := a.resolveNearbyCatalog(c, tx, &search); handled || readErr != nil {
+		return readErr
+	}
+	if handled, readErr := a.resolvePoolFilter(c, tx, &search); handled || readErr != nil {
+		return readErr
+	}
+	if handled, readErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || readErr != nil {
+		return readErr
+	}
 
-	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.Offering]{
-		firstPage: a.store.ListOfferings,
-		nextPage:  a.store.ListOfferingsNext,
-		prevPage:  a.store.ListOfferingsPrevious,
-	}, pagination, "offerings", "Offerings", func(o store.Offering) uint64 {
-		return o.ID
-	}, catalogListHooks{})
+	scope := offeringCursorScope(c, search.filter)
+	cursor, err := parseOfferingCursor(c.QueryParam("cursor"), scope)
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+	rows, err := a.store.ListOfferingsFiltered(ctx, tx, search.filter, cursor, size+1)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	var next *string
+	if uint64(len(rows)) > size {
+		rows = rows[:size]
+		last := rows[len(rows)-1]
+		distance := 0.0
+		if last.DistanceMeters != nil {
+			distance = *last.DistanceMeters
+		}
+		token := encodeOfferingCursor(offeringCursorEnvelope{
+			OfferingCursor: store.OfferingCursor{ID: last.ID, Distance: distance},
+			Scope:          scope,
+		})
+		next = &token
+	}
+	result := map[string]any{"offerings": rows, "nextCursor": next}
+	if search.facets && c.QueryParam("cursor") == "" {
+		facets, readErr := a.store.ListOfferingTagFacets(ctx, tx, search.filter)
+		if readErr != nil {
+			return handlePostgresError(c, readErr)
+		}
+		result["tagFacets"] = facets
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	setMarketCacheHeaders(c)
+	return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "Offerings", Result: result})
+}
+
+func offeringCursorScope(c *echo.Context, filter store.CatalogFilter) string {
+	caller, _, _ := getUserClaims(c)
+	payload, _ := json.Marshal(struct {
+		Caller   uint64
+		Term     string
+		Tags     []string
+		TagMatch store.TagMatch
+		Pools    []uint64
+		Nearby   *store.CatalogLocation
+	}{caller, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, filter.Nearby})
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func parseOfferingCursor(raw, scope string) (store.OfferingCursor, error) {
+	if raw == "" {
+		return store.OfferingCursor{}, nil
+	}
+	if len(raw) > 1024 {
+		return store.OfferingCursor{}, curatedValidationError("invalid offering cursor")
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return store.OfferingCursor{}, curatedValidationError("invalid offering cursor")
+	}
+	var envelope offeringCursorEnvelope
+	if err = json.Unmarshal(data, &envelope); err != nil || envelope.ID == 0 || envelope.Scope != scope ||
+		math.IsNaN(envelope.Distance) || math.IsInf(envelope.Distance, 0) || envelope.Distance < 0 {
+		return store.OfferingCursor{}, curatedValidationError(
+			"offering cursor does not match this search and location; restart pagination")
+	}
+	return envelope.OfferingCursor, nil
+}
+
+func encodeOfferingCursor(cursor offeringCursorEnvelope) string {
+	data, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(data)
 }
 
 func (a *API) voucherOfferingsListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
@@ -164,7 +264,7 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 		})
 	}
 
-	search, err := parseCatalogSearch(c)
+	search, err := parseMarketDiscoverySearch(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
@@ -189,6 +289,9 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 	}, catalogListHooks{
 		validate: func(tx pgx.Tx) (bool, error) {
 			if handled, err := a.resolveNearbyCatalog(c, tx, &search); handled || err != nil {
+				return handled, err
+			}
+			if handled, err := a.resolvePoolFilter(c, tx, &search); handled || err != nil {
 				return handled, err
 			}
 			return a.rejectUnknownTags(c, tx, search.filter.Tags)

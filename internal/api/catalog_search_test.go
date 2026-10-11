@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -236,6 +237,47 @@ func TestParseCatalogRelationshipSearchRejectsInvalidVouchers(t *testing.T) {
 		if _, err := parseCatalogRelationshipSearch(c); err == nil {
 			t.Errorf("%s: expected validation error", name)
 		}
+	}
+}
+
+func TestParseMarketDiscoverySearchNormalizesPools(t *testing.T) {
+	const (
+		first  = "0x1111111111111111111111111111111111111111"
+		second = "0x2222222222222222222222222222222222222222"
+	)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v2/offerings?pools=100:"+second+",100:"+first+"&pools=100:"+first, nil)
+	c := echo.New().NewContext(req, httptest.NewRecorder())
+	got, err := parseMarketDiscoverySearch(c)
+	if err != nil {
+		t.Fatalf("parseMarketDiscoverySearch() error = %v", err)
+	}
+	if len(got.poolRefs) != 2 || got.poolRefs[0].Address != first || got.poolRefs[1].Address != second {
+		t.Fatalf("poolRefs = %#v, want sorted unique refs", got.poolRefs)
+	}
+}
+
+func TestParseMarketDiscoverySearchRejectsInvalidAndTooManyPools(t *testing.T) {
+	for name, query := range map[string]string{
+		"missing chain":   "pools=0x1111111111111111111111111111111111111111",
+		"zero chain":      "pools=0:0x1111111111111111111111111111111111111111",
+		"invalid address": "pools=100:not-an-address",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers?"+query, nil)
+		c := echo.New().NewContext(req, httptest.NewRecorder())
+		if _, err := parseMarketDiscoverySearch(c); !errors.Is(err, errInvalidPoolRef) {
+			t.Errorf("%s: error = %v, want errInvalidPoolRef", name, err)
+		}
+	}
+
+	values := make([]string, 0, store.CatalogMaxPools+1)
+	for index := range store.CatalogMaxPools + 1 {
+		values = append(values, "100:0x"+fmt.Sprintf("%040x", index+1))
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/offerings?"+url.Values{"pools": values}.Encode(), nil)
+	c := echo.New().NewContext(req, httptest.NewRecorder())
+	if _, err := parseMarketDiscoverySearch(c); !errors.Is(err, store.ErrCatalogTooManyPools) {
+		t.Fatalf("over-limit error = %v, want ErrCatalogTooManyPools", err)
 	}
 }
 

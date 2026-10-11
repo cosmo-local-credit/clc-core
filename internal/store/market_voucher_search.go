@@ -99,6 +99,7 @@ func composeMarketVoucherPage(
 				boundsPredicate(args, bounds),
 				ownerPredicate(args, "v.owner_address", filter),
 				nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
+				voucherPoolPredicate(args, filter, "v.id"),
 				voucherTagPredicate(args, filter),
 				cursorPredicate(args, "v.id", page, cursor),
 			) +
@@ -118,6 +119,7 @@ func composeMarketVoucherPage(
 			boundsPredicate(args, bounds),
 			ownerPredicate(args, "v.owner_address", filter),
 			nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
+			voucherPoolPredicate(args, filter, "v.id"),
 			searchPredicate(args, filter, "v"),
 			voucherTagPredicate(args, filter),
 		) +
@@ -171,6 +173,7 @@ func composeMarketVoucherTagCounts(bounds *MarketVoucherBounds, filter CatalogFi
 			boundsPredicate(args, bounds),
 			ownerPredicate(args, "v.owner_address", filter),
 			nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
+			voucherPoolPredicate(args, filter, "v.id"),
 			searchPredicate(args, filter, "v"),
 		) + `
 )

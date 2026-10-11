@@ -101,18 +101,26 @@ func encodeCuratedCursor(cursor store.CuratedCatalogCursor) string {
 	data, _ := json.Marshal(cursor)
 	return base64.RawURLEncoding.EncodeToString(data)
 }
-func curatedOrigin(user uint64, location *store.CatalogLocation) string {
-	if location == nil {
+func curatedOrigin(user uint64, location *store.CatalogLocation, term string) string {
+	if location == nil && term == "" {
 		return "public"
 	}
-	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%.17g:%.17g", user, location.Lat, location.Lng))
+	lat, lng := 0.0, 0.0
+	if location != nil {
+		lat, lng = location.Lat, location.Lng
+	}
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%.17g:%.17g:%s", user, lat, lng, term))
 	return hex.EncodeToString(sum[:])
 }
 func validateCuratedWrite(w *store.CuratedCatalogWrite) error {
 	w.Name = strings.TrimSpace(w.Name)
+	w.Description = strings.TrimSpace(w.Description)
 	w.LocationName = strings.TrimSpace(w.LocationName)
 	if utf8.RuneCountInString(w.Name) < 1 || utf8.RuneCountInString(w.Name) > 120 {
 		return curatedValidationError("name must contain 1 to 120 characters")
+	}
+	if utf8.RuneCountInString(w.Description) > 500 {
+		return curatedValidationError("description must contain at most 500 characters")
 	}
 	if utf8.RuneCountInString(w.LocationName) < 1 || utf8.RuneCountInString(w.LocationName) > 200 {
 		return curatedValidationError("locationName must contain 1 to 200 characters")
@@ -151,6 +159,10 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 	if nearby != "" && nearby != "true" && nearby != "false" {
 		return respondCatalogSearchError(c, errors.New("nearby must be true or false"))
 	}
+	filter, err := store.NewCatalogFilter(c.QueryParam("q"), nil, store.TagMatchAny)
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
 	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
 		ctx := c.Request().Context()
 		caller, address, _ := getUserClaims(c)
@@ -165,12 +177,12 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 				return nil, curatedValidationError(readErr.Error())
 			}
 		}
-		origin := curatedOrigin(caller, location)
+		origin := curatedOrigin(caller, location, filter.Term)
 		cursor, readErr := curatedCursor(c.QueryParam("cursor"), origin)
 		if readErr != nil {
 			return nil, readErr
 		}
-		rows, readErr := a.store.ListCuratedCatalogs(ctx, tx, 0, location, cursor, size+1)
+		rows, readErr := a.store.ListCuratedCatalogs(ctx, tx, 0, filter.Term, location, cursor, size+1)
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -191,7 +203,7 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 func (a *API) myCuratedCatalogsHandler(c *echo.Context) error {
 	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
 		owner, _, _ := getUserClaims(c)
-		rows, err := a.store.ListCuratedCatalogs(c.Request().Context(), tx, owner, nil, store.CuratedCatalogCursor{}, 100)
+		rows, err := a.store.ListCuratedCatalogs(c.Request().Context(), tx, owner, "", nil, store.CuratedCatalogCursor{}, 100)
 		return map[string]any{"catalogs": rows, "nextCursor": nil}, err
 	})
 }
