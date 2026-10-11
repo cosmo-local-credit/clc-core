@@ -212,13 +212,15 @@ type (
 		UnknownTokenTags           string `query:"unknown-token-tags"`
 		SetCatalogStatementTimeout string `query:"set-catalog-statement-timeout"`
 		ResolveVoucherRefs         string `query:"resolve-voucher-refs"`
+		ResolvePoolRefs            string `query:"resolve-pool-refs"`
 		CountVouchersOwnedBy       string `query:"count-vouchers-owned-by"`
 
 		// Facet vocabularies are parameterless and request-independent; only
 		// the count half varies with the search, and it is composed.
-		ListVoucherTagVocabulary string `query:"list-voucher-tag-vocabulary"`
-		ListPoolTagVocabulary    string `query:"list-pool-tag-vocabulary"`
-		ListReportTagVocabulary  string `query:"list-report-tag-vocabulary"`
+		ListVoucherTagVocabulary  string `query:"list-voucher-tag-vocabulary"`
+		ListPoolTagVocabulary     string `query:"list-pool-tag-vocabulary"`
+		ListReportTagVocabulary   string `query:"list-report-tag-vocabulary"`
+		ListOfferingTagVocabulary string `query:"list-offering-tag-vocabulary"`
 
 		DashboardCatalogSnapshot string `query:"dashboard-catalog-snapshot"`
 		DashboardCatalogSeries   string `query:"dashboard-catalog-series"`

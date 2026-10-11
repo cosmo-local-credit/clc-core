@@ -121,11 +121,29 @@ func TestCatalogFilterActive(t *testing.T) {
 		"term only":     {filter: CatalogFilter{Term: "sar"}, want: true},
 		"tags only":     {filter: CatalogFilter{Tags: []string{"Art"}}, want: true},
 		"vouchers only": {filter: CatalogFilter{VoucherIDs: []uint64{42}}, want: true},
+		"pools only":    {filter: CatalogFilter{PoolIDs: []uint64{42}}, want: true},
 		"term and tags": {filter: CatalogFilter{Term: "sar", Tags: []string{"Art"}}, want: true},
 	} {
 		if got := tc.filter.Active(); got != tc.want {
 			t.Errorf("%s: Active() = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+func TestCatalogFilterWithPoolIDsNormalizesAndBounds(t *testing.T) {
+	filter, err := (CatalogFilter{}).WithPoolIDs([]uint64{9, 2, 9, 4})
+	if err != nil {
+		t.Fatalf("WithPoolIDs() error = %v", err)
+	}
+	if !slices.Equal(filter.PoolIDs, []uint64{2, 4, 9}) {
+		t.Errorf("PoolIDs = %v, want sorted unique IDs", filter.PoolIDs)
+	}
+	over := make([]uint64, CatalogMaxPools+1)
+	for index := range over {
+		over[index] = uint64(index + 1)
+	}
+	if _, err := (CatalogFilter{}).WithPoolIDs(over); !errors.Is(err, ErrCatalogTooManyPools) {
+		t.Errorf("over-limit error = %v, want ErrCatalogTooManyPools", err)
 	}
 }
 

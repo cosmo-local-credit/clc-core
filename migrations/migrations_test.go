@@ -82,6 +82,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "045_education_marker_icon.sql")
 	assert.Contains(t, sqlFiles, "046_protocol_fee_controller.sql")
 	assert.Contains(t, sqlFiles, "047_user_catalogs.sql")
+	assert.Contains(t, sqlFiles, "048_catalog_descriptions.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -130,7 +131,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "044_pool_geo_index.sql" ||
 				name == "045_education_marker_icon.sql" ||
 				name == "046_protocol_fee_controller.sql" ||
-				name == "047_user_catalogs.sql",
+				name == "047_user_catalogs.sql" ||
+				name == "048_catalog_descriptions.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -187,7 +189,19 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"045_education_marker_icon.sql",
 		"046_protocol_fee_controller.sql",
 		"047_user_catalogs.sql",
+		"048_catalog_descriptions.sql",
 	}, files)
+}
+
+func TestCatalogDescriptionMigration(t *testing.T) {
+	content, err := os.ReadFile("048_catalog_descriptions.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN description TEXT")
+	assert.Contains(t, s, "char_length(description) BETWEEN 1 AND 500")
+	assert.Contains(t, s, "catalogs_name_trgm_idx")
+	assert.Contains(t, s, "catalogs_location_trgm_idx")
+	assert.Contains(t, s, "catalogs_description_trgm_idx")
 }
 
 func TestPoolGeoIndexMigration(t *testing.T) {

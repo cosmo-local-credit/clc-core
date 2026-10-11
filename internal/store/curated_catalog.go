@@ -12,6 +12,7 @@ type (
 	CuratedCatalog struct {
 		ID             uint64    `db:"id" json:"id"`
 		Name           string    `db:"name" json:"name"`
+		Description    *string   `db:"description" json:"description"`
 		ImageURL       *string   `db:"image_url" json:"imageUrl"`
 		LocationName   string    `db:"location_name" json:"locationName"`
 		GeoLat         float64   `db:"geo_lat" json:"geoLat"`
@@ -25,6 +26,7 @@ type (
 	}
 	CuratedCatalogWrite struct {
 		Name         string   `json:"name"`
+		Description  string   `json:"description"`
 		ImageURL     *string  `json:"imageUrl"`
 		LocationName string   `json:"locationName"`
 		GeoLat       *float64 `json:"geoLat"`
@@ -47,7 +49,7 @@ type (
 		UpdateCuratedCatalog(context.Context, pgx.Tx, uint64, CuratedCatalogWrite) error
 		LockCuratedCatalog(context.Context, pgx.Tx, uint64) (uint64, error)
 		GetCuratedCatalog(context.Context, pgx.Tx, uint64) (CuratedCatalog, error)
-		ListCuratedCatalogs(context.Context, pgx.Tx, uint64, *CatalogLocation, CuratedCatalogCursor, uint64) ([]CuratedCatalog, error)
+		ListCuratedCatalogs(context.Context, pgx.Tx, uint64, string, *CatalogLocation, CuratedCatalogCursor, uint64) ([]CuratedCatalog, error)
 		ListCuratedMembers(context.Context, pgx.Tx, uint64, bool, uint64, uint64) ([]CuratedCatalogMember, error)
 		SetCuratedMembership(context.Context, pgx.Tx, uint64, bool, uint64, bool) error
 		CuratedMembership(context.Context, pgx.Tx, uint64, bool, uint64) (bool, error)
@@ -57,7 +59,7 @@ type (
 // Counts and member reads share public-detail visibility: all pools, active vouchers.
 // Coordinates are not required for a voucher's public detail or explicit curation.
 const (
-	curatedProjection = `SELECT c.id,c.name,c.image_url,c.location_name,c.geo_lat,c.geo_lng,
+	curatedProjection = `SELECT c.id,c.name,c.description,c.image_url,c.location_name,c.geo_lat,c.geo_lng,
     u.blockchain_address AS owner_address,c.created_at,c.updated_at,
     (SELECT count(*) FROM catalog_pools cp JOIN pools p ON p.id=cp.pool_id WHERE cp.catalog_id=c.id) AS pool_count,
     (SELECT count(*) FROM catalog_vouchers cv JOIN vouchers v ON v.id=cv.voucher_id WHERE cv.catalog_id=c.id AND v.active) AS voucher_count,`
@@ -65,11 +67,11 @@ const (
 
 func (pg *Pg) CreateCuratedCatalog(ctx context.Context, tx pgx.Tx, owner uint64, w CuratedCatalogWrite) (uint64, error) {
 	var id uint64
-	err := tx.QueryRow(ctx, pg.queries.CreateCuratedCatalog, owner, w.Name, w.ImageURL, w.LocationName, w.GeoLat, w.GeoLng).Scan(&id)
+	err := tx.QueryRow(ctx, pg.queries.CreateCuratedCatalog, owner, w.Name, nullableDescription(w.Description), w.ImageURL, w.LocationName, w.GeoLat, w.GeoLng).Scan(&id)
 	return id, err
 }
 func (pg *Pg) UpdateCuratedCatalog(ctx context.Context, tx pgx.Tx, id uint64, w CuratedCatalogWrite) error {
-	_, err := tx.Exec(ctx, pg.queries.UpdateCuratedCatalog, id, w.Name, w.ImageURL, w.LocationName, w.GeoLat, w.GeoLng)
+	_, err := tx.Exec(ctx, pg.queries.UpdateCuratedCatalog, id, w.Name, nullableDescription(w.Description), w.ImageURL, w.LocationName, w.GeoLat, w.GeoLng)
 	return err
 }
 func (pg *Pg) LockCuratedCatalog(ctx context.Context, tx pgx.Tx, id uint64) (uint64, error) {
@@ -85,12 +87,38 @@ func (pg *Pg) GetCuratedCatalog(ctx context.Context, tx pgx.Tx, id uint64) (Cura
 
 // composeCuratedCatalogPage selects and orders the page before projecting its
 // member counts. ownerID zero leaves the public list unrestricted.
-func composeCuratedCatalogPage(ownerID uint64, origin *CatalogLocation, cursor CuratedCatalogCursor, limit uint64) composed {
+func nullableDescription(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func curatedCatalogSearchPredicate(args *sqlArgs, term string) string {
+	if term == "" {
+		return ""
+	}
+	filter := CatalogFilter{Term: term}
+	placeholder := args.bind(filter.likeTerm())
+	if filter.prefixOnly() {
+		return `(lower(c.name) LIKE lower(` + placeholder + `) || '%' ESCAPE '\'
+            OR lower(c.location_name) LIKE lower(` + args.reuse() + `) || '%' ESCAPE '\'
+            OR lower(COALESCE(c.description, '')) LIKE lower(` + args.reuse() + `) || '%' ESCAPE '\')`
+	}
+	return `(lower(c.name) LIKE '%' || lower(` + placeholder + `) || '%' ESCAPE '\'
+        OR lower(c.location_name) LIKE '%' || lower(` + args.reuse() + `) || '%' ESCAPE '\'
+        OR lower(COALESCE(c.description, '')) LIKE '%' || lower(` + args.reuse() + `) || '%' ESCAPE '\')`
+}
+
+func composeCuratedCatalogPage(ownerID uint64, term string, origin *CatalogLocation, cursor CuratedCatalogCursor, limit uint64) composed {
 	args := &sqlArgs{}
 	distance := "NULL::float8"
 	where := "TRUE"
 	if ownerID != 0 {
 		where += " AND c.owner_user_id = " + args.bind(ownerID)
+	}
+	if search := curatedCatalogSearchPredicate(args, term); search != "" {
+		where += " AND " + search
 	}
 	if origin != nil {
 		where += " AND " + nearbyPredicate(args, origin, "c.geo_lat", "c.geo_lng")
@@ -131,8 +159,8 @@ ORDER BY ` + resultOrder
 
 // ListCuratedCatalogs paginates after distance calculation in PostgreSQL, never on an already
 // paged client subset. The ID tie-breaker preserves catalogs at identical coordinates.
-func (pg *Pg) ListCuratedCatalogs(ctx context.Context, tx pgx.Tx, ownerID uint64, origin *CatalogLocation, cursor CuratedCatalogCursor, limit uint64) ([]CuratedCatalog, error) {
-	query := composeCuratedCatalogPage(ownerID, origin, cursor, limit)
+func (pg *Pg) ListCuratedCatalogs(ctx context.Context, tx pgx.Tx, ownerID uint64, term string, origin *CatalogLocation, cursor CuratedCatalogCursor, limit uint64) ([]CuratedCatalog, error) {
+	query := composeCuratedCatalogPage(ownerID, term, origin, cursor, limit)
 	rows := []CuratedCatalog{}
 	if err := pgxscan.Select(ctx, tx, &rows, query.sql, query.args...); err != nil {
 		return nil, err

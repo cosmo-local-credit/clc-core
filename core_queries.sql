@@ -2292,6 +2292,21 @@ INNER JOIN vouchers v
     AND lower(v.address) = lower(ref.address)
 ORDER BY v.id;
 
+-- Resolve stable public pool identities to the numeric keys used by
+-- pool_tokens. Every requested reference must resolve before a relationship
+-- filter is applied, otherwise a typo could silently broaden discovery.
+--name: resolve-pool-refs
+WITH requested AS (
+    SELECT *
+    FROM unnest($1::BIGINT[], $2::TEXT[]) AS ref(chain_id, address)
+)
+SELECT p.id
+FROM requested ref
+INNER JOIN pools p
+    ON p.chain_id = ref.chain_id
+    AND lower(p.address) = lower(ref.address)
+ORDER BY p.id;
+
 -- How many of the given voucher ids belong to one address. Posts link vouchers
 -- by id after resolve-voucher-refs, and a non-superadmin author may only link
 -- vouchers they own; comparing the count against the number of ids is the
@@ -2335,6 +2350,18 @@ FROM (
     WHERE v.active AND v.geo_lat IS NOT NULL
 ) vocabulary
 ORDER BY tag_value;
+
+-- Tags carried by publicly discoverable offerings. Effective location uses
+-- the offering location first and falls back to its active parent voucher.
+--name: list-offering-tag-vocabulary
+SELECT DISTINCT ot.tag_value
+FROM offering_tags ot
+INNER JOIN offerings o ON o.id = ot.offering_id
+INNER JOIN vouchers v ON v.id = o.voucher_id
+WHERE o.available AND v.active
+    AND COALESCE(o.geo_lat, v.geo_lat) IS NOT NULL
+    AND COALESCE(o.geo_lng, v.geo_lng) IS NOT NULL
+ORDER BY ot.tag_value;
 
 -- The pool tag facet vocabulary: the pool's own curated tags, which is what the
 -- pool list already returns per row.
@@ -2462,11 +2489,11 @@ WHERE otx.signer_account = (SELECT id FROM keystore WHERE public_key = $1)
   AND dispatch.status = 'PENDING';
 
 --name: create-curated-catalog
-INSERT INTO catalogs(owner_user_id, name, image_url, location_name, geo_lat, geo_lng)
-VALUES ($1,$2,$3,$4,$5,$6) RETURNING id;
+INSERT INTO catalogs(owner_user_id, name, description, image_url, location_name, geo_lat, geo_lng)
+VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id;
 
 --name: update-curated-catalog
-UPDATE catalogs SET name=$2, image_url=$3, location_name=$4, geo_lat=$5, geo_lng=$6 WHERE id=$1;
+UPDATE catalogs SET name=$2, description=$3, image_url=$4, location_name=$5, geo_lat=$6, geo_lng=$7 WHERE id=$1;
 
 --name: lock-curated-catalog
 SELECT owner_user_id FROM catalogs WHERE id=$1 FOR UPDATE;
