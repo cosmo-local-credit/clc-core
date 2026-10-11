@@ -44,6 +44,7 @@ type (
 
 	offeringCursorEnvelope struct {
 		store.OfferingCursor
+
 		Scope string `json:"scope"`
 	}
 )

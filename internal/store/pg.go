@@ -14,19 +14,22 @@ import (
 
 type (
 	Queries struct {
-		CreateCuratedCatalog     string `query:"create-curated-catalog"`
-		UpdateCuratedCatalog     string `query:"update-curated-catalog"`
-		LockCuratedCatalog       string `query:"lock-curated-catalog"`
-		AddCuratedPool           string `query:"add-curated-pool"`
-		AddCuratedVoucher        string `query:"add-curated-voucher"`
-		RemoveCuratedPool        string `query:"remove-curated-pool"`
-		RemoveCuratedVoucher     string `query:"remove-curated-voucher"`
-		CuratedPoolMembership    string `query:"curated-pool-membership"`
-		CuratedVoucherMembership string `query:"curated-voucher-membership"`
-		VisibleCuratedPool       string `query:"visible-curated-pool"`
-		VisibleCuratedVoucher    string `query:"visible-curated-voucher"`
-		ListCuratedPools         string `query:"list-curated-pools"`
-		ListCuratedVouchers      string `query:"list-curated-vouchers"`
+		CreateCuratedCatalog      string `query:"create-curated-catalog"`
+		UpdateCuratedCatalog      string `query:"update-curated-catalog"`
+		LockCuratedCatalog        string `query:"lock-curated-catalog"`
+		AddCuratedPool            string `query:"add-curated-pool"`
+		AddCuratedVoucher         string `query:"add-curated-voucher"`
+		RemoveCuratedPool         string `query:"remove-curated-pool"`
+		RemoveCuratedVoucher      string `query:"remove-curated-voucher"`
+		CuratedPoolMembership     string `query:"curated-pool-membership"`
+		CuratedVoucherMembership  string `query:"curated-voucher-membership"`
+		VisibleCuratedPool        string `query:"visible-curated-pool"`
+		VisibleCuratedVoucher     string `query:"visible-curated-voucher"`
+		ListCuratedPools          string `query:"list-curated-pools"`
+		ListCuratedVouchers       string `query:"list-curated-vouchers"`
+		GetCuratedCatalog         string `query:"get-curated-catalog"`
+		ListCuratedCatalogsGlobal string `query:"list-curated-catalogs-global"`
+		ListCuratedCatalogsNearby string `query:"list-curated-catalogs-nearby"`
 
 		InsertKeyPair                string `query:"insert-keypair"`
 		ActivateKeyPair              string `query:"activate-keypair"`
@@ -215,12 +218,16 @@ type (
 		ResolvePoolRefs            string `query:"resolve-pool-refs"`
 		CountVouchersOwnedBy       string `query:"count-vouchers-owned-by"`
 
-		// Facet vocabularies are parameterless and request-independent; only
-		// the count half varies with the search, and it is composed.
-		ListVoucherTagVocabulary  string `query:"list-voucher-tag-vocabulary"`
-		ListPoolTagVocabulary     string `query:"list-pool-tag-vocabulary"`
-		ListReportTagVocabulary   string `query:"list-report-tag-vocabulary"`
-		ListOfferingTagVocabulary string `query:"list-offering-tag-vocabulary"`
+		// Facet vocabularies are parameterless and request-independent; the
+		// named count statements vary with discovery scope and search filters.
+		ListVoucherTagVocabulary    string `query:"list-voucher-tag-vocabulary"`
+		ListPoolTagVocabulary       string `query:"list-pool-tag-vocabulary"`
+		ListReportTagVocabulary     string `query:"list-report-tag-vocabulary"`
+		ListOfferingTagVocabulary   string `query:"list-offering-tag-vocabulary"`
+		ListOfferingsFilteredGlobal string `query:"list-offerings-filtered-global"`
+		ListOfferingsFilteredNearby string `query:"list-offerings-filtered-nearby"`
+		ListOfferingTagCountsGlobal string `query:"list-offering-tag-counts-global"`
+		ListOfferingTagCountsNearby string `query:"list-offering-tag-counts-nearby"`
 
 		DashboardCatalogSnapshot string `query:"dashboard-catalog-snapshot"`
 		DashboardCatalogSeries   string `query:"dashboard-catalog-series"`
