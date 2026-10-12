@@ -10,6 +10,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/go-playground/validator/v10"
 	"github.com/grassrootseconomics/ethutils"
@@ -109,11 +110,17 @@ func New(o APIOpts) *API {
 	router.Use(middleware.Recover())
 	router.Use(middleware.BodyLimit(maxBodySize))
 	router.Use(middleware.ContextTimeout(util.SLATimeout))
+	httpDuration := telemetry.NewHTTPServerDuration()
 	router.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogStatus:   true,
-		LogURI:      true,
-		HandleError: true,
+		LogStatus:    true,
+		LogURI:       true,
+		LogLatency:   true,
+		LogMethod:    true,
+		LogRoutePath: true,
+		HandleError:  true,
 		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
+			httpDuration.Record(v.Method, v.RoutePath, v.Status, v.Latency)
+
 			errMsg := ""
 			if v.Error != nil {
 				errMsg = v.Error.Error()
