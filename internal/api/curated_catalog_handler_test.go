@@ -60,6 +60,12 @@ func TestCuratedCursorIsBoundToViewerLocationAndList(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestCuratedCursorDistinguishesGlobalFromNearbyAtZeroCoordinates(t *testing.T) {
+	global := curatedOrigin(7, nil, "same")
+	nearby := curatedOrigin(7, &store.CatalogLocation{Lat: 0, Lng: 0}, "same")
+	require.NotEqual(t, global, nearby)
+}
+
 func TestCuratedCatalogRoutesPublicReadsAndAuthenticatedWrites(t *testing.T) {
 	a := New(APIOpts{Logg: slog.New(slog.DiscardHandler)})
 	for _, tc := range []struct {

@@ -20,6 +20,7 @@ type (
 		Pools          int64 `db:"pools" json:"pools"`
 		Posts          int64 `db:"posts" json:"posts"`
 		Offerings      int64 `db:"offerings" json:"offerings"`
+		Catalogs       int64 `db:"catalogs" json:"catalogs"`
 		Deleted        bool  `db:"deleted" json:"-"`
 	}
 
@@ -51,7 +52,7 @@ type (
 )
 
 func (u TagVocabularyUsage) Total() int64 {
-	return u.DeployedTokens + u.DeployedPools + u.Vouchers + u.Pools + u.Posts + u.Offerings
+	return u.DeployedTokens + u.DeployedPools + u.Vouchers + u.Pools + u.Posts + u.Offerings + u.Catalogs
 }
 
 func (pg *Pg) FindTokenTag(ctx context.Context, tx pgx.Tx, value string) (string, error) {

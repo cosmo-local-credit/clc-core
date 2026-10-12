@@ -11,8 +11,8 @@ func TestCuratedCatalogNamedSearchCoversNameLocationAndDescription(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, args := curatedCatalogPageQuery(queries, 0, "repair", nil, CuratedCatalogCursor{}, 20)
-	if query != queries.ListCuratedCatalogsGlobal || len(args) != 5 {
+	query, args := curatedCatalogPageQuery(queries, 0, CatalogFilter{Term: "repair"}, nil, CuratedCatalogCursor{}, 20)
+	if query != queries.ListCuratedCatalogsGlobal || len(args) != 8 {
 		t.Fatal("global catalog query selection is invalid")
 	}
 	for _, fragment := range []string{"lower(c.name)", "lower(c.location_name)", "COALESCE(c.description,'')"} {
@@ -27,8 +27,8 @@ func TestCuratedCatalogNamedSearchKeepsDistanceCursor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, args := curatedCatalogPageQuery(queries, 0, "repair", &CatalogLocation{Lat: 1, Lng: 2}, CuratedCatalogCursor{ID: 7, Distance: 10}, 20)
-	if query != queries.ListCuratedCatalogsNearby || len(args) != 12 || !strings.Contains(query, "(distance_meters,id)>") {
+	query, args := curatedCatalogPageQuery(queries, 0, CatalogFilter{Term: "repair"}, &CatalogLocation{Lat: 1, Lng: 2}, CuratedCatalogCursor{ID: 7, Distance: 10}, 20)
+	if query != queries.ListCuratedCatalogsNearby || len(args) != 15 || !strings.Contains(query, "(distance_meters,id)>") {
 		t.Fatal("nearby catalog query selection or distance keyset is invalid")
 	}
 }

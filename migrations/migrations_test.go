@@ -84,6 +84,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "047_user_catalogs.sql")
 	assert.Contains(t, sqlFiles, "048_catalog_descriptions.sql")
 	assert.Contains(t, sqlFiles, "049_transfer_valuation_snapshots.sql")
+	assert.Contains(t, sqlFiles, "050_catalog_tags.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -134,7 +135,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "046_protocol_fee_controller.sql" ||
 				name == "047_user_catalogs.sql" ||
 				name == "048_catalog_descriptions.sql" ||
-				name == "049_transfer_valuation_snapshots.sql",
+				name == "049_transfer_valuation_snapshots.sql" ||
+				name == "050_catalog_tags.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -193,7 +195,18 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"047_user_catalogs.sql",
 		"048_catalog_descriptions.sql",
 		"049_transfer_valuation_snapshots.sql",
+		"050_catalog_tags.sql",
 	}, files)
+}
+
+func TestCatalogTagsMigration(t *testing.T) {
+	content, err := os.ReadFile("050_catalog_tags.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "CREATE TABLE catalog_tags")
+	assert.Contains(t, s, "tag_value TEXT NOT NULL REFERENCES token_tag(value)")
+	assert.Contains(t, s, "ON UPDATE CASCADE")
+	assert.Contains(t, s, "PRIMARY KEY (catalog_id, tag_value)")
 }
 
 func TestTransferValuationSnapshotsMigration(t *testing.T) {
