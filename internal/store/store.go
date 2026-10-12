@@ -97,6 +97,8 @@ type (
 		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
 		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
 		ListUserShareTxHashes(context.Context, pgx.Tx, []string, uint64) ([]string, error)
+		InsertTransferValuationSnapshots(context.Context, pgx.Tx, string, []string) ([]VoucherClaimSnapshot, error)
+		ListTransferValuationSnapshotsByTxHashes(context.Context, pgx.Tx, []string) ([]TransferValuationSnapshot, error)
 		ListUsersFiltered(context.Context, pgx.Tx, UserFilter, CatalogPage, uint64, uint64) ([]User, error)
 		AccountRelationshipCounts(context.Context, pgx.Tx, string) (AccountRelationshipCounts, error)
 		ListAccountPools(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Pool, error)

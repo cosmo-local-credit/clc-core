@@ -771,6 +771,43 @@ FROM user_shares us
 WHERE LOWER(us.tx_hash) = ANY($1::text[])
   AND $2 IN (us.owner_user_id, us.authorized_user_id);
 
+-- Snapshot the claim metadata for every catalog voucher referenced by a
+-- supported relayer operation. Missing or incomplete metadata deliberately
+-- inserts no row; that transfer remains token-only rather than borrowing a
+-- later profile value.
+--name: insert-transfer-valuation-snapshots
+INSERT INTO transfer_valuation_snapshots (
+    tracking_id,
+    token_address,
+    voucher_value,
+    voucher_uoa
+)
+SELECT $1::uuid,
+    v.address,
+    v.voucher_value,
+    btrim(v.voucher_uoa)
+FROM vouchers v
+WHERE lower(v.address) = ANY($2::text[])
+  AND v.voucher_value IS NOT NULL
+  AND v.voucher_value > 0
+  AND NULLIF(btrim(v.voucher_uoa), '') IS NOT NULL
+  AND btrim(v.voucher_uoa) ~ '^[A-Za-z0-9]{2,16}$'
+ON CONFLICT (tracking_id, token_address) DO NOTHING
+RETURNING token_address, voucher_value::text, voucher_uoa;
+
+-- Resolve snapshots through every OTX sharing the tracking id. This keeps the
+-- original submitted valuation attached when a relayed transaction is replaced.
+--name: list-transfer-valuation-snapshots-by-tx-hashes
+SELECT DISTINCT ON (lower(o.tx_hash), lower(s.token_address))
+    lower(o.tx_hash) AS tx_hash,
+    s.token_address,
+    s.voucher_value::text AS voucher_value,
+    s.voucher_uoa
+FROM transfer_valuation_snapshots s
+INNER JOIN otx o ON o.tracking_id = s.tracking_id
+WHERE lower(o.tx_hash) = ANY($1::text[])
+ORDER BY lower(o.tx_hash), lower(s.token_address), o.id DESC;
+
 -- User deployments
 --name: count-user-tokens
 SELECT COUNT(*) FROM user_deployments

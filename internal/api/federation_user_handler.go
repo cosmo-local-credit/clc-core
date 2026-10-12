@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strings"
 
@@ -122,6 +123,35 @@ func (a *API) noteBearingTxHashes(ctx context.Context, txHashes []string, caller
 	return noted, nil
 }
 
+// transferValuationsByTxHash loads immutable submission-time Unit-of-Account
+// snapshots for a page of federation transfers. Transfers predating snapshots
+// or submitted outside the relayer simply have no entry.
+func transferValuationKey(txHash, tokenAddress string) string {
+	return strings.ToLower(txHash) + ":" + strings.ToLower(tokenAddress)
+}
+
+func (a *API) transferValuationsByTxHash(ctx context.Context, txHashes []string) (map[string]store.TransferValuationSnapshot, error) {
+	valuations := make(map[string]store.TransferValuationSnapshot, len(txHashes))
+	if len(txHashes) == 0 {
+		return valuations, nil
+	}
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := a.store.ListTransferValuationSnapshotsByTxHashes(ctx, tx, txHashes)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		valuations[transferValuationKey(row.TxHash, row.TokenAddress)] = row
+	}
+	return valuations, nil
+}
+
 // enrichTransfers fills token metadata on federation transfers from the local
 // vouchers catalog, and flags the ones carrying a private attachment.
 func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTransfer, callerUserID uint64) error {
@@ -135,24 +165,102 @@ func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTrans
 	if err != nil {
 		return err
 	}
+	valuations, err := a.transferValuationsByTxHash(ctx, dedupedLowerAddresses(items,
+		func(t store.FederationTransfer) string { return t.TxHash }))
+	if err != nil {
+		return err
+	}
 	for i := range items {
-		items[i].HasNote = noted[strings.ToLower(items[i].TxHash)]
+		txHash := strings.ToLower(items[i].TxHash)
+		items[i].HasNote = noted[txHash]
 
 		m, ok := meta[strings.ToLower(items[i].TokenAddress)]
-		if !ok {
-			continue
+		if ok {
+			if m.Symbol != nil {
+				items[i].TokenSymbol = *m.Symbol
+			}
+			if m.Name != nil {
+				items[i].TokenName = *m.Name
+			}
+			if m.Decimals != nil && *m.Decimals >= 0 && *m.Decimals <= 255 {
+				items[i].TokenDecimals = uint8(*m.Decimals)
+			}
 		}
-		if m.Symbol != nil {
-			items[i].TokenSymbol = *m.Symbol
-		}
-		if m.Name != nil {
-			items[i].TokenName = *m.Name
-		}
-		if m.Decimals != nil {
-			items[i].TokenDecimals = uint8(*m.Decimals)
+
+		valuation, hasValuation := valuations[transferValuationKey(txHash, items[i].TokenAddress)]
+		if hasValuation && ok && m.Decimals != nil {
+			if value, valid := exactRawUnitValue(items[i].Amount, *m.Decimals, valuation.VoucherValue); valid {
+				items[i].UOAValue = value
+				items[i].UOA = valuation.VoucherUOA
+			}
 		}
 	}
 	return nil
+}
+
+// exactRawUnitValue multiplies one indexed raw token amount by the immutable
+// database claim captured at relay submission. Both inputs are decimal text;
+// no float conversion or chain lookup is involved.
+func exactRawUnitValue(amountRaw string, decimals int32, voucherValue string) (string, bool) {
+	if decimals < 0 || decimals > 255 || !decimalDigits(amountRaw) {
+		return "", false
+	}
+	parts := strings.Split(voucherValue, ".")
+	if len(parts) > 2 || len(parts) == 0 || !decimalDigits(parts[0]) {
+		return "", false
+	}
+	fraction := ""
+	if len(parts) == 2 {
+		fraction = parts[1]
+		if fraction == "" || !decimalDigits(fraction) {
+			return "", false
+		}
+	}
+	rate := new(big.Int)
+	if _, valid := rate.SetString(parts[0]+fraction, 10); !valid || rate.Sign() <= 0 {
+		return "", false
+	}
+	amount := new(big.Int)
+	if _, valid := amount.SetString(amountRaw, 10); !valid || amount.Sign() < 0 {
+		return "", false
+	}
+	product := new(big.Int).Mul(amount, rate)
+	return canonicalScaledDecimal(product.String(), int(decimals)+len(fraction)), true
+}
+
+func decimalDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalScaledDecimal(digits string, scale int) string {
+	if scale == 0 {
+		trimmed := strings.TrimLeft(digits, "0")
+		if trimmed == "" {
+			return "0"
+		}
+		return trimmed
+	}
+	if padding := scale + 1 - len(digits); padding > 0 {
+		digits = strings.Repeat("0", padding) + digits
+	}
+	boundary := len(digits) - scale
+	whole := strings.TrimLeft(digits[:boundary], "0")
+	if whole == "" {
+		whole = "0"
+	}
+	fraction := strings.TrimRight(digits[boundary:], "0")
+	if fraction == "" {
+		return whole
+	}
+	return whole + "." + fraction
 }
 
 // cursorPaginatedFederationList executes a cursor-paginated federation query

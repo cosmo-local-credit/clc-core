@@ -83,6 +83,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "046_protocol_fee_controller.sql")
 	assert.Contains(t, sqlFiles, "047_user_catalogs.sql")
 	assert.Contains(t, sqlFiles, "048_catalog_descriptions.sql")
+	assert.Contains(t, sqlFiles, "049_transfer_valuation_snapshots.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -132,7 +133,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "045_education_marker_icon.sql" ||
 				name == "046_protocol_fee_controller.sql" ||
 				name == "047_user_catalogs.sql" ||
-				name == "048_catalog_descriptions.sql",
+				name == "048_catalog_descriptions.sql" ||
+				name == "049_transfer_valuation_snapshots.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -190,7 +192,19 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"046_protocol_fee_controller.sql",
 		"047_user_catalogs.sql",
 		"048_catalog_descriptions.sql",
+		"049_transfer_valuation_snapshots.sql",
 	}, files)
+}
+
+func TestTransferValuationSnapshotsMigration(t *testing.T) {
+	content, err := os.ReadFile("049_transfer_valuation_snapshots.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "tracking_id       UUID NOT NULL")
+	assert.Contains(t, s, "PRIMARY KEY (tracking_id, token_address)")
+	assert.Contains(t, s, "voucher_value     NUMERIC NOT NULL")
+	assert.NotContains(t, s, "token_amount_raw")
+	assert.NotContains(t, s, "uoa_value")
 }
 
 func TestCatalogDescriptionMigration(t *testing.T) {
