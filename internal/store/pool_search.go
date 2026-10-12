@@ -108,16 +108,23 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 		return composed{sql: body + poolPageProjection, args: args.values}
 	}
 
-	body := "WITH " + poolTextMatchesCTE(args, filter) + ",\nmatches AS MATERIALIZED (\n" +
-		"    SELECT p.id\n" +
-		"    FROM pool_text_matches text_match\n" +
-		"    INNER JOIN pools p ON p.id = text_match.id" +
-		whereClause(
-			ownerPredicate(args, "p.owner_address", filter),
-			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
-			poolTagPredicate(args, filter),
-			poolVoucherPredicate(args, filter),
-		) +
+	textMatches := poolTextMatchesCTE(args, filter)
+	matchQuery := "    SELECT text_match.id\n" +
+		"    FROM pool_text_matches text_match"
+	if filter.Owner != "" || filter.Nearby != nil || len(filter.Tags) > 0 || len(filter.VoucherIDs) > 0 {
+		matchQuery = "    SELECT p.id\n" +
+			"    FROM pool_text_matches text_match\n" +
+			"    INNER JOIN pools p ON p.id = text_match.id" +
+			whereClause(
+				ownerPredicate(args, "p.owner_address", filter),
+				nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
+				poolTagPredicate(args, filter),
+				poolVoucherPredicate(args, filter),
+			)
+	}
+
+	body := "WITH " + textMatches + ",\nmatches AS MATERIALIZED (\n" +
+		matchQuery +
 		"\n),\npage AS MATERIALIZED (\n" +
 		"    SELECT m.id\n" +
 		"    FROM matches m" +

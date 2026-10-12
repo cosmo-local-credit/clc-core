@@ -707,6 +707,11 @@ func TestComposePoolPageEveryComposition(t *testing.T) {
 						t.Errorf("%s: voucher-aware pool search is missing %q:\n%s", name, fragment, query.sql)
 					}
 				}
+				if len(filter.Tags) == 0 && strings.Contains(query.sql,
+					"INNER JOIN pools p ON p.id = text_match.id") {
+					t.Errorf("%s: a term-only search must page matched IDs without rescanning pools:\n%s",
+						name, query.sql)
+				}
 			}
 			if len(filter.Tags) > 0 {
 				wantAll := filter.TagMatch == TagMatchAll
