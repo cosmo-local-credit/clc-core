@@ -8,29 +8,42 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TransferValuationSnapshot is the immutable informational Unit-of-Account
-// value captured when a direct voucher transfer is submitted.
+// VoucherClaimSnapshot is immutable informational claim metadata captured when
+// a supported voucher transfer or swap is submitted. TransferValuationSnapshot
+// associates that claim with a transaction hash after relay tracking resolves.
 type (
+	VoucherClaimSnapshot struct {
+		TokenAddress string `db:"token_address" json:"tokenAddress"`
+		VoucherValue string `db:"voucher_value" json:"voucherValue"`
+		VoucherUOA   string `db:"voucher_uoa" json:"voucherUoa"`
+	}
+
 	TransferValuationSnapshot struct {
 		TxHash       string `db:"tx_hash"`
 		TokenAddress string `db:"token_address"`
-		UOAValue     string `db:"uoa_value"`
-		UOA          string `db:"voucher_uoa"`
+		VoucherValue string `db:"voucher_value"`
+		VoucherUOA   string `db:"voucher_uoa"`
 	}
 )
 
-// InsertTransferValuationSnapshot records a snapshot only when tokenAddress is
-// a catalog voucher with complete, positive valuation metadata. An incomplete
-// catalog row is intentionally a successful no-op.
-func (pg *Pg) InsertTransferValuationSnapshot(
+// InsertTransferValuationSnapshots records each catalog voucher's current claim
+// metadata. Missing or incomplete catalog rows are successful no-ops.
+func (pg *Pg) InsertTransferValuationSnapshots(
 	ctx context.Context,
 	tx pgx.Tx,
 	trackingID string,
-	tokenAddress string,
-	amountRaw string,
-) error {
-	_, err := tx.Exec(ctx, pg.queries.InsertTransferValuation, trackingID, tokenAddress, amountRaw)
-	return err
+	tokenAddresses []string,
+) ([]VoucherClaimSnapshot, error) {
+	lowered := make([]string, len(tokenAddresses))
+	for i, address := range tokenAddresses {
+		lowered[i] = strings.ToLower(address)
+	}
+
+	var rows []VoucherClaimSnapshot
+	if err := pgxscan.Select(ctx, tx, &rows, pg.queries.InsertTransferValuations, trackingID, lowered); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // ListTransferValuationSnapshotsByTxHashes returns immutable snapshots for a

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTransferValuationSnapshotPreservesExactSubmittedValue(t *testing.T) {
+func TestTransferValuationSnapshotsPreserveClaimsForEveryToken(t *testing.T) {
 	pg := recipientTestStore(t)
 	ctx := context.Background()
 	tx, err := pg.Pool().Begin(ctx)
@@ -16,13 +16,25 @@ func TestTransferValuationSnapshotPreservesExactSubmittedValue(t *testing.T) {
 	defer tx.Rollback(ctx)
 
 	tokenAddress := randomAddress(t, tx)
+	otherTokenAddress := randomAddress(t, tx)
 	_, err = tx.Exec(ctx, `
 		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, voucher_uoa, voucher_value)
-		VALUES (100, $1, 'Snapshot Voucher', 'SNAP', 6, 'KES', 1.25)`, tokenAddress)
+		VALUES (100, $1, 'Snapshot Voucher', 'SNAP', 6, 'KES', 1.25),
+		       (100, $2, 'Other Voucher', 'OTHR', 18, 'HOUR', 2.5)`, tokenAddress, otherTokenAddress)
 	require.NoError(t, err)
 
 	trackingID := uuid.NewString()
-	require.NoError(t, pg.InsertTransferValuationSnapshot(ctx, tx, trackingID, tokenAddress, "123456789"))
+	snapshots, err := pg.InsertTransferValuationSnapshots(ctx, tx, trackingID, []string{
+		tokenAddress, otherTokenAddress, tokenAddress,
+	})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []VoucherClaimSnapshot{
+		{TokenAddress: tokenAddress, VoucherValue: "1.25", VoucherUOA: "KES"},
+		{TokenAddress: otherTokenAddress, VoucherValue: "2.5", VoucherUOA: "HOUR"},
+	}, snapshots)
+
+	_, err = tx.Exec(ctx, `UPDATE vouchers SET voucher_value=999, voucher_uoa='USD' WHERE address=$1`, tokenAddress)
+	require.NoError(t, err)
 
 	var signerID uint64
 	require.NoError(t, tx.QueryRow(ctx, `
@@ -44,11 +56,16 @@ func TestTransferValuationSnapshotPreservesExactSubmittedValue(t *testing.T) {
 		"0x2222222222222222222222222222222222222222222222222222222222222222",
 	})
 	require.NoError(t, err)
-	require.Len(t, rows, 2)
+	require.Len(t, rows, 4)
 	for _, row := range rows {
-		require.Equal(t, tokenAddress, row.TokenAddress)
-		require.Equal(t, "154.32098625", row.UOAValue)
-		require.Equal(t, "KES", row.UOA)
+		if row.TokenAddress == tokenAddress {
+			require.Equal(t, "1.25", row.VoucherValue)
+			require.Equal(t, "KES", row.VoucherUOA)
+		} else {
+			require.Equal(t, otherTokenAddress, row.TokenAddress)
+			require.Equal(t, "2.5", row.VoucherValue)
+			require.Equal(t, "HOUR", row.VoucherUOA)
+		}
 	}
 }
 
@@ -68,7 +85,9 @@ func TestTransferValuationSnapshotSkipsIncompleteVoucherMetadata(t *testing.T) {
 		require.NoError(t, err)
 		trackingID := uuid.NewString()
 		trackingIDs = append(trackingIDs, trackingID)
-		require.NoError(t, pg.InsertTransferValuationSnapshot(ctx, tx, trackingID, tokenAddress, "1000000"))
+		rows, err := pg.InsertTransferValuationSnapshots(ctx, tx, trackingID, []string{tokenAddress})
+		require.NoError(t, err)
+		require.Empty(t, rows)
 	}
 
 	var count int

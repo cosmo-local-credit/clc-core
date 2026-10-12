@@ -14,6 +14,7 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
@@ -22,36 +23,169 @@ import (
 )
 
 var (
-	erc20TransferSelector = []byte{0xa9, 0x05, 0x9c, 0xbb}
+	erc20TransferSelector         = functionSelector("transfer(address,uint256)")
+	erc20ApproveSelector          = functionSelector("approve(address,uint256)")
+	poolWithdrawSelector          = functionSelector("withdraw(address,address,uint256)")
+	poolWithdrawRecipientSelector = functionSelector("withdraw(address,address,uint256,address)")
 )
 
+func functionSelector(signature string) []byte {
+	return crypto.Keccak256([]byte(signature))[:4]
+}
+
 // directVoucherTransfer recognizes the exact one-call ERC-20 transfer shape
-// used by Send and Redeem. Multi-call flows such as swaps are deliberately not
-// snapshotted here because their settlement value cannot be inferred from a
-// single requested transfer amount.
-func directVoucherTransfer(batch apiresp.CaliburSignedBatch) (tokenAddress, amountRaw string, ok bool) {
+// used by Send and Redeem. Only the voucher identity is needed: the immutable
+// claim is snapshotted now, while Activity later supplies the confirmed amount.
+func directVoucherTransfer(batch apiresp.CaliburSignedBatch) (tokenAddress string, ok bool) {
 	if len(batch.BatchedCall.Calls) != 1 {
-		return "", "", false
+		return "", false
 	}
 	call := batch.BatchedCall.Calls[0]
-	value, valid := new(big.Int).SetString(call.Value, 10)
-	if !valid || value.Sign() != 0 {
-		return "", "", false
+	if !zeroCallValue(call) || !common.IsHexAddress(call.To) {
+		return "", false
 	}
 	data, err := hexutil.Decode(call.Data)
 	if err != nil || len(data) != 68 || !bytes.Equal(data[:4], erc20TransferSelector) {
-		return "", "", false
+		return "", false
 	}
-	for _, b := range data[4:16] {
-		if b != 0 {
-			return "", "", false
+	recipient, valid := calldataAddress(data, 0)
+	if !valid || recipient == (common.Address{}) {
+		return "", false
+	}
+	amount := calldataUint(data, 1)
+	if amount.Sign() <= 0 {
+		return "", false
+	}
+	token := common.HexToAddress(call.To)
+	if token == (common.Address{}) {
+		return "", false
+	}
+	return token.Hex(), true
+}
+
+// valuationVoucherAddresses extracts only the exact operations this client
+// submits for Send/Redeem or pool swaps. It performs no RPC or contract read;
+// every address comes from the already-signed calldata.
+func valuationVoucherAddresses(batch apiresp.CaliburSignedBatch) []string {
+	if token, ok := directVoucherTransfer(batch); ok {
+		return []string{token}
+	}
+	return poolSwapVoucherAddresses(batch)
+}
+
+// poolSwapVoucherAddresses validates the app's three-call-per-hop structure:
+// reset approval, exact approval, then SwapPool.withdraw. Both sides of every
+// hop are returned so their database claims are preserved before execution.
+func poolSwapVoucherAddresses(batch apiresp.CaliburSignedBatch) []string {
+	calls := batch.BatchedCall.Calls
+	if len(calls) == 0 || len(calls)%3 != 0 {
+		return nil
+	}
+
+	seen := make(map[common.Address]struct{})
+	addresses := make([]string, 0, len(calls)/3+1)
+	appendAddress := func(address common.Address) {
+		if _, exists := seen[address]; exists {
+			return
+		}
+		seen[address] = struct{}{}
+		addresses = append(addresses, address.Hex())
+	}
+
+	for i := 0; i < len(calls); i += 3 {
+		resetToken, resetSpender, resetAmount, ok := decodeApproval(calls[i])
+		if !ok || resetAmount.Sign() != 0 {
+			return nil
+		}
+		approvedToken, approvedSpender, approvedAmount, ok := decodeApproval(calls[i+1])
+		if !ok || approvedAmount.Sign() <= 0 {
+			return nil
+		}
+		pool, tokenOut, tokenIn, withdrawnAmount, ok := decodePoolWithdraw(calls[i+2])
+		if !ok || tokenIn == tokenOut || resetToken != approvedToken || resetToken != tokenIn ||
+			resetSpender != approvedSpender || resetSpender != pool || approvedAmount.Cmp(withdrawnAmount) != 0 {
+			return nil
+		}
+		appendAddress(tokenIn)
+		appendAddress(tokenOut)
+	}
+	return addresses
+}
+
+func decodeApproval(call apiresp.CaliburCall) (token, spender common.Address, amount *big.Int, ok bool) {
+	if !zeroCallValue(call) || !common.IsHexAddress(call.To) {
+		return common.Address{}, common.Address{}, nil, false
+	}
+	data, err := hexutil.Decode(call.Data)
+	if err != nil || len(data) != 68 || !bytes.Equal(data[:4], erc20ApproveSelector) {
+		return common.Address{}, common.Address{}, nil, false
+	}
+	spender, ok = calldataAddress(data, 0)
+	token = common.HexToAddress(call.To)
+	if !ok || token == (common.Address{}) || spender == (common.Address{}) {
+		return common.Address{}, common.Address{}, nil, false
+	}
+	return token, spender, calldataUint(data, 1), true
+}
+
+func decodePoolWithdraw(call apiresp.CaliburCall) (pool, tokenOut, tokenIn common.Address, amount *big.Int, ok bool) {
+	if !zeroCallValue(call) || !common.IsHexAddress(call.To) {
+		return common.Address{}, common.Address{}, common.Address{}, nil, false
+	}
+	data, err := hexutil.Decode(call.Data)
+	if err != nil {
+		return common.Address{}, common.Address{}, common.Address{}, nil, false
+	}
+	hasRecipient := len(data) == 132 && bytes.Equal(data[:4], poolWithdrawRecipientSelector)
+	if (len(data) != 100 || !bytes.Equal(data[:4], poolWithdrawSelector)) && !hasRecipient {
+		return common.Address{}, common.Address{}, common.Address{}, nil, false
+	}
+	tokenOut, ok = calldataAddress(data, 0)
+	if !ok {
+		return common.Address{}, common.Address{}, common.Address{}, nil, false
+	}
+	tokenIn, ok = calldataAddress(data, 1)
+	if !ok {
+		return common.Address{}, common.Address{}, common.Address{}, nil, false
+	}
+	if hasRecipient {
+		recipient, valid := calldataAddress(data, 3)
+		if !valid || recipient == (common.Address{}) {
+			return common.Address{}, common.Address{}, common.Address{}, nil, false
 		}
 	}
-	amount := new(big.Int).SetBytes(data[36:68])
-	if amount.Sign() <= 0 {
-		return "", "", false
+	pool = common.HexToAddress(call.To)
+	amount = calldataUint(data, 2)
+	if pool == (common.Address{}) || tokenOut == (common.Address{}) || tokenIn == (common.Address{}) || amount.Sign() <= 0 {
+		return common.Address{}, common.Address{}, common.Address{}, nil, false
 	}
-	return common.HexToAddress(call.To).Hex(), amount.String(), true
+	return pool, tokenOut, tokenIn, amount, true
+}
+
+func zeroCallValue(call apiresp.CaliburCall) bool {
+	value, valid := new(big.Int).SetString(call.Value, 10)
+	return valid && value.Sign() == 0
+}
+
+func calldataAddress(data []byte, index int) (common.Address, bool) {
+	start := 4 + index*32
+	if start < 4 || start+32 > len(data) {
+		return common.Address{}, false
+	}
+	for _, b := range data[start : start+12] {
+		if b != 0 {
+			return common.Address{}, false
+		}
+	}
+	return common.BytesToAddress(data[start+12 : start+32]), true
+}
+
+func calldataUint(data []byte, index int) *big.Int {
+	start := 4 + index*32
+	if start < 4 || start+32 > len(data) {
+		return new(big.Int)
+	}
+	return new(big.Int).SetBytes(data[start : start+32])
 }
 
 func (a *API) relayerHealthHandler(c *echo.Context) error {
@@ -306,8 +440,10 @@ func (a *API) relayHandler(c *echo.Context) error {
 	if _, err := a.queueClient.InsertTx(ctx, tx, args, &river.InsertOpts{MaxAttempts: 1}); err != nil {
 		return handlePostgresError(c, err)
 	}
-	if tokenAddress, amountRaw, ok := directVoucherTransfer(req.SignedBatch); ok {
-		if err := a.store.InsertTransferValuationSnapshot(ctx, tx, trackingID, tokenAddress, amountRaw); err != nil {
+	valuationSnapshots := []store.VoucherClaimSnapshot{}
+	if tokenAddresses := valuationVoucherAddresses(req.SignedBatch); len(tokenAddresses) > 0 {
+		valuationSnapshots, err = a.store.InsertTransferValuationSnapshots(ctx, tx, trackingID, tokenAddresses)
+		if err != nil {
 			return handlePostgresError(c, err)
 		}
 	}
@@ -320,7 +456,8 @@ func (a *API) relayHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Relay request accepted",
 		Result: map[string]any{
-			"trackingId": trackingID,
+			"trackingId":         trackingID,
+			"valuationSnapshots": valuationSnapshots,
 		},
 	})
 }
