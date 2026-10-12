@@ -187,6 +187,7 @@ type (
 		ResolvePoolRefs(context.Context, pgx.Tx, []PoolRef) ([]uint64, error)
 		CountVouchersOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
+		ListMarketplace(context.Context, pgx.Tx, CatalogFilter, []string, *CatalogLocation, MarketplaceCursor, uint64, bool) ([]MarketplaceResult, error)
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
 		ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)

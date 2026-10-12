@@ -25,7 +25,8 @@ type (
 )
 
 var (
-	errCuratedOwner = errors.New("only the catalog owner may change this catalog")
+	errCuratedOwner   = errors.New("only the catalog owner may change this catalog")
+	errCuratedHandled = errors.New("catalog response already written")
 )
 
 func (e curatedValidationError) Error() string { return string(e) }
@@ -44,6 +45,9 @@ func (a *API) curatedResponse(c *echo.Context, run func(pgx.Tx) (map[string]any,
 	}
 	result, err := run(tx)
 	if err != nil {
+		if errors.Is(err, errCuratedHandled) {
+			return nil
+		}
 		var validation curatedValidationError
 		if errors.As(err, &validation) {
 			return respondCatalogSearchError(c, err)
@@ -109,7 +113,7 @@ func curatedOrigin(user uint64, location *store.CatalogLocation, term string) st
 	if location != nil {
 		lat, lng = location.Lat, location.Lng
 	}
-	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%.17g:%.17g:%s", user, lat, lng, term))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%t:%.17g:%.17g:%s", user, location != nil, lat, lng, term))
 	return hex.EncodeToString(sum[:])
 }
 func validateCuratedWrite(w *store.CuratedCatalogWrite) error {
@@ -124,6 +128,9 @@ func validateCuratedWrite(w *store.CuratedCatalogWrite) error {
 	}
 	if utf8.RuneCountInString(w.LocationName) < 1 || utf8.RuneCountInString(w.LocationName) > 200 {
 		return curatedValidationError("locationName must contain 1 to 200 characters")
+	}
+	if len(w.Tags) > store.CatalogMaxTags {
+		return store.ErrCatalogTooManyTags
 	}
 	if _, err := store.NewCatalogLocation(w.GeoLat, w.GeoLng); err != nil {
 		return curatedValidationError("valid geoLat and geoLng are required")
@@ -159,7 +166,7 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 	if nearby != "" && nearby != "true" && nearby != "false" {
 		return respondCatalogSearchError(c, errors.New("nearby must be true or false"))
 	}
-	filter, err := store.NewCatalogFilter(c.QueryParam("q"), nil, store.TagMatchAny)
+	search, err := parseMarketDiscoverySearch(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
@@ -177,12 +184,24 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 				return nil, curatedValidationError(readErr.Error())
 			}
 		}
-		origin := curatedOrigin(caller, location, filter.Term)
+		if handled, readErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || readErr != nil {
+			if readErr != nil {
+				return nil, readErr
+			}
+			return nil, errCuratedHandled
+		}
+		if handled, readErr := a.resolvePoolFilter(c, tx, &search); handled || readErr != nil {
+			if readErr != nil {
+				return nil, readErr
+			}
+			return nil, errCuratedHandled
+		}
+		origin := curatedOrigin(caller, location, fmt.Sprintf("%s:%v:%d:%v", search.filter.Term, search.filter.Tags, search.filter.TagMatch, search.filter.PoolIDs))
 		cursor, readErr := curatedCursor(c.QueryParam("cursor"), origin)
 		if readErr != nil {
 			return nil, readErr
 		}
-		rows, readErr := a.store.ListCuratedCatalogs(ctx, tx, 0, filter.Term, location, cursor, size+1)
+		rows, readErr := a.store.ListCuratedCatalogs(ctx, tx, 0, search.filter, location, cursor, size+1)
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -197,13 +216,21 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 			token := encodeCuratedCursor(store.CuratedCatalogCursor{ID: last.ID, Distance: distance, Origin: origin})
 			next = &token
 		}
-		return map[string]any{"catalogs": rows, "nextCursor": next}, nil
+		result := map[string]any{"catalogs": rows, "nextCursor": next}
+		if search.facets && cursor.ID == 0 {
+			facets, facetErr := a.store.ListCuratedCatalogTagFacets(ctx, tx, 0, search.filter, location)
+			if facetErr != nil {
+				return nil, facetErr
+			}
+			result["tagFacets"] = facets
+		}
+		return result, nil
 	})
 }
 func (a *API) myCuratedCatalogsHandler(c *echo.Context) error {
 	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
 		owner, _, _ := getUserClaims(c)
-		rows, err := a.store.ListCuratedCatalogs(c.Request().Context(), tx, owner, "", nil, store.CuratedCatalogCursor{}, 100)
+		rows, err := a.store.ListCuratedCatalogs(c.Request().Context(), tx, owner, store.CatalogFilter{}, nil, store.CuratedCatalogCursor{}, 100)
 		return map[string]any{"catalogs": rows, "nextCursor": nil}, err
 	})
 }
@@ -235,16 +262,28 @@ func (a *API) curatedCatalogSaveHandler(c *echo.Context) error {
 	}
 	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
 		ctx := c.Request().Context()
+		if id != 0 {
+			if err = a.requireCuratedOwner(c, tx, id); err != nil {
+				return nil, err
+			}
+		}
+		tags, handled, tagErr := a.ensureTokenTags(c, tx, write.Tags)
+		if handled {
+			if tagErr != nil {
+				return nil, tagErr
+			}
+			return nil, errCuratedHandled
+		}
 		if id == 0 {
 			owner, _, _ := getUserClaims(c)
 			id, err = a.store.CreateCuratedCatalog(ctx, tx, owner, write)
 		} else {
-			if err = a.requireCuratedOwner(c, tx, id); err != nil {
-				return nil, err
-			}
 			err = a.store.UpdateCuratedCatalog(ctx, tx, id, write)
 		}
 		if err != nil {
+			return nil, err
+		}
+		if err = a.store.ReplaceCuratedCatalogTags(ctx, tx, id, tags); err != nil {
 			return nil, err
 		}
 		row, readErr := a.store.GetCuratedCatalog(ctx, tx, id)
