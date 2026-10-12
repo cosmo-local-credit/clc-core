@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -77,11 +78,12 @@ func TestTransferValuationSnapshotSkipsIncompleteVoucherMetadata(t *testing.T) {
 	defer tx.Rollback(ctx)
 
 	trackingIDs := make([]string, 0, 2)
-	for _, voucherValue := range []any{nil, 0} {
+	for index, voucherValue := range []any{nil, 0} {
 		tokenAddress := randomAddress(t, tx)
 		_, err = tx.Exec(ctx, `
 			INSERT INTO vouchers (chain_id, address, name, symbol, decimals, voucher_uoa, voucher_value)
-			VALUES (100, $1, 'Incomplete Voucher', 'NONE', 6, 'KES', $2)`, tokenAddress, voucherValue)
+			VALUES (100, $1, $3, $4, 6, 'KES', $2)`, tokenAddress, voucherValue,
+			fmt.Sprintf("Incomplete Voucher %d", index), fmt.Sprintf("NO%d", index))
 		require.NoError(t, err)
 		trackingID := uuid.NewString()
 		trackingIDs = append(trackingIDs, trackingID)

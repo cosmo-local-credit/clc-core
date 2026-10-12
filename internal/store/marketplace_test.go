@@ -45,8 +45,8 @@ func TestMarketplaceQueryKeepsCursorAndFacetScopeInPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, fragment := range []string{
-		"cardinality($6::TEXT[])=0 OR kind=ANY($6::TEXT[])",
-		"cardinality($5::BIGINT[])=0",
+		"COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[])",
+		"COALESCE(cardinality($5::BIGINT[]),0)=0",
 		"rank>$14::INT",
 		"kind>$17::TEXT",
 		"LIMIT $19",

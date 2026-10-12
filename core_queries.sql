@@ -2824,12 +2824,12 @@ WITH candidates AS MATERIALIZED (
          OR lower(c.location_name) LIKE '%'||lower($2)||'%' ESCAPE '\'
          OR lower(COALESCE(c.description,'')) LIKE '%'||lower($2)||'%' ESCAPE '\'
         ) END)
-      AND (cardinality($4::TEXT[])=0 OR EXISTS (
+      AND (COALESCE(cardinality($4::TEXT[]),0)=0 OR EXISTS (
           SELECT 1 FROM catalog_tags ct WHERE ct.catalog_id=c.id AND ct.tag_value=ANY($4::TEXT[])
           GROUP BY ct.catalog_id
           HAVING NOT $5::BOOLEAN OR count(DISTINCT ct.tag_value)=cardinality($4::TEXT[])
       ))
-      AND (cardinality($6::BIGINT[])=0 OR EXISTS (
+      AND (COALESCE(cardinality($6::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($6::BIGINT[])
           UNION ALL
           SELECT 1 FROM catalog_vouchers cv
@@ -2875,12 +2875,12 @@ WITH candidates AS MATERIALIZED (
          OR lower(c.location_name) LIKE '%'||lower($2)||'%' ESCAPE '\'
          OR lower(COALESCE(c.description,'')) LIKE '%'||lower($2)||'%' ESCAPE '\'
         ) END)
-      AND (cardinality($4::TEXT[])=0 OR EXISTS (
+      AND (COALESCE(cardinality($4::TEXT[]),0)=0 OR EXISTS (
           SELECT 1 FROM catalog_tags ct WHERE ct.catalog_id=c.id AND ct.tag_value=ANY($4::TEXT[])
           GROUP BY ct.catalog_id
           HAVING NOT $5::BOOLEAN OR count(DISTINCT ct.tag_value)=cardinality($4::TEXT[])
       ))
-      AND (cardinality($6::BIGINT[])=0 OR EXISTS (
+      AND (COALESCE(cardinality($6::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($6::BIGINT[])
           UNION ALL
           SELECT 1 FROM catalog_vouchers cv
@@ -2922,7 +2922,7 @@ WITH eligible AS (
          OR lower(c.location_name) LIKE '%'||lower($2)||'%' ESCAPE '\'
          OR lower(COALESCE(c.description,'')) LIKE '%'||lower($2)||'%' ESCAPE '\'
         ) END)
-      AND (cardinality($4::BIGINT[])=0 OR EXISTS (
+      AND (COALESCE(cardinality($4::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($4::BIGINT[])
           UNION ALL
           SELECT 1 FROM catalog_vouchers cv JOIN pool_tokens pt ON pt.voucher_id=cv.voucher_id AND pt.is_allowed
@@ -2946,7 +2946,7 @@ WITH eligible AS (
          OR lower(c.location_name) LIKE '%'||lower($2)||'%' ESCAPE '\'
          OR lower(COALESCE(c.description,'')) LIKE '%'||lower($2)||'%' ESCAPE '\'
         ) END)
-      AND (cardinality($4::BIGINT[])=0 OR EXISTS (
+      AND (COALESCE(cardinality($4::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($4::BIGINT[])
           UNION ALL
           SELECT 1 FROM catalog_vouchers cv JOIN pool_tokens pt ON pt.voucher_id=cv.voucher_id AND pt.is_allowed
@@ -3026,7 +3026,7 @@ WITH raw AS MATERIALIZED (
     ) ot ON true
     WHERE o.available AND v.active
       AND COALESCE(o.geo_lat,v.geo_lat) IS NOT NULL AND COALESCE(o.geo_lng,v.geo_lng) IS NOT NULL
-      AND (cardinality($5::BIGINT[])=0 OR EXISTS (
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id=v.id AND pt.is_allowed AND pt.pool_id=ANY($5::BIGINT[])
       ))
 
@@ -3060,7 +3060,7 @@ WITH raw AS MATERIALIZED (
         FROM offerings o2 WHERE o2.voucher_id=v.id AND o2.available
     ) related ON true
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.geo_lng IS NOT NULL
-      AND (cardinality($5::BIGINT[])=0 OR EXISTS (
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id=v.id AND pt.is_allowed AND pt.pool_id=ANY($5::BIGINT[])
       ))
 
@@ -3087,7 +3087,7 @@ WITH raw AS MATERIALIZED (
         WHERE x.pool_id=p.id AND x.is_allowed
     ) related ON true
     WHERE p.geo_lat IS NOT NULL AND p.geo_lng IS NOT NULL
-      AND (cardinality($5::BIGINT[])=0 OR p.id=ANY($5::BIGINT[]))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR p.id=ANY($5::BIGINT[]))
 
     UNION ALL
     SELECT 'catalog',c.id::BIGINT,NULL::BIGINT,NULL::TEXT,c.name,c.description,NULL::TEXT,c.image_url,
@@ -3103,7 +3103,7 @@ WITH raw AS MATERIALIZED (
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM catalog_tags x WHERE x.catalog_id=c.id
     ) ctags ON true
-    WHERE cardinality($5::BIGINT[])=0 OR EXISTS (
+    WHERE COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
         SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($5::BIGINT[])
         UNION ALL
         SELECT 1 FROM catalog_vouchers cv JOIN pool_tokens x ON x.voucher_id=cv.voucher_id AND x.is_allowed
@@ -3124,11 +3124,11 @@ WITH raw AS MATERIALIZED (
                 power(sin(radians(geo_lng-$9::FLOAT8)/2),2)
             )))) END AS distance_meters
     FROM raw
-    WHERE (cardinality($6::TEXT[])=0 OR kind=ANY($6::TEXT[]))
+    WHERE (COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[]))
       AND ($1='' OR CASE WHEN $2::BOOLEAN
             THEN search_text LIKE lower($1)||'%' ESCAPE '\'
             ELSE search_text LIKE '%'||lower($1)||'%' ESCAPE '\' END)
-      AND (cardinality($3::TEXT[])=0 OR (
+      AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR (
           CASE WHEN $4::BOOLEAN THEN
               (SELECT count(DISTINCT tag) FROM unnest(tags) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[])
           ELSE tags && $3::TEXT[] END
