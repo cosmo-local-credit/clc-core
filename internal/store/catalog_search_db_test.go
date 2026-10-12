@@ -895,6 +895,7 @@ func TestPoolSearchAndTagFilters(t *testing.T) {
 		filter := mustFilter(t, searchToken, nil, TagMatchAny)
 		allowed := map[uint64]bool{
 			art: true, culture: true, both: true, untagged: true, bySymbol: true, renamed: true,
+			voucherPool: true,
 		}
 
 		first, err := pg.ListPoolsFiltered(ctx, tx, filter, CatalogFirstPage, 0, 2)
