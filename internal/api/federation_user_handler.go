@@ -90,6 +90,7 @@ func (a *API) enrichTokenBalances(ctx context.Context, items []store.FederationT
 			items[i].TokenDecimals = uint8(*m.Decimals)
 		}
 		items[i].IconURL = m.IconURL
+		items[i].CatalogActive = &m.Active
 	}
 	return nil
 }

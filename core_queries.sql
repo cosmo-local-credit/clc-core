@@ -1132,7 +1132,7 @@ WHERE keystore_id = (SELECT id FROM keystore WHERE public_key = $1)
 -- (chain_data_v2.tokens / sarafu_network.vouchers) — the local catalog is the
 -- single home for living voucher attributes (MIGRATION.md §2 V2).
 --name: list-voucher-metadata-by-addresses
-SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url
+SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url, active
 FROM vouchers
 WHERE lower(address) = ANY($1);
 
