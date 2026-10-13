@@ -19,8 +19,10 @@ type (
 	// FederationTokenBalance carries chain facts scanned from the federation
 	// DB; the token metadata fields (db:"-") are enriched afterwards from the
 	// local vouchers catalog (MIGRATION.md §2 — the catalog is the metadata
-	// home). JSON shape is unchanged from the pre-cutover responses.
+	// home). CatalogActive distinguishes retired vouchers from uncatalogued tokens.
 	FederationTokenBalance struct {
+		// Nil means this token has no local catalog entry.
+		CatalogActive *bool     `db:"-" json:"catalogActive,omitempty"`
 		ID            uint64    `db:"id"              json:"id"`
 		TokenAddress  string    `db:"token_address"   json:"tokenAddress"`
 		TokenSymbol   string    `db:"-"               json:"tokenSymbol"`

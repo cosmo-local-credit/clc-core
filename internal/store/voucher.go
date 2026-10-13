@@ -13,6 +13,7 @@ type (
 	// facts (balances, transfers) with token metadata. Fields are pointers
 	// because catalog rows imported from sparse sources may lack them.
 	VoucherMetadata struct {
+		Active   bool    `db:"active"`
 		Address  string  `db:"address"`
 		Symbol   *string `db:"symbol"`
 		Name     *string `db:"name"`

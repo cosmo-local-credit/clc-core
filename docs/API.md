@@ -2954,3 +2954,13 @@ A second create returns:
 ```
 
 See [CATALOGS.md](CATALOGS.md) for database design and verification details.
+
+### Catalog status on account token balances
+
+Account token balance responses (`/api/v2/accounts/:address/tokens` and
+`/api/v2/accounts/:address/tokens/latest`) include optional `catalogActive` on
+individual tokens. `false` means the local voucher is retired; `true` means it
+is active; absence means there is no local catalog entry. Wallet lists hide
+explicitly retired vouchers. Retirement does not burn balances, remove the
+on-chain contract, or delete transaction history. Raw rows and pagination
+cursors remain available in these account responses.
