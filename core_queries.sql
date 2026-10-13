@@ -3178,9 +3178,60 @@ ORDER BY rank ASC,CASE WHEN $7::BOOLEAN THEN distance_meters END ASC NULLS LAST,
 SELECT id FROM users WHERE id = $1 FOR UPDATE;
 
 --name: get-user-resource-usage
-SELECT u.role, u.max_tokens, u.max_pools, u.max_catalogs, u.max_offers,
-    (SELECT count(*) FROM user_deployments d WHERE d.user_id = u.id AND d.resource_type = 'TOKEN'),
-    (SELECT count(*) FROM user_deployments d WHERE d.user_id = u.id AND d.resource_type = 'POOL'),
-    (SELECT count(*) FROM catalogs c WHERE c.owner_user_id = u.id),
-    (SELECT count(*) FROM offerings o WHERE lower(o.seller_address) = lower(u.blockchain_address) AND o.available)
-FROM users u WHERE u.id = $1;
+SELECT
+    u.role,
+    u.max_tokens,
+    u.max_pools,
+    u.max_catalogs,
+    u.max_offers,
+    (
+        SELECT count(*)
+        FROM user_deployments deployment
+        WHERE deployment.user_id = u.id
+          AND deployment.resource_type = 'TOKEN'
+          -- Count the request unless its voucher has been retired.
+          -- Pending or unknown results still reserve a slot.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM otx chain_tx
+              JOIN deployed_tokens token ON token.otx_id = chain_tx.id
+              JOIN vouchers voucher ON voucher.id = token.voucher_id
+              WHERE chain_tx.tracking_id = deployment.tracking_id
+                AND NOT voucher.active
+          )
+          -- Release only when every recorded deployment attempt has failed on-chain.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM otx chain_tx
+              JOIN deployed_tokens token ON token.otx_id = chain_tx.id
+              WHERE chain_tx.tracking_id = deployment.tracking_id
+              GROUP BY chain_tx.tracking_id
+              HAVING bool_and(token.status = 'FAILED')
+          )
+    ) AS vouchers_used,
+    (
+        SELECT count(*)
+        FROM user_deployments deployment
+        WHERE deployment.user_id = u.id AND deployment.resource_type = 'POOL'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM otx chain_tx
+              JOIN deployed_pools pool ON pool.otx_id = chain_tx.id
+              WHERE chain_tx.tracking_id = deployment.tracking_id
+              GROUP BY chain_tx.tracking_id
+              HAVING bool_and(pool.status = 'FAILED')
+          )
+    ) AS pools_used,
+    (
+        SELECT count(*)
+        FROM catalogs catalog
+        WHERE catalog.owner_user_id = u.id
+    ) AS catalogs_used,
+    (
+        SELECT count(*)
+        FROM offerings offer
+        WHERE lower(offer.seller_address) = lower(u.blockchain_address)
+          AND offer.available
+    ) AS offers_used
+FROM users u
+WHERE u.id = $1;
