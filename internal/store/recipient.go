@@ -5,9 +5,11 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Recipient exposes public identity only, never profile contacts or admin data.
@@ -52,8 +54,8 @@ WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
   AND c.owner_kind = 'pool' AND ($2::BIGINT = 0 OR p.chain_id = $2)`
 
 	recipientSearchQuery = recipientProjection + `WHERE ($3 = '' OR kind = $3)
-        AND normalize_identity_name(alias) LIKE '%' || $1 || '%' ESCAPE '\'
-        ORDER BY (normalize_identity_name(alias) = $4) DESC,
+        AND normalize_identity_name(alias) LIKE '%' || normalize_identity_name($1) || '%' ESCAPE '\'
+        ORDER BY (normalize_identity_name(alias) = normalize_identity_name($4)) DESC,
                  lower(alias), kind, address LIMIT 20`
 
 	recipientPhoneSearchQuery = `SELECT 'user'::TEXT AS kind,
@@ -73,15 +75,12 @@ var (
 	ErrAmbiguousRecipient  = errors.New("recipient is ambiguous")
 	ErrNoUsernameAvailable = errors.New("no username available for this hint")
 
-	usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,22}[a-z0-9]$`)
-	usernameLetter  = regexp.MustCompile(`[a-z]`)
-
 	recipientPhonePattern    = regexp.MustCompile(`^\+?[0-9\s()-]*[0-9][0-9\s()-]*$`)
 	recipientPhoneFormatting = regexp.MustCompile(`[+\s()-]`)
 )
 
 func ValidUsername(name string) bool {
-	return usernamePattern.MatchString(name) && usernameLetter.MatchString(name)
+	return utf8.ValidString(name) && strings.TrimSpace(name) != "" && utf8.RuneCountInString(name) <= 80
 }
 
 // SuggestUsername does not claim a name. The constraint remains authoritative at save.
@@ -97,10 +96,10 @@ func availableUsername(ctx context.Context, tx pgx.Tx, stem string) (string, err
 	}
 	var candidate string
 	err := tx.QueryRow(ctx, `SELECT candidate FROM (
-        SELECT i, $1::TEXT || CASE WHEN i = 0 THEN '' ELSE i::TEXT END AS candidate
+        SELECT i, CASE WHEN i = 0 THEN $1::TEXT ELSE left($1::TEXT, 80 - char_length(i::TEXT)) || i::TEXT END AS candidate
         FROM generate_series(0,99) i
     ) candidates WHERE NOT EXISTS (
-        SELECT 1 FROM identity_claims WHERE namespace = 'recipient' AND name = candidate
+        SELECT 1 FROM identity_claims WHERE namespace = 'recipient' AND name = normalize_identity_name(candidate)
     ) ORDER BY i LIMIT 1`, stem).Scan(&candidate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNoUsernameAvailable
@@ -109,21 +108,12 @@ func availableUsername(ctx context.Context, tx pgx.Tx, stem string) (string, err
 }
 
 func usernameStem(hint string) string {
-	var b strings.Builder
-	for _, r := range strings.Join(strings.Fields(strings.ToLower(hint)), "-") {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		} else if r == '-' {
-			b.WriteByte('-')
-		}
+	// Preserve the user's spelling and script, including internal spaces.
+	runes := []rune(norm.NFC.String(strings.TrimSpace(hint)))
+	if len(runes) > 80 {
+		runes = runes[:80]
 	}
-	stem := strings.Trim(b.String(), "-")
-	if len(stem) > 20 {
-		stem = strings.TrimRight(stem[:20], "-")
-	}
-	// Use the provided full name; never invent a generic or random identity.
-	// Invalid stems defer automatic assignment until a username is chosen.
-	return stem
+	return strings.TrimSpace(string(runes))
 }
 
 // A savepoint lets automatic assignment recover from a concurrent unique claim
@@ -159,19 +149,9 @@ func (pg *Pg) assignUsername(ctx context.Context, tx pgx.Tx, address, hint strin
 }
 
 func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, chainID int64, kind string) ([]Recipient, error) {
-	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(NormalizeDeployName(query))
-	searchQuery := recipientSearchQuery
-	exact := NormalizeDeployName(query)
-	if recipientPhonePattern.MatchString(strings.TrimSpace(query)) {
-		// Match the digits as stored, including leading zeros. No country inference.
-		escaped = recipientPhoneFormatting.ReplaceAllString(strings.TrimSpace(query), "")
-		if len(escaped) < 3 {
-			return []Recipient{}, nil
-		}
-		exact = escaped
-		searchQuery = recipientPhoneSearchQuery
-	}
-	rows, err := tx.Query(ctx, searchQuery, escaped, chainID, kind, exact)
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(norm.NFC.String(query))
+	exact := norm.NFC.String(query)
+	rows, err := tx.Query(ctx, recipientSearchQuery, escaped, chainID, kind, exact)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +164,59 @@ func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, cha
 		}
 		result = append(result, r)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if recipientPhonePattern.MatchString(strings.TrimSpace(query)) {
+		phone := recipientPhoneFormatting.ReplaceAllString(strings.TrimSpace(query), "")
+		if len(phone) >= 3 {
+			nameMatches := result
+			result = []Recipient{}
+			for _, r := range nameMatches {
+				if NormalizeDeployName(norm.NFC.String(r.Alias)) == NormalizeDeployName(exact) {
+					result = append(result, r)
+				}
+			}
+			phoneRows, err := tx.Query(ctx, recipientPhoneSearchQuery, phone, chainID, kind, phone)
+			if err != nil {
+				return nil, err
+			}
+			defer phoneRows.Close()
+			for phoneRows.Next() {
+				var r Recipient
+				if err := phoneRows.Scan(&r.Kind, &r.Name, &r.Alias, &r.Address, &r.ChainID); err != nil {
+					return nil, err
+				}
+				duplicate := false
+				for _, existing := range result {
+					if existing.Kind == r.Kind && existing.Address == r.Address && existing.ChainID == r.ChainID {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate && len(result) < 20 {
+					result = append(result, r)
+				}
+			}
+			if err := phoneRows.Err(); err != nil {
+				return nil, err
+			}
+			for _, r := range nameMatches {
+				duplicate := false
+				for _, existing := range result {
+					if existing.Kind == r.Kind && existing.Address == r.Address && existing.ChainID == r.ChainID {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate && len(result) < 20 {
+					result = append(result, r)
+				}
+			}
+		}
+	}
+	return result, nil
 }
 
 func (pg *Pg) ResolveRecipient(ctx context.Context, tx pgx.Tx, name string, chainID int64, reverse bool) (Recipient, error) {

@@ -86,7 +86,7 @@ func TestCuratedCatalogOwnershipConcurrentCreateAndMembershipDB(t *testing.T) {
 	wg.Wait()
 	var id uint64
 	codes := []int{responses[0].Code, responses[1].Code}
-	require.ElementsMatch(t, []int{200, 409}, codes)
+	require.ElementsMatch(t, []int{200, 429}, codes)
 	for _, res := range responses {
 		if res.Code == 200 {
 			saved := curatedResult(t, res, 200)

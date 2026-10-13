@@ -136,7 +136,9 @@ func TestMigrationFiles(t *testing.T) {
 				name == "047_user_catalogs.sql" ||
 				name == "048_catalog_descriptions.sql" ||
 				name == "049_transfer_valuation_snapshots.sql" ||
-				name == "050_catalog_tags.sql",
+				name == "050_catalog_tags.sql" ||
+				name == "051_user_resource_limits.sql" ||
+				name == "052_unicode_usernames.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -196,6 +198,8 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"048_catalog_descriptions.sql",
 		"049_transfer_valuation_snapshots.sql",
 		"050_catalog_tags.sql",
+		"051_user_resource_limits.sql",
+		"052_unicode_usernames.sql",
 	}, files)
 }
 

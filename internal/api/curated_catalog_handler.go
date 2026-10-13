@@ -55,7 +55,7 @@ func (a *API) curatedResponse(c *echo.Context, run func(pgx.Tx) (map[string]any,
 		if errors.Is(err, errCuratedOwner) {
 			return handleForbiddenError(c, err.Error())
 		}
-		return handlePostgresError(c, err)
+		return handleResourceLimitError(c, err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
@@ -228,10 +228,34 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 	})
 }
 func (a *API) myCuratedCatalogsHandler(c *echo.Context) error {
+	const (
+		// Page size is a read limit, not the user's catalog creation allowance.
+		pageSize = 100
+		// No search or distance filter. SQL still filters by the owner ID.
+		cursorOrigin = "public"
+	)
+
 	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
-		owner, _, _ := getUserClaims(c)
-		rows, err := a.store.ListCuratedCatalogs(c.Request().Context(), tx, owner, store.CatalogFilter{}, nil, store.CuratedCatalogCursor{}, 100)
-		return map[string]any{"catalogs": rows, "nextCursor": nil}, err
+		ownerID, _, _ := getUserClaims(c)
+		cursor, err := curatedCursor(c.QueryParam("cursor"), cursorOrigin)
+		if err != nil {
+			return nil, err
+		}
+
+		// Read one extra catalog to determine whether another page exists.
+		catalogs, err := a.store.ListCuratedCatalogs(c.Request().Context(), tx, ownerID, store.CatalogFilter{}, nil, cursor, pageSize+1)
+		if err != nil {
+			return nil, err
+		}
+
+		var nextCursor *string
+		if len(catalogs) > pageSize {
+			catalogs = catalogs[:pageSize]
+			lastCatalog := catalogs[len(catalogs)-1]
+			token := encodeCuratedCursor(store.CuratedCatalogCursor{ID: lastCatalog.ID, Origin: cursorOrigin})
+			nextCursor = &token
+		}
+		return map[string]any{"catalogs": catalogs, "nextCursor": nextCursor}, nil
 	})
 }
 func (a *API) curatedCatalogDetailHandler(c *echo.Context) error {
@@ -275,7 +299,12 @@ func (a *API) curatedCatalogSaveHandler(c *echo.Context) error {
 			return nil, errCuratedHandled
 		}
 		if id == 0 {
-			owner, _, _ := getUserClaims(c)
+			owner, _, role := getUserClaims(c)
+			if role != "SUPERADMIN" {
+				if err := a.store.CheckUserResourceLimit(ctx, tx, owner, "catalogs"); err != nil {
+					return nil, err
+				}
+			}
 			id, err = a.store.CreateCuratedCatalog(ctx, tx, owner, write)
 		} else {
 			err = a.store.UpdateCuratedCatalog(ctx, tx, id, write)

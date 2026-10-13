@@ -1,24 +1,19 @@
 package store
 
 import (
+	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestUsernameStemsUseTheFullName(t *testing.T) {
-	for _, hint := range []string{"Sohail Khan", "  Sohail   Khan  ", "Sohail\tKhan"} {
-		t.Run(hint, func(t *testing.T) {
-			require.Equal(t, "sohail-khan", usernameStem(hint))
-		})
+	for _, name := range []string{"Sohail Khan", "Željko", "Софија", "李明", "سُهيل", "A", "123", "alice.eth", "A / B", "👩🏽‍🌾"} {
+		require.Equal(t, name, usernameStem("  "+name+"  "))
+		require.True(t, ValidUsername(name))
 	}
-	for _, hint := range []string{"Ab", "A", "سُهيل", "Софија", "李明", "", "123"} {
-		stem := usernameStem(hint)
-		require.False(t, ValidUsername(stem), hint)
-		require.NotContains(t, stem, "user", "must not replace the name with a generic identity")
+	require.Equal(t, "José", usernameStem("Jose\u0301"))
+	require.Equal(t, strings.Repeat("界", 80), usernameStem(strings.Repeat("界", 81)))
+	for _, name := range []string{"", " \t\n", strings.Repeat("界", 81)} {
+		require.False(t, ValidUsername(name))
 	}
-	require.Equal(t, "sohail", usernameStem("Sohail"))
-	require.Equal(t, "new-pool", usernameStem("New Pool"))
-	require.True(t, ValidUsername(usernameStem(strings.Repeat("a", 100))+"99"))
 }

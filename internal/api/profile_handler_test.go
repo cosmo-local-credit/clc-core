@@ -109,3 +109,17 @@ func TestProfileUpdateFromRequestRejectsPartialCoordinates(t *testing.T) {
 		t.Fatal("expected a partial coordinate pair to fail")
 	}
 }
+
+func TestProfileUnicodeUsername(t *testing.T) {
+	for _, name := range []string{"Željko Petrović", "李", "123", "سُهيل", "A / B"} {
+		update, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{Username: &name})
+		if err != nil || update.Username == nil || *update.Username != name {
+			t.Fatalf("username %q: %#v, %v", name, update.Username, err)
+		}
+	}
+	name := " Jose\u0301 "
+	update, err := profileUpdateFromRequest("0xabc", apiresp.UpdateProfileRequest{Username: &name})
+	if err != nil || *update.Username != "José" {
+		t.Fatalf("normalization: %#v, %v", update.Username, err)
+	}
+}

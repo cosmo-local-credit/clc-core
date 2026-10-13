@@ -234,6 +234,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/names", a.namesLookupHandler)
 	apiGroup.GET("/recipients", a.recipientSearchHandler)
 	router.GET(apiVersion+"/recipients/suggest", a.usernameSuggestHandler, a.marketRateLimitMiddleware())
+	apiGroup.GET("/recipients/resolve", a.recipientResolveHandler)
 	apiGroup.GET("/recipients/resolve/:name", a.recipientResolveHandler)
 	apiGroup.GET("/recipients/reverse/:address", a.recipientReverseHandler)
 	apiGroup.GET("/oracle-feeds", a.oracleFeedsHandler)
@@ -292,6 +293,7 @@ func New(o APIOpts) *API {
 	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
+	userGroup.GET("/me/resource-usage", a.userResourceUsageHandler)
 	userGroup.GET("/me/catalogs", a.myCuratedCatalogsHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)

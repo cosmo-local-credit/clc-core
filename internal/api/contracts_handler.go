@@ -118,24 +118,12 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 	req.Tags = tags
 
-	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
+	// Service tokens and superadmins retain their deployment exemption.
 	if callerType == "user" {
 		callerRole, _ := c.Get("callerRole").(string)
 		if callerRole != "SUPERADMIN" {
-			user, err := a.store.GetUserByID(ctx, tx, callerUserID)
-			if err != nil {
-				return handlePostgresError(c, err)
-			}
-			count, err := a.store.CountUserPools(ctx, tx, callerUserID)
-			if err != nil {
-				return err
-			}
-			if count >= user.MaxPools {
-				return c.JSON(http.StatusTooManyRequests, apiresp.ErrResponse{
-					Ok:          false,
-					ErrCode:     apiresp.ErrCodeLimitExceeded,
-					Description: fmt.Sprintf("pool creation limit of %d reached", user.MaxPools),
-				})
+			if err := a.store.CheckUserResourceLimit(ctx, tx, callerUserID, "pools"); err != nil {
+				return handleResourceLimitError(c, err)
 			}
 		}
 	}
@@ -302,24 +290,12 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 	req.Tags = tags
 
-	// Quota check: applies to user callers only; superadmins and service tokens are exempt.
+	// Service tokens and superadmins retain their deployment exemption.
 	if callerType == "user" {
 		callerRole, _ := c.Get("callerRole").(string)
 		if callerRole != "SUPERADMIN" {
-			user, err := a.store.GetUserByID(ctx, tx, callerUserID)
-			if err != nil {
-				return handlePostgresError(c, err)
-			}
-			count, err := a.store.CountUserTokens(ctx, tx, callerUserID)
-			if err != nil {
-				return err
-			}
-			if count >= user.MaxTokens {
-				return c.JSON(http.StatusTooManyRequests, apiresp.ErrResponse{
-					Ok:          false,
-					ErrCode:     apiresp.ErrCodeLimitExceeded,
-					Description: fmt.Sprintf("token creation limit of %d reached", user.MaxTokens),
-				})
+			if err := a.store.CheckUserResourceLimit(ctx, tx, callerUserID, "vouchers"); err != nil {
+				return handleResourceLimitError(c, err)
 			}
 		}
 	}
