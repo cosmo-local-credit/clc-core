@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/labstack/echo/v5"
 )
@@ -111,6 +112,44 @@ func TestVoucherOfferingsRouteIsPublicRateLimitedAndDoesNotCacheErrors(t *testin
 	}
 	if res.Header().Get("Retry-After") == "" {
 		t.Fatal("rate-limited voucher offerings response must include Retry-After")
+	}
+}
+
+func TestOfferingsDiscoveryRouteIsPublicAndValidatesFilters(t *testing.T) {
+	a := New(APIOpts{Logg: slog.New(slog.DiscardHandler)})
+	for _, path := range []string{
+		"/api/v2/offerings?q=a",
+		"/api/v2/offerings?nearby=maybe",
+		"/api/v2/offerings?pools=100:not-an-address",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = "198.51.100.79:1234"
+		res := httptest.NewRecorder()
+		a.router.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want public validation status %d", path, res.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestOfferingCursorIsScopedToSearchAndLocation(t *testing.T) {
+	scope := "scope-a"
+	raw := encodeOfferingCursor(offeringCursorEnvelope{
+		OfferingCursor: store.OfferingCursor{ID: 9, Distance: 12.5},
+		Scope:          scope,
+	})
+	got, err := parseOfferingCursor(raw, scope)
+	if err != nil {
+		t.Fatalf("parseOfferingCursor() error = %v", err)
+	}
+	if got.ID != 9 || got.Distance != 12.5 {
+		t.Fatalf("cursor = %+v", got)
+	}
+	if _, err := parseOfferingCursor(raw, "scope-b"); err == nil {
+		t.Fatal("cursor from another search scope was accepted")
+	}
+	if _, err := parseOfferingCursor("not-base64", scope); err == nil {
+		t.Fatal("malformed cursor was accepted")
 	}
 }
 

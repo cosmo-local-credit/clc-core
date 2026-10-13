@@ -77,6 +77,8 @@
    - [DELETE /api/v2/admin/vocabulary/tags and .../units](#125-delete-apiv2adminvocabularytags-and-units)
    - [PUT /api/v2/admin/vocabulary/tags and .../units](#126-put-apiv2adminvocabularytags-and-units)
 
+13. [User-created catalogs (`/api/v2/catalogs`)](#13-user-created-catalogs-apiv2catalogs)
+
 ---
 
 ## 1. Overview
@@ -85,7 +87,7 @@
 |---|---|
 | Base URL | `http(s)://<host>/` |
 | Protected API prefix | `/api/v2` |
-| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings), [`GET /api/v2/pools`](#59-get-apiv2pools), [`GET /api/v2/pools/:address`](#510-get-apiv2poolsaddress), `GET /api/v2/pools/:address/vouchers`, [`GET /api/v2/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) |
+| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings), [`GET /api/v2/pools`](#59-get-apiv2pools), [`GET /api/v2/pools/:address`](#510-get-apiv2poolsaddress), `GET /api/v2/pools/:address/vouchers`, [public catalog reads](#13-user-created-catalogs-apiv2catalogs), [`GET /api/v2/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) |
 | Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
 | Default chain | Celo Mainnet (`chainId: 42220`) |
 | Content-Type | `application/json` |
@@ -2815,3 +2817,119 @@ Phone numbers are not included in the response.
 Sending to a complete wallet address uses direct address entry, with optional
 `GET /api/v2/recipients/reverse/:address` for its current identity label. Unknown
 addresses remain valid destinations; partial addresses do not trigger discovery.
+
+## 13. User-created catalogs (`/api/v2/catalogs`)
+
+All routes below are under `/api/v2`. Successful replies use the existing
+`{ok: true, result: ...}` envelope. Errors use the existing API error envelope.
+
+| Method and route | Result / access |
+| --- | --- |
+| `GET /catalogs` | `{catalogs, nextCursor}`; public ID-descending list |
+| `GET /catalogs?nearby=true` | Same shape, session required; nearest first within 1,000 km of the saved profile |
+| `GET /catalogs/:id` | `{catalog}`; public, independent of nearby radius |
+| `GET /catalogs/:id/pools` or `/vouchers` | `{items, nextCursor}`; public member summaries, ID ascending |
+| `GET /users/me/catalogs` | `{catalogs, nextCursor: null}`; session owner, no radius filter |
+| `POST /catalogs` | `{catalog}`; session-derived owner, second creation returns 409 |
+| `PUT /catalogs/:id` | `{catalog}`; owner only |
+| `PUT/DELETE /catalogs/:id/pools/:poolId` or `/vouchers/:voucherId` | `{added: boolean}`; owner only, idempotent final state |
+| `GET /catalogs/:id/membership?kind=pool&resourceId=123` | `{added: boolean}`; owner only; kind also accepts `voucher` |
+
+Create and update send the complete editable state:
+
+```json
+{
+  "name": "Čaršija",
+  "locationName": "Sarajevo",
+  "geoLat": 43.8563,
+  "geoLng": 18.4131,
+  "imageUrl": "https://storage.example/catalog.png"
+}
+```
+
+Name is trimmed and limited to 1–120 Unicode characters. Location name is trimmed
+and limited to 1–200 characters. Both coordinates are required and range-checked.
+Omitted/null/empty image URL clears the image; other values must be absolute
+HTTP(S) URLs. The owner cannot be changed by the payload. A superadmin does not
+receive an implicit owner-write exception for this resource.
+
+Catalog rows include `id`, `name`, `imageUrl`, `locationName`, `geoLat`, `geoLng`,
+`ownerAddress`, `poolCount`, `voucherCount`, `distanceMeters`, `createdAt`, and
+`updatedAt`. IDs/counts are JSON numbers. Image and distance are nullable.
+`distanceMeters` is populated only for nearby list results. Member summaries
+include `id`, `chainId`, `address`, `name`, and nullable `imageUrl`. Empty lists
+are always arrays.
+
+### Membership and pagination
+
+Catalog owners may add any existing publicly visible pool or active voucher.
+Vouchers without coordinates can be added because their direct public detail
+is visible. Counts and member lists use the same visibility rule. Retiring a
+voucher hides it from both without deleting the relationship; the owner can
+still remove that relationship. Adding/removing a pool never adds/removes its
+voucher contents or separately curated vouchers.
+
+Metadata and membership writes lock the catalog and authorize its owner inside
+the same transaction. Adds lock the referenced resource to keep its visibility
+stable until commit. Foreign keys and composite primary keys enforce referential
+integrity and duplicate prevention.
+
+Paged reads accept `perPage` (1–100, default 20) and an opaque `cursor`. Nearby
+eligibility and distance ordering happen in PostgreSQL before pagination. The
+cursor includes the distance/ID ordering tuple plus a fingerprint of the viewer
+ID and saved coordinates. A changed profile location, different viewer, or
+public/nearby list mismatch returns 400 and requires fresh pagination. Member
+cursors are scoped to catalog and resource kind. ID tie-breaking handles catalogs
+at identical coordinates. There is no distance filtering on My catalog or a
+shared detail link.
+
+### Status codes, caching and rate limits
+
+| Status / code | Cause |
+| --- | --- |
+| `200` | Successful read, creation, replacement or membership operation; follows existing write conventions. |
+| `400 E02` | Malformed JSON write body. |
+| `400 E04` | Invalid ID, name, location, image URL, page size, kind or cursor; nearby profile has no valid coordinates. |
+| `401 E06` | Missing, invalid or expired user session on a protected request. |
+| `403 E10` | Service credentials on user-only operations, or a user other than the catalog owner. |
+| `404 E07` | Catalog missing, or resource missing/ineligible for addition. |
+| `409 E16` | Owner already has a catalog, including concurrent creation. |
+| `429 E11` | Public read bucket exhausted; honor `Retry-After` in seconds. |
+| `500 E01` | Internal failure. |
+
+Public list, detail and member reads share the Market per-IP bucket: 60 requests
+per minute, burst 60. Nearby list requests spend from that bucket too. Protected
+catalog routes use the existing user-auth middleware; no separate catalog write
+rate limiter is introduced. Successful catalog replies set `Cache-Control:
+no-store`. Nearby auth middleware also sets `private, no-store` before checking
+the session. Do not infer owner privileges from a connected wallet or accept a
+client-supplied owner; Core derives ownership from the authenticated user.
+
+### Examples
+
+An owner without a catalog receives:
+
+```json
+{"ok":true,"result":{"catalogs":[],"nextCursor":null}}
+```
+
+An empty saved catalog is represented as:
+
+```json
+{"ok":true,"result":{"catalog":{"id":123,"name":"Čaršija","imageUrl":null,"locationName":"Sarajevo","geoLat":43.8563,"geoLng":18.4131,"ownerAddress":"0x0000000000000000000000000000000000000001","poolCount":0,"voucherCount":0,"distanceMeters":null,"createdAt":"2026-10-10T12:00:00Z","updatedAt":"2026-10-10T12:00:00Z"}}}
+```
+
+An empty member page receives `{"ok":true,"result":{"items":[],"nextCursor":null}}`.
+Adding an existing pool with database ID 456 uses
+`PUT /api/v2/catalogs/123/pools/456` without a body and returns
+`{"ok":true,"result":{"added":true}}`. Repeating the request returns the same
+state. `DELETE` returns `added:false`, including when already absent. The route
+IDs are database identities that resolve chain-aware records, not chain addresses.
+
+A second create returns:
+
+```json
+{"ok":false,"description":"you already have a catalog","code":"E16"}
+```
+
+See [CATALOGS.md](CATALOGS.md) for database design and verification details.

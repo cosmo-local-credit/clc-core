@@ -47,6 +47,16 @@ func main() {
 
 	ctx, stop := notifyShutdown()
 
+	var shutdownTelemetry func(context.Context) error
+	lo, shutdownTelemetry = loadTelemetry(ctx)
+	flushTelemetry := func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTelemetry(flushCtx); err != nil {
+			lo.Error("failed to flush telemetry", "err", err)
+		}
+	}
+
 	pgStore := loadStore()
 	federationStore := loadFederationStore()
 	chainProvider := loadChainProvider()
@@ -107,6 +117,7 @@ func main() {
 
 	go func() {
 		wg.Wait()
+		flushTelemetry()
 		stop()
 		cancel()
 		os.Exit(0)
@@ -117,6 +128,7 @@ func main() {
 		stop()
 		cancel()
 		lo.Error("graceful shutdown period exceeded, forcefully shutting down")
+		flushTelemetry()
 	}
 	os.Exit(1)
 }

@@ -121,11 +121,29 @@ func TestCatalogFilterActive(t *testing.T) {
 		"term only":     {filter: CatalogFilter{Term: "sar"}, want: true},
 		"tags only":     {filter: CatalogFilter{Tags: []string{"Art"}}, want: true},
 		"vouchers only": {filter: CatalogFilter{VoucherIDs: []uint64{42}}, want: true},
+		"pools only":    {filter: CatalogFilter{PoolIDs: []uint64{42}}, want: true},
 		"term and tags": {filter: CatalogFilter{Term: "sar", Tags: []string{"Art"}}, want: true},
 	} {
 		if got := tc.filter.Active(); got != tc.want {
 			t.Errorf("%s: Active() = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+func TestCatalogFilterWithPoolIDsNormalizesAndBounds(t *testing.T) {
+	filter, err := (CatalogFilter{}).WithPoolIDs([]uint64{9, 2, 9, 4})
+	if err != nil {
+		t.Fatalf("WithPoolIDs() error = %v", err)
+	}
+	if !slices.Equal(filter.PoolIDs, []uint64{2, 4, 9}) {
+		t.Errorf("PoolIDs = %v, want sorted unique IDs", filter.PoolIDs)
+	}
+	over := make([]uint64, CatalogMaxPools+1)
+	for index := range over {
+		over[index] = uint64(index + 1)
+	}
+	if _, err := (CatalogFilter{}).WithPoolIDs(over); !errors.Is(err, ErrCatalogTooManyPools) {
+		t.Errorf("over-limit error = %v, want ErrCatalogTooManyPools", err)
 	}
 }
 
@@ -617,11 +635,17 @@ func TestComposePoolTagCountsUseDirectTags(t *testing.T) {
 	if strings.Contains(query.sql, "COUNT(DISTINCT") {
 		t.Errorf("direct pool counts need no DISTINCT; the primary key guarantees it:\n%s", query.sql)
 	}
-	// Pools filter on their own curated tags, not on member-voucher tags.
-	for _, forbidden := range []string{"pool_tokens", "offering_tags", "voucher_tags"} {
+	// Facet values still come from the pool's own curated tags. pool_tokens may
+	// appear only because the text search also matches approved voucher identity.
+	for _, forbidden := range []string{"offering_tags", "voucher_tags"} {
 		if strings.Contains(query.sql, forbidden) {
 			t.Errorf("pool counts must not derive tags from %s:\n%s", forbidden, query.sql)
 		}
+	}
+	if !strings.Contains(query.sql, "pool_text_matches AS MATERIALIZED") ||
+		!strings.Contains(query.sql, "search_token.is_allowed") ||
+		!strings.Contains(query.sql, "search_voucher.active") {
+		t.Errorf("pool counts must share the verified voucher-aware text match:\n%s", query.sql)
 	}
 }
 
@@ -670,6 +694,24 @@ func TestComposePoolPageEveryComposition(t *testing.T) {
 			if (filter.Term != "") != hasMatchSet {
 				t.Errorf("%s: match-set materialization = %v, want %v:\n%s",
 					name, hasMatchSet, filter.Term != "", query.sql)
+			}
+			if filter.Term != "" {
+				for _, fragment := range []string{
+					"pool_text_matches AS MATERIALIZED",
+					"FROM vouchers search_voucher",
+					"search_token.is_allowed",
+					"search_voucher.active",
+					"COALESCE(search_voucher.display_name, search_voucher.name)",
+				} {
+					if !strings.Contains(query.sql, fragment) {
+						t.Errorf("%s: voucher-aware pool search is missing %q:\n%s", name, fragment, query.sql)
+					}
+				}
+				if len(filter.Tags) == 0 && strings.Contains(query.sql,
+					"INNER JOIN pools p ON p.id = text_match.id") {
+					t.Errorf("%s: a term-only search must page matched IDs without rescanning pools:\n%s",
+						name, query.sql)
+				}
 			}
 			if len(filter.Tags) > 0 {
 				wantAll := filter.TagMatch == TagMatchAll

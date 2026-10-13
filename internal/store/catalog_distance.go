@@ -56,6 +56,17 @@ func (l CatalogLocation) bounds() MarketVoucherBounds {
 	return box
 }
 
+// haversineMetersSQL is the exact distance expression shared by nearby
+// eligibility and distance-ordered catalog pages. Callers bind coordinates and
+// pass fixed SQL column expressions, never text from a request.
+func haversineMetersSQL(lat, lng, viewerLat, viewerLng string) string {
+	return "2 * " + strconv.FormatFloat(earthRadiusMeters, 'f', -1, 64) + " * asin(sqrt(least(1.0, greatest(0.0, " +
+		"power(sin(radians(" + lat + " - " + viewerLat + ") / 2), 2) + " +
+		"cos(radians(" + viewerLat + ")) * cos(radians(" + lat + ")) * " +
+		"power(sin(radians(" + lng + " - " + viewerLng + ") / 2), 2)" +
+		"))))"
+}
+
 // nearbyPredicate keeps rows within the nearby radius of the viewer: an
 // indexable bounding box first, then the exact Haversine distance. CASE
 // protects the trigonometric functions from invalid coordinates even if SQL
@@ -72,9 +83,6 @@ func nearbyPredicate(args *sqlArgs, location *CatalogLocation, lat, lng string) 
 		args.bind(box.MinLng) + ", " + args.bind(box.MinLat) + "), point(" +
 		args.bind(box.MaxLng) + ", " + args.bind(box.MaxLat) + ")) AND " +
 		"CASE WHEN " + lat + " BETWEEN -90 AND 90 AND " + lng + " BETWEEN -180 AND 180 THEN " +
-		"2 * " + strconv.FormatFloat(earthRadiusMeters, 'f', -1, 64) + " * asin(sqrt(least(1.0, greatest(0.0, " +
-		"power(sin(radians(" + lat + " - " + viewerLat + ") / 2), 2) + " +
-		"cos(radians(" + viewerLat + ")) * cos(radians(" + lat + ")) * " +
-		"power(sin(radians(" + lng + " - " + viewerLng + ") / 2), 2)" +
-		")))) <= " + strconv.FormatFloat(nearbyRadiusMeters, 'f', -1, 64) + " ELSE false END)"
+		haversineMetersSQL(lat, lng, viewerLat, viewerLng) +
+		" <= " + strconv.FormatFloat(nearbyRadiusMeters, 'f', -1, 64) + " ELSE false END)"
 }

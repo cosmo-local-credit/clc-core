@@ -68,6 +68,9 @@ type (
 		// never come directly from public input.
 		VoucherIDs   []uint64
 		VoucherMatch TagMatch
+		// PoolIDs are resolved from stable chain/address references. A voucher
+		// matches when an allowed pool_tokens row links it to any selected pool.
+		PoolIDs []uint64
 		// Owner restricts the page to rows belonging to one address: a voucher's
 		// owner_address, a report's author_address. Empty means no restriction.
 		Owner string
@@ -79,6 +82,12 @@ type (
 	// IDs are deliberately not part of URLs because catalog transfers may
 	// remap them between environments.
 	VoucherRef struct {
+		ChainID int64
+		Address string
+	}
+
+	// PoolRef is the stable public identity of a pool.
+	PoolRef struct {
 		ChainID int64
 		Address string
 	}
@@ -155,6 +164,10 @@ const (
 	// reducer does work with no useful catalog-browsing benefit.
 	CatalogMaxVouchers = 12
 
+	// CatalogMaxPools permits a wallet to send its full verified creditable-pool
+	// set while bounding the relationship reducer.
+	CatalogMaxPools = 100
+
 	// catalogStatementTimeout caps a catalog read at the database, below the
 	// outer HTTP timeout, so a pathological plan cannot hold a connection
 	// open indefinitely (PostgreSQL's default is unlimited). Representative
@@ -174,6 +187,8 @@ var (
 	ErrCatalogTooManyVouchers = errors.New("vouchers must contain at most " +
 		strconv.Itoa(CatalogMaxVouchers) + " values")
 	ErrCatalogUnknownVoucherMatch = errors.New(`voucherMatch must be "any" or "all"`)
+	ErrCatalogTooManyPools        = errors.New("pools must contain at most " +
+		strconv.Itoa(CatalogMaxPools) + " values")
 )
 
 // NewCatalogFilter normalizes and validates raw request values. Tags are
@@ -223,6 +238,20 @@ func (f CatalogFilter) WithVoucherIDs(raw []uint64, match TagMatch) (CatalogFilt
 	return f, nil
 }
 
+// WithPoolIDs returns a copy narrowed to vouchers allowed by at least one of
+// the resolved pools. Pool discovery is intentionally any-match: credit access
+// through one verified pool is sufficient.
+func (f CatalogFilter) WithPoolIDs(raw []uint64) (CatalogFilter, error) {
+	ids := slices.Clone(raw)
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	if len(ids) > CatalogMaxPools {
+		return CatalogFilter{}, ErrCatalogTooManyPools
+	}
+	f.PoolIDs = ids
+	return f, nil
+}
+
 // NormalizeCatalogTerm trims the term and collapses internal whitespace, so
 // "  sarafu   network " and "sarafu network" are one cache key and one set of
 // bound parameters. Normalization happens before the length check so padding
@@ -261,7 +290,7 @@ func normalizeCatalogTags(raw []string) []string {
 // Active reports whether the filter narrows anything. When it does not, callers
 // use the existing static statements unchanged.
 func (f CatalogFilter) Active() bool {
-	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || f.Owner != "" || f.Nearby != nil
+	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || len(f.PoolIDs) > 0 || f.Owner != "" || f.Nearby != nil
 }
 
 // prefixOnly reports whether the term is short enough that it matches as a
@@ -459,6 +488,24 @@ func (pg *Pg) ResolveVoucherRefs(
 	return ids, nil
 }
 
+// ResolvePoolRefs resolves stable public pool identities to internal keys.
+func (pg *Pg) ResolvePoolRefs(ctx context.Context, tx pgx.Tx, refs []PoolRef) ([]uint64, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	chainIDs := make([]int64, 0, len(refs))
+	addresses := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		chainIDs = append(chainIDs, ref.ChainID)
+		addresses = append(addresses, ref.Address)
+	}
+	var ids []uint64
+	if err := pgxscan.Select(ctx, tx, &ids, pg.queries.ResolvePoolRefs, chainIDs, addresses); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 // CountVouchersOwnedBy answers how many of the given voucher rows list owner as
 // their owner_address, compared case-insensitively. A count rather than a list
 // because the caller only needs to know whether every id passed; ids not in
@@ -495,6 +542,20 @@ func voucherIDsParam(ids []uint64) []int64 {
 		values = append(values, int64(id))
 	}
 	return values
+}
+
+// voucherPoolPredicate narrows vouchers through the authoritative allowed
+// pool-token relationship. It is shared by voucher and offering discovery.
+func voucherPoolPredicate(args *sqlArgs, filter CatalogFilter, voucherID string) string {
+	if len(filter.PoolIDs) == 0 {
+		return ""
+	}
+	return `EXISTS (
+            SELECT 1 FROM pool_tokens discovery_pt
+            WHERE discovery_pt.voucher_id = ` + voucherID + `
+                AND discovery_pt.is_allowed
+                AND discovery_pt.pool_id = ANY(` + args.bind(voucherIDsParam(filter.PoolIDs)) + `::BIGINT[])
+        )`
 }
 
 // searchPredicate returns the displayed name/symbol match for the filter's term,

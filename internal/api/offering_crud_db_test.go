@@ -160,6 +160,11 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 	lowerOwner := strings.ToLower(offeringOwnerAddress)
 	ownedID, ownedAddress := voucher(&lowerOwner, offeringMarker+" Owned", true)
 	fx.ownedID, fx.ownedAddress = ownedID, ownedAddress
+	if _, err := tx.Exec(ctx,
+		`UPDATE vouchers SET voucher_uoa='KES', voucher_value=2.5 WHERE id=$1`, ownedID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("seed voucher unit-of-account rate: %v", err)
+	}
 
 	_, fx.inactiveAddress = voucher(&lowerOwner, offeringMarker+" Retired", false)
 	_, fx.ownerlessAddress = voucher(nil, offeringMarker+" Imported", true)
@@ -728,7 +733,8 @@ func TestOfferingItemReadIsPublicAndCacheable(t *testing.T) {
 	// The item projection is the list projection, so a client reconciles one shape.
 	offering := offeringFrom(t, result)
 	for _, field := range []string{
-		"id", "voucherId", "voucherAddress", "voucherSymbol", "voucherDecimals",
+		"id", "voucherId", "voucherAddress", "voucherSymbol", "voucherUoa",
+		"priceInUnitOfAccount", "voucherDecimals",
 		"sellerAddress", "commodityName", "commodityType", "description",
 		"quantity", "unit", "price", "available", "imageUrl", "tags",
 		"createdAt", "updatedAt",
@@ -736,6 +742,12 @@ func TestOfferingItemReadIsPublicAndCacheable(t *testing.T) {
 		if _, ok := offering[field]; !ok {
 			t.Errorf("item read is missing %q from the shared projection", field)
 		}
+	}
+	if got := offering["voucherUoa"]; got != "KES" {
+		t.Errorf("voucherUoa = %v, want KES", got)
+	}
+	if got := offering["priceInUnitOfAccount"]; got != "18.125" {
+		t.Errorf("priceInUnitOfAccount = %v, want exact 18.125", got)
 	}
 }
 

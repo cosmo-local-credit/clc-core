@@ -11,6 +11,7 @@ import (
 
 type (
 	Store interface {
+		CuratedCatalogStore
 		SuggestUsername(context.Context, pgx.Tx, string) (string, error)
 		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)
 		ResolveRecipient(context.Context, pgx.Tx, string, int64, bool) (Recipient, error)
@@ -96,6 +97,8 @@ type (
 		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
 		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
 		ListUserShareTxHashes(context.Context, pgx.Tx, []string, uint64) ([]string, error)
+		InsertTransferValuationSnapshots(context.Context, pgx.Tx, string, []string) ([]VoucherClaimSnapshot, error)
+		ListTransferValuationSnapshotsByTxHashes(context.Context, pgx.Tx, []string) ([]TransferValuationSnapshot, error)
 		ListUsersFiltered(context.Context, pgx.Tx, UserFilter, CatalogPage, uint64, uint64) ([]User, error)
 		AccountRelationshipCounts(context.Context, pgx.Tx, string) (AccountRelationshipCounts, error)
 		ListAccountPools(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Pool, error)
@@ -173,14 +176,18 @@ type (
 		// Catalog search and tag filtering (PG_SEARCH_PLAN.md Slices 1 and 2).
 		ListMarketVouchersFiltered(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter, CatalogPage, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVoucherTagFacets(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter) ([]TagFacet, error)
+		ListOfferingsFiltered(context.Context, pgx.Tx, CatalogFilter, OfferingCursor, uint64) ([]Offering, error)
+		ListOfferingTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		ListPoolsFiltered(context.Context, pgx.Tx, CatalogFilter, CatalogPage, uint64, uint64) ([]Pool, error)
 		ListPoolTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		ListPoolVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		ListReportVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
 		ResolveVoucherRefs(context.Context, pgx.Tx, []VoucherRef) ([]uint64, error)
+		ResolvePoolRefs(context.Context, pgx.Tx, []PoolRef) ([]uint64, error)
 		CountVouchersOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
+		ListMarketplace(context.Context, pgx.Tx, CatalogFilter, []string, *CatalogLocation, MarketplaceCursor, uint64, bool) ([]MarketplaceResult, error)
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
 		ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)

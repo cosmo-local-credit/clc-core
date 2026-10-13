@@ -46,10 +46,48 @@ LEFT JOIN LATERAL (
 ORDER BY p.id DESC;`
 )
 
-// composePoolPage builds one filtered pool page, with the same two driving
-// shapes and for the same measured reason as the voucher page: a search term
-// materializes its match set so the trigram index drives, and a reducer-only
-// query pages the table directly.
+// poolTextMatchesCTE finds pools by their own identity or by the identity of an
+// active voucher they currently allow. Keeping the two searches as separate
+// UNION arms lets PostgreSQL drive each one from its own trigram index instead
+// of turning an OR across relationships into a catalog-wide scan.
+func poolTextMatchesCTE(args *sqlArgs, filter CatalogFilter) string {
+	placeholder := args.bind(filter.likeTerm())
+	poolMatch := searchPredicateForPlaceholder(filter, "search_pool", placeholder)
+	voucherMatch := searchPredicateForPlaceholder(filter, "search_voucher", placeholder)
+
+	return `pool_text_matches AS MATERIALIZED (
+    SELECT search_pool.id
+    FROM pools search_pool
+    WHERE ` + poolMatch + `
+    UNION
+    SELECT search_token.pool_id AS id
+    FROM vouchers search_voucher
+    INNER JOIN pool_tokens search_token
+        ON search_token.voucher_id = search_voucher.id
+        AND search_token.is_allowed
+    WHERE search_voucher.active
+        AND ` + voucherMatch + `
+)`
+}
+
+// searchPredicateForPlaceholder returns a displayed-name/symbol search while
+// reusing an already-bound escaped search term.
+func searchPredicateForPlaceholder(filter CatalogFilter, table, placeholder string) string {
+	name := table + ".name"
+	if table == "search_pool" || table == "search_voucher" {
+		name = "COALESCE(" + table + ".display_name, " + table + ".name)"
+	}
+	if filter.prefixOnly() {
+		return "(lower(" + name + ") LIKE lower(" + placeholder + ") || '%' ESCAPE '\\'" +
+			"\n            OR lower(" + table + ".symbol) LIKE lower(" + placeholder + ") || '%' ESCAPE '\\')"
+	}
+	return "(lower(" + name + ") LIKE '%' || lower(" + placeholder + ") || '%' ESCAPE '\\'" +
+		"\n            OR lower(" + table + ".symbol) LIKE '%' || lower(" + placeholder + ") || '%' ESCAPE '\\')"
+}
+
+// composePoolPage builds one filtered pool page. A search term materializes
+// the union of pool-identity and approved-voucher matches before applying the
+// remaining reducers; a reducer-only query pages the pool table directly.
 func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint64) composed {
 	args := &sqlArgs{}
 
@@ -70,16 +108,23 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 		return composed{sql: body + poolPageProjection, args: args.values}
 	}
 
-	body := "WITH matches AS MATERIALIZED (\n" +
-		"    SELECT p.id\n" +
-		"    FROM pools p" +
-		whereClause(
-			searchPredicate(args, filter, "p"),
-			ownerPredicate(args, "p.owner_address", filter),
-			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
-			poolTagPredicate(args, filter),
-			poolVoucherPredicate(args, filter),
-		) +
+	textMatches := poolTextMatchesCTE(args, filter)
+	matchQuery := "    SELECT text_match.id\n" +
+		"    FROM pool_text_matches text_match"
+	if filter.Owner != "" || filter.Nearby != nil || len(filter.Tags) > 0 || len(filter.VoucherIDs) > 0 {
+		matchQuery = "    SELECT p.id\n" +
+			"    FROM pool_text_matches text_match\n" +
+			"    INNER JOIN pools p ON p.id = text_match.id" +
+			whereClause(
+				ownerPredicate(args, "p.owner_address", filter),
+				nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
+				poolTagPredicate(args, filter),
+				poolVoucherPredicate(args, filter),
+			)
+	}
+
+	body := "WITH " + textMatches + ",\nmatches AS MATERIALIZED (\n" +
+		matchQuery +
 		"\n),\npage AS MATERIALIZED (\n" +
 		"    SELECT m.id\n" +
 		"    FROM matches m" +
@@ -97,11 +142,17 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 func composePoolTagCounts(filter CatalogFilter) composed {
 	args := &sqlArgs{}
 
-	sql := `WITH candidates AS MATERIALIZED (
+	prefix := "WITH "
+	from := "    FROM pools p"
+	if filter.Term != "" {
+		prefix += poolTextMatchesCTE(args, filter) + ",\n"
+		from = "    FROM pool_text_matches text_match\n    INNER JOIN pools p ON p.id = text_match.id"
+	}
+
+	sql := prefix + `candidates AS MATERIALIZED (
     SELECT p.id
-    FROM pools p` +
+` + from +
 		whereClause(
-			searchPredicate(args, filter, "p"),
 			ownerPredicate(args, "p.owner_address", filter),
 			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 			poolVoucherPredicate(args, filter),
@@ -149,11 +200,17 @@ func poolVoucherPredicate(args *sqlArgs, filter CatalogFilter) string {
 func composePoolVoucherCounts(filter CatalogFilter) composed {
 	args := &sqlArgs{}
 
-	sql := `WITH candidates AS MATERIALIZED (
+	prefix := "WITH "
+	from := "    FROM pools p"
+	if filter.Term != "" {
+		prefix += poolTextMatchesCTE(args, filter) + ",\n"
+		from = "    FROM pool_text_matches text_match\n    INNER JOIN pools p ON p.id = text_match.id"
+	}
+
+	sql := prefix + `candidates AS MATERIALIZED (
     SELECT p.id
-    FROM pools p` +
+` + from +
 		whereClause(
-			searchPredicate(args, filter, "p"),
 			ownerPredicate(args, "p.owner_address", filter),
 			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 			poolTagPredicate(args, filter),
