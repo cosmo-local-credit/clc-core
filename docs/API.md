@@ -2802,21 +2802,42 @@ deployments keep their association under the new name.
 Like deletion, a rename does not blacklist the old spelling: the next catalog
 write that names it creates it as a new custom value.
 
+## Username text (migration 050)
+
+Usernames accept 1–80 Unicode code points after trimming and NFC normalization.
+Case, internal spaces, punctuation, digits, and all scripts are preserved for
+presentation. Empty/whitespace-only explicit names are rejected; omitting a
+username retains existing automatic assignment behavior. Suggestions preserve
+name text, adding numeric suffixes on collision and truncating by code point to
+keep the final candidate within 80 characters.
+
+Usernames and pool names still share recipient uniqueness. Comparison uses NFC,
+collapsed whitespace, and PostgreSQL's locale-dependent `lower()`; a C-locale
+server does not case-fold all non-ASCII capitals. Migration 050 updates the
+shared identity normalization function (including symbol claims) and rebuilds
+recipient indexes. Existing canonical collisions abort the transaction without
+renaming or deleting an identity. Apply the migration before deploying callers.
+
+Exact resolution accepts `GET /api/v2/recipients/resolve?name=…` so punctuation,
+including slashes, stays in a query parameter. The existing path form remains.
+
 ## Recipient search
 
 Authenticated `GET /api/v2/recipients?q=…` returns up to 20 recipient identities
 in `result.recipients`. Text searches current usernames and effective pool names.
-Phone-shaped input searches approved users with usernames by their stored phone
+Phone-shaped input also searches approved users with usernames by their stored phone
 prefix, after at least three digits. An optional leading `+`, spaces, parentheses
 and hyphens are ignored when comparing; every digit, including leading zeros
 and `00`, is preserved. `071` is not converted to an international number.
-Exact phone matches rank first, followed by username/address order. The existing
+Exact name matches rank first, then phone matches (exact phone first), then other
+name matches. The existing
 optional `kind=user|pool` parameter still applies; pool contact phones are excluded.
 Phone numbers are not included in the response.
 
 Sending to a complete wallet address uses direct address entry, with optional
 `GET /api/v2/recipients/reverse/:address` for its current identity label. Unknown
-addresses remain valid destinations; partial addresses do not trigger discovery.
+addresses remain valid destinations. Other nonempty input, including one-character
+and 0x-prefixed usernames, triggers debounced name discovery.
 
 ## 13. User-created catalogs (`/api/v2/catalogs`)
 

@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -29,5 +30,23 @@ func TestUsernameSuggestionIsPublicAndRateLimited(t *testing.T) {
 	}
 	if res := send("198.51.100.42:1234", strings.Repeat("a", 121)); res.Code != http.StatusBadRequest {
 		t.Fatalf("another client was limited: status %d", res.Code)
+	}
+}
+
+func TestRecipientUnicodeProfileAndResolve(t *testing.T) {
+	a, token := newAdminAPI(t)
+	defer seedProfileAccount(t, a)()
+	name := "Ž / #?& 李"
+	res, result := postJSON(t, a, token, "/auth/profile", map[string]any{"name": "Unicode Name", "email": "unicode-api@example.test", "username": name})
+	if res.Code != http.StatusOK || result["username"] != name {
+		t.Fatalf("save: %d %s", res.Code, res.Body.String())
+	}
+	res, result = getJSON(t, a, token, "/api/v2/recipients/resolve?"+url.Values{"name": {name}}.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("resolve: %d %s", res.Code, res.Body.String())
+	}
+	recipient, ok := result["recipient"].(map[string]any)
+	if !ok || recipient["alias"] != name {
+		t.Fatalf("recipient: %#v", result)
 	}
 }

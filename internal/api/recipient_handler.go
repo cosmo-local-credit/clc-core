@@ -57,8 +57,15 @@ func (a *API) recipientSearchHandler(c *echo.Context) error {
 }
 
 func (a *API) recipientResolveHandler(c *echo.Context) error {
+	name := c.QueryParam("name")
+	if name == "" {
+		name = c.Param("name")
+	}
+	if strings.TrimSpace(name) == "" || len([]rune(name)) > 120 {
+		return handleBindError(c, errors.New("provide a recipient name of 1–120 characters"))
+	}
 	return a.recipientRead(c, func(tx pgx.Tx) (any, error) {
-		return a.store.ResolveRecipient(c.Request().Context(), tx, c.Param("name"), a.chainID, false)
+		return a.store.ResolveRecipient(c.Request().Context(), tx, name, a.chainID, false)
 	})
 }
 
