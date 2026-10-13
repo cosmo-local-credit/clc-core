@@ -97,7 +97,10 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 		return err
 	}
 
-	_, callerAddress, callerRole := getUserClaims(c)
+	callerID, callerAddress, callerRole := getUserClaims(c)
+	if callerID == 0 || callerAddress == "" {
+		return handleForbiddenError(c, "this endpoint requires user authentication")
+	}
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
@@ -105,6 +108,12 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// Lock the quota user before the voucher, consistently across creation paths.
+	if callerRole != "SUPERADMIN" {
+		if err := a.store.CheckUserResourceLimit(ctx, tx, callerID, "offers"); err != nil {
+			return handleResourceLimitError(c, err)
+		}
+	}
 	voucher, err := a.store.LockVoucherForOfferingCreate(ctx, tx, address)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

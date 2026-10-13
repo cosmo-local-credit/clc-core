@@ -109,6 +109,8 @@ type (
 		PeekNonce                    string `query:"peek-nonce"`
 		CheckKeypair                 string `query:"check-keypair"`
 
+		LockQuotaUser                 string `query:"lock-quota-user"`
+		GetUserResourceUsage          string `query:"get-user-resource-usage"`
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
 		GetUserByEmail                string `query:"get-user-by-email"`

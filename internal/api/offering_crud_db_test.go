@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 // End-to-end coverage of offering CRUD through the real route table, auth
@@ -95,8 +97,41 @@ func newOfferingAPI(t *testing.T) (*API, ed25519.PrivateKey) {
 func offeringToken(t *testing.T, priv ed25519.PrivateKey, address, role string) string {
 	t.Helper()
 
+	// Quotas now require a real account. Older authorization-only fixtures used
+	// a made-up ID; retain that only for tests without a database.
+	userID := uint64(7)
+	if dsn := os.Getenv("CORE_TEST_DSN"); dsn != "" {
+		ctx := context.Background()
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close(ctx)
+		err = conn.QueryRow(ctx, `SELECT id FROM users WHERE lower(blockchain_address)=lower($1)`, address).Scan(&userID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = conn.QueryRow(ctx, `INSERT INTO users(blockchain_address,name,email,status,role,max_offers)
+                VALUES($1,'Offering test user',gen_random_uuid()::text||'@offering.test','APPROVED',$2,100) RETURNING id`, address, role).Scan(&userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				cleanup, e := pgx.Connect(ctx, dsn)
+				if e != nil {
+					t.Error(e)
+					return
+				}
+				defer cleanup.Close(ctx)
+				if _, e = cleanup.Exec(ctx, `DELETE FROM users WHERE id=$1`, userID); e != nil {
+					t.Error(e)
+				}
+			})
+		} else if err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	claims := UserJWTClaims{
-		UserID:          7,
+		UserID:          userID,
 		EthereumAddress: address,
 		Role:            role,
 		RegisteredClaims: jwt.RegisteredClaims{

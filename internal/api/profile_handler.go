@@ -22,8 +22,6 @@ func newPendingSIWEUser(address string) store.User {
 		Email:           pendingSIWEEmail(address),
 		Role:            "USER",
 		Status:          "APPROVED",
-		MaxPools:        10,
-		MaxTokens:       20,
 	}
 }
 

@@ -92,7 +92,7 @@ type (
 		GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
-		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
+		UpdateUserLimits(context.Context, pgx.Tx, string, UserLimitsUpdate) (User, error)
 		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)
 		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
 		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
@@ -106,6 +106,8 @@ type (
 		DashboardCatalogSeries(context.Context, pgx.Tx, time.Time, time.Time, int64) ([]DashboardCatalogPoint, error)
 
 		InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
+		CheckUserResourceLimit(context.Context, pgx.Tx, uint64, string) error
+		GetUserResourceUsage(context.Context, pgx.Tx, uint64) (UserResourceUsage, error)
 		CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)
 		CountUserPools(context.Context, pgx.Tx, uint64) (int, error)
 		ListUserDeployments(context.Context, pgx.Tx, uint64) ([]UserDeployment, error)
