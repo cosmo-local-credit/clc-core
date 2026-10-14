@@ -167,8 +167,10 @@ type (
 	}
 
 	UpdateUserLimitsRequest struct {
-		MaxPools  int `json:"maxPools" validate:"gte=0"`
-		MaxTokens int `json:"maxTokens" validate:"gte=0"`
+		MaxPools    *int `json:"maxPools" validate:"omitempty,gte=0,lte=2147483647"`
+		MaxTokens   *int `json:"maxTokens" validate:"omitempty,gte=0,lte=2147483647"`
+		MaxCatalogs *int `json:"maxCatalogs" validate:"omitempty,gte=0,lte=2147483647"`
+		MaxOffers   *int `json:"maxOffers" validate:"omitempty,gte=0,lte=2147483647"`
 	}
 
 	// EthAddressParam is a path-parameter type for Ethereum addresses.

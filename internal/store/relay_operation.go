@@ -10,7 +10,7 @@ import (
 
 type (
 	// RelayOperation ties a client-chosen operation id to the one relay job it
-	// queued. See migration 047 for why the table exists.
+	// queued. See migration 053 for why the table exists.
 	RelayOperation struct {
 		OperationID   string    `db:"operation_id"`
 		UserAddress   string    `db:"user_address"`

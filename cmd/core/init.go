@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/sub"
+	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	"github.com/ethereum/go-ethereum/common"
@@ -24,6 +26,25 @@ import (
 
 func notifyShutdown() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+}
+
+// loadTelemetry fans the logger out to the OTLP collector when
+// OTEL_EXPORTER_OTLP_ENDPOINT is set. Telemetry is best-effort: a setup failure
+// is logged and the service keeps its stderr-only logger.
+func loadTelemetry(ctx context.Context) (*slog.Logger, func(context.Context) error) {
+	handler, shutdown, err := telemetry.Setup(ctx, lo.Handler(), telemetry.Opts{
+		ServiceName: "clc-core",
+		Version:     build,
+	})
+	if err != nil {
+		lo.Error("could not initialize telemetry; continuing without it", "error", err)
+		return lo, func(context.Context) error { return nil }
+	}
+	if telemetry.Enabled() {
+		lo.Info("telemetry export enabled")
+	}
+
+	return slog.New(handler), shutdown
 }
 
 func loadStore() store.Store {
@@ -40,6 +61,9 @@ func loadStore() store.Store {
 	if err := pgStore.Bootstrap(); err != nil {
 		lo.Error("store bootstrap actions failed", "error", err)
 		os.Exit(1)
+	}
+	if err := telemetry.ObservePool("core", pgStore.Pool()); err != nil {
+		lo.Warn("could not register db pool metrics", "error", err)
 	}
 
 	return pgStore

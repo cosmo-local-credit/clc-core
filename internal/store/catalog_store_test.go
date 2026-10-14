@@ -56,6 +56,12 @@ func TestLoadCatalogQueries(t *testing.T) {
 	if queries.DashboardCatalogSeries != "" && !strings.Contains(queries.DashboardCatalogSeries, "generate_series") {
 		t.Fatal("expected catalog series to fill buckets in SQL")
 	}
+	if queries.ResolvePoolRefs == "" || !strings.Contains(queries.ResolvePoolRefs, "unnest($1::BIGINT[], $2::TEXT[])") {
+		t.Fatal("expected stable pool-reference resolver")
+	}
+	if queries.ListOfferingTagVocabulary == "" || !strings.Contains(queries.ListOfferingTagVocabulary, "o.available AND v.active") {
+		t.Fatal("expected public offering tag vocabulary")
+	}
 
 	if !strings.Contains(queries.ListPoolVouchers, "oracle_feeds") {
 		t.Fatal("expected pool vouchers to include their oracle feed")

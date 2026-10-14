@@ -1,10 +1,106 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
+
+func TestRetiredVoucherPoolCompositionVisibility(t *testing.T) {
+	a, priv := newOfferingAPI(t)
+	fx, cleanup := seedOfferingFixtures(t, a)
+	defer cleanup()
+	ctx := context.Background()
+	operator := offeringToken(t, priv, offeringOperatorAddr, "SUPERADMIN")
+	owner := offeringToken(t, priv, offeringOwnerAddress, "USER")
+	var poolID uint64
+	var address string
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `INSERT INTO pools(chain_id,address)
+        VALUES(42220,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0')) RETURNING id,address`).Scan(&poolID, &address))
+	defer func() {
+		_, err := a.store.Pool().Exec(ctx, `DELETE FROM pool_tokens WHERE pool_id=$1`, poolID)
+		require.NoError(t, err)
+		_, err = a.store.Pool().Exec(ctx, `DELETE FROM pools WHERE id=$1`, poolID)
+		require.NoError(t, err)
+	}()
+	_, err := a.store.Pool().Exec(ctx, `INSERT INTO pool_tokens(pool_id,voucher_id,is_allowed)
+        SELECT $1,id,true FROM vouchers WHERE lower(address) IN (lower($2),lower($3))`, poolID, fx.ownedAddress, fx.inactiveAddress)
+	require.NoError(t, err)
+	for _, prefix := range []string{"/api/v2/pools/", "/api/v2/admin/pools/"} {
+		admin := strings.Contains(prefix, "/admin/")
+		token := ""
+		if admin {
+			token = operator
+		}
+		res, result := offeringRequest(t, a, http.MethodGet, prefix+address+"/vouchers", token, nil)
+		require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+		vouchers, ok := result["vouchers"].([]any)
+		require.True(t, ok)
+		if admin {
+			require.Len(t, vouchers, 2)
+			require.Equal(t, float64(2), result["total"])
+			require.Equal(t, "no-store", res.Header().Get("Cache-Control"))
+		} else {
+			require.Len(t, vouchers, 1)
+			voucher, ok := vouchers[0].(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, true, voucher["active"])
+		}
+	}
+	res, result := offeringRequest(t, a, http.MethodGet, "/api/v2/admin/pools/"+address+"/vouchers?perPage=1", operator, nil)
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	require.Equal(t, float64(2), result["total"])
+	rows, ok := result["vouchers"].([]any)
+	require.True(t, ok)
+	require.Len(t, rows, 1)
+	for _, token := range []string{"", owner} {
+		res, _ := offeringRequest(t, a, http.MethodGet, "/api/v2/admin/pools/"+address+"/vouchers", token, nil)
+		require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, res.Code)
+	}
+	tx, err := a.store.Pool().Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+	pool, err := a.store.GetPoolByAddress(ctx, tx, address)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, pool.VoucherCount)
+	// Filtering belongs before LIMIT in both paging directions.
+	next, err := a.store.ListPoolVouchersNext(ctx, tx, address, 2147483647, 1)
+	require.NoError(t, err)
+	require.Len(t, next, 1)
+	require.True(t, next[0].Active)
+	previous, err := a.store.ListPoolVouchersPrevious(ctx, tx, address, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, previous, 1)
+	require.True(t, previous[0].Active)
+}
+
+func TestVoucherRestoreRejectsOfferQuotaAndRollsBack(t *testing.T) {
+	a, priv := newOfferingAPI(t)
+	fx, cleanup := seedOfferingFixtures(t, a)
+	defer cleanup()
+	ctx := context.Background()
+	operator := offeringToken(t, priv, offeringOperatorAddr, "SUPERADMIN")
+	owner := offeringToken(t, priv, offeringOwnerAddress, "USER")
+	_, err := a.store.Pool().Exec(ctx, `UPDATE users SET max_offers=0 WHERE lower(blockchain_address)=lower($1)`, offeringOwnerAddress)
+	require.NoError(t, err)
+	defer func() {
+		_, err := a.store.Pool().Exec(ctx, `UPDATE users SET max_offers=100 WHERE lower(blockchain_address)=lower($1)`, offeringOwnerAddress)
+		require.NoError(t, err)
+	}()
+	_, err = a.store.Pool().Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,commodity_type,description,quantity,available)
+        VALUES($1,$2,'Restore quota','GOOD','',1,true)`, fx.ownedID, offeringOwnerAddress)
+	require.NoError(t, err)
+	res, _ := offeringRequest(t, a, http.MethodDelete, "/api/v2/vouchers/"+fx.ownedAddress, owner, nil)
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	res, _ = offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vouchers/"+fx.ownedAddress+"/restore", operator, nil)
+	require.Equal(t, http.StatusTooManyRequests, res.Code, res.Body.String())
+	var active bool
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `SELECT active FROM vouchers WHERE id=$1`, fx.ownedID).Scan(&active))
+	require.False(t, active)
+}
 
 // End-to-end coverage of the retire/restore lifecycle through the real route
 // table, auth middleware, store and database. Skipped unless CORE_TEST_DSN is

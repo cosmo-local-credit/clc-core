@@ -81,7 +81,11 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "044_pool_geo_index.sql")
 	assert.Contains(t, sqlFiles, "045_education_marker_icon.sql")
 	assert.Contains(t, sqlFiles, "046_protocol_fee_controller.sql")
-	assert.Contains(t, sqlFiles, "047_relay_operations.sql")
+	assert.Contains(t, sqlFiles, "047_user_catalogs.sql")
+	assert.Contains(t, sqlFiles, "048_catalog_descriptions.sql")
+	assert.Contains(t, sqlFiles, "049_transfer_valuation_snapshots.sql")
+	assert.Contains(t, sqlFiles, "050_catalog_tags.sql")
+	assert.Contains(t, sqlFiles, "053_relay_operations.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -130,7 +134,13 @@ func TestMigrationFiles(t *testing.T) {
 				name == "044_pool_geo_index.sql" ||
 				name == "045_education_marker_icon.sql" ||
 				name == "046_protocol_fee_controller.sql" ||
-				name == "047_relay_operations.sql",
+				name == "047_user_catalogs.sql" ||
+				name == "048_catalog_descriptions.sql" ||
+				name == "049_transfer_valuation_snapshots.sql" ||
+				name == "050_catalog_tags.sql" ||
+				name == "051_user_resource_limits.sql" ||
+				name == "052_unicode_usernames.sql" ||
+				name == "053_relay_operations.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -186,8 +196,46 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"044_pool_geo_index.sql",
 		"045_education_marker_icon.sql",
 		"046_protocol_fee_controller.sql",
-		"047_relay_operations.sql",
+		"047_user_catalogs.sql",
+		"048_catalog_descriptions.sql",
+		"049_transfer_valuation_snapshots.sql",
+		"050_catalog_tags.sql",
+		"051_user_resource_limits.sql",
+		"052_unicode_usernames.sql",
+		"053_relay_operations.sql",
 	}, files)
+}
+
+func TestCatalogTagsMigration(t *testing.T) {
+	content, err := os.ReadFile("050_catalog_tags.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "CREATE TABLE catalog_tags")
+	assert.Contains(t, s, "tag_value TEXT NOT NULL REFERENCES token_tag(value)")
+	assert.Contains(t, s, "ON UPDATE CASCADE")
+	assert.Contains(t, s, "PRIMARY KEY (catalog_id, tag_value)")
+}
+
+func TestTransferValuationSnapshotsMigration(t *testing.T) {
+	content, err := os.ReadFile("049_transfer_valuation_snapshots.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "tracking_id       UUID NOT NULL")
+	assert.Contains(t, s, "PRIMARY KEY (tracking_id, token_address)")
+	assert.Contains(t, s, "voucher_value     NUMERIC NOT NULL")
+	assert.NotContains(t, s, "token_amount_raw")
+	assert.NotContains(t, s, "uoa_value")
+}
+
+func TestCatalogDescriptionMigration(t *testing.T) {
+	content, err := os.ReadFile("048_catalog_descriptions.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "ADD COLUMN description TEXT")
+	assert.Contains(t, s, "char_length(description) BETWEEN 1 AND 500")
+	assert.Contains(t, s, "catalogs_name_trgm_idx")
+	assert.Contains(t, s, "catalogs_location_trgm_idx")
+	assert.Contains(t, s, "catalogs_description_trgm_idx")
 }
 
 func TestPoolGeoIndexMigration(t *testing.T) {

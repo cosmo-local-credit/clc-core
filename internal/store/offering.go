@@ -10,29 +10,39 @@ import (
 
 type (
 	Offering struct {
-		ID              uint64    `db:"id"               json:"id"`
-		SourceID        *uint64   `db:"source_id"        json:"sourceId"`
-		VoucherID       uint64    `db:"voucher_id"       json:"voucherId"`
-		VoucherAddress  string    `db:"voucher_address"  json:"voucherAddress"`
-		VoucherName     *string   `db:"voucher_name"     json:"voucherName"`
-		VoucherSymbol   *string   `db:"voucher_symbol"   json:"voucherSymbol"`
-		VoucherDecimals *int32    `db:"voucher_decimals" json:"voucherDecimals"`
-		SellerAddress   string    `db:"seller_address"   json:"sellerAddress"`
-		CommodityName   string    `db:"commodity_name"   json:"commodityName"`
-		CommodityType   string    `db:"commodity_type"   json:"commodityType"`
-		Description     string    `db:"description"      json:"description"`
-		Quantity        string    `db:"quantity"         json:"quantity"`
-		Unit            *string   `db:"unit"             json:"unit"`
-		Frequency       *string   `db:"frequency"        json:"frequency"`
-		Price           *string   `db:"price"            json:"price"`
-		Available       bool      `db:"available"        json:"available"`
-		LocationName    *string   `db:"location_name"    json:"locationName"`
-		GeoLat          *float64  `db:"geo_lat"          json:"geoLat"`
-		GeoLng          *float64  `db:"geo_lng"          json:"geoLng"`
-		ImageURL        *string   `db:"image_url"        json:"imageUrl"`
-		Tags            []string  `db:"tags"             json:"tags"`
-		CreatedAt       time.Time `db:"created_at"       json:"createdAt"`
-		UpdatedAt       time.Time `db:"updated_at"       json:"updatedAt"`
+		ID                    uint64    `db:"id"               json:"id"`
+		SourceID              *uint64   `db:"source_id"        json:"sourceId"`
+		VoucherID             uint64    `db:"voucher_id"       json:"voucherId"`
+		VoucherAddress        string    `db:"voucher_address"  json:"voucherAddress"`
+		VoucherName           *string   `db:"voucher_name"     json:"voucherName"`
+		VoucherSymbol         *string   `db:"voucher_symbol"   json:"voucherSymbol"`
+		VoucherUOA            *string   `db:"voucher_uoa"      json:"voucherUoa"`
+		PriceInUnitOfAccount  *string   `db:"price_in_unit_of_account" json:"priceInUnitOfAccount"`
+		VoucherDecimals       *int32    `db:"voucher_decimals"      json:"voucherDecimals"`
+		VoucherImageURL       *string   `db:"voucher_image_url"     json:"voucherImageUrl"`
+		VoucherLocationName   *string   `db:"voucher_location_name" json:"voucherLocationName"`
+		VoucherGeoLat         *float64  `db:"voucher_geo_lat"       json:"voucherGeoLat"`
+		VoucherGeoLng         *float64  `db:"voucher_geo_lng"       json:"voucherGeoLng"`
+		SellerAddress         string    `db:"seller_address"   json:"sellerAddress"`
+		CommodityName         string    `db:"commodity_name"   json:"commodityName"`
+		CommodityType         string    `db:"commodity_type"   json:"commodityType"`
+		Description           string    `db:"description"      json:"description"`
+		Quantity              string    `db:"quantity"         json:"quantity"`
+		Unit                  *string   `db:"unit"             json:"unit"`
+		Frequency             *string   `db:"frequency"        json:"frequency"`
+		Price                 *string   `db:"price"            json:"price"`
+		Available             bool      `db:"available"        json:"available"`
+		LocationName          *string   `db:"location_name"    json:"locationName"`
+		GeoLat                *float64  `db:"geo_lat"          json:"geoLat"`
+		GeoLng                *float64  `db:"geo_lng"          json:"geoLng"`
+		ImageURL              *string   `db:"image_url"               json:"imageUrl"`
+		EffectiveLocationName *string   `db:"effective_location_name" json:"effectiveLocationName"`
+		EffectiveGeoLat       *float64  `db:"effective_geo_lat"       json:"effectiveGeoLat"`
+		EffectiveGeoLng       *float64  `db:"effective_geo_lng"       json:"effectiveGeoLng"`
+		DistanceMeters        *float64  `db:"distance_meters"         json:"distanceMeters"`
+		Tags                  []string  `db:"tags"             json:"tags"`
+		CreatedAt             time.Time `db:"created_at"       json:"createdAt"`
+		UpdatedAt             time.Time `db:"updated_at"       json:"updatedAt"`
 	}
 
 	// OfferingWrite is the six product fields a caller owns.

@@ -38,7 +38,13 @@ func TestRecipientPhoneSearchMatchesLiteralPrefixes(t *testing.T) {
 	tx, err := pg.Pool().Begin(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
-	marker := "phone-" + uuid.NewString()[:8]
+	// Keep random digits out of aliases: short numeric queries can now match names.
+	marker := "phone-" + strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return 'g' + r - '0'
+		}
+		return r
+	}, uuid.NewString()[:8])
 	for i, phone := range []string{"071", "(071) 234-5678", "+254712345678", "00712345678"} {
 		_, err := tx.Exec(ctx, `INSERT INTO users(blockchain_address,name,email,username,phone,status)
             VALUES($1,'Phone User',$2,$3,$4,'APPROVED')`, randomAddress(t, tx),
@@ -108,32 +114,32 @@ func TestRecipientFullNameSuggestionsAddNumbersOnlyWhenTaken(t *testing.T) {
 	defer tx.Rollback(ctx)
 	name, err := pg.SuggestUsername(ctx, tx, "Sohail Khan")
 	require.NoError(t, err)
-	require.Equal(t, "sohail-khan", name)
+	require.Equal(t, "Sohail Khan", name)
 	_, err = tx.Exec(ctx, `INSERT INTO pools(chain_id,address,name,symbol)
         SELECT 100, '0x' || md5(i::TEXT) || '00000000',
-            'sohail-khan' || CASE WHEN i=0 THEN '' ELSE i::TEXT END, 'FNAME' || i::TEXT
+            'Sohail Khan' || CASE WHEN i=0 THEN '' ELSE i::TEXT END, 'FNAME' || i::TEXT
         FROM generate_series(0,1) i`)
 	require.NoError(t, err)
 	name, err = pg.SuggestUsername(ctx, tx, "Sohail Khan")
 	require.NoError(t, err)
-	require.Equal(t, "sohail-khan2", name)
+	require.Equal(t, "Sohail Khan2", name)
 	address := randomAddress(t, tx)
 	_, err = pg.InsertUser(ctx, tx, User{EthereumAddress: address, Name: "Sohail Khan", Email: "full-name@example.test", Role: "USER", Status: "APPROVED"})
 	require.NoError(t, err)
 	saved, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{Address: address, Name: "Sohail Khan", Email: "full-name@example.test"})
 	require.NoError(t, err)
-	require.Equal(t, "sohail-khan2", *saved.Username)
+	require.Equal(t, "Sohail Khan2", *saved.Username)
 
-	// A non-Latin name cannot form an ASCII username. Keep profile save working
-	// without generating user99 or a random identity.
+	// Non-Latin names remain intact in suggestions and automatic assignment.
 	otherAddress := randomAddress(t, tx)
 	_, err = pg.InsertUser(ctx, tx, User{EthereumAddress: otherAddress, Name: "李明", Email: "manual-name@example.test", Role: "USER", Status: "APPROVED"})
 	require.NoError(t, err)
-	_, err = pg.SuggestUsername(ctx, tx, "李明")
-	require.ErrorIs(t, err, ErrNoUsernameAvailable)
+	name, err = pg.SuggestUsername(ctx, tx, "李明")
+	require.NoError(t, err)
+	require.Equal(t, "李明", name)
 	saved, err = pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{Address: otherAddress, Name: "李明", Email: "manual-name@example.test"})
 	require.NoError(t, err)
-	require.Nil(t, saved.Username)
+	require.Equal(t, "李明", *saved.Username)
 }
 
 func TestRecipientConcurrentAutomaticAssignment(t *testing.T) {
@@ -364,7 +370,7 @@ func TestRecipientProfileUsernamePersists(t *testing.T) {
 	saved, err := pg.UpdateUserProfile(ctx, tx, update)
 	require.NoError(t, err)
 	require.NotNil(t, saved.Username)
-	require.Equal(t, "user-example", *saved.Username)
+	require.Equal(t, "User Example", *saved.Username)
 	username := "manual-profile"
 	update.Username = &username
 	saved, err = pg.UpdateUserProfile(ctx, tx, update)
@@ -374,7 +380,7 @@ func TestRecipientProfileUsernamePersists(t *testing.T) {
 	saved, err = pg.UpdateUserProfile(ctx, tx, update)
 	require.NoError(t, err)
 	require.Equal(t, username, *saved.Username)
-	_, err = pg.ResolveRecipient(ctx, tx, "user-example", 100, false)
+	_, err = pg.ResolveRecipient(ctx, tx, "User Example", 100, false)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 	found, err := pg.ResolveRecipient(ctx, tx, username, 100, false)
 	require.NoError(t, err)
@@ -430,7 +436,7 @@ func TestRecipientProfileDefersExhaustedAutoUsername(t *testing.T) {
 	require.NoError(t, err)
 	saved, err = pg.UpdateUserProfile(ctx, tx, update)
 	require.NoError(t, err)
-	require.Equal(t, "crowded99", *saved.Username)
+	require.Equal(t, "Crowded99", *saved.Username)
 	chosen := "crowded"
 	update.Username = &chosen
 	_, err = pg.UpdateUserProfile(ctx, tx, update)
@@ -535,4 +541,68 @@ func TestRecipientSearchIgnoresPoolSymbols(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, found, 1)
 	require.Equal(t, "pool", found[0].Kind)
+}
+
+func TestRecipientUnicodeNamesRoundTrip(t *testing.T) {
+	pg := recipientTestStore(t)
+	ctx := context.Background()
+	tx, err := pg.Pool().Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+	for i, name := range []string{"Željko Petrović", "李", "Софија", "سُهيل", "123", "A / B", "50%_shop", "José"} {
+		address := randomAddress(t, tx)
+		_, err = tx.Exec(ctx, `INSERT INTO users(blockchain_address,name,email,username,status) VALUES($1,$2,$3,$2,'APPROVED')`, address, name, fmt.Sprintf("unicode%d@example.test", i))
+		require.NoError(t, err)
+		found, err := pg.ResolveRecipient(ctx, tx, name, 100, false)
+		require.NoError(t, err)
+		require.Equal(t, address, found.Address)
+		results, err := pg.SearchRecipients(ctx, tx, name, 100, "user")
+		require.NoError(t, err)
+		require.NotEmpty(t, results, "name %q", name)
+		require.Equal(t, address, results[0].Address)
+	}
+	found, err := pg.ResolveRecipient(ctx, tx, "Jose\u0301", 100, false)
+	require.NoError(t, err)
+	require.Equal(t, "José", found.Alias)
+	suggestion, err := pg.SuggestUsername(ctx, tx, "Jose\u0301")
+	require.NoError(t, err)
+	require.Equal(t, "José1", suggestion)
+	_, err = tx.Exec(ctx, "SAVEPOINT collision")
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `INSERT INTO pools(chain_id,address,name,symbol) VALUES(100,$1,$2,'UNICODE')`, randomAddress(t, tx), "Jose\u0301")
+	require.Error(t, err)
+	_, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT collision")
+	require.NoError(t, err)
+	longName := strings.Repeat("界", 80)
+	_, err = tx.Exec(ctx, `INSERT INTO users(blockchain_address,name,email,username,status) VALUES($1,'Long','unicode-long@example.test',$2,'APPROVED')`, randomAddress(t, tx), longName)
+	require.NoError(t, err)
+	suggestion, err = pg.SuggestUsername(ctx, tx, longName)
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("界", 79)+"1", suggestion)
+}
+
+func TestRecipientUnicodeMigrationCollisionRollback(t *testing.T) {
+	pg := recipientTestStore(t)
+	ctx := context.Background()
+	tx, err := pg.Pool().Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+	migration, err := os.ReadFile("../../migrations/052_unicode_usernames.sql")
+	require.NoError(t, err)
+	parts := strings.Split(string(migration), "---- create above / drop below ----")
+	require.Len(t, parts, 2)
+	_, err = tx.Exec(ctx, parts[1])
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `INSERT INTO pools(chain_id,address,name,symbol) VALUES(100,$1,$2,'UCA'),(100,$3,$4,'UCB')`, randomAddress(t, tx), "José", randomAddress(t, tx), "Jose\u0301")
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, "SAVEPOINT upgrade")
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, parts[0])
+	require.Error(t, err)
+	_, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT upgrade")
+	require.NoError(t, err)
+	var count int
+	err = tx.QueryRow(ctx, `SELECT count(*) FROM identity_claims WHERE namespace='recipient' AND name IN ('josé','josé')`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count, "collision preserves both claims")
 }

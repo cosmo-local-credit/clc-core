@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"golang.org/x/text/unicode/norm"
 	"net/http"
 	"strings"
 	"time"
@@ -22,8 +23,6 @@ func newPendingSIWEUser(address string) store.User {
 		Email:           pendingSIWEEmail(address),
 		Role:            "USER",
 		Status:          "APPROVED",
-		MaxPools:        10,
-		MaxTokens:       20,
 	}
 }
 
@@ -50,9 +49,9 @@ func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) 
 	}
 
 	if req.Username != nil {
-		name := strings.ToLower(strings.TrimSpace(*req.Username))
+		name := norm.NFC.String(strings.TrimSpace(*req.Username))
 		if !store.ValidUsername(name) {
-			return update, errors.New("username must be 3–24 letters, digits or hyphens, with at least one letter and no edge hyphens")
+			return update, errors.New("username must contain 1–80 characters")
 		}
 		update.Username = &name
 	}

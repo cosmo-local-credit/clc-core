@@ -11,6 +11,7 @@ import (
 
 type (
 	Store interface {
+		CuratedCatalogStore
 		SuggestUsername(context.Context, pgx.Tx, string) (string, error)
 		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)
 		ResolveRecipient(context.Context, pgx.Tx, string, int64, bool) (Recipient, error)
@@ -65,6 +66,7 @@ type (
 		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)
 		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
 		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
+		RestoreVoucherWithinLimits(context.Context, pgx.Tx, string) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
@@ -91,11 +93,13 @@ type (
 		GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
-		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
+		UpdateUserLimits(context.Context, pgx.Tx, string, UserLimitsUpdate) (User, error)
 		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)
 		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
 		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
 		ListUserShareTxHashes(context.Context, pgx.Tx, []string, uint64) ([]string, error)
+		InsertTransferValuationSnapshots(context.Context, pgx.Tx, string, []string) ([]VoucherClaimSnapshot, error)
+		ListTransferValuationSnapshotsByTxHashes(context.Context, pgx.Tx, []string) ([]TransferValuationSnapshot, error)
 		ListUsersFiltered(context.Context, pgx.Tx, UserFilter, CatalogPage, uint64, uint64) ([]User, error)
 		AccountRelationshipCounts(context.Context, pgx.Tx, string) (AccountRelationshipCounts, error)
 		ListAccountPools(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Pool, error)
@@ -103,6 +107,8 @@ type (
 		DashboardCatalogSeries(context.Context, pgx.Tx, time.Time, time.Time, int64) ([]DashboardCatalogPoint, error)
 
 		InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
+		CheckUserResourceLimit(context.Context, pgx.Tx, uint64, string) error
+		GetUserResourceUsage(context.Context, pgx.Tx, uint64) (UserResourceUsage, error)
 		CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)
 		CountUserPools(context.Context, pgx.Tx, uint64) (int, error)
 		ListUserDeployments(context.Context, pgx.Tx, uint64) ([]UserDeployment, error)
@@ -127,6 +133,10 @@ type (
 		ListPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
+		CountAdminPoolVouchers(context.Context, pgx.Tx, string) (uint64, error)
+		ListAdminPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
+		ListAdminPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
+		ListAdminPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
 		ListOfferings(context.Context, pgx.Tx, uint64) ([]Offering, error)
 		ListOfferingsNext(context.Context, pgx.Tx, uint64, uint64) ([]Offering, error)
 		ListOfferingsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Offering, error)
@@ -173,14 +183,18 @@ type (
 		// Catalog search and tag filtering (PG_SEARCH_PLAN.md Slices 1 and 2).
 		ListMarketVouchersFiltered(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter, CatalogPage, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVoucherTagFacets(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter) ([]TagFacet, error)
+		ListOfferingsFiltered(context.Context, pgx.Tx, CatalogFilter, OfferingCursor, uint64) ([]Offering, error)
+		ListOfferingTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		ListPoolsFiltered(context.Context, pgx.Tx, CatalogFilter, CatalogPage, uint64, uint64) ([]Pool, error)
 		ListPoolTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		ListPoolVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		ListReportVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
 		ResolveVoucherRefs(context.Context, pgx.Tx, []VoucherRef) ([]uint64, error)
+		ResolvePoolRefs(context.Context, pgx.Tx, []PoolRef) ([]uint64, error)
 		CountVouchersOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
+		ListMarketplace(context.Context, pgx.Tx, CatalogFilter, []string, *CatalogLocation, MarketplaceCursor, uint64, bool) ([]MarketplaceResult, error)
 
 		SetPlatformContracts(context.Context, pgx.Tx, int64, string, string, string) (PlatformContracts, error)
 		ListPlatformContracts(context.Context, pgx.Tx, int64) ([]PlatformContracts, error)

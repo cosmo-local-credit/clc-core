@@ -19,8 +19,10 @@ type (
 	// FederationTokenBalance carries chain facts scanned from the federation
 	// DB; the token metadata fields (db:"-") are enriched afterwards from the
 	// local vouchers catalog (MIGRATION.md §2 — the catalog is the metadata
-	// home). JSON shape is unchanged from the pre-cutover responses.
+	// home). CatalogActive distinguishes retired vouchers from uncatalogued tokens.
 	FederationTokenBalance struct {
+		// Nil means this token has no local catalog entry.
+		CatalogActive *bool     `db:"-" json:"catalogActive,omitempty"`
 		ID            uint64    `db:"id"              json:"id"`
 		TokenAddress  string    `db:"token_address"   json:"tokenAddress"`
 		TokenSymbol   string    `db:"-"               json:"tokenSymbol"`
@@ -47,6 +49,8 @@ type (
 		TokenDecimals    uint8     `db:"-"                    json:"tokenDecimals"`
 		Amount           string    `db:"amount"               json:"amount"`
 		Success          bool      `db:"success"              json:"success"`
+		UOAValue         string    `db:"-"                    json:"uoaValue,omitempty"`
+		UOA              string    `db:"-"                    json:"uoa,omitempty"`
 		// HasNote is filled by the API layer from clc-core's own database — the
 		// federation DB knows nothing about private attachments.
 		HasNote bool `db:"-"                    json:"hasNote"`

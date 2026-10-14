@@ -1,0 +1,53 @@
+# OpenTelemetry Collector for clc-core: OTLP in, Uptrace out.
+#
+# clc-core pushes logs (continuously) and metrics (every 5 minutes) to
+# otel-collector:4318. UPTRACE_DSN comes from otel.env; keep it out of git.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource_detection:
+    detectors: [env, system]
+  # Uptrace wants delta temporality for counters and histograms.
+  cumulative_to_delta:
+  batch/logs:
+    send_batch_size: 1000
+    timeout: 5s
+  batch/metrics:
+    send_batch_size: 1000
+    timeout: 10s
+
+exporters:
+  # OTLP/HTTP rather than gRPC: the gRPC client logs a warning per unreachable
+  # IPv6 address on every reconnect, and Docker bridge networks have no IPv6.
+  otlp_http/uptrace:
+    endpoint: https://api.uptrace.dev
+    headers:
+      uptrace-dsn: ${env:UPTRACE_DSN}
+
+service:
+  pipelines:
+    # clc-core emits no traces yet. The pipeline is here so adding a tracer
+    # later needs no collector change.
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch/logs]
+      exporters: [otlp_http/uptrace]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource_detection, cumulative_to_delta, batch/metrics]
+      exporters: [otlp_http/uptrace]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch/logs]
+      exporters: [otlp_http/uptrace]

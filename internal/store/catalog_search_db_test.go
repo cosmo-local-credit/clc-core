@@ -811,13 +811,44 @@ func TestPoolSearchAndTagFilters(t *testing.T) {
 		renamed, searchToken+" Renamed Pool"); err != nil {
 		t.Fatalf("set pool display name: %v", err)
 	}
+	voucherTerm := searchToken + "claim"
+	voucherPool := seedPool("Voucher Host Pool", "VHP")
+	approvedVoucher := seedSearchVoucher(t, tx, voucherTerm+" Voucher", searchToken+"ZQV")
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed)
+		VALUES ($1, $2, TRUE)`, voucherPool, approvedVoucher); err != nil {
+		t.Fatalf("attach approved search voucher: %v", err)
+	}
+	disallowedVoucherPool := seedPool("Disallowed Voucher Host", "DVH")
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed)
+		VALUES ($1, $2, FALSE)`, disallowedVoucherPool, approvedVoucher); err != nil {
+		t.Fatalf("attach disallowed search voucher: %v", err)
+	}
+	inactiveVoucherPool := seedPool("Inactive Voucher Host", "IVH")
+	inactiveVoucher := seedSearchVoucher(t, tx, voucherTerm+" Retired", searchToken+"ZQR")
+	if _, err := tx.Exec(ctx, `UPDATE vouchers SET active = FALSE WHERE id = $1`, inactiveVoucher); err != nil {
+		t.Fatalf("deactivate search voucher: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed)
+		VALUES ($1, $2, TRUE)`, inactiveVoucherPool, inactiveVoucher); err != nil {
+		t.Fatalf("attach inactive search voucher: %v", err)
+	}
 
 	t.Run("matches names and symbols", func(t *testing.T) {
 		got := poolIDs(list(mustFilter(t, searchToken, nil, TagMatchAny)))
-		want := []uint64{art, culture, both, untagged, bySymbol, renamed}
+		want := []uint64{art, culture, both, untagged, bySymbol, renamed, voucherPool}
 		slices.Sort(want)
 		if !slices.Equal(got, want) {
 			t.Errorf("ids = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("matches only active approved voucher identities", func(t *testing.T) {
+		got := poolIDs(list(mustFilter(t, voucherTerm, nil, TagMatchAny)))
+		if !slices.Equal(got, []uint64{voucherPool}) {
+			t.Errorf("voucher identity search IDs = %v, want [%d]", got, voucherPool)
 		}
 	})
 
@@ -864,6 +895,7 @@ func TestPoolSearchAndTagFilters(t *testing.T) {
 		filter := mustFilter(t, searchToken, nil, TagMatchAny)
 		allowed := map[uint64]bool{
 			art: true, culture: true, both: true, untagged: true, bySymbol: true, renamed: true,
+			voucherPool: true,
 		}
 
 		first, err := pg.ListPoolsFiltered(ctx, tx, filter, CatalogFirstPage, 0, 2)

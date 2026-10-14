@@ -28,6 +28,10 @@ var (
 		"vouchers must contain chainId:address values with a positive chain ID and a valid hex address")
 	errUnknownVoucherRef = errors.New(
 		"vouchers contains a voucher that does not exist in the catalog")
+	errInvalidPoolRef = errors.New(
+		"pools must contain chainId:address values with a positive chain ID and a valid hex address")
+	errUnknownPoolRef = errors.New(
+		"pools contains a pool that does not exist in the catalog")
 	// The vocabulary is named as `facets=true` rather than as /api/v2/token-tags
 	// because this endpoint is public and that one is not: a signed-out caller
 	// can filter but cannot read the tag list from there. The facet response is
@@ -52,6 +56,7 @@ type (
 		// transaction resolves every one to a database ID.
 		voucherRefs  []store.VoucherRef
 		voucherMatch store.TagMatch
+		poolRefs     []store.PoolRef
 		// facets asks for the tag facet alongside the page. It is honoured on
 		// the first page only: a facet describes the whole filtered set rather
 		// than the page, so recomputing it per cursor page would return the
@@ -108,6 +113,52 @@ func parseCatalogSearch(c *echo.Context) (catalogSearchRequest, error) {
 		return catalogSearchRequest{}, errors.New("nearby must be true or false")
 	}
 	return catalogSearchRequest{filter: filter, facets: facets, nearby: nearby == "true"}, nil
+}
+
+// parseMarketDiscoverySearch adds the selected-pool relationship filter used
+// by voucher and offering discovery. Pools are any-match and every reference
+// is resolved before a query is allowed to run.
+func parseMarketDiscoverySearch(c *echo.Context) (catalogSearchRequest, error) {
+	search, err := parseCatalogSearch(c)
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
+	query := c.Request().URL.Query()
+	seen := make(map[string]struct{})
+	for _, raw := range query["pools"] {
+		for value := range strings.SplitSeq(raw, ",") {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			chain, address, ok := strings.Cut(value, ":")
+			chainID, parseErr := strconv.ParseInt(strings.TrimSpace(chain), 10, 64)
+			address = strings.TrimSpace(address)
+			if !ok || parseErr != nil || chainID <= 0 || !common.IsHexAddress(address) {
+				return catalogSearchRequest{}, errInvalidPoolRef
+			}
+			canonical := common.HexToAddress(address).Hex()
+			key := strconv.FormatInt(chainID, 10) + ":" + strings.ToLower(canonical)
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			search.poolRefs = append(search.poolRefs, store.PoolRef{ChainID: chainID, Address: canonical})
+		}
+	}
+	if len(search.poolRefs) > store.CatalogMaxPools {
+		return catalogSearchRequest{}, store.ErrCatalogTooManyPools
+	}
+	slices.SortFunc(search.poolRefs, func(left, right store.PoolRef) int {
+		if left.ChainID < right.ChainID {
+			return -1
+		}
+		if left.ChainID > right.ChainID {
+			return 1
+		}
+		return strings.Compare(strings.ToLower(left.Address), strings.ToLower(right.Address))
+	})
+	return search, nil
 }
 
 // parseCatalogRelationshipSearch extends the shared text/tag parser for entity
@@ -267,6 +318,26 @@ func (a *API) resolveVoucherFilter(
 	}
 
 	search.filter, err = search.filter.WithVoucherIDs(ids, search.voucherMatch)
+	if err != nil {
+		return true, respondCatalogSearchError(c, err)
+	}
+	return false, nil
+}
+
+// resolvePoolFilter turns stable pool references into authoritative database
+// IDs. A short resolution fails the complete request rather than weakening it.
+func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearchRequest) (bool, error) {
+	if len(search.poolRefs) == 0 {
+		return false, nil
+	}
+	ids, err := a.store.ResolvePoolRefs(c.Request().Context(), tx, search.poolRefs)
+	if err != nil {
+		return true, handlePostgresError(c, err)
+	}
+	if len(ids) != len(search.poolRefs) {
+		return true, respondCatalogSearchError(c, errUnknownPoolRef)
+	}
+	search.filter, err = search.filter.WithPoolIDs(ids)
 	if err != nil {
 		return true, respondCatalogSearchError(c, err)
 	}

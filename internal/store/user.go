@@ -30,6 +30,8 @@ type (
 		Status            string    `db:"status"           json:"status"`
 		MaxPools          int       `db:"max_pools"        json:"maxPools"`
 		MaxTokens         int       `db:"max_tokens"       json:"maxTokens"`
+		MaxCatalogs       int       `db:"max_catalogs" json:"maxCatalogs"`
+		MaxOffers         int       `db:"max_offers" json:"maxOffers"`
 		CreatedAt         time.Time `db:"created_at"       json:"createdAt"`
 		UpdatedAt         time.Time `db:"updated_at"       json:"updatedAt"`
 	}
@@ -58,6 +60,8 @@ type (
 	}
 )
 
+// InsertUser uses database defaults for all resource allowances. Subsequent
+// changes go through UpdateUserLimits so signup cannot choose its own quota.
 func (pg *Pg) InsertUser(ctx context.Context, tx pgx.Tx, u User) (User, error) {
 	var inserted User
 
@@ -69,8 +73,6 @@ func (pg *Pg) InsertUser(ctx context.Context, tx pgx.Tx, u User) (User, error) {
 		u.Email,
 		u.Role,
 		u.Status,
-		u.MaxPools,
-		u.MaxTokens,
 	)
 	if err != nil {
 		return inserted, err
@@ -158,10 +160,10 @@ func (pg *Pg) ApprovePendingUserByAddress(ctx context.Context, tx pgx.Tx, addres
 	return u, nil
 }
 
-func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, maxPools int, maxTokens int) (User, error) {
+func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, limits UserLimitsUpdate) (User, error) {
 	var u User
 
-	row, err := tx.Query(ctx, pg.queries.UpdateUserLimits, address, maxPools, maxTokens)
+	row, err := tx.Query(ctx, pg.queries.UpdateUserLimits, address, limits.MaxPools, limits.MaxTokens, limits.MaxCatalogs, limits.MaxOffers)
 	if err != nil {
 		return u, err
 	}

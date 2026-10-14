@@ -10,6 +10,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/go-playground/validator/v10"
 	"github.com/grassrootseconomics/ethutils"
@@ -109,11 +110,17 @@ func New(o APIOpts) *API {
 	router.Use(middleware.Recover())
 	router.Use(middleware.BodyLimit(maxBodySize))
 	router.Use(middleware.ContextTimeout(util.SLATimeout))
+	httpDuration := telemetry.NewHTTPServerDuration()
 	router.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogStatus:   true,
-		LogURI:      true,
-		HandleError: true,
+		LogStatus:    true,
+		LogURI:       true,
+		LogLatency:   true,
+		LogMethod:    true,
+		LogRoutePath: true,
+		HandleError:  true,
 		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
+			httpDuration.Record(v.Method, v.RoutePath, v.Status, v.Latency)
+
 			errMsg := ""
 			if v.Error != nil {
 				errMsg = v.Error.Error()
@@ -178,6 +185,14 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/offerings", a.offeringsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/marketplace", a.marketplaceListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	// User-curated catalogs are public to browse; nearby discovery uses the
+	// viewer's saved profile location and therefore requires a user session.
+	router.GET(apiVersion+"/catalogs", a.curatedCatalogListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/catalogs/:id", a.curatedCatalogDetailHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/catalogs/:id/pools", a.curatedMembersHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/catalogs/:id/vouchers", a.curatedMembersHandler, a.marketRateLimitMiddleware())
 
 	// Network pool catalog (imported + clc-core deploys; reads the pools
 	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
@@ -199,6 +214,13 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/reviews/:id/reply", a.voucherReviewReplyHandler, a.requireUserAuth())
 	apiGroup.POST("/vouchers/:address/reviews/:id/flag", a.voucherReviewFlagHandler, a.requireUserAuth())
+	apiGroup.POST("/catalogs", a.curatedCatalogSaveHandler, a.requireUserAuth())
+	apiGroup.PUT("/catalogs/:id", a.curatedCatalogSaveHandler, a.requireUserAuth())
+	apiGroup.GET("/catalogs/:id/membership", a.curatedMembershipHandler, a.requireUserAuth())
+	apiGroup.PUT("/catalogs/:id/pools/:poolId", a.curatedMembershipHandler, a.requireUserAuth())
+	apiGroup.DELETE("/catalogs/:id/pools/:poolId", a.curatedMembershipHandler, a.requireUserAuth())
+	apiGroup.PUT("/catalogs/:id/vouchers/:voucherId", a.curatedMembershipHandler, a.requireUserAuth())
+	apiGroup.DELETE("/catalogs/:id/vouchers/:voucherId", a.curatedMembershipHandler, a.requireUserAuth())
 
 	apiGroup.POST("/contracts/token", a.deployTokenHandler)
 	apiGroup.POST("/contracts/pool", a.deployPoolHandler)
@@ -212,6 +234,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/names", a.namesLookupHandler)
 	apiGroup.GET("/recipients", a.recipientSearchHandler)
 	router.GET(apiVersion+"/recipients/suggest", a.usernameSuggestHandler, a.marketRateLimitMiddleware())
+	apiGroup.GET("/recipients/resolve", a.recipientResolveHandler)
 	apiGroup.GET("/recipients/resolve/:name", a.recipientResolveHandler)
 	apiGroup.GET("/recipients/reverse/:address", a.recipientReverseHandler)
 	apiGroup.GET("/oracle-feeds", a.oracleFeedsHandler)
@@ -228,7 +251,6 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
 	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
-	apiGroup.GET("/offerings", a.offeringsListHandler)
 
 	// Owner catalog writes. On apiGroup with requireUserAuth, like report
 	// mutations: a normal pool or voucher owner needs these capabilities, so they
@@ -271,6 +293,8 @@ func New(o APIOpts) *API {
 	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
+	userGroup.GET("/me/resource-usage", a.userResourceUsageHandler)
+	userGroup.GET("/me/catalogs", a.myCuratedCatalogsHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)
@@ -297,6 +321,7 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/users/:address/stats", a.adminAccountStatsHandler)
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
+	adminGroup.GET("/pools/:address/vouchers", a.adminPoolVouchersListHandler)
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
 	adminGroup.GET("/vouchers", a.adminVouchersListHandler)

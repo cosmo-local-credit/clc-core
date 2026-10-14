@@ -111,8 +111,6 @@ func (a *API) signupHandler(c *echo.Context) error {
 		Email:           strings.ToLower(req.Email),
 		Role:            "USER",
 		Status:          "APPROVED",
-		MaxPools:        10,
-		MaxTokens:       20,
 	})
 	if err != nil {
 		if conflict, ok := userIdentityConflict(err); ok {
