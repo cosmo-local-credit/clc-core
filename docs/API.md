@@ -2962,5 +2962,37 @@ Account token balance responses (`/api/v2/accounts/:address/tokens` and
 individual tokens. `false` means the local voucher is retired; `true` means it
 is active; absence means there is no local catalog entry. Wallet lists hide
 explicitly retired vouchers. Retirement does not burn balances, remove the
-on-chain contract, or delete transaction history. Raw rows and pagination
-cursors remain available in these account responses.
+on-chain contract, or delete transaction history. The paginated `/tokens` response retains raw rows and cursors. The `/tokens/latest`
+summary skips retired vouchers and continues through older pages until it has
+five visible balances or reaches the end. Tokens outside the local catalog remain
+visible.
+
+### Retirement, pool composition and restoration
+
+`GET /api/v2/pools/:address/vouchers` includes only active, allowed vouchers,
+with filtering before pagination. Public pool voucher counts and voucher facets
+also exclude retired members. Superadmins can inspect retained allowed members
+through `GET /api/v2/admin/pools/:address/vouchers`, with the same pagination
+shape and `Cache-Control: no-store`. Ordinary users and guests cannot use that
+admin route. Retirement does not remove chain membership.
+
+`PUT /api/v2/admin/vouchers/:address/restore` checks affected deployment creators'
+voucher allowances and offer sellers' offer allowances. A restoration that
+increases usage beyond an allowance returns HTTP 429 with the existing
+resource-limit error payload (`resource`, `used`, `limit`) and leaves the
+voucher retired. Here `used` is the projected usage if restoration succeeded.
+Admins can adjust allowances and retry. Restoring at exact capacity or restoring
+an already-active voucher succeeds. Records remain in the database in both cases.
+
+
+Token holdings pagination keeps every balance with the boundary transaction ID
+on the same page (`FETCH FIRST ... WITH TIES`). `perPage` is therefore a target
+size, and a page can contain more rows when a transaction touched several tokens.
+Use the returned `first`/`last` cursors and continue while a page contains at
+least `perPage` rows. This applies in both directions. The latest summary still
+returns at most five visible balances.
+
+The admin pool-composition response includes `result.total`: the full count of
+allowed members, including retired vouchers, independent of page size or cursor.
+The console uses this total for its composition metrics; public pool counts
+continue to include only active members.

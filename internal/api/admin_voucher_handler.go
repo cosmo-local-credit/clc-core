@@ -131,11 +131,8 @@ func (a *API) adminVoucherByAddressHandler(c *echo.Context) error {
 // decision, so there is no owner-facing route and no toggle for an owner to flip
 // back and forth.
 //
-// Thin, like adminUpdateVoucherProfileHandler: requireSuperAdmin on the group has
-// already decided the caller may act, so there is no ownership check to make and
-// no reason to lock the row for one. Restoring an already-active voucher is not
-// an error — the caller asked for a state the row is already in, and reporting
-// 409 would only make the console handle a case with no user-visible difference.
+// Restoration must fit the affected creators' and sellers' allowances. It
+// shares their quota locks with creation. An already-active voucher is a no-op.
 func (a *API) adminRestoreVoucherHandler(c *echo.Context) error {
 	address, handled, err := adminUserAddress(c)
 	if handled || err != nil {
@@ -149,12 +146,8 @@ func (a *API) adminRestoreVoucherHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	voucher, err := a.store.GetAdminVoucherByAddress(ctx, tx, address)
-	if err != nil {
-		return handlePostgresError(c, err)
-	}
-	if err := a.store.SetVoucherActive(ctx, tx, voucher.ID, true); err != nil {
-		return handlePostgresError(c, err)
+	if err := a.store.RestoreVoucherWithinLimits(ctx, tx, address); err != nil {
+		return handleResourceLimitError(c, err)
 	}
 
 	// Read back through the admin statement rather than the public one so the

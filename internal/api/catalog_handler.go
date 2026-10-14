@@ -49,19 +49,47 @@ type (
 	}
 )
 
-func (a *API) poolVouchersListHandler(c *echo.Context) error { //nolint:dupl // distinct generic instantiations of catalogAddressListHandler, not extractable further
+func (a *API) poolVouchersListHandler(c *echo.Context) error {
+	return a.poolVouchersList(c, false)
+}
+
+func (a *API) adminPoolVouchersListHandler(c *echo.Context) error {
+	return a.poolVouchersList(c, true)
+}
+
+// includeRetired is selected only by the protected admin route, never a query parameter.
+func (a *API) poolVouchersList(c *echo.Context, includeRetired bool) error {
+	hooks := catalogListHooks{}
+	if includeRetired {
+		hooks.extras = func(tx pgx.Tx) (map[string]any, error) {
+			total, err := a.store.CountAdminPoolVouchers(c.Request().Context(), tx, c.Param("address"))
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"total": total}, nil
+		}
+		hooks.onSuccess = func(c *echo.Context) { c.Response().Header().Set("Cache-Control", "no-store") }
+	}
 	return catalogAddressListHandler(c, a, "vouchers", "Vouchers in pool %s",
 		func(v store.PoolVoucher) uint64 { return v.ID },
 		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]store.PoolVoucher, error) {
+			if includeRetired {
+				return a.store.ListAdminPoolVouchers(ctx, tx, address, limit)
+			}
 			return a.store.ListPoolVouchers(ctx, tx, address, limit)
 		},
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.PoolVoucher, error) {
+			if includeRetired {
+				return a.store.ListAdminPoolVouchersNext(ctx, tx, address, cursor, limit)
+			}
 			return a.store.ListPoolVouchersNext(ctx, tx, address, cursor, limit)
 		},
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.PoolVoucher, error) {
+			if includeRetired {
+				return a.store.ListAdminPoolVouchersPrevious(ctx, tx, address, cursor, limit)
+			}
 			return a.store.ListPoolVouchersPrevious(ctx, tx, address, cursor, limit)
-		},
-		catalogListHooks{},
+		}, hooks,
 	)
 }
 

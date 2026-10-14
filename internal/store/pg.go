@@ -110,6 +110,7 @@ type (
 		CheckKeypair                 string `query:"check-keypair"`
 
 		LockQuotaUser                 string `query:"lock-quota-user"`
+		LockVoucherRestoreUsers       string `query:"lock-voucher-restore-users"`
 		GetUserResourceUsage          string `query:"get-user-resource-usage"`
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
@@ -165,6 +166,7 @@ type (
 		ListPoolsNext                string `query:"list-pools-next"`
 		ListPoolsPrev                string `query:"list-pools-prev"`
 		GetPoolByAddress             string `query:"get-pool-by-address"`
+		CountAdminPoolVouchers       string `query:"count-admin-pool-vouchers"`
 		ListPoolVouchers             string `query:"list-pool-vouchers"`
 		ListPoolVouchersNext         string `query:"list-pool-vouchers-next"`
 		ListPoolVouchersPrev         string `query:"list-pool-vouchers-prev"`
