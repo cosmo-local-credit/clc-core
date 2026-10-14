@@ -34,7 +34,7 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+    (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(pool_tag_list.tags, ARRAY[]::TEXT[]) AS tags
 FROM page
 INNER JOIN pools p ON p.id = page.id
@@ -167,9 +167,9 @@ GROUP BY pt.tag_value;`
 	return composed{sql: sql, args: args.values}
 }
 
-// poolVoucherPredicate filters on allowed composition rows, matching both the
+// poolVoucherPredicate filters on active, allowed composition rows, matching both the
 // voucher_count projection and GET /pools/:address/vouchers. A disallowed
-// historical row therefore never makes a pool appear to contain a voucher.
+// or retired historical row therefore never makes a pool appear to contain a voucher.
 func poolVoucherPredicate(args *sqlArgs, filter CatalogFilter) string {
 	if len(filter.VoucherIDs) == 0 {
 		return ""
@@ -180,6 +180,7 @@ func poolVoucherPredicate(args *sqlArgs, filter CatalogFilter) string {
 		return `(
             SELECT COUNT(*)
             FROM pool_tokens pv
+            JOIN vouchers member ON member.id = pv.voucher_id AND member.active
             WHERE pv.pool_id = p.id
                 AND pv.is_allowed
                 AND pv.voucher_id = ANY(` + placeholder + `::BIGINT[])
@@ -188,6 +189,7 @@ func poolVoucherPredicate(args *sqlArgs, filter CatalogFilter) string {
 	return `EXISTS (
             SELECT 1
             FROM pool_tokens pv
+            JOIN vouchers member ON member.id = pv.voucher_id AND member.active
             WHERE pv.pool_id = p.id
                 AND pv.is_allowed
                 AND pv.voucher_id = ANY(` + placeholder + `::BIGINT[])
@@ -220,7 +222,7 @@ SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.
     COUNT(*) AS match_count
 FROM candidates c
 INNER JOIN pool_tokens pv ON pv.pool_id = c.id AND pv.is_allowed
-INNER JOIN vouchers v ON v.id = pv.voucher_id
+INNER JOIN vouchers v ON v.id = pv.voucher_id AND v.active
 GROUP BY v.id, v.display_name, v.chain_id, v.address, v.name, v.symbol
 ORDER BY lower(COALESCE(v.display_name, v.name)), v.id;`
 

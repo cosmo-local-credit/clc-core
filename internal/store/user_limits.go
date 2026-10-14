@@ -41,7 +41,8 @@ func (e *ResourceLimitError) Error() string {
 }
 
 // GetUserResourceUsage uses one statement so all counts and allowances share a
-// snapshot. Offer attribution is the immutable seller, including imported rows.
+// snapshot. Offers count only while available on an active voucher, attributed
+// to their immutable seller (including imported rows).
 func (pg *Pg) GetUserResourceUsage(ctx context.Context, tx pgx.Tx, userID uint64) (UserResourceUsage, error) {
 	var usage UserResourceUsage
 	var role string
@@ -87,6 +88,61 @@ func (pg *Pg) CheckUserResourceLimit(ctx context.Context, tx pgx.Tx, userID uint
 	}
 	if !quota.CanCreate {
 		return &ResourceLimitError{Resource: resource, Used: quota.Used, Limit: quota.Limit}
+	}
+	return nil
+}
+
+// RestoreVoucherWithinLimits reactivates retained offers with their voucher.
+// The caller must roll back on error. Read usage after taking quota locks and
+// compare it after activation: unrelated, pre-existing excess must not block a
+// restoration that does not increase that quota.
+func (pg *Pg) RestoreVoucherWithinLimits(ctx context.Context, tx pgx.Tx, address string) error {
+	voucher, err := pg.GetAdminVoucherByAddress(ctx, tx, address)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, pg.queries.LockVoucherRestoreUsers, voucher.ID)
+	if err != nil {
+		return err
+	}
+	userIDs, err := pgx.CollectRows(rows, pgx.RowTo[uint64])
+	if err != nil {
+		return err
+	}
+	parent, err := pg.LockVoucherForOfferingCreate(ctx, tx, address)
+	if err != nil {
+		return err
+	}
+	if parent.Active {
+		return nil
+	}
+	before := make(map[uint64]UserResourceUsage, len(userIDs))
+	for _, id := range userIDs {
+		before[id], err = pg.GetUserResourceUsage(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+	}
+	if err := pg.SetVoucherActive(ctx, tx, voucher.ID, true); err != nil {
+		return err
+	}
+	for _, id := range userIDs {
+		after, err := pg.GetUserResourceUsage(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		for _, check := range []struct {
+			resource string
+			before   ResourceQuota
+			after    ResourceQuota
+		}{
+			{"vouchers", before[id].Vouchers, after.Vouchers},
+			{"offers", before[id].Offers, after.Offers},
+		} {
+			if !check.after.Unlimited && check.after.Used > check.after.Limit && check.after.Used > check.before.Used {
+				return &ResourceLimitError{Resource: check.resource, Used: check.after.Used, Limit: check.after.Limit}
+			}
+		}
 	}
 	return nil
 }

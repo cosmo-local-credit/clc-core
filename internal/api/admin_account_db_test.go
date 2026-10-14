@@ -54,6 +54,7 @@ func newAdminAPI(t *testing.T) (*API, string) {
 	if err != nil {
 		t.Fatalf("connect store: %v", err)
 	}
+	t.Cleanup(pgStore.Pool().Close)
 
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {

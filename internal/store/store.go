@@ -66,6 +66,7 @@ type (
 		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)
 		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
 		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
+		RestoreVoucherWithinLimits(context.Context, pgx.Tx, string) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
@@ -132,6 +133,10 @@ type (
 		ListPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
+		CountAdminPoolVouchers(context.Context, pgx.Tx, string) (uint64, error)
+		ListAdminPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
+		ListAdminPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
+		ListAdminPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
 		ListOfferings(context.Context, pgx.Tx, uint64) ([]Offering, error)
 		ListOfferingsNext(context.Context, pgx.Tx, uint64, uint64) ([]Offering, error)
 		ListOfferingsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Offering, error)

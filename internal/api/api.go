@@ -321,6 +321,7 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/users/:address/stats", a.adminAccountStatsHandler)
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
+	adminGroup.GET("/pools/:address/vouchers", a.adminPoolVouchersListHandler)
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
 	adminGroup.GET("/vouchers", a.adminVouchersListHandler)

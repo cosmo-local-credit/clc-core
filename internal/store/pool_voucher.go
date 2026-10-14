@@ -50,24 +50,48 @@ type (
 )
 
 func (pg *Pg) ListPoolVouchers(ctx context.Context, tx pgx.Tx, poolAddress string, limit uint64) ([]PoolVoucher, error) {
+	return pg.listPoolVouchers(ctx, tx, poolAddress, limit, false)
+}
+
+func (pg *Pg) ListAdminPoolVouchers(ctx context.Context, tx pgx.Tx, poolAddress string, limit uint64) ([]PoolVoucher, error) {
+	return pg.listPoolVouchers(ctx, tx, poolAddress, limit, true)
+}
+
+func (pg *Pg) listPoolVouchers(ctx context.Context, tx pgx.Tx, poolAddress string, limit uint64, includeRetired bool) ([]PoolVoucher, error) {
 	var vouchers []PoolVoucher
-	if err := pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListPoolVouchers, poolAddress, limit); err != nil {
+	if err := pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListPoolVouchers, poolAddress, limit, includeRetired); err != nil {
 		return nil, err
 	}
 	return vouchers, nil
 }
 
 func (pg *Pg) ListPoolVouchersNext(ctx context.Context, tx pgx.Tx, poolAddress string, cursor uint64, limit uint64) ([]PoolVoucher, error) {
+	return pg.listPoolVouchersNext(ctx, tx, poolAddress, cursor, limit, false)
+}
+
+func (pg *Pg) ListAdminPoolVouchersNext(ctx context.Context, tx pgx.Tx, poolAddress string, cursor uint64, limit uint64) ([]PoolVoucher, error) {
+	return pg.listPoolVouchersNext(ctx, tx, poolAddress, cursor, limit, true)
+}
+
+func (pg *Pg) listPoolVouchersNext(ctx context.Context, tx pgx.Tx, poolAddress string, cursor uint64, limit uint64, includeRetired bool) ([]PoolVoucher, error) {
 	var vouchers []PoolVoucher
-	if err := pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListPoolVouchersNext, poolAddress, cursor, limit); err != nil {
+	if err := pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListPoolVouchersNext, poolAddress, cursor, limit, includeRetired); err != nil {
 		return nil, err
 	}
 	return vouchers, nil
 }
 
 func (pg *Pg) ListPoolVouchersPrevious(ctx context.Context, tx pgx.Tx, poolAddress string, cursor uint64, limit uint64) ([]PoolVoucher, error) {
+	return pg.listPoolVouchersPrevious(ctx, tx, poolAddress, cursor, limit, false)
+}
+
+func (pg *Pg) ListAdminPoolVouchersPrevious(ctx context.Context, tx pgx.Tx, poolAddress string, cursor uint64, limit uint64) ([]PoolVoucher, error) {
+	return pg.listPoolVouchersPrevious(ctx, tx, poolAddress, cursor, limit, true)
+}
+
+func (pg *Pg) listPoolVouchersPrevious(ctx context.Context, tx pgx.Tx, poolAddress string, cursor uint64, limit uint64, includeRetired bool) ([]PoolVoucher, error) {
 	var vouchers []PoolVoucher
-	if err := pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListPoolVouchersPrev, poolAddress, cursor, limit); err != nil {
+	if err := pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListPoolVouchersPrev, poolAddress, cursor, limit, includeRetired); err != nil {
 		return nil, err
 	}
 	return vouchers, nil
@@ -145,4 +169,11 @@ func (pg *Pg) ClearPoolTokenOracle(
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// CountAdminPoolVouchers counts all allowed members, including retired vouchers.
+func (pg *Pg) CountAdminPoolVouchers(ctx context.Context, tx pgx.Tx, address string) (uint64, error) {
+	var count uint64
+	err := tx.QueryRow(ctx, pg.queries.CountAdminPoolVouchers, address).Scan(&count)
+	return count, err
 }

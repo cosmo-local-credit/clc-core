@@ -1147,7 +1147,7 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+    (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -1164,7 +1164,7 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+    (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -1183,7 +1183,7 @@ SELECT * FROM (
         p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
         p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
         p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-        (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+        (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
         COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
     FROM pools p
     LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -1204,7 +1204,7 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+    (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -1439,7 +1439,7 @@ FROM pool_tokens pt
 INNER JOIN pools p ON p.id = pt.pool_id
 INNER JOIN vouchers v ON v.id = pt.voucher_id
 LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
-WHERE lower(p.address) = lower($1) AND pt.is_allowed
+WHERE lower(p.address) = lower($1) AND pt.is_allowed AND (v.active OR $3::BOOLEAN)
 ORDER BY v.id DESC
 LIMIT $2;
 
@@ -1462,7 +1462,7 @@ FROM pool_tokens pt
 INNER JOIN pools p ON p.id = pt.pool_id
 INNER JOIN vouchers v ON v.id = pt.voucher_id
 LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
-WHERE lower(p.address) = lower($1) AND pt.is_allowed AND v.id < $2
+WHERE lower(p.address) = lower($1) AND pt.is_allowed AND (v.active OR $4::BOOLEAN) AND v.id < $2
 ORDER BY v.id DESC
 LIMIT $3;
 
@@ -1486,7 +1486,7 @@ SELECT * FROM (
     INNER JOIN pools p ON p.id = pt.pool_id
     INNER JOIN vouchers v ON v.id = pt.voucher_id
     LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
-    WHERE lower(p.address) = lower($1) AND pt.is_allowed AND v.id > $2
+    WHERE lower(p.address) = lower($1) AND pt.is_allowed AND (v.active OR $4::BOOLEAN) AND v.id > $2
     ORDER BY v.id ASC
     LIMIT $3
 ) page
@@ -3177,6 +3177,23 @@ ORDER BY rank ASC,CASE WHEN $7::BOOLEAN THEN distance_meters END ASC NULLS LAST,
 --name: lock-quota-user
 SELECT id FROM users WHERE id = $1 FOR UPDATE;
 
+-- Lock quota owners before the voucher, in the same order as resource creation.
+-- Deployment ownership and offer sellers can differ from the current owner.
+--name: lock-voucher-restore-users
+SELECT u.id FROM users u
+WHERE u.id IN (
+    SELECT deployment.user_id
+    FROM user_deployments deployment
+    JOIN otx chain_tx ON chain_tx.tracking_id = deployment.tracking_id
+    JOIN deployed_tokens token ON token.otx_id = chain_tx.id
+    WHERE token.voucher_id = $1 AND deployment.resource_type = 'TOKEN'
+    UNION
+    SELECT seller.id FROM offerings offer
+    JOIN users seller ON lower(seller.blockchain_address) = lower(offer.seller_address)
+    WHERE offer.voucher_id = $1 AND offer.available
+)
+ORDER BY u.id FOR UPDATE OF u;
+
 --name: get-user-resource-usage
 SELECT
     u.role,
@@ -3230,8 +3247,14 @@ SELECT
     (
         SELECT count(*)
         FROM offerings offer
+        JOIN vouchers voucher ON voucher.id = offer.voucher_id AND voucher.active
         WHERE lower(offer.seller_address) = lower(u.blockchain_address)
           AND offer.available
     ) AS offers_used
 FROM users u
 WHERE u.id = $1;
+
+--name: count-admin-pool-vouchers
+SELECT count(*) FROM pool_tokens pt
+JOIN pools p ON p.id = pt.pool_id
+WHERE lower(p.address) = lower($1) AND pt.is_allowed;
