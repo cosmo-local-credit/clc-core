@@ -674,23 +674,23 @@ SELECT active FROM keystore WHERE public_key = $1;
 
 -- Users
 --name: insert-user
-INSERT INTO users (blockchain_address, name, email, role, status, max_pools, max_tokens)
-VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status, $6, $7)
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+INSERT INTO users (blockchain_address, name, email, role, status)
+VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status)
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at
 FROM users
 WHERE LOWER(blockchain_address) = LOWER($1)
 LIMIT 1;
 
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -698,19 +698,20 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
-SET max_pools = $2, max_tokens = $3
-WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+SET max_pools = COALESCE($2, max_pools), max_tokens = COALESCE($3, max_tokens),
+    max_catalogs = COALESCE($4, max_catalogs), max_offers = COALESCE($5, max_offers)
+WHERE lower(blockchain_address) = lower($1)
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
 
 --name: update-user-profile
 -- Every onboarding preference preserves on omission so older clients cannot
@@ -731,7 +732,7 @@ SET name = $2,
     avatar_url = CASE WHEN $13 THEN NULL ELSE COALESCE($14, avatar_url) END,
     username = COALESCE($15, username)
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
 
 -- User shares
 --name: insert-user-share
@@ -1029,6 +1030,22 @@ SELECT id, otx_id, proxy_address, contract_type, new_implementation, version, cr
 FROM upgrade_meta
 WHERE otx_id = $1;
 
+-- Claim an operation id for a relay submission, in the transaction that queues
+-- its job. DO NOTHING rather than raising: a concurrent claim of the same id
+-- blocks here until the first transaction ends, then either inserts (the first
+-- rolled back) or affects no row (it committed), and the caller reads the
+-- winner with get-relay-operation. Nothing aborts the caller's transaction.
+--name: insert-relay-operation
+INSERT INTO relay_operations (operation_id, user_address, request_digest, tracking_id)
+VALUES ($1::uuid, $2, $3, $4::uuid)
+ON CONFLICT (operation_id) DO NOTHING;
+
+--name: get-relay-operation
+SELECT operation_id::TEXT AS operation_id, user_address, request_digest,
+    tracking_id::TEXT AS tracking_id, created_at
+FROM relay_operations
+WHERE operation_id = $1::uuid;
+
 -- Record a WebAuthn credential carried by a registration relay. Written in the
 -- relay worker's transaction, beside the OTX it waits on, and always 'pending':
 -- only a successful receipt for tracking_id makes it usable (see
@@ -1131,7 +1148,7 @@ WHERE keystore_id = (SELECT id FROM keystore WHERE public_key = $1)
 -- (chain_data_v2.tokens / sarafu_network.vouchers) — the local catalog is the
 -- single home for living voucher attributes (MIGRATION.md §2 V2).
 --name: list-voucher-metadata-by-addresses
-SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url
+SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url, active
 FROM vouchers
 WHERE lower(address) = ANY($1);
 
@@ -1146,7 +1163,7 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+    (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -1163,7 +1180,7 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+    (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -1182,7 +1199,7 @@ SELECT * FROM (
         p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
         p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
         p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-        (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+        (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
         COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
     FROM pools p
     LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -1203,7 +1220,7 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
     p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
-    (SELECT COUNT(*) FROM pool_tokens pv WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
+    (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
@@ -1438,7 +1455,7 @@ FROM pool_tokens pt
 INNER JOIN pools p ON p.id = pt.pool_id
 INNER JOIN vouchers v ON v.id = pt.voucher_id
 LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
-WHERE lower(p.address) = lower($1) AND pt.is_allowed
+WHERE lower(p.address) = lower($1) AND pt.is_allowed AND (v.active OR $3::BOOLEAN)
 ORDER BY v.id DESC
 LIMIT $2;
 
@@ -1461,7 +1478,7 @@ FROM pool_tokens pt
 INNER JOIN pools p ON p.id = pt.pool_id
 INNER JOIN vouchers v ON v.id = pt.voucher_id
 LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
-WHERE lower(p.address) = lower($1) AND pt.is_allowed AND v.id < $2
+WHERE lower(p.address) = lower($1) AND pt.is_allowed AND (v.active OR $4::BOOLEAN) AND v.id < $2
 ORDER BY v.id DESC
 LIMIT $3;
 
@@ -1485,7 +1502,7 @@ SELECT * FROM (
     INNER JOIN pools p ON p.id = pt.pool_id
     INNER JOIN vouchers v ON v.id = pt.voucher_id
     LEFT JOIN oracle_feeds oracle ON oracle.id = pt.oracle_feed_id
-    WHERE lower(p.address) = lower($1) AND pt.is_allowed AND v.id > $2
+    WHERE lower(p.address) = lower($1) AND pt.is_allowed AND (v.active OR $4::BOOLEAN) AND v.id > $2
     ORDER BY v.id ASC
     LIMIT $3
 ) page
@@ -3172,3 +3189,88 @@ SELECT kind,id,chain_id,address,name,description,symbol,image_url,marker_icon,ma
 FROM page
 ORDER BY rank ASC,CASE WHEN $7::BOOLEAN THEN distance_meters END ASC NULLS LAST,
     updated_at DESC,kind ASC,id DESC;
+
+--name: lock-quota-user
+SELECT id FROM users WHERE id = $1 FOR UPDATE;
+
+-- Lock quota owners before the voucher, in the same order as resource creation.
+-- Deployment ownership and offer sellers can differ from the current owner.
+--name: lock-voucher-restore-users
+SELECT u.id FROM users u
+WHERE u.id IN (
+    SELECT deployment.user_id
+    FROM user_deployments deployment
+    JOIN otx chain_tx ON chain_tx.tracking_id = deployment.tracking_id
+    JOIN deployed_tokens token ON token.otx_id = chain_tx.id
+    WHERE token.voucher_id = $1 AND deployment.resource_type = 'TOKEN'
+    UNION
+    SELECT seller.id FROM offerings offer
+    JOIN users seller ON lower(seller.blockchain_address) = lower(offer.seller_address)
+    WHERE offer.voucher_id = $1 AND offer.available
+)
+ORDER BY u.id FOR UPDATE OF u;
+
+--name: get-user-resource-usage
+SELECT
+    u.role,
+    u.max_tokens,
+    u.max_pools,
+    u.max_catalogs,
+    u.max_offers,
+    (
+        SELECT count(*)
+        FROM user_deployments deployment
+        WHERE deployment.user_id = u.id
+          AND deployment.resource_type = 'TOKEN'
+          -- Count the request unless its voucher has been retired.
+          -- Pending or unknown results still reserve a slot.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM otx chain_tx
+              JOIN deployed_tokens token ON token.otx_id = chain_tx.id
+              JOIN vouchers voucher ON voucher.id = token.voucher_id
+              WHERE chain_tx.tracking_id = deployment.tracking_id
+                AND NOT voucher.active
+          )
+          -- Release only when every recorded deployment attempt has failed on-chain.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM otx chain_tx
+              JOIN deployed_tokens token ON token.otx_id = chain_tx.id
+              WHERE chain_tx.tracking_id = deployment.tracking_id
+              GROUP BY chain_tx.tracking_id
+              HAVING bool_and(token.status = 'FAILED')
+          )
+    ) AS vouchers_used,
+    (
+        SELECT count(*)
+        FROM user_deployments deployment
+        WHERE deployment.user_id = u.id AND deployment.resource_type = 'POOL'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM otx chain_tx
+              JOIN deployed_pools pool ON pool.otx_id = chain_tx.id
+              WHERE chain_tx.tracking_id = deployment.tracking_id
+              GROUP BY chain_tx.tracking_id
+              HAVING bool_and(pool.status = 'FAILED')
+          )
+    ) AS pools_used,
+    (
+        SELECT count(*)
+        FROM catalogs catalog
+        WHERE catalog.owner_user_id = u.id
+    ) AS catalogs_used,
+    (
+        SELECT count(*)
+        FROM offerings offer
+        JOIN vouchers voucher ON voucher.id = offer.voucher_id AND voucher.active
+        WHERE lower(offer.seller_address) = lower(u.blockchain_address)
+          AND offer.available
+    ) AS offers_used
+FROM users u
+WHERE u.id = $1;
+
+--name: count-admin-pool-vouchers
+SELECT count(*) FROM pool_tokens pt
+JOIN pools p ON p.id = pt.pool_id
+WHERE lower(p.address) = lower($1) AND pt.is_allowed;

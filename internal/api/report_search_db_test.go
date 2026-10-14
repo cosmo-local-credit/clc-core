@@ -92,6 +92,7 @@ func newReportSearchAPI(t *testing.T) (*API, string) {
 	if err != nil {
 		t.Fatalf("connect store: %v", err)
 	}
+	t.Cleanup(pgStore.Pool().Close)
 
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {

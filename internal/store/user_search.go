@@ -89,7 +89,7 @@ SELECT u.id, u.blockchain_address AS ethereum_address, u.username, u.name,
     COALESCE(u.country, '') AS country,
     u.preferred_currency, u.bio, u.website,
     u.location_name, u.geo_lat, u.geo_lng, u.avatar_url, u.role, u.status,
-    u.max_pools, u.max_tokens, u.created_at, u.updated_at
+    u.max_pools, u.max_tokens, u.max_catalogs, u.max_offers, u.created_at, u.updated_at
 FROM page
 INNER JOIN users u ON u.id = page.id
 ORDER BY u.id DESC;`

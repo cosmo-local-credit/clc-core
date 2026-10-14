@@ -90,6 +90,7 @@ func (a *API) enrichTokenBalances(ctx context.Context, items []store.FederationT
 			items[i].TokenDecimals = uint8(*m.Decimals)
 		}
 		items[i].IconURL = m.IconURL
+		items[i].CatalogActive = &m.Active
 	}
 	return nil
 }
@@ -328,12 +329,41 @@ func (a *API) accountLatestTokensHandler(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	tokens, err := a.federationStore.ListUserTokenHoldings(ctx, req.Address, 5)
-	if err != nil {
-		return handlePostgresError(c, err)
-	}
-	if err := a.enrichTokenBalances(ctx, tokens); err != nil {
-		return handlePostgresError(c, err)
+	// Fill the summary after applying catalog visibility. Retired recent balances
+	// must not hide older active holdings or produce a false empty wallet.
+	const limit = 5
+	tokens := make([]store.FederationTokenBalance, 0, limit)
+	var cursor uint64
+	for len(tokens) < limit {
+		var page []store.FederationTokenBalance
+		var err error
+		if cursor == 0 {
+			page, err = a.federationStore.ListUserTokenHoldings(ctx, req.Address, limit)
+		} else {
+			page, err = a.federationStore.ListUserTokenHoldingsNext(ctx, req.Address, cursor, limit)
+		}
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		if err := a.enrichTokenBalances(ctx, page); err != nil {
+			return handlePostgresError(c, err)
+		}
+		for _, token := range page {
+			if token.CatalogActive == nil || *token.CatalogActive {
+				tokens = append(tokens, token)
+				if len(tokens) == limit {
+					break
+				}
+			}
+		}
+		if len(page) < limit {
+			break
+		}
+		next := page[len(page)-1].ID
+		if next == 0 || (cursor != 0 && next >= cursor) {
+			return fmt.Errorf("token balance cursor did not advance")
+		}
+		cursor = next
 	}
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{

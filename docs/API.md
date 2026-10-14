@@ -2802,21 +2802,42 @@ deployments keep their association under the new name.
 Like deletion, a rename does not blacklist the old spelling: the next catalog
 write that names it creates it as a new custom value.
 
+## Username text (migration 050)
+
+Usernames accept 1–80 Unicode code points after trimming and NFC normalization.
+Case, internal spaces, punctuation, digits, and all scripts are preserved for
+presentation. Empty/whitespace-only explicit names are rejected; omitting a
+username retains existing automatic assignment behavior. Suggestions preserve
+name text, adding numeric suffixes on collision and truncating by code point to
+keep the final candidate within 80 characters.
+
+Usernames and pool names still share recipient uniqueness. Comparison uses NFC,
+collapsed whitespace, and PostgreSQL's locale-dependent `lower()`; a C-locale
+server does not case-fold all non-ASCII capitals. Migration 050 updates the
+shared identity normalization function (including symbol claims) and rebuilds
+recipient indexes. Existing canonical collisions abort the transaction without
+renaming or deleting an identity. Apply the migration before deploying callers.
+
+Exact resolution accepts `GET /api/v2/recipients/resolve?name=…` so punctuation,
+including slashes, stays in a query parameter. The existing path form remains.
+
 ## Recipient search
 
 Authenticated `GET /api/v2/recipients?q=…` returns up to 20 recipient identities
 in `result.recipients`. Text searches current usernames and effective pool names.
-Phone-shaped input searches approved users with usernames by their stored phone
+Phone-shaped input also searches approved users with usernames by their stored phone
 prefix, after at least three digits. An optional leading `+`, spaces, parentheses
 and hyphens are ignored when comparing; every digit, including leading zeros
 and `00`, is preserved. `071` is not converted to an international number.
-Exact phone matches rank first, followed by username/address order. The existing
+Exact name matches rank first, then phone matches (exact phone first), then other
+name matches. The existing
 optional `kind=user|pool` parameter still applies; pool contact phones are excluded.
 Phone numbers are not included in the response.
 
 Sending to a complete wallet address uses direct address entry, with optional
 `GET /api/v2/recipients/reverse/:address` for its current identity label. Unknown
-addresses remain valid destinations; partial addresses do not trigger discovery.
+addresses remain valid destinations. Other nonempty input, including one-character
+and 0x-prefixed usernames, triggers debounced name discovery.
 
 ## 13. User-created catalogs (`/api/v2/catalogs`)
 
@@ -2933,3 +2954,45 @@ A second create returns:
 ```
 
 See [CATALOGS.md](CATALOGS.md) for database design and verification details.
+
+### Catalog status on account token balances
+
+Account token balance responses (`/api/v2/accounts/:address/tokens` and
+`/api/v2/accounts/:address/tokens/latest`) include optional `catalogActive` on
+individual tokens. `false` means the local voucher is retired; `true` means it
+is active; absence means there is no local catalog entry. Wallet lists hide
+explicitly retired vouchers. Retirement does not burn balances, remove the
+on-chain contract, or delete transaction history. The paginated `/tokens` response retains raw rows and cursors. The `/tokens/latest`
+summary skips retired vouchers and continues through older pages until it has
+five visible balances or reaches the end. Tokens outside the local catalog remain
+visible.
+
+### Retirement, pool composition and restoration
+
+`GET /api/v2/pools/:address/vouchers` includes only active, allowed vouchers,
+with filtering before pagination. Public pool voucher counts and voucher facets
+also exclude retired members. Superadmins can inspect retained allowed members
+through `GET /api/v2/admin/pools/:address/vouchers`, with the same pagination
+shape and `Cache-Control: no-store`. Ordinary users and guests cannot use that
+admin route. Retirement does not remove chain membership.
+
+`PUT /api/v2/admin/vouchers/:address/restore` checks affected deployment creators'
+voucher allowances and offer sellers' offer allowances. A restoration that
+increases usage beyond an allowance returns HTTP 429 with the existing
+resource-limit error payload (`resource`, `used`, `limit`) and leaves the
+voucher retired. Here `used` is the projected usage if restoration succeeded.
+Admins can adjust allowances and retry. Restoring at exact capacity or restoring
+an already-active voucher succeeds. Records remain in the database in both cases.
+
+
+Token holdings pagination keeps every balance with the boundary transaction ID
+on the same page (`FETCH FIRST ... WITH TIES`). `perPage` is therefore a target
+size, and a page can contain more rows when a transaction touched several tokens.
+Use the returned `first`/`last` cursors and continue while a page contains at
+least `perPage` rows. This applies in both directions. The latest summary still
+returns at most five visible balances.
+
+The admin pool-composition response includes `result.total`: the full count of
+allowed members, including retired vouchers, independent of page size or cursor.
+The console uses this total for its composition metrics; public pool counts
+continue to include only active members.

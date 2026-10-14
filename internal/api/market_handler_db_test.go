@@ -36,6 +36,7 @@ func newMarketAPIWithStore(t *testing.T) *API {
 	if err != nil {
 		t.Fatalf("connect store: %v", err)
 	}
+	t.Cleanup(pgStore.Pool().Close)
 
 	return New(APIOpts{
 		Logg:  logg,

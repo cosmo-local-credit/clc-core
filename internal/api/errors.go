@@ -157,8 +157,6 @@ func handlePostgresError(c *echo.Context, err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
 		switch pgErr.ConstraintName {
-		case "catalogs_one_per_owner":
-			return handleConflictError(c, "you already have a catalog")
 		case "identity_claims_name_key", "identity_claims_owner_key":
 			return handleConflictError(c, "name or symbol is already in use")
 		case "token_tag_pkey", "token_tag_value_lower_idx", "offering_unit_pkey", "offering_unit_value_lower_idx":

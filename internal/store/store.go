@@ -66,6 +66,7 @@ type (
 		UpdateVoucherProfile(context.Context, pgx.Tx, string, VoucherProfile) (uint64, error)
 		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
 		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
+		RestoreVoucherWithinLimits(context.Context, pgx.Tx, string) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
@@ -92,7 +93,7 @@ type (
 		GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
-		UpdateUserLimits(context.Context, pgx.Tx, string, int, int) (User, error)
+		UpdateUserLimits(context.Context, pgx.Tx, string, UserLimitsUpdate) (User, error)
 		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)
 		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
 		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
@@ -106,6 +107,8 @@ type (
 		DashboardCatalogSeries(context.Context, pgx.Tx, time.Time, time.Time, int64) ([]DashboardCatalogPoint, error)
 
 		InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
+		CheckUserResourceLimit(context.Context, pgx.Tx, uint64, string) error
+		GetUserResourceUsage(context.Context, pgx.Tx, uint64) (UserResourceUsage, error)
 		CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)
 		CountUserPools(context.Context, pgx.Tx, uint64) (int, error)
 		ListUserDeployments(context.Context, pgx.Tx, uint64) ([]UserDeployment, error)
@@ -130,6 +133,10 @@ type (
 		ListPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
+		CountAdminPoolVouchers(context.Context, pgx.Tx, string) (uint64, error)
+		ListAdminPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
+		ListAdminPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
+		ListAdminPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
 		ListOfferings(context.Context, pgx.Tx, uint64) ([]Offering, error)
 		ListOfferingsNext(context.Context, pgx.Tx, uint64, uint64) ([]Offering, error)
 		ListOfferingsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Offering, error)
@@ -194,6 +201,7 @@ type (
 		InsertUpgradeMeta(context.Context, pgx.Tx, UpgradeMeta) error
 		GetUpgradeMetaByOTXID(context.Context, pgx.Tx, uint64) (UpgradeMeta, error)
 
+		ClaimRelayOperation(context.Context, pgx.Tx, RelayOperation) (RelayOperation, bool, error)
 		RecordWebAuthnRegistration(context.Context, pgx.Tx, WebAuthnCredential) error
 		GetWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)
 		GetActiveWebAuthnCredential(context.Context, pgx.Tx, string) (WebAuthnCredential, error)

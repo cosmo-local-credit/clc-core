@@ -167,8 +167,10 @@ type (
 	}
 
 	UpdateUserLimitsRequest struct {
-		MaxPools  int `json:"maxPools" validate:"gte=0"`
-		MaxTokens int `json:"maxTokens" validate:"gte=0"`
+		MaxPools    *int `json:"maxPools" validate:"omitempty,gte=0,lte=2147483647"`
+		MaxTokens   *int `json:"maxTokens" validate:"omitempty,gte=0,lte=2147483647"`
+		MaxCatalogs *int `json:"maxCatalogs" validate:"omitempty,gte=0,lte=2147483647"`
+		MaxOffers   *int `json:"maxOffers" validate:"omitempty,gte=0,lte=2147483647"`
 	}
 
 	// EthAddressParam is a path-parameter type for Ethereum addresses.
@@ -233,6 +235,11 @@ type (
 	}
 
 	RelayRequest struct {
+		// OperationID makes the submission idempotent: resending the identical
+		// request under the same id returns the original tracking id instead of
+		// queueing a second job, and reusing the id for any other request is a
+		// 409. Optional; without it every submission queues a job.
+		OperationID   string                `json:"operationId,omitempty" validate:"omitempty,uuid"`
 		UserAddress   string                `json:"userAddress"   validate:"required,eth_addr_checksum"`
 		SignedBatch   CaliburSignedBatch    `json:"signedBatch"   validate:"required"`
 		Signature     string                `json:"signature"     validate:"required,startswith=0x"`

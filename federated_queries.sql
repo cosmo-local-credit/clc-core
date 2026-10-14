@@ -45,6 +45,8 @@ SELECT EXISTS (
 -- is the holder's most recent tx id for that token and drives keyset
 -- pagination.
 
+-- Keep a transaction boundary intact: one transaction can touch several tokens.
+-- The numeric cursor advances by transaction ID, so tied rows must share a page.
 --name: list-user-token-holdings
 WITH movements AS (
     SELECT tt.contract_address, tt.transfer_value AS delta, tx.id AS tx_id, tx.date_block
@@ -74,7 +76,7 @@ SELECT
     h.last_date_block
 FROM holding h
 ORDER BY h.last_tx_id DESC
-LIMIT $2;
+FETCH FIRST $2 ROWS WITH TIES;
 
 --name: list-user-token-holdings-next
 WITH movements AS (
@@ -106,7 +108,7 @@ SELECT
 FROM holding h
 WHERE h.last_tx_id < $2
 ORDER BY h.last_tx_id DESC
-LIMIT $3;
+FETCH FIRST $3 ROWS WITH TIES;
 
 --name: list-user-token-holdings-prev
 WITH movements AS (
@@ -139,7 +141,7 @@ SELECT * FROM (
     FROM holding h
     WHERE h.last_tx_id > $2
     ORDER BY h.last_tx_id ASC
-    LIMIT $3
+    FETCH FIRST $3 ROWS WITH TIES
 ) page
 ORDER BY id DESC;
 

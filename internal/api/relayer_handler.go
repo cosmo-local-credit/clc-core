@@ -197,6 +197,9 @@ func (a *API) relayerHealthHandler(c *echo.Context) error {
 			"build":          a.build,
 			"chainId":        a.chainID,
 			"relayerAddress": a.relayer.SignerAddress().Hex(),
+			// POST /relay honours operationId: a lost response is reconciled by
+			// resending the same signed request, never by signing a new one.
+			"idempotentRelay": true,
 		},
 	})
 }
@@ -411,11 +414,44 @@ func (a *API) relayHandler(c *echo.Context) error {
 		registrationKeyHash = keyHash
 	}
 
+	var operationDigest []byte
+	if req.OperationID != "" {
+		digest, err := relayOperationDigest(a.chainID, req)
+		if err != nil {
+			return err
+		}
+		operationDigest = digest
+	}
+
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	trackingID := uuid.NewString()
+
+	// Claimed before anything else in the transaction, so a resubmission is
+	// answered from the first one's row rather than re-judged: a registration
+	// the first submission made pending must not turn its own replay into a
+	// conflict. The claim rolls back with the job if anything below fails.
+	if operationDigest != nil {
+		existing, claimed, err := a.store.ClaimRelayOperation(ctx, tx, store.RelayOperation{
+			OperationID:   req.OperationID,
+			UserAddress:   req.UserAddress,
+			RequestDigest: operationDigest,
+			TrackingID:    trackingID,
+		})
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		if !claimed {
+			if !isRelayOperationReplay(existing, req.UserAddress, operationDigest) {
+				return relayOperationConflict(c)
+			}
+			return relayOperationReplayed(c, req.OperationID, existing.TrackingID)
+		}
+	}
 
 	if registration := args.Registration(); registration != nil {
 		var existing *store.WebAuthnCredential
@@ -434,7 +470,6 @@ func (a *API) relayHandler(c *echo.Context) error {
 		}
 	}
 
-	trackingID := uuid.NewString()
 	args.TrackingID = trackingID
 
 	if _, err := a.queueClient.InsertTx(ctx, tx, args, &river.InsertOpts{MaxAttempts: 1}); err != nil {
@@ -452,13 +487,18 @@ func (a *API) relayHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
+	result := map[string]any{
+		"trackingId":         trackingID,
+		"valuationSnapshots": valuationSnapshots,
+	}
+	if req.OperationID != "" {
+		result["operationId"] = req.OperationID
+		result["replayed"] = false
+	}
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "Relay request accepted",
-		Result: map[string]any{
-			"trackingId":         trackingID,
-			"valuationSnapshots": valuationSnapshots,
-		},
+		Result:      result,
 	})
 }
 
