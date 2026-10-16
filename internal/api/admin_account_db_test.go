@@ -26,7 +26,6 @@ import (
 // connections and cannot see an uncommitted transaction. Every fixture is tagged
 // with a marker unique to this file so cleanup cannot touch another suite's rows,
 // and each test asserts about the accounts it created rather than about totals.
-//
 // The federation database is not required. Where it is absent the chain figures
 // are expected to be null, which is itself part of the contract.
 
