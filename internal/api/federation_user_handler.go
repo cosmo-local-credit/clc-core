@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/labstack/echo/v5"
 )
 
@@ -394,6 +395,82 @@ func (a *API) accountTokensHandler(c *echo.Context) error {
 		Next:    req.Next,
 		Cursor:  req.Cursor,
 	}), "tokens", fmt.Sprintf("Token balances for %s", req.Address),
+		func(t store.FederationTokenBalance) uint64 { return t.ID })
+}
+
+// issuedTokenPage reads one page of the vouchers an address owns from the local
+// catalog. The rows carry no balance until enrichIssuedTokens fills it.
+func (a *API) issuedTokenPage(ctx context.Context, owner string, page store.CatalogPage, cursor, limit uint64) ([]store.FederationTokenBalance, error) {
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	return a.store.ListOwnedVoucherTokens(ctx, tx, owner, page, cursor, limit)
+}
+
+// enrichIssuedTokens fills the owner's balance of each issued voucher from the
+// federation indexer, then the catalog metadata every balance row carries. A
+// voucher the owner never moved keeps a zero balance.
+func (a *API) enrichIssuedTokens(ctx context.Context, owner string, items []store.FederationTokenBalance) error {
+	tokens := make([]string, len(items))
+	for i := range items {
+		// The catalog keeps whichever casing an address arrived in; the indexer
+		// stores it checksummed and compares exactly.
+		items[i].TokenAddress = common.HexToAddress(items[i].TokenAddress).Hex()
+		tokens[i] = items[i].TokenAddress
+	}
+	balances, err := a.federationStore.ListUserTokenBalances(ctx, owner, tokens)
+	if err != nil {
+		return err
+	}
+	byAddress := make(map[string]store.FederationTokenBalance, len(balances))
+	for _, b := range balances {
+		byAddress[strings.ToLower(b.TokenAddress)] = b
+	}
+	for i := range items {
+		items[i].Balance = "0"
+		if b, ok := byAddress[strings.ToLower(items[i].TokenAddress)]; ok {
+			items[i].Balance = b.Balance
+			items[i].LastDateBlock = b.LastDateBlock
+		}
+	}
+	return a.enrichTokenBalances(ctx, items)
+}
+
+// accountIssuedTokensHandler pages the vouchers an address owns, in the shape
+// and cursor order of accountTokensHandler. Unlike it, a zero balance is kept:
+// a voucher whose opening supply was never created, or whose owner handed out
+// every unit, is still the owner's to manage, and the wallet has no other way
+// back to it.
+func (a *API) accountIssuedTokensHandler(c *echo.Context) error {
+	req := apiresp.OTXByAccountRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	return cursorPaginatedFederationList(c, paginatedFederationListCallbacks[store.FederationTokenBalance]{
+		firstPage: func(ctx context.Context, owner string, limit uint64) ([]store.FederationTokenBalance, error) {
+			return a.issuedTokenPage(ctx, owner, store.CatalogFirstPage, 0, limit)
+		},
+		nextPage: func(ctx context.Context, owner string, cursor, limit uint64) ([]store.FederationTokenBalance, error) {
+			return a.issuedTokenPage(ctx, owner, store.CatalogNextPage, cursor, limit)
+		},
+		prevPage: func(ctx context.Context, owner string, cursor, limit uint64) ([]store.FederationTokenBalance, error) {
+			return a.issuedTokenPage(ctx, owner, store.CatalogPrevPage, cursor, limit)
+		},
+		enrich: func(ctx context.Context, items []store.FederationTokenBalance) error {
+			return a.enrichIssuedTokens(ctx, req.Address, items)
+		},
+	}, req.Address, normalizePagination(apiresp.CursorPaginationRequest{
+		PerPage: req.PerPage,
+		Next:    req.Next,
+		Cursor:  req.Cursor,
+	}), "tokens", fmt.Sprintf("Issued tokens for %s", req.Address),
 		func(t store.FederationTokenBalance) uint64 { return t.ID })
 }
 

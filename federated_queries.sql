@@ -145,6 +145,30 @@ SELECT * FROM (
 ) page
 ORDER BY id DESC;
 
+-- A holder's balance of each named token, zero balances included, for the
+-- wallet's issued list: an owner who never received their voucher, or handed
+-- out every unit, holds none of it and the holdings above leave it out. A
+-- token the holder never moved has no row. Not paginated — the caller passes
+-- one page of tokens.
+--name: list-user-token-balances
+WITH movements AS (
+    SELECT tt.contract_address, tt.transfer_value AS delta, tx.date_block
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
+    WHERE tx.success = true AND tt.recipient_address = $1 AND tt.contract_address = ANY($2::text[])
+    UNION ALL
+    SELECT tt.contract_address, -tt.transfer_value AS delta, tx.date_block
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
+    WHERE tx.success = true AND tt.sender_address = $1 AND tt.contract_address = ANY($2::text[])
+)
+SELECT
+    m.contract_address AS token_address,
+    SUM(m.delta)::text AS balance,
+    MAX(m.date_block) AS last_date_block
+FROM movements m
+GROUP BY m.contract_address;
+
 -- Transfer history ----------------------------------------------------------
 -- Each on-chain transfer yields at most one row for a given holder — an IN row
 -- when they are the recipient (self-transfers included) or an OUT row when they
