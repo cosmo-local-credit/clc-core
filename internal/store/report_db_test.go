@@ -177,6 +177,7 @@ func TestReportDetailReturnsMediaAndFormFromTheirOwnRelations(t *testing.T) {
 	}
 	if report == nil {
 		t.Fatal("approved report was not found")
+		return
 	}
 
 	if report.Body == nil || *report.Body != "## Cycle report\n\nEight members attended." {
@@ -541,6 +542,7 @@ func TestReportQueriesHideDataUriCoverImages(t *testing.T) {
 	}
 	if report == nil {
 		t.Fatal("approved report was not found")
+		return
 	}
 	if report.ImageURL != nil {
 		t.Fatalf("detail imageUrl = %q, want nil for a data URI", *report.ImageURL)
