@@ -67,6 +67,41 @@ func (pg *Pg) ListVoucherMetadataByAddresses(ctx context.Context, tx pgx.Tx, add
 	return rows, nil
 }
 
+// ListOwnedVoucherTokens pages the active vouchers one address owns, newest
+// first, as balance rows the API fills with the owner's balance and the catalog
+// metadata. There is no coordinate predicate: this is the owner's list, not the
+// map's, so it does not compose the market catalog's statement.
+func (pg *Pg) ListOwnedVoucherTokens(
+	ctx context.Context,
+	tx pgx.Tx,
+	owner string,
+	page CatalogPage,
+	cursor, limit uint64,
+) ([]FederationTokenBalance, error) {
+	args := &sqlArgs{}
+	sql := "WITH page AS MATERIALIZED (\n" +
+		"    SELECT v.id\n" +
+		"    FROM vouchers v" +
+		whereClause(
+			"v.active",
+			ownerPredicate(args, "v.owner_address", CatalogFilter{Owner: owner}),
+			cursorPredicate(args, "v.id", page, cursor),
+		) +
+		"\n    ORDER BY v.id " + pageOrder(page) +
+		"\n    LIMIT " + args.bind(limit) +
+		"\n)\n" +
+		"SELECT v.id, v.address AS token_address\n" +
+		"FROM page\n" +
+		"INNER JOIN vouchers v ON v.id = page.id\n" +
+		"ORDER BY v.id DESC;"
+
+	var tokens []FederationTokenBalance
+	if err := pgxscan.Select(ctx, tx, &tokens, sql, args.values...); err != nil {
+		return nil, err
+	}
+	return tokens, nil
+}
+
 // UpdateVoucherProfile writes an operator's edits to a voucher's off-chain
 // record and returns the voucher's id so tags can be replaced in the same
 // transaction.

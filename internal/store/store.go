@@ -129,6 +129,7 @@ type (
 		ListAllTokens(context.Context, pgx.Tx) ([]DeployedToken, error)
 		ListAllPools(context.Context, pgx.Tx) ([]DeployedPool, error)
 		ListVoucherMetadataByAddresses(context.Context, pgx.Tx, []string) ([]VoucherMetadata, error)
+		ListOwnedVoucherTokens(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]FederationTokenBalance, error)
 		ListPools(context.Context, pgx.Tx, uint64) ([]Pool, error)
 		ListPoolsNext(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
 		ListPoolsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)

@@ -19,6 +19,7 @@ type (
 		ListUserTokenHoldings               string `query:"list-user-token-holdings"`
 		ListUserTokenHoldingsNext           string `query:"list-user-token-holdings-next"`
 		ListUserTokenHoldingsPrevious       string `query:"list-user-token-holdings-prev"`
+		ListUserTokenBalances               string `query:"list-user-token-balances"`
 		AccountActivityCounts               string `query:"account-activity-counts"`
 		ListUserTransferHistory             string `query:"list-user-transfer-history"`
 		ListUserTransferHistoryNext         string `query:"list-user-transfer-history-next"`
@@ -38,6 +39,7 @@ type (
 		ListUserTokenHoldings(context.Context, string, uint64) ([]FederationTokenBalance, error)
 		ListUserTokenHoldingsNext(context.Context, string, uint64, uint64) ([]FederationTokenBalance, error)
 		ListUserTokenHoldingsPrevious(context.Context, string, uint64, uint64) ([]FederationTokenBalance, error)
+		ListUserTokenBalances(context.Context, string, []string) ([]FederationTokenBalance, error)
 		AccountActivityCounts(context.Context, string) (AccountActivityCounts, error)
 		ListUserTransferHistory(context.Context, string, uint64) ([]FederationTransfer, error)
 		ListUserTransferHistoryNext(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
