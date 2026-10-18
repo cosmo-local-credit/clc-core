@@ -125,17 +125,6 @@ func (a *API) userTokensHandler(c *echo.Context) error {
 		func(t store.DeployedToken) uint64 { return t.ID })
 }
 
-func (a *API) userOwnedVouchersHandler(c *echo.Context) error {
-	userID, _, _ := getUserClaims(c)
-	c.Response().Header().Set("Cache-Control", "no-store")
-	return cursorPaginatedList(a, c, paginatedListCallbacks[store.OwnedVoucher]{
-		firstPage: a.store.ListOwnedVouchers,
-		nextPage:  a.store.ListOwnedVouchersNext,
-		prevPage:  a.store.ListOwnedVouchersPrevious,
-	}, userID, "vouchers", fmt.Sprintf("Currently owned vouchers for user %d", userID),
-		func(v store.OwnedVoucher) uint64 { return v.ID })
-}
-
 func (a *API) userPoolsHandler(c *echo.Context) error {
 	userID, _, _ := getUserClaims(c)
 	return cursorPaginatedList(a, c, paginatedListCallbacks[store.DeployedPool]{
