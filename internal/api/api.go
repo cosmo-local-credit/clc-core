@@ -286,6 +286,7 @@ func New(o APIOpts) *API {
 	// apiGroup so the SIWE user JWT cookie (or service token) is required.
 	if a.federationStore != nil {
 		apiGroup.GET("/accounts/:address/tokens/latest", a.accountLatestTokensHandler)
+		apiGroup.GET("/accounts/:address/tokens/issued", a.accountIssuedTokensHandler)
 		apiGroup.GET("/accounts/:address/tokens", a.accountTokensHandler)
 		apiGroup.GET("/accounts/:address/transfers", a.accountTransfersHandler)
 	}

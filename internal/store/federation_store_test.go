@@ -25,6 +25,7 @@ func TestLoadFederationQueries(t *testing.T) {
 		"list-user-token-holdings":        queries.ListUserTokenHoldings,
 		"list-user-token-holdings-next":   queries.ListUserTokenHoldingsNext,
 		"list-user-token-holdings-prev":   queries.ListUserTokenHoldingsPrevious,
+		"list-user-token-balances":        queries.ListUserTokenBalances,
 		"list-user-transfer-history":      queries.ListUserTransferHistory,
 		"list-user-transfer-history-next": queries.ListUserTransferHistoryNext,
 		"list-user-transfer-history-prev": queries.ListUserTransferHistoryPrevious,
@@ -63,6 +64,7 @@ func TestLoadFederationQueries(t *testing.T) {
 	// Reads must hit the live source tables, not the retired materialized views.
 	for name, query := range map[string]string{
 		"list-user-token-holdings":   queries.ListUserTokenHoldings,
+		"list-user-token-balances":   queries.ListUserTokenBalances,
 		"list-user-transfer-history": queries.ListUserTransferHistory,
 	} {
 		if !regexp.MustCompile(`\bFROM\s+token_transfer\s+tt\b`).MatchString(query) {
@@ -83,6 +85,7 @@ func TestLoadFederationQueries(t *testing.T) {
 		"list-user-token-holdings":        queries.ListUserTokenHoldings,
 		"list-user-token-holdings-next":   queries.ListUserTokenHoldingsNext,
 		"list-user-token-holdings-prev":   queries.ListUserTokenHoldingsPrevious,
+		"list-user-token-balances":        queries.ListUserTokenBalances,
 		"list-user-transfer-history":      queries.ListUserTransferHistory,
 		"list-user-transfer-history-next": queries.ListUserTransferHistoryNext,
 		"list-user-transfer-history-prev": queries.ListUserTransferHistoryPrevious,
