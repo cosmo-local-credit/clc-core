@@ -81,6 +81,16 @@ func (s *FederationPg) ListUserTokenHoldingsPrevious(ctx context.Context, addres
 	return holdings, nil
 }
 
+// ListUserTokenBalances returns the holder's balance of each given token. The
+// indexer compares addresses exactly, so both must be checksummed.
+func (s *FederationPg) ListUserTokenBalances(ctx context.Context, address string, tokens []string) ([]FederationTokenBalance, error) {
+	var balances []FederationTokenBalance
+	if err := pgxscan.Select(ctx, s.db, &balances, s.queries.ListUserTokenBalances, address, tokens); err != nil {
+		return nil, err
+	}
+	return balances, nil
+}
+
 func (s *FederationPg) DashboardTransactionSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]DashboardTransactionPoint, error) {
 	var rows []DashboardTransactionPoint
 	if err := pgxscan.Select(ctx, s.db, &rows, s.queries.DashboardTransactionSeries, naiveUTC(since), naiveUTC(until), bucketSeconds); err != nil {

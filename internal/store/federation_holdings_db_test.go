@@ -45,3 +45,34 @@ func TestFederationHoldingsKeepTransactionTiesDB(t *testing.T) {
 	}
 	require.Len(t, addresses, 8)
 }
+
+// The issued list reads balances for tokens the holder may hold none of, so a
+// fully spent token answers zero rather than dropping out like a holding does.
+func TestFederationTokenBalancesKeepZeroDB(t *testing.T) {
+	_, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	queries, err := loadFederationQueries("../../federated_queries.sql")
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+        CREATE TEMP TABLE tx(id BIGINT, success BOOLEAN, date_block TIMESTAMP) ON COMMIT DROP;
+        CREATE TEMP TABLE token_transfer(tx_id BIGINT, contract_address TEXT,
+            transfer_value NUMERIC, sender_address TEXT, recipient_address TEXT) ON COMMIT DROP;
+        INSERT INTO tx VALUES (1,true,'2026-10-01'),(2,true,'2026-10-02'),(3,false,'2026-10-03');
+        INSERT INTO token_transfer VALUES
+            (1,'spent',5,'minter','holder'),(2,'spent',5,'holder','buyer'),
+            (1,'kept',5,'minter','holder'),(2,'kept',2,'holder','buyer'),
+            (3,'failed',5,'minter','holder'),
+            (1,'unasked',5,'minter','holder');
+    `)
+	require.NoError(t, err)
+	var balances []FederationTokenBalance
+	require.NoError(t, pgxscan.Select(ctx, tx, &balances, queries.ListUserTokenBalances,
+		"holder", []string{"spent", "kept", "failed", "never"}))
+	got := make(map[string]string, len(balances))
+	for _, row := range balances {
+		got[row.TokenAddress] = row.Balance
+	}
+	// A failed transfer moves nothing, and a token never moved has no row.
+	require.Equal(t, map[string]string{"spent": "0", "kept": "3"}, got)
+}
