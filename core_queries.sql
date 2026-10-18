@@ -885,6 +885,42 @@ WHERE ud.user_id = $1 AND ud.resource_type = 'TOKEN' AND dt.status = 'CONFIRMED'
 ORDER BY dt.id DESC
 LIMIT $3;
 
+-- The authenticated wallet list is ownership-based, not balance- or
+-- deployment-based. It deliberately includes retired and unlocated vouchers;
+-- public discovery retains its stricter active/geolocation predicates.
+--name: list-owned-vouchers
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    v.decimals, v.icon_url, v.owner_address, v.active
+FROM vouchers v
+INNER JOIN users u ON lower(u.blockchain_address) = lower(v.owner_address)
+WHERE u.id = $1
+ORDER BY v.id DESC
+LIMIT $2;
+
+--name: list-owned-vouchers-next
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    v.decimals, v.icon_url, v.owner_address, v.active
+FROM vouchers v
+INNER JOIN users u ON lower(u.blockchain_address) = lower(v.owner_address)
+WHERE u.id = $1 AND v.id < $2
+ORDER BY v.id DESC
+LIMIT $3;
+
+--name: list-owned-vouchers-prev
+SELECT * FROM (
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
+        COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+        v.decimals, v.icon_url, v.owner_address, v.active
+    FROM vouchers v
+    INNER JOIN users u ON lower(u.blockchain_address) = lower(v.owner_address)
+    WHERE u.id = $1 AND v.id > $2
+    ORDER BY v.id ASC
+    LIMIT $3
+) page
+ORDER BY page.id DESC;
+
 --name: list-pools-by-user
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
