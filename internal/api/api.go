@@ -295,6 +295,7 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me", a.userMeHandler)
 	userGroup.GET("/me/resource-usage", a.userResourceUsageHandler)
 	userGroup.GET("/me/catalogs", a.myCuratedCatalogsHandler)
+	userGroup.GET("/me/vouchers", a.userOwnedVouchersHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)

@@ -135,6 +135,9 @@ type (
 		ListTokensByUser              string `query:"list-tokens-by-user"`
 		ListTokensByUserNext          string `query:"list-tokens-by-user-next"`
 		ListTokensByUserPrev          string `query:"list-tokens-by-user-prev"`
+		ListOwnedVouchers             string `query:"list-owned-vouchers"`
+		ListOwnedVouchersNext         string `query:"list-owned-vouchers-next"`
+		ListOwnedVouchersPrev         string `query:"list-owned-vouchers-prev"`
 		ListPoolsByUser               string `query:"list-pools-by-user"`
 		ListPoolsByUserNext           string `query:"list-pools-by-user-next"`
 		ListPoolsByUserPrev           string `query:"list-pools-by-user-prev"`

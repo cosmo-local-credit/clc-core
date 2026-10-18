@@ -47,11 +47,14 @@ func TestWalletBalanceCatalogRetirement(t *testing.T) {
 	require.True(t, *balances[0].CatalogActive)
 }
 
-type walletSummaryFederation struct {
-	store.FederationStore
-	pages   [][]store.FederationTokenBalance
-	cursors []uint64
-}
+type (
+	walletSummaryFederation struct {
+		store.FederationStore
+
+		pages   [][]store.FederationTokenBalance
+		cursors []uint64
+	}
+)
 
 func (s *walletSummaryFederation) ListUserTokenHoldings(_ context.Context, _ string, _ uint64) ([]store.FederationTokenBalance, error) {
 	return s.pages[0], nil
@@ -68,7 +71,7 @@ func TestWalletSummarySkipsRetiredPages(t *testing.T) {
 	a.router.GET("/api/v2/accounts/:address/tokens/latest", a.accountLatestTokensHandler)
 	ctx := context.Background()
 	var retired []store.FederationTokenBalance
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		var address string
 		require.NoError(t, a.store.Pool().QueryRow(ctx, `INSERT INTO vouchers(chain_id,address,active)
     VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),false) RETURNING address`).Scan(&address))

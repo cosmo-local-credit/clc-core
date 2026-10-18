@@ -65,6 +65,7 @@ func TestParseMarketBoundsAcceptsAValidViewport(t *testing.T) {
 	}
 	if bounds == nil {
 		t.Fatal("expected bounds for a supplied bbox")
+		return
 	}
 	if bounds.MinLng != 36.6 || bounds.MinLat != -1.5 || bounds.MaxLng != 37.1 || bounds.MaxLat != -1.1 {
 		t.Fatalf("bounds = %+v, want minLng,minLat,maxLng,maxLat order", *bounds)
