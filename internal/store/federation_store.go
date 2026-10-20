@@ -34,7 +34,6 @@ type (
 	}
 
 	FederationStore interface {
-		SearchUserTransferHistory(context.Context, string, TransferHistorySearch, *uint64, uint64, bool) ([]FederationTransfer, error)
 		Pool() *pgxpool.Pool
 		LegacyUserExistsByBlockchainAddress(context.Context, string) (bool, error)
 		ListUserTokenHoldings(context.Context, string, uint64) ([]FederationTokenBalance, error)

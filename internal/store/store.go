@@ -11,7 +11,6 @@ import (
 
 type (
 	Store interface {
-		ListTransferSearchTokens(context.Context, pgx.Tx, CatalogFilter) ([]string, error)
 		CuratedCatalogStore
 		SuggestUsername(context.Context, pgx.Tx, string) (string, error)
 		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)

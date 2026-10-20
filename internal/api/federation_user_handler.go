@@ -474,8 +474,6 @@ func (a *API) accountIssuedTokensHandler(c *echo.Context) error {
 		func(t store.FederationTokenBalance) uint64 { return t.ID })
 }
 
-// accountTransfersHandler optionally searches the full account history with q.
-// Voucher metadata is resolved locally; federation applies all filters before paging.
 func (a *API) accountTransfersHandler(c *echo.Context) error {
 	req := apiresp.OTXByAccountRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -485,49 +483,16 @@ func (a *API) accountTransfersHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
-	filter, err := store.NewTransferHistoryFilter(c.QueryParam("q"))
-	if err != nil {
-		return respondCatalogSearchError(c, err)
-	}
-	callbacks := paginatedFederationListCallbacks[store.FederationTransfer]{
+	callerUserID, _, _ := getUserClaims(c)
+
+	return cursorPaginatedFederationList(c, paginatedFederationListCallbacks[store.FederationTransfer]{
 		firstPage: a.federationStore.ListUserTransferHistory,
 		nextPage:  a.federationStore.ListUserTransferHistoryNext,
 		prevPage:  a.federationStore.ListUserTransferHistoryPrevious,
-	}
-	if filter.Term != "" {
-		ctx := c.Request().Context()
-		tx, err := a.store.Pool().Begin(ctx)
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback(ctx)
-		if err := a.store.SetCatalogStatementTimeout(ctx, tx); err != nil {
-			return handlePostgresError(c, err)
-		}
-		tokens, err := a.store.ListTransferSearchTokens(ctx, tx, filter)
-		if err != nil {
-			return handlePostgresError(c, err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return handlePostgresError(c, err)
-		}
-		search := store.TransferHistorySearch{Filter: filter, TokenAddresses: tokens}
-		callbacks.firstPage = func(ctx context.Context, address string, limit uint64) ([]store.FederationTransfer, error) {
-			return a.federationStore.SearchUserTransferHistory(ctx, address, search, nil, limit, true)
-		}
-		callbacks.nextPage = func(ctx context.Context, address string, cursor, limit uint64) ([]store.FederationTransfer, error) {
-			return a.federationStore.SearchUserTransferHistory(ctx, address, search, &cursor, limit, true)
-		}
-		callbacks.prevPage = func(ctx context.Context, address string, cursor, limit uint64) ([]store.FederationTransfer, error) {
-			return a.federationStore.SearchUserTransferHistory(ctx, address, search, &cursor, limit, false)
-		}
-	}
-	callerUserID, _, _ := getUserClaims(c)
-
-	callbacks.enrich = func(ctx context.Context, items []store.FederationTransfer) error {
-		return a.enrichTransfers(ctx, items, callerUserID)
-	}
-	return cursorPaginatedFederationList(c, callbacks, req.Address, normalizePagination(apiresp.CursorPaginationRequest{
+		enrich: func(ctx context.Context, items []store.FederationTransfer) error {
+			return a.enrichTransfers(ctx, items, callerUserID)
+		},
+	}, req.Address, normalizePagination(apiresp.CursorPaginationRequest{
 		PerPage: req.PerPage,
 		Next:    req.Next,
 		Cursor:  req.Cursor,
