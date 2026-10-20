@@ -142,7 +142,9 @@ upserted AS (
         marker_color, contract_version, platform_contract_id
     )
     SELECT
-        d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
+        d.chain_id, d.address, d.name, d.symbol, d.decimals,
+        COALESCE((SELECT o.owner_address FROM catalog_ownership o
+                  WHERE o.chain_id = d.chain_id AND o.address = lower(d.address)), d.admin),
         -- Every clc-core token deploy goes through the giftable token
         -- implementation. The expiring variant is indistinguishable here
         -- because the deploy row does not retain the expiry timestamp.
@@ -156,7 +158,7 @@ upserted AS (
         name                 = COALESCE(EXCLUDED.name,          vouchers.name),
         symbol               = COALESCE(EXCLUDED.symbol,        vouchers.symbol),
         decimals             = COALESCE(EXCLUDED.decimals,      vouchers.decimals),
-        owner_address        = COALESCE(EXCLUDED.owner_address,  vouchers.owner_address),
+        owner_address        = COALESCE((SELECT o.owner_address FROM catalog_ownership o WHERE o.chain_id = vouchers.chain_id AND o.address = lower(vouchers.address)), vouchers.owner_address, EXCLUDED.owner_address),
         voucher_type         = COALESCE(EXCLUDED.voucher_type,   vouchers.voucher_type),
         description          = COALESCE(EXCLUDED.description,    vouchers.description),
         voucher_uoa          = COALESCE(EXCLUDED.voucher_uoa,    vouchers.voucher_uoa),
@@ -481,7 +483,9 @@ upserted AS (
         image_url, banner_url, platform_contract_id
     )
     SELECT
-        d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
+        d.chain_id, d.address, d.name, d.symbol, d.decimals,
+        COALESCE((SELECT o.owner_address FROM catalog_ownership o
+                  WHERE o.chain_id = d.chain_id AND o.address = lower(d.address)), d.admin),
         d.token_registry_address, d.limiter_address, d.quoter_address, d.quoter_type,
         d.fee_policy_address, d.protocol_fee_controller_address, d.fees_decoupled,
         d.fee_ppm, d.fee_address,
@@ -493,7 +497,7 @@ upserted AS (
         name                            = COALESCE(EXCLUDED.name,     pools.name),
         symbol                          = COALESCE(EXCLUDED.symbol,   pools.symbol),
         decimals                        = COALESCE(EXCLUDED.decimals, pools.decimals),
-        owner_address                   = COALESCE(EXCLUDED.owner_address, pools.owner_address),
+        owner_address                   = COALESCE((SELECT o.owner_address FROM catalog_ownership o WHERE o.chain_id = pools.chain_id AND o.address = lower(pools.address)), pools.owner_address, EXCLUDED.owner_address),
         token_registry_address          = COALESCE(EXCLUDED.token_registry_address, pools.token_registry_address),
         limiter_address                 = COALESCE(EXCLUDED.limiter_address, pools.limiter_address),
         quoter_address                  = COALESCE(EXCLUDED.quoter_address, pools.quoter_address),

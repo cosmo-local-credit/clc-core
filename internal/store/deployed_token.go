@@ -103,6 +103,9 @@ func (pg *Pg) FailDeployedToken(ctx context.Context, tx pgx.Tx, otxID uint64) er
 // Returns pgx.ErrNoRows if the deploy row has no address yet, which means the
 // caller confirmed a row the promotion cannot describe.
 func (pg *Pg) UpsertVoucherFromDeploy(ctx context.Context, tx pgx.Tx, deployedTokenID uint64) (uint64, error) {
+	if err := lockDeploymentOwnership(ctx, tx, "deployed_tokens", deployedTokenID); err != nil {
+		return 0, err
+	}
 	var voucherID uint64
 
 	if err := tx.QueryRow(ctx, pg.queries.UpsertVoucherFromDeploy, deployedTokenID).Scan(&voucherID); err != nil {

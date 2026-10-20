@@ -110,6 +110,9 @@ func (pg *Pg) FailDeployedPool(ctx context.Context, tx pgx.Tx, otxID uint64) err
 // UpsertVoucherFromDeploy; both carry the same transaction and ErrNoRows
 // contract.
 func (pg *Pg) UpsertPoolFromDeploy(ctx context.Context, tx pgx.Tx, deployedPoolID uint64) (uint64, error) {
+	if err := lockDeploymentOwnership(ctx, tx, "deployed_pools", deployedPoolID); err != nil {
+		return 0, err
+	}
 	var poolID uint64
 
 	if err := tx.QueryRow(ctx, pg.queries.UpsertPoolFromDeploy, deployedPoolID).Scan(&poolID); err != nil {
