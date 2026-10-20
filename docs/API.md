@@ -799,7 +799,7 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 
 **Auth:** user JWT or service JWT
 
-**Quota:** Regular `USER` accounts are limited to `maxPools` deployments (default: **10**). `SUPERADMIN` users and service JWTs are exempt.
+**Quota:** Regular `USER` accounts are limited to `maxPools` deployments (default: **1**). `SUPERADMIN` users and service JWTs are exempt.
 
 **Request body:**
 

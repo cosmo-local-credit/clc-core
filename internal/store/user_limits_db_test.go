@@ -91,12 +91,12 @@ func TestResourceLimitsDefaultsRollbackAndAdminUpdateDB(t *testing.T) {
 	require.Equal(t, 1, user.MaxTokens)
 	require.Equal(t, 1, user.MaxCatalogs)
 	require.Equal(t, 3, user.MaxOffers)
-	require.Equal(t, 10, user.MaxPools)
+	require.Equal(t, 1, user.MaxPools)
 	zero, two := 0, 2
 	updated, err := pg.UpdateUserLimits(ctx, tx, user.EthereumAddress, UserLimitsUpdate{MaxCatalogs: &two, MaxOffers: &zero})
 	require.NoError(t, err)
 	require.Equal(t, 1, updated.MaxTokens)
-	require.Equal(t, 10, updated.MaxPools)
+	require.Equal(t, 1, updated.MaxPools)
 	require.Equal(t, 2, updated.MaxCatalogs)
 	require.Zero(t, updated.MaxOffers)
 	var limit *ResourceLimitError
