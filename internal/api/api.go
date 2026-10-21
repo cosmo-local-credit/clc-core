@@ -290,6 +290,7 @@ func New(o APIOpts) *API {
 		apiGroup.GET("/accounts/:address/tokens/issued", a.accountIssuedTokensHandler)
 		apiGroup.GET("/accounts/:address/tokens", a.accountTokensHandler)
 		apiGroup.GET("/accounts/:address/transfers", a.accountTransfersHandler)
+		apiGroup.GET("/accounts/:address/activity", a.accountActivityHandler)
 	}
 
 	// User-only routes
