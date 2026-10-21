@@ -101,8 +101,8 @@ func seedFivefoldVouchers(t *testing.T, tx pgx.Tx) {
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO offerings (voucher_id, seller_address, commodity_name, commodity_type, description, quantity, available)
-		SELECT v.id, '0x0000000000000000000000000000000000000001', 'Scale Fixture', 'GOOD', '', 1, TRUE
+		INSERT INTO offerings (voucher_id, seller_address, commodity_name, description, quantity, available)
+		SELECT v.id, '0x0000000000000000000000000000000000000001', 'Scale Fixture', '', 1, TRUE
 		FROM vouchers v WHERE v.location_name = 'Scale Fixture'`); err != nil {
 		t.Fatalf("seed offerings at scale: %v", err)
 	}
@@ -352,8 +352,8 @@ func TestTagOnlyFilterIsPlannedWithoutRequiringAJunctionIndex(t *testing.T) {
 		query := composeMarketVoucherPage(nil, filter, CatalogFirstPage, 0, 100)
 		plan := explainGenericPlan(t, tx, query.sql)
 
-		if !strings.Contains(plan, "Index Cond:") {
-			t.Errorf("tags-only %s: generic plan carries no index condition at all.\nplan:\n%s", label, plan)
+		if !strings.Contains(plan, "Index Scan Backward using vouchers_pkey") {
+			t.Errorf("tags-only %s: voucher candidates must use the ordered primary-key scan.\nplan:\n%s", label, plan)
 		}
 	}
 }

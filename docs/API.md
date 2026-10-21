@@ -1908,7 +1908,7 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
 | `locationName` | string \| null | Free-text place label from the import. |
 | `geoLat` | number | Never null — rows without complete coordinates are excluded. |
 | `geoLng` | number | Never null. |
-| `kind` | string | `"goods"`, `"services"`, or `"voucher"`. |
+| `kind` | string | Always `"voucher"`. |
 | `markerIcon` | string \| null | The issuer's map marker glyph, from the `voucher_marker_icon` lookup. `null` means automatic: draw it from `kind`. A client must treat a value it does not recognise as `null`. |
 | `markerColor` | string \| null | The issuer's map marker colour, from `voucher_marker_color`. Same rules as `markerIcon`, and independent of it. |
 
@@ -1917,18 +1917,9 @@ coordinates. There is no `internal` predicate: `internal` is an import
 artifact, not a visibility or product-policy flag, and it is not exposed in
 this contract. See `MIGRATION.md` §4.7.
 
-**`kind` derivation.** Computed from the voucher's **available** offerings:
-
-| Condition | `kind` |
-|---|---|
-| Dominant available `commodity_type` is `GOOD` | `goods` |
-| Dominant available `commodity_type` is `SERVICE` | `services` |
-| Equal `GOOD` / `SERVICE` counts | `goods` |
-| No available offerings | `voucher` |
-
-Unavailable offerings are ignored entirely. `commodity_type` is FK-constrained
-to `GOOD`/`SERVICE`, so the `voucher` fallback represents "no available
-offerings", never an unrecognised type.
+**`kind`.** Always `voucher`. Offerings no longer have a goods/services
+classification. A generic voucher may have available offerings; clients must
+read its offerings endpoint instead of treating the kind as an empty-state flag.
 
 **No distance field.** Distance is relative to optional browser geolocation and
 is presentation state, not catalog state. It is never calculated server-side.
@@ -2043,7 +2034,7 @@ checksummed form.
       "phone": "+254700000000",
       "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
       "bannerUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
-      "kind": "goods",
+      "kind": "voucher",
       "markerIcon": "basket",
       "markerColor": "pink"
     }
@@ -2135,6 +2126,10 @@ decision — see [7.15](#715-put-apiv2adminvouchersaddressrestore).
 
 ### 9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)
 
+Offering records have no `commodityType` field. Create and update requests use
+`commodityName`, `description`, `unit`, `price`, and `imageUrl`; no classification
+or classification default is required.
+
 Returns the available offerings for one active voucher. It is public so a
 signed-out visitor can open the default Offerings tab on a shared voucher page.
 The address lookup is case-insensitive and rejects malformed hex addresses with
@@ -2152,8 +2147,8 @@ response contains numeric `first` and `last` values. An empty result is
 `"offerings": []`, `"first": 0`, `"last": 0`, never `null`.
 
 Only rows satisfying both `offering.available = true` and
-`voucher.active = true` are returned. This matches the market voucher `kind`
-derivation: a catalog row with `kind: "voucher"` has an empty offerings result.
+`voucher.active = true` are returned. A voucher's generic `kind` does not indicate
+whether offerings exist.
 The imported catalog observed on 2026-07-27 contains at most 19 offerings for a
 single voucher, so the client page size of 20 normally completes in one request.
 

@@ -41,7 +41,7 @@ func TestTransferredAuthorityFollowsCatalogWithoutChangingSellerProvenance(t *te
 	}
 	target := fmt.Sprintf("/api/v2/vouchers/%s/offerings/%d", vouchers.ownedAddress, vouchers.legacyOfferingID)
 	old := offeringToken(t, key, offeringOwnerAddress, "USER")
-	body := map[string]any{"commodityName": "Transferred offering", "description": "Existing offer", "commodityType": "GOOD", "unit": "bag", "price": "7.25"}
+	body := map[string]any{"commodityName": "Transferred offering", "description": "Existing offer", "unit": "bag", "price": "7.25"}
 	res, _ := offeringRequest(t, a, http.MethodPut, target, old, body)
 	require.Equal(t, http.StatusForbidden, res.Code, res.Body.String())
 	next := offeringToken(t, key, offeringOperatorAddr, "USER")

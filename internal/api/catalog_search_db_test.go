@@ -90,8 +90,8 @@ func seedSearchFixtures(t *testing.T, a *API, marker string, fixtures []searchFi
 
 		var offeringID uint64
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO offerings (voucher_id, seller_address, commodity_name, commodity_type, description, quantity, available)
-			VALUES ($1, '0x0000000000000000000000000000000000000001', $2, 'GOOD', '', 1, TRUE)
+			INSERT INTO offerings (voucher_id, seller_address, commodity_name, description, quantity, available)
+			VALUES ($1, '0x0000000000000000000000000000000000000001', $2, '', 1, TRUE)
 			RETURNING id`, voucherID, marker).Scan(&offeringID); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("seed offering: %v", err)

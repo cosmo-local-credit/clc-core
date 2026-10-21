@@ -37,9 +37,9 @@ func seedTaggedVoucher(t *testing.T, tx pgx.Tx, direct []string, viaOffering []s
 	if len(viaOffering) > 0 {
 		var offeringID uint64
 		require.NoError(t, tx.QueryRow(ctx, `
-			INSERT INTO offerings (voucher_id, seller_address, commodity_name, commodity_type,
+			INSERT INTO offerings (voucher_id, seller_address, commodity_name,
 				description, quantity, available)
-			VALUES ($1, $2, 'Maize', 'GOOD', 'a sack', 1, TRUE)
+			VALUES ($1, $2, 'Maize', 'a sack', 1, TRUE)
 			RETURNING id`, voucherID, randomAddress(t, tx)).Scan(&offeringID))
 		for _, tag := range viaOffering {
 			_, err := tx.Exec(ctx,

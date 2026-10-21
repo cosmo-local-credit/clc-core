@@ -22,8 +22,8 @@ func TestVoucherOfferingsExcludeUnavailableAndInactiveRows(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	activeID := seedMarketVoucher(t, tx, -1.29, 36.82, true, "GOOD")
-	seedUnavailableOffering(t, tx, activeID, "SERVICE")
+	activeID := seedMarketVoucher(t, tx, -1.29, 36.82, true, "Produce")
+	seedUnavailableOffering(t, tx, activeID, "Training")
 	activeAddress := marketVoucherAddress(t, tx, activeID)
 
 	activeRows, err := pg.ListVoucherOfferings(ctx, tx, activeAddress, 20)
@@ -37,7 +37,7 @@ func TestVoucherOfferingsExcludeUnavailableAndInactiveRows(t *testing.T) {
 		t.Fatal("public voucher offerings returned an unavailable row")
 	}
 
-	inactiveID := seedMarketVoucher(t, tx, -1.29, 36.82, false, "GOOD")
+	inactiveID := seedMarketVoucher(t, tx, -1.29, 36.82, false, "Produce")
 	inactiveAddress := marketVoucherAddress(t, tx, inactiveID)
 	inactiveRows, err := pg.ListVoucherOfferings(ctx, tx, inactiveAddress, 20)
 	if err != nil {
@@ -48,17 +48,17 @@ func TestVoucherOfferingsExcludeUnavailableAndInactiveRows(t *testing.T) {
 	}
 }
 
-func TestVoucherKindAgreesWithVoucherOfferingsForSeededFixtures(t *testing.T) {
+func TestGenericVoucherKindDoesNotImplyEmptyOfferings(t *testing.T) {
 	pg, tx, cleanup := newMarketTestPg(t)
 	defer cleanup()
 	ctx := context.Background()
 
 	fixtures := []uint64{
 		seedMarketVoucher(t, tx, -1.29, 36.82, true),
-		seedMarketVoucher(t, tx, -1.29, 36.82, true, "GOOD"),
+		seedMarketVoucher(t, tx, -1.29, 36.82, true, "Produce"),
 	}
 	unavailableOnly := seedMarketVoucher(t, tx, -1.29, 36.82, true)
-	seedUnavailableOffering(t, tx, unavailableOnly, "SERVICE")
+	seedUnavailableOffering(t, tx, unavailableOnly, "Training")
 	fixtures = append(fixtures, unavailableOnly)
 
 	for _, id := range fixtures {
@@ -67,9 +67,15 @@ func TestVoucherKindAgreesWithVoucherOfferingsForSeededFixtures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("voucher %d offerings: %v", id, err)
 		}
-		isVoucherKind := kindOf(t, pg, tx, id) == "voucher"
-		if isVoucherKind != (len(offerings) == 0) {
-			t.Errorf("voucher %d: kind voucher = %t, offering count = %d", id, isVoucherKind, len(offerings))
+		if got := kindOf(t, pg, tx, id); got != "voucher" {
+			t.Errorf("voucher %d kind = %q, want generic voucher", id, got)
+		}
+		wantCount := 0
+		if id == fixtures[1] {
+			wantCount = 1
+		}
+		if len(offerings) != wantCount {
+			t.Errorf("voucher %d offering count = %d, want %d", id, len(offerings), wantCount)
 		}
 	}
 }
@@ -105,8 +111,8 @@ func TestPoolOfferingsMatchTheirVouchersAndExcludeWithdrawnRows(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	voucherID := seedMarketVoucher(t, tx, -1.29, 36.82, true, "GOOD", "SERVICE")
-	seedUnavailableOffering(t, tx, voucherID, "SERVICE")
+	voucherID := seedMarketVoucher(t, tx, -1.29, 36.82, true, "Produce", "Training")
+	seedUnavailableOffering(t, tx, voucherID, "Training")
 	poolAddress := seedPoolWithVoucher(t, tx, voucherID, true)
 
 	poolRows, err := pg.ListPoolOfferings(ctx, tx, poolAddress, 20)
@@ -139,7 +145,7 @@ func TestPoolOfferingsExcludeDisallowedAndInactiveVouchers(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	disallowed := seedPoolWithVoucher(t, tx, seedMarketVoucher(t, tx, -1.29, 36.82, true, "GOOD"), false)
+	disallowed := seedPoolWithVoucher(t, tx, seedMarketVoucher(t, tx, -1.29, 36.82, true, "Produce"), false)
 	rows, err := pg.ListPoolOfferings(ctx, tx, disallowed, 20)
 	if err != nil {
 		t.Fatalf("list disallowed pool offerings: %v", err)
@@ -148,7 +154,7 @@ func TestPoolOfferingsExcludeDisallowedAndInactiveVouchers(t *testing.T) {
 		t.Fatalf("a pool returned %d offerings for a voucher it no longer allows", len(rows))
 	}
 
-	inactive := seedPoolWithVoucher(t, tx, seedMarketVoucher(t, tx, -1.29, 36.82, false, "GOOD"), true)
+	inactive := seedPoolWithVoucher(t, tx, seedMarketVoucher(t, tx, -1.29, 36.82, false, "Produce"), true)
 	rows, err = pg.ListPoolOfferings(ctx, tx, inactive, 20)
 	if err != nil {
 		t.Fatalf("list inactive pool offerings: %v", err)
@@ -163,7 +169,7 @@ func TestPoolOfferingsPageDescendingAcrossCursors(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	voucherID := seedMarketVoucher(t, tx, -1.29, 36.82, true, "GOOD", "SERVICE", "GOOD")
+	voucherID := seedMarketVoucher(t, tx, -1.29, 36.82, true, "Produce", "Training", "Produce")
 	poolAddress := seedPoolWithVoucher(t, tx, voucherID, true)
 
 	first, err := pg.ListPoolOfferings(ctx, tx, poolAddress, 2)

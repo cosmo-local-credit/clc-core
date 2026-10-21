@@ -34,8 +34,8 @@ func TestVocabularyRenameCascadesEveryTagReference(t *testing.T) {
 	var reportID, offeringID uint64
 	require.NoError(t, tx.QueryRow(ctx, `INSERT INTO reports(title,author_address) VALUES ('Vocabulary',$1) RETURNING id`, address).Scan(&reportID))
 	require.NoError(t, tx.QueryRow(ctx, `
-		INSERT INTO offerings(voucher_id,seller_address,commodity_name,commodity_type,quantity)
-		VALUES ($1,$2,'Vocabulary','GOOD',1) RETURNING id`, voucherID, address).Scan(&offeringID))
+		INSERT INTO offerings(voucher_id,seller_address,commodity_name,quantity)
+		VALUES ($1,$2,'Vocabulary',1) RETURNING id`, voucherID, address).Scan(&offeringID))
 	references := []struct {
 		table, column string
 		id            uint64
@@ -71,8 +71,8 @@ func TestVocabularyMigrationPreservesLegacyOfferingUnits(t *testing.T) {
 	require.NoError(t, err)
 	var id uint64
 	require.NoError(t, tx.QueryRow(ctx, `
-		INSERT INTO offerings(voucher_id,seller_address,commodity_name,commodity_type,quantity,unit)
-		VALUES ($1,$2,'Legacy unit','GOOD',1,'Zqlegacy unknown unit') RETURNING id`,
+		INSERT INTO offerings(voucher_id,seller_address,commodity_name,quantity,unit)
+		VALUES ($1,$2,'Legacy unit',1,'Zqlegacy unknown unit') RETURNING id`,
 		voucherID, randomAddress(t, tx)).Scan(&id))
 	_, err = tx.Exec(ctx, `ALTER TABLE offerings ADD CONSTRAINT offerings_unit_fk
 		FOREIGN KEY(unit) REFERENCES offering_unit(value) NOT VALID`)

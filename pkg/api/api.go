@@ -431,7 +431,7 @@ type (
 	// offering.
 	//
 	// The wire keeps the vocabulary the read path has always used --
-	// commodityName, commodityType, price -- so the item read, the mutation
+	// commodityName, price -- so the item read, the mutation
 	// read-back and the existing list projection are one representation. A
 	// cleaner app-facing naming belongs to the shared TypeScript client, not to
 	// a second server shape a previous PWA bundle would not recognise.
@@ -446,7 +446,6 @@ type (
 	// pattern cannot express.
 	OfferingWriteRequest struct {
 		CommodityName string  `json:"commodityName" validate:"required,max=120"`
-		CommodityType string  `json:"commodityType" validate:"required,oneof=GOOD SERVICE"`
 		Description   string  `json:"description"   validate:"required,max=2000"`
 		Unit          string  `json:"unit"          validate:"required,max=32"`
 		Price         string  `json:"price"         validate:"required,max=64"`

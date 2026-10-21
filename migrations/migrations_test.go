@@ -87,6 +87,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "050_catalog_tags.sql")
 	assert.Contains(t, sqlFiles, "053_relay_operations.sql")
 	assert.Contains(t, sqlFiles, "054_catalog_ownership.sql")
+	assert.Contains(t, sqlFiles, "055_remove_offering_classification.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -142,7 +143,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "051_user_resource_limits.sql" ||
 				name == "052_unicode_usernames.sql" ||
 				name == "053_relay_operations.sql" ||
-				name == "054_catalog_ownership.sql",
+				name == "054_catalog_ownership.sql" ||
+				name == "055_remove_offering_classification.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -206,6 +208,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"052_unicode_usernames.sql",
 		"053_relay_operations.sql",
 		"054_catalog_ownership.sql",
+		"055_remove_offering_classification.sql",
 	}, files)
 }
 
