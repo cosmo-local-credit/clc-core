@@ -29,6 +29,7 @@ func TestLoadFederationQueries(t *testing.T) {
 		"list-user-transfer-history":      queries.ListUserTransferHistory,
 		"list-user-transfer-history-next": queries.ListUserTransferHistoryNext,
 		"list-user-transfer-history-prev": queries.ListUserTransferHistoryPrevious,
+		"list-user-activity":              queries.ListUserActivity,
 		"dashboard-transaction-series":    queries.DashboardTransactionSeries,
 	} {
 		if query == "" {
@@ -87,6 +88,7 @@ func TestLoadFederationQueries(t *testing.T) {
 		"list-user-token-holdings-prev":   queries.ListUserTokenHoldingsPrevious,
 		"list-user-token-balances":        queries.ListUserTokenBalances,
 		"list-user-transfer-history":      queries.ListUserTransferHistory,
+		"list-user-activity":              queries.ListUserActivity,
 		"list-user-transfer-history-next": queries.ListUserTransferHistoryNext,
 		"list-user-transfer-history-prev": queries.ListUserTransferHistoryPrevious,
 	} {

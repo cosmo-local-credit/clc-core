@@ -200,6 +200,110 @@ func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTrans
 	return nil
 }
 
+func activityTokenAddresses(items []store.FederationAccountActivity) []string {
+	seen := make(map[string]struct{}, len(items)*2)
+	addresses := make([]string, 0, len(items)*2)
+	add := func(address *string) {
+		if address == nil || *address == "" {
+			return
+		}
+		lowered := strings.ToLower(*address)
+		if _, ok := seen[lowered]; ok {
+			return
+		}
+		seen[lowered] = struct{}{}
+		addresses = append(addresses, lowered)
+	}
+	for i := range items {
+		add(items[i].TokenAddress)
+		add(items[i].TokenInAddress)
+		add(items[i].TokenOutAddress)
+	}
+	return addresses
+}
+
+func activityLeg(
+	address, amount string,
+	meta map[string]store.VoucherMetadata,
+	valuations map[string]store.TransferValuationSnapshot,
+	txHash string,
+) store.AccountActivityLeg {
+	leg := store.AccountActivityLeg{TokenAddress: address, Amount: amount}
+	m, ok := meta[strings.ToLower(address)]
+	if !ok {
+		return leg
+	}
+	if m.Name != nil {
+		leg.TokenName = *m.Name
+	}
+	if m.Symbol != nil {
+		leg.TokenSymbol = *m.Symbol
+	}
+	if m.Decimals == nil || *m.Decimals < 0 || *m.Decimals > 255 {
+		return leg
+	}
+	leg.TokenDecimals = uint8(*m.Decimals)
+	valuation, found := valuations[transferValuationKey(txHash, address)]
+	if !found {
+		return leg
+	}
+	if value, valid := exactRawUnitValue(amount, *m.Decimals, valuation.VoucherValue); valid {
+		leg.UOAValue = value
+		leg.UOA = valuation.VoucherUOA
+	}
+	return leg
+}
+
+func (a *API) enrichAccountActivity(
+	ctx context.Context,
+	items []store.FederationAccountActivity,
+	callerUserID uint64,
+) error {
+	meta, err := a.voucherMetadataByAddress(ctx, activityTokenAddresses(items))
+	if err != nil {
+		return err
+	}
+	txHashes := dedupedLowerAddresses(items, func(item store.FederationAccountActivity) string {
+		return item.TxHash
+	})
+	valuations, err := a.transferValuationsByTxHash(ctx, txHashes)
+	if err != nil {
+		return err
+	}
+	noted, err := a.noteBearingTxHashes(ctx, txHashes, callerUserID)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		item := &items[i]
+		if item.Kind != store.AccountActivitySwapped {
+			hasNote := noted[strings.ToLower(item.TxHash)]
+			item.HasNote = &hasNote
+			if item.TokenAddress != nil && item.Amount != nil {
+				leg := activityLeg(*item.TokenAddress, *item.Amount, meta, valuations, item.TxHash)
+				item.Transfer = &leg
+			}
+			continue
+		}
+		if item.TokenInAddress == nil || item.AmountIn == nil ||
+			item.TokenOutAddress == nil || item.AmountOut == nil {
+			continue
+		}
+		sent := activityLeg(*item.TokenInAddress, *item.AmountIn, meta, valuations, item.TxHash)
+		received := activityLeg(*item.TokenOutAddress, *item.AmountOut, meta, valuations, item.TxHash)
+		item.Sent = &sent
+		item.Received = &received
+		if item.Fee != nil {
+			feeValue := new(big.Int)
+			if _, valid := feeValue.SetString(*item.Fee, 10); valid && feeValue.Sign() > 0 {
+				fee := activityLeg(*item.TokenOutAddress, *item.Fee, meta, valuations, item.TxHash)
+				item.ProtocolFee = &fee
+			}
+		}
+	}
+	return nil
+}
+
 // exactRawUnitValue multiplies one indexed raw token amount by the immutable
 // database claim captured at relay submission. Both inputs are decimal text;
 // no float conversion or chain lookup is involved.
@@ -533,4 +637,75 @@ func (a *API) accountTransfersHandler(c *echo.Context) error {
 		Cursor:  req.Cursor,
 	}), "transfers", fmt.Sprintf("Transfer history for %s", req.Address),
 		func(t store.FederationTransfer) uint64 { return t.ID })
+}
+
+// accountActivityHandler returns the wallet's logical activity feed. It keeps
+// the transfer endpoint unchanged for consumers that need raw ERC-20 legs, but
+// folds a user-initiated pool route into one swap before pagination.
+func (a *API) accountActivityHandler(c *echo.Context) error {
+	req := apiresp.OTXByAccountRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+
+	filter, err := store.NewTransferHistoryFilter(c.QueryParam("q"))
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+	kinds, err := store.NormalizeAccountActivityKinds(c.Request().URL.Query()["types"])
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+
+	activityFilter := store.AccountActivityFilter{Kinds: kinds, Search: filter}
+	if filter.Term != "" {
+		ctx := c.Request().Context()
+		tx, err := a.store.Pool().Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := a.store.SetCatalogStatementTimeout(ctx, tx); err != nil {
+			return handlePostgresError(c, err)
+		}
+		activityFilter.TokenAddresses, err = a.store.ListTransferSearchTokens(ctx, tx, filter)
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return handlePostgresError(c, err)
+		}
+	}
+
+	callerUserID, _, _ := getUserClaims(c)
+	callbacks := paginatedFederationListCallbacks[store.FederationAccountActivity]{
+		firstPage: func(ctx context.Context, address string, limit uint64) ([]store.FederationAccountActivity, error) {
+			return a.federationStore.ListUserActivity(ctx, address, activityFilter, nil, limit, true)
+		},
+		nextPage: func(ctx context.Context, address string, cursor, limit uint64) ([]store.FederationAccountActivity, error) {
+			return a.federationStore.ListUserActivity(ctx, address, activityFilter, &cursor, limit, true)
+		},
+		prevPage: func(ctx context.Context, address string, cursor, limit uint64) ([]store.FederationAccountActivity, error) {
+			return a.federationStore.ListUserActivity(ctx, address, activityFilter, &cursor, limit, false)
+		},
+		enrich: func(ctx context.Context, items []store.FederationAccountActivity) error {
+			return a.enrichAccountActivity(ctx, items, callerUserID)
+		},
+	}
+	return cursorPaginatedFederationList(
+		c,
+		callbacks,
+		req.Address,
+		normalizePagination(apiresp.CursorPaginationRequest{
+			PerPage: req.PerPage,
+			Next:    req.Next,
+			Cursor:  req.Cursor,
+		}),
+		"activity",
+		fmt.Sprintf("Activity for %s", req.Address),
+		func(item store.FederationAccountActivity) uint64 { return item.ID },
+	)
 }
