@@ -13,6 +13,7 @@ import (
 
 type (
 	SubObts struct {
+		ChainID     int64
 		Store       store.Store
 		JS          jetstream.JetStream
 		ConsumerID  string
@@ -22,12 +23,13 @@ type (
 	}
 
 	Sub struct {
-		store  store.Store
-		js     jetstream.JetStream
-		jsIter jetstream.MessagesContext
-		pub    *pub.Pub
-		logg   *slog.Logger
-		done   chan struct{}
+		chainID int64
+		store   store.Store
+		js      jetstream.JetStream
+		jsIter  jetstream.MessagesContext
+		pub     *pub.Pub
+		logg    *slog.Logger
+		done    chan struct{}
 	}
 )
 
@@ -37,6 +39,9 @@ const (
 )
 
 func NewSub(o SubObts) (*Sub, error) {
+	if o.ChainID <= 0 {
+		return nil, errors.New("subscriber chain ID must be configured")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -72,12 +77,13 @@ func NewSub(o SubObts) (*Sub, error) {
 	}
 
 	return &Sub{
-		store:  o.Store,
-		js:     o.JS,
-		jsIter: iter,
-		pub:    o.Pub,
-		logg:   o.Logg,
-		done:   make(chan struct{}),
+		chainID: o.ChainID,
+		store:   o.Store,
+		js:      o.JS,
+		jsIter:  iter,
+		pub:     o.Pub,
+		logg:    o.Logg,
+		done:    make(chan struct{}),
 	}, nil
 }
 

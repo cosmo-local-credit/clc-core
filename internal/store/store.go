@@ -69,6 +69,7 @@ type (
 		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
 		RestoreVoucherWithinLimits(context.Context, pgx.Tx, string) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
+		ProjectCatalogOwnership(context.Context, pgx.Tx, int64, string, string, uint64, uint64) (int64, error)
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
 		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string) (int64, error)

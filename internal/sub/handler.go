@@ -32,6 +32,9 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	// script, or another relayer can all change it, and only the events say so.
 	// Gating it on the OTX lookup below would mean the catalog only tracked
 	// transactions clc-core happened to sign.
+	if err := s.projectCatalogOwnership(ctx, tx, chainEvent); err != nil {
+		return err
+	}
 	if err := s.projectPoolComposition(ctx, tx, chainEvent); err != nil {
 		return err
 	}

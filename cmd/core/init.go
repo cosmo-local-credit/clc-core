@@ -188,6 +188,7 @@ func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
 	})
 
 	subInst, err := sub.NewSub(sub.SubObts{
+		ChainID:     ko.MustInt64("chain.id"),
 		Store:       pgStore,
 		JS:          js,
 		ConsumerID:  ko.MustString("jetstream.id"),
