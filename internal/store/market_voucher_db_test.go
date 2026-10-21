@@ -48,7 +48,7 @@ func newMarketTestPg(t *testing.T) (*Pg, pgx.Tx, func()) {
 
 // seedMarketVoucher inserts a voucher plus its offerings inside the test
 // transaction and returns the new voucher ID.
-func seedMarketVoucher(t *testing.T, tx pgx.Tx, lat, lng float64, active bool, commodityTypes ...string) uint64 {
+func seedMarketVoucher(t *testing.T, tx pgx.Tx, lat, lng float64, active bool, offeringNames ...string) uint64 {
 	t.Helper()
 	ctx := context.Background()
 
@@ -63,23 +63,23 @@ func seedMarketVoucher(t *testing.T, tx pgx.Tx, lat, lng float64, active bool, c
 		t.Fatalf("seed voucher: %v", err)
 	}
 
-	for _, commodityType := range commodityTypes {
+	for _, offeringName := range offeringNames {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO offerings (voucher_id, seller_address, commodity_name, commodity_type, description, quantity, available)
-			VALUES ($1, '0x0000000000000000000000000000000000000001', 'Fixture', $2, '', 1, TRUE)`,
-			id, commodityType); err != nil {
+			INSERT INTO offerings (voucher_id, seller_address, commodity_name, description, quantity, available)
+			VALUES ($1, '0x0000000000000000000000000000000000000001', $2, '', 1, TRUE)`,
+			id, offeringName); err != nil {
 			t.Fatalf("seed offering: %v", err)
 		}
 	}
 	return id
 }
 
-func seedUnavailableOffering(t *testing.T, tx pgx.Tx, voucherID uint64, commodityType string) {
+func seedUnavailableOffering(t *testing.T, tx pgx.Tx, voucherID uint64, offeringName string) {
 	t.Helper()
 	if _, err := tx.Exec(context.Background(), `
-		INSERT INTO offerings (voucher_id, seller_address, commodity_name, commodity_type, description, quantity, available)
-		VALUES ($1, '0x0000000000000000000000000000000000000002', 'Unavailable', $2, '', 1, FALSE)`,
-		voucherID, commodityType); err != nil {
+		INSERT INTO offerings (voucher_id, seller_address, commodity_name, description, quantity, available)
+		VALUES ($1, '0x0000000000000000000000000000000000000002', $2, '', 1, FALSE)`,
+		voucherID, offeringName); err != nil {
 		t.Fatalf("seed unavailable offering: %v", err)
 	}
 }
@@ -108,41 +108,41 @@ func TestMarketVoucherKindDerivation(t *testing.T) {
 		}
 	})
 
-	t.Run("dominant GOOD becomes goods", func(t *testing.T) {
-		id := seedMarketVoucher(t, tx, -1.29, 36.82, true, "GOOD", "GOOD", "SERVICE")
-		if got := kindOf(t, pg, tx, id); got != "goods" {
-			t.Errorf("kind = %q, want goods", got)
+	t.Run("offerings do not classify vouchers", func(t *testing.T) {
+		id := seedMarketVoucher(t, tx, -1.29, 36.82, true, "Produce", "Produce", "Training")
+		if got := kindOf(t, pg, tx, id); got != "voucher" {
+			t.Errorf("kind = %q, want voucher", got)
 		}
 	})
 
-	t.Run("dominant SERVICE becomes services", func(t *testing.T) {
-		id := seedMarketVoucher(t, tx, -1.29, 36.82, true, "SERVICE", "SERVICE", "GOOD")
-		if got := kindOf(t, pg, tx, id); got != "services" {
-			t.Errorf("kind = %q, want services", got)
+	t.Run("multiple offerings remain generic vouchers", func(t *testing.T) {
+		id := seedMarketVoucher(t, tx, -1.29, 36.82, true, "Training", "Training", "Produce")
+		if got := kindOf(t, pg, tx, id); got != "voucher" {
+			t.Errorf("kind = %q, want voucher", got)
 		}
 	})
 
-	t.Run("a GOOD SERVICE tie resolves to goods", func(t *testing.T) {
-		id := seedMarketVoucher(t, tx, -1.29, 36.82, true, "GOOD", "SERVICE")
-		if got := kindOf(t, pg, tx, id); got != "goods" {
-			t.Errorf("kind = %q, want goods on a tie", got)
+	t.Run("offering names do not determine voucher kind", func(t *testing.T) {
+		id := seedMarketVoucher(t, tx, -1.29, 36.82, true, "Produce", "Training")
+		if got := kindOf(t, pg, tx, id); got != "voucher" {
+			t.Errorf("kind = %q, want the generic voucher kind", got)
 		}
 	})
 
-	t.Run("unavailable offerings do not affect kind", func(t *testing.T) {
-		id := seedMarketVoucher(t, tx, -1.29, 36.82, true, "GOOD")
-		// Ten unavailable SERVICE rows must not outvote one available GOOD.
+	t.Run("unavailable offerings do not classify vouchers", func(t *testing.T) {
+		id := seedMarketVoucher(t, tx, -1.29, 36.82, true, "Produce")
+		// Offering visibility does not affect the generic voucher kind.
 		for range 10 {
-			seedUnavailableOffering(t, tx, id, "SERVICE")
+			seedUnavailableOffering(t, tx, id, "Training")
 		}
-		if got := kindOf(t, pg, tx, id); got != "goods" {
-			t.Errorf("kind = %q, want goods; unavailable offerings must be ignored", got)
+		if got := kindOf(t, pg, tx, id); got != "voucher" {
+			t.Errorf("kind = %q, want voucher; unavailable offerings must be ignored", got)
 		}
 	})
 
 	t.Run("only unavailable offerings falls back to voucher", func(t *testing.T) {
 		id := seedMarketVoucher(t, tx, -1.29, 36.82, true)
-		seedUnavailableOffering(t, tx, id, "GOOD")
+		seedUnavailableOffering(t, tx, id, "Produce")
 		if got := kindOf(t, pg, tx, id); got != "voucher" {
 			t.Errorf("kind = %q, want voucher", got)
 		}
@@ -154,7 +154,7 @@ func TestMarketVoucherFiltersInactiveAndUnlocated(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	inactive := seedMarketVoucher(t, tx, -1.29, 36.82, false, "GOOD")
+	inactive := seedMarketVoucher(t, tx, -1.29, 36.82, false, "Produce")
 	if rows, err := pg.ListMarketVouchersNext(ctx, tx, nil, inactive+1, 1); err != nil {
 		t.Fatalf("list: %v", err)
 	} else if len(rows) > 0 && rows[0].ID == inactive {
@@ -275,7 +275,7 @@ func assertDescending(t *testing.T, label string, vouchers []MarketVoucher) {
 		}
 	}
 	for _, v := range vouchers {
-		if v.Kind != "goods" && v.Kind != "services" && v.Kind != "voucher" {
+		if v.Kind != "voucher" {
 			t.Errorf("%s page carried unexpected kind %q", label, v.Kind)
 		}
 	}

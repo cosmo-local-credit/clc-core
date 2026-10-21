@@ -228,8 +228,8 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 		var id uint64
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO offerings (voucher_id, seller_address, commodity_name,
-			    commodity_type, description, quantity, unit, price, available, location_name)
-			VALUES ($1, $2, $3, 'GOOD', 'Imported row.', 12, $4, '7.25', TRUE, $5)
+			    description, quantity, unit, price, available, location_name)
+			VALUES ($1, $2, $3, 'Imported row.', 12, $4, '7.25', TRUE, $5)
 			RETURNING id`, voucherID, seller, name, unit, offeringMarker).Scan(&id); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("seed offering %q: %v", name, err)
@@ -340,7 +340,6 @@ func offeringRequest(
 func offeringBody(overrides map[string]any) map[string]any {
 	body := map[string]any{
 		"commodityName": "Fresh maize flour",
-		"commodityType": "GOOD",
 		"description":   "Stone-ground flour packed on collection day.",
 		"unit":          "kg",
 		"price":         "120.50",
@@ -397,8 +396,8 @@ func TestOfferingCreateLinksTheVoucherAndSelectsTheSeller(t *testing.T) {
 	if got := offering["price"]; got != "12345678901234567890.12345" {
 		t.Errorf("price = %v, want the submitted text unchanged", got)
 	}
-	if got := offering["commodityType"]; got != "GOOD" {
-		t.Errorf("commodityType = %v, want GOOD", got)
+	if _, exists := offering["commodityType"]; exists {
+		t.Error("offering response must not contain commodityType")
 	}
 	if got := offering["unit"]; got != "kg" {
 		t.Errorf("unit = %v, want kg", got)
@@ -544,7 +543,6 @@ func TestOfferingUpdateReplacesProductFieldsOnly(t *testing.T) {
 
 	res, result := offeringRequest(t, a, http.MethodPut, target, token, offeringBody(map[string]any{
 		"commodityName": "Renamed flour",
-		"commodityType": "SERVICE",
 		"description":   "Now milled to order.",
 		"unit":          "bag",
 		"price":         "9.99",
@@ -557,7 +555,6 @@ func TestOfferingUpdateReplacesProductFieldsOnly(t *testing.T) {
 	offering := offeringFrom(t, result)
 	for field, want := range map[string]any{
 		"commodityName": "Renamed flour",
-		"commodityType": "SERVICE",
 		"description":   "Now milled to order.",
 		"unit":          "bag",
 		"price":         "9.99",
@@ -771,7 +768,7 @@ func TestOfferingItemReadIsPublicAndCacheable(t *testing.T) {
 	for _, field := range []string{
 		"id", "voucherId", "voucherAddress", "voucherSymbol", "voucherUoa",
 		"priceInUnitOfAccount", "voucherDecimals",
-		"sellerAddress", "commodityName", "commodityType", "description",
+		"sellerAddress", "commodityName", "description",
 		"quantity", "unit", "price", "available", "imageUrl", "tags",
 		"createdAt", "updatedAt",
 	} {
@@ -799,7 +796,6 @@ func TestOfferingWriteRejectsInvalidValuesWithA400(t *testing.T) {
 		// A unit outside the seeded list is now created on the way past, so the
 		// only unit a caller can still get wrong is one no column could hold.
 		"over-long unit": offeringBody(map[string]any{"unit": strings.Repeat("a", 33)}),
-		"third type":     offeringBody(map[string]any{"commodityType": "UNCLASSIFIED"}),
 		"data uri image": offeringBody(map[string]any{"imageUrl": "data:image/png;base64,AAAA"}),
 		"zero price":     offeringBody(map[string]any{"price": "0"}),
 		"exponent price": offeringBody(map[string]any{"price": "1e3"}),
@@ -838,26 +834,23 @@ func TestOfferingDeleteWorksOnALegacyUnit(t *testing.T) {
 	}
 }
 
-// Creating an offering makes the voucher's market marker its classification, and
-// unlisting the last one takes it back to the generic marker. No third commodity
-// type is involved, so the existing derivation needed no change.
-func TestOfferingWritesMoveTheMarketMarker(t *testing.T) {
+// Creating and unlisting offerings leave the voucher kind generic.
+func TestOfferingWritesKeepTheMarketMarkerGeneric(t *testing.T) {
 	a, priv := newOfferingAPI(t)
 	fx, cleanup := seedOfferingFixtures(t, a)
 	defer cleanup()
 
-	token := offeringToken(t, priv, offeringOwnerAddress, "USER")
 	res, result := offeringRequest(t, a, http.MethodPost,
 		"/api/v2/vouchers/"+fx.ownerlessAddress+"/offerings",
 		offeringToken(t, priv, offeringOperatorAddr, "SUPERADMIN"),
-		offeringBody(map[string]any{"commodityType": "SERVICE", "unit": "hour"}))
+		offeringBody(map[string]any{"unit": "hour"}))
 	if res.Code != http.StatusCreated {
 		t.Fatalf("create status = %d body=%s", res.Code, res.Body.String())
 	}
 	created := offeringFrom(t, result)
 
-	if got := voucherMarketKind(t, a, fx.ownerlessAddress); got != "services" {
-		t.Errorf("kind = %q, want services after a SERVICE offering", got)
+	if got := voucherMarketKind(t, a, fx.ownerlessAddress); got != "voucher" {
+		t.Errorf("kind = %q, want the generic marker after creating an offering", got)
 	}
 
 	id, _ := created["id"].(float64)
@@ -869,7 +862,6 @@ func TestOfferingWritesMoveTheMarketMarker(t *testing.T) {
 	if got := voucherMarketKind(t, a, fx.ownerlessAddress); got != "voucher" {
 		t.Errorf("kind = %q, want the generic marker once nothing is listed", got)
 	}
-	_ = token
 }
 
 func offeringItemPath(voucherAddress string, id uint64) string {

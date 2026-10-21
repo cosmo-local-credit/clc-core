@@ -224,9 +224,9 @@ func TestOfferingWriteQueries(t *testing.T) {
 	// The insert names every column it sets, so a column added later cannot be
 	// silently filled from a caller's JSON.
 	for _, fragment := range []string{
-		"voucher_id, seller_address, commodity_name, commodity_type, description",
-		"$7::NUMERIC",
-		"VALUES ($1, $2, $3, $4, $5, 1, $6, NULL, $7::NUMERIC, true, NULL, NULL, NULL, $8)",
+		"voucher_id, seller_address, commodity_name, description",
+		"$6::NUMERIC",
+		"VALUES ($1, $2, $3, $4, 1, $5, NULL, $6::NUMERIC, true, NULL, NULL, NULL, $7)",
 	} {
 		if !strings.Contains(queries.CreateOffering, fragment) {
 			t.Errorf("create-offering must contain %q", fragment)
@@ -243,7 +243,7 @@ func TestOfferingWriteQueries(t *testing.T) {
 			t.Errorf("update-offering must not set %s", forbidden)
 		}
 	}
-	if !strings.Contains(queries.UpdateOffering, "price = $6::NUMERIC") {
+	if !strings.Contains(queries.UpdateOffering, "price = $5::NUMERIC") {
 		t.Error("update-offering must keep the price as decimal text bound to NUMERIC")
 	}
 

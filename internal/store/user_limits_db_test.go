@@ -219,7 +219,7 @@ func TestResourceLimitsOffersOnRetiredVouchersDB(t *testing.T) {
 	ctx := context.Background()
 	user, err := pg.InsertUser(ctx, tx, User{EthereumAddress: "0x1234567890123456789012345678901234567890", Email: "retired-offers@test.example", Role: "USER", Status: "APPROVED"})
 	require.NoError(t, err)
-	oldID := seedMarketVoucher(t, tx, 0, 0, true, "GOOD", "GOOD", "SERVICE")
+	oldID := seedMarketVoucher(t, tx, 0, 0, true, "Produce", "Produce", "Training")
 	_, err = tx.Exec(ctx, `UPDATE offerings SET seller_address=$1 WHERE voucher_id=$2`, user.EthereumAddress, oldID)
 	require.NoError(t, err)
 	usage, err := pg.GetUserResourceUsage(ctx, tx, user.ID)
@@ -241,7 +241,7 @@ func TestResourceLimitsOffersOnRetiredVouchersDB(t *testing.T) {
 	require.Empty(t, oldOffers)
 
 	// Another active voucher still consumes this user's shared allowance.
-	_, err = tx.Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,commodity_type,description,quantity,available) VALUES($1,$2,'Fresh','GOOD','',1,true)`, freshID, user.EthereumAddress)
+	_, err = tx.Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,description,quantity,available) VALUES($1,$2,'Fresh','',1,true)`, freshID, user.EthereumAddress)
 	require.NoError(t, err)
 	usage, err = pg.GetUserResourceUsage(ctx, tx, user.ID)
 	require.NoError(t, err)
@@ -296,8 +296,8 @@ func TestResourceLimitsConcurrentVoucherRestoresDB(t *testing.T) {
             VALUES(42220,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),false) RETURNING id,address`).Scan(&id, &address))
 		voucherIDs = append(voucherIDs, id)
 		addresses = append(addresses, address)
-		_, err := pool.Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,commodity_type,description,quantity,available)
-            VALUES($1,$2,'Restore','GOOD','',1,true)`, id, seller)
+		_, err := pool.Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,description,quantity,available)
+            VALUES($1,$2,'Restore','',1,true)`, id, seller)
 		require.NoError(t, err)
 	}
 	start := make(chan struct{})

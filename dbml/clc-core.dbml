@@ -524,10 +524,6 @@ Table "report_verifiers" {
   }
 }
 
-Table "commodity_type" {
-  "value" text [pk, not null]
-}
-
 Table "offering_frequency" {
   "value" text [pk, not null]
 }
@@ -538,7 +534,6 @@ Table "offerings" {
   "voucher_id" int4 [not null]
   "seller_address" text [not null]
   "commodity_name" text [not null]
-  "commodity_type" text [not null]
   "description" text [not null, default: '']
   "quantity" numeric [not null]
   "unit" text
@@ -563,7 +558,6 @@ Table "offerings" {
     voucher_id [type: btree, name: "offerings_voucher_id_idx"]
     (seller_address, created_at, id) [type: btree, name: "offerings_seller_created_idx"]
     (available, created_at, id) [type: btree, name: "offerings_available_created_idx"]
-    (commodity_type, available, created_at, id) [type: btree, name: "offerings_type_available_idx"]
   }
 }
 
@@ -693,7 +687,6 @@ Ref "offering_tags_offering_id_fkey":"offerings"."id" < "offering_tags"."offerin
 
 Ref "offering_tags_tag_value_fkey":"token_tag"."value" < "offering_tags"."tag_value"
 
-Ref "offerings_commodity_type_fkey":"commodity_type"."value" < "offerings"."commodity_type"
 
 Ref "offerings_frequency_fkey":"offering_frequency"."value" < "offerings"."frequency"
 

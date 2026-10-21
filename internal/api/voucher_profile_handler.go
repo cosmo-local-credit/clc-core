@@ -134,6 +134,13 @@ func (a *API) saveVoucherProfile(
 		return store.MarketVoucherDetail{}, true, err
 	}
 	req.Tags = tags
+	if req.VoucherUoa != nil {
+		unitOfAccount, handled, err := a.ensureUnitOfAccount(c, tx, *req.VoucherUoa)
+		if handled || err != nil {
+			return store.MarketVoucherDetail{}, true, err
+		}
+		req.VoucherUoa = &unitOfAccount.Value
+	}
 
 	voucherID, err := a.store.UpdateVoucherProfile(ctx, tx, address, store.VoucherProfile{
 		DisplayName:  req.DisplayName,

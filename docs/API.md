@@ -69,13 +69,13 @@
    - [Update (`PUT /api/v2/reports/:id`)](#115-update-put-apiv2reportsid)
    - [Approve (`PUT /api/v2/reports/:id/approve`)](#116-approve-put-apiv2reportsidapprove)
    - [Delete (`DELETE /api/v2/reports/:id`)](#117-delete-delete-apiv2reportsid)
-12. [Shared vocabulary (`token_tag`, `offering_unit`)](#12-shared-vocabulary-token_tag-offering_unit)
+12. [Shared vocabulary (`token_tag`, `offering_unit`, `unit_of_account`)](#12-shared-vocabulary-token_tag-offering_unit-unit_of_account)
    - [Reads](#121-reads)
    - [Creation is a side effect of the owning write](#122-creation-is-a-side-effect-of-the-owning-write)
    - [Tag filters are still closed](#123-tag-filters-are-still-closed)
    - [GET /api/v2/admin/vocabulary](#124-get-apiv2adminvocabulary)
-   - [DELETE /api/v2/admin/vocabulary/tags and .../units](#125-delete-apiv2adminvocabularytags-and-units)
-   - [PUT /api/v2/admin/vocabulary/tags and .../units](#126-put-apiv2adminvocabularytags-and-units)
+   - [DELETE vocabulary values](#125-delete-vocabulary-values)
+   - [PUT vocabulary values](#126-put-vocabulary-values)
 
 13. [User-created catalogs (`/api/v2/catalogs`)](#13-user-created-catalogs-apiv2catalogs)
 
@@ -827,7 +827,7 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 | `feesDecoupled` | `bool` | No | If `true`, fee policy executes independently of swaps (default: `false`) |
 | `feePolicyDefault` | `string` | No | Default fee policy identifier |
 | `baseCurrency` | `string` | Conditional | Checksummed non-zero token address; **required** when `quoterType` is `"oracle"` |
-| `unitOfAccount` | `string` | Yes | ISO 4217 currency code (or another supported unit) used to describe pool values |
+| `unitOfAccount` | `string` | Yes | Built-in or reusable custom Unit of Account, normalized case-insensitively and limited to 32 Unicode characters. A custom value cannot be used with `quoterType: "oracle"` |
 | `terms` | `string` | No | HTTP(S) link or Markdown terms, up to 5,000 characters |
 | `imageUrl` | `string` (http/https URL) | No | Optional pool image URL |
 | `bannerUrl` | `string` | No | Optional pool banner image URL |
@@ -1546,7 +1546,7 @@ It cannot change status, role or limits — those have their own endpoints.
 | `email` | `string` | No | Must be a valid address, unique across accounts |
 | `phone` | `string` | No | Unique across accounts |
 | `country` | `string` | No | ISO 3166-1 alpha-2 code |
-| `preferredCurrency` | `string` | No | Three-letter uppercase ISO 4217 code. Omit to preserve a legacy value. |
+| `preferredCurrency` | `string` | No | Built-in or reusable custom Unit of Account, normalized case-insensitively and limited to 32 Unicode characters. The wire field retains its historical name. |
 | `bio` | `string` | No | Max 500 characters. Send `""` to clear. |
 | `website` | `string` | No | HTTP(S) URL. Send `""` to clear. |
 | `locationName` | `string` | No | Max 200 characters |
@@ -1908,7 +1908,7 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
 | `locationName` | string \| null | Free-text place label from the import. |
 | `geoLat` | number | Never null — rows without complete coordinates are excluded. |
 | `geoLng` | number | Never null. |
-| `kind` | string | `"goods"`, `"services"`, or `"voucher"`. |
+| `kind` | string | Always `"voucher"`. |
 | `markerIcon` | string \| null | The issuer's map marker glyph, from the `voucher_marker_icon` lookup. `null` means automatic: draw it from `kind`. A client must treat a value it does not recognise as `null`. |
 | `markerColor` | string \| null | The issuer's map marker colour, from `voucher_marker_color`. Same rules as `markerIcon`, and independent of it. |
 
@@ -1917,18 +1917,9 @@ coordinates. There is no `internal` predicate: `internal` is an import
 artifact, not a visibility or product-policy flag, and it is not exposed in
 this contract. See `MIGRATION.md` §4.7.
 
-**`kind` derivation.** Computed from the voucher's **available** offerings:
-
-| Condition | `kind` |
-|---|---|
-| Dominant available `commodity_type` is `GOOD` | `goods` |
-| Dominant available `commodity_type` is `SERVICE` | `services` |
-| Equal `GOOD` / `SERVICE` counts | `goods` |
-| No available offerings | `voucher` |
-
-Unavailable offerings are ignored entirely. `commodity_type` is FK-constrained
-to `GOOD`/`SERVICE`, so the `voucher` fallback represents "no available
-offerings", never an unrecognised type.
+**`kind`.** Always `voucher`. Offerings no longer have a goods/services
+classification. A generic voucher may have available offerings; clients must
+read its offerings endpoint instead of treating the kind as an empty-state flag.
 
 **No distance field.** Distance is relative to optional browser geolocation and
 is presentation state, not catalog state. It is never calculated server-side.
@@ -2043,7 +2034,7 @@ checksummed form.
       "phone": "+254700000000",
       "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
       "bannerUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
-      "kind": "goods",
+      "kind": "voucher",
       "markerIcon": "basket",
       "markerColor": "pink"
     }
@@ -2057,7 +2048,7 @@ checksummed form.
 | `decimals` | integer \| null | ERC-20 decimals. |
 | `ownerAddress` | string \| null | Issuer's wallet, stored casing preserved. |
 | `description` | string \| null | |
-| `voucherUoa` | string \| null | Unit of account, **free text entered by the issuer** — `KSH`, `Ksh`, `KES`, `usd`, and `Hour` all occur. Never normalised server-side; render verbatim. |
+| `voucherUoa` | string \| null | Canonical built-in or reusable custom Unit of Account. New writes trim and collapse whitespace, reuse existing values case-insensitively, and create genuinely new values in title case. Legacy values are retained by the vocabulary migration. |
 | `voucherValue` | string \| null | What one voucher is worth in `voucherUoa`, so `symbol` + `voucherValue` + `voucherUoa` reads "1 MALII = 10 KSH". Serialized as a **string**: the column is `NUMERIC` and a float would lose scale. |
 | `geoLat`, `geoLng` | number \| null | **Nullable here, unlike the list.** Coordinates are not required — a voucher without them still has a readable page, it simply renders no map. Absent coordinates are `null`, never `0`. |
 | `email`, `website`, `phone` | string \| null | Issuer contact, as imported. |
@@ -2135,6 +2126,10 @@ decision — see [7.15](#715-put-apiv2adminvouchersaddressrestore).
 
 ### 9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)
 
+Offering records have no `commodityType` field. Create and update requests use
+`commodityName`, `description`, `unit`, `price`, and `imageUrl`; no classification
+or classification default is required.
+
 Returns the available offerings for one active voucher. It is public so a
 signed-out visitor can open the default Offerings tab on a shared voucher page.
 The address lookup is case-insensitive and rejects malformed hex addresses with
@@ -2152,8 +2147,8 @@ response contains numeric `first` and `last` values. An empty result is
 `"offerings": []`, `"first": 0`, `"last": 0`, never `null`.
 
 Only rows satisfying both `offering.available = true` and
-`voucher.active = true` are returned. This matches the market voucher `kind`
-derivation: a catalog row with `kind: "voucher"` has an empty offerings result.
+`voucher.active = true` are returned. A voucher's generic `kind` does not indicate
+whether offerings exist.
 The imported catalog observed on 2026-07-27 contains at most 19 offerings for a
 single voucher, so the client page size of 20 normally completes in one request.
 
@@ -2623,27 +2618,31 @@ the rest. There is no `ALL` value on the wire — omit the parameter.
 
 ---
 
-## 12. Shared vocabulary (`token_tag`, `offering_unit`)
+## 12. Shared vocabulary (`token_tag`, `offering_unit`, `unit_of_account`)
 
-Two global lookup tables back every tag picker and the offering unit field.
-Both are open: a value the catalog does not have yet is **created by the write
+Three global lookup tables back every tag picker, offering quantity unit, and
+Unit-of-Account field. All three are open: a value the catalog does not have yet is **created by the write
 that names it**, not by a separate call. There is no "create a tag" endpoint,
-and there never should be — a vocabulary value with nothing referencing it is
-litter.
+while the admin API may explicitly create a reusable custom Unit of Account.
 
 ### 12.1 Reads
 
 ```http
 GET /api/v2/token-tags
 GET /api/v2/offering-units
+GET /api/v2/units-of-account
 ```
 
-Both are authenticated (`/api/v2/*`), both return built-in and custom values in
-one list, and neither distinguishes the two: a picker has no reason to care
-which values shipped with a migration.
+All are authenticated (`/api/v2/*`) and return built-in and custom values in one
+list. Tags and offering units are string arrays. Units of Account expose their
+kind so clients can distinguish protected defaults from custom labels.
 
 ```json
 { "ok": true, "description": "Available offering units", "result": { "units": ["bag", "kg", "Produce Crate"] } }
+```
+
+```json
+{ "ok": true, "description": "Available units of account", "result": { "unitsOfAccount": [{ "value": "KES", "isCustom": false }, { "value": "Community Credits", "isCustom": true }] } }
 ```
 
 ### 12.2 Creation is a side effect of the owning write
@@ -2651,10 +2650,11 @@ which values shipped with a migration.
 | Write | Creates |
 |---|---|
 | `POST /api/v2/vouchers/:address/offerings`, `PUT .../offerings/:id` | the offering's `unit` |
-| `PUT /api/v2/vouchers/:address/profile`, `PUT /api/v2/admin/vouchers/:address/profile` | each `tags` value |
-| `PUT /api/v2/pools/:address/profile`, `PUT /api/v2/admin/pools/:address/profile` | each `tags` value |
+| `PUT /api/v2/vouchers/:address/profile`, `PUT /api/v2/admin/vouchers/:address/profile` | each `tags` value and `voucherUoa` |
+| `PUT /api/v2/pools/:address/profile`, `PUT /api/v2/admin/pools/:address/profile` | each `tags` value and `unitOfAccount` |
+| `PUT /auth/profile`, `PUT /api/v2/admin/users/:address/profile` | `preferredCurrency` |
 | `POST /api/v2/reports`, `PUT /api/v2/reports/:id` | each `tags` value |
-| `POST /api/v2/contracts/token`, `POST /api/v2/contracts/pool` | each `tags` value |
+| `POST /api/v2/contracts/token`, `POST /api/v2/contracts/pool` | each `tags` value and the voucher/pool Unit of Account |
 
 The value is created inside the same transaction as the write that named it, so
 a request that fails validation, authorization or the quota check leaves nothing
@@ -2669,12 +2669,12 @@ canonical spelling, which is what the client stores.
 
 Validation, applied before anything is created:
 
-| Rule | Tags | Units |
-|---|---|---|
-| Blank after trimming | `400 E04` | `400 E04` |
-| Maximum length | 100 characters | 32 characters |
-| Contains a comma | `400 E04` | allowed |
-| Duplicate within one request | `400 E04`, compared case-insensitively | n/a |
+| Rule | Tags | Offering units | Units of Account |
+|---|---|---|---|
+| Blank after trimming | `400 E04` | `400 E04` | `400 E04` |
+| Maximum length | 100 characters | 32 characters | 32 Unicode characters |
+| Contains a comma | `400 E04` | allowed | allowed |
+| Duplicate within one request | `400 E04`, compared case-insensitively | n/a | n/a |
 
 Commas are refused in tags because the tag filter on every catalog read is a
 comma-separated list; a tag containing one could never be selected back.
@@ -2695,7 +2695,8 @@ it with an empty page hides that.
 
 `SUPERADMIN`-only. Lists **every value**, built-in and custom, each flagged by
 `isCustom`. Only custom values can be deleted (§12.5); built-in tags can be
-renamed (§12.6), so the console lists them too.
+renamed (§12.6), so the console lists them too. Unit-of-Account usage is counted
+across profiles, current voucher/pool metadata, and voucher/pool deployment rows.
 
 ```json
 {
@@ -2709,7 +2710,12 @@ renamed (§12.6), so the console lists them too.
         "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0
       }
     ],
-    "units": [{ "value": "Produce Crate", "isCustom": true, "offerings": 4 }]
+    "units": [{ "value": "Produce Crate", "isCustom": true, "offerings": 4 }],
+    "unitsOfAccount": [{
+      "value": "Community Credits", "isCustom": true,
+      "profiles": 1, "vouchers": 2, "pools": 1,
+      "voucherDeployments": 2, "poolDeployments": 1, "total": 7
+    }]
   }
 }
 ```
@@ -2717,7 +2723,7 @@ renamed (§12.6), so the console lists them too.
 The per-resource counts exist so the console can describe what a deletion or a
 rename will reach before the operator commits to it.
 
-### 12.5 `DELETE /api/v2/admin/vocabulary/tags` and `.../units`
+### 12.5 Delete vocabulary values
 
 `SUPERADMIN`-only. The value travels in a JSON body, not the path, because a
 tag may contain spaces and any character but a comma:
@@ -2726,6 +2732,9 @@ tag may contain spaces and any character but a comma:
 DELETE /api/v2/admin/vocabulary/tags
 { "value": "Urban Farming" }
 ```
+
+The equivalent routes are `/api/v2/admin/vocabulary/units` and
+`/api/v2/admin/vocabulary/units-of-account`.
 
 The row is located case-insensitively and locked `FOR UPDATE`, then:
 
@@ -2756,6 +2765,9 @@ value, and the difference is deliberate:
   themselves are untouched.
 - **A unit** is cleared to `NULL` on every offering that used it. The offerings
   survive; an operator tidying a vocabulary must not delete a seller's listing.
+- **A Unit of Account** is deleted only when all five usage counts are zero. A
+  referenced value returns `409 E16`; current metadata is never cleared merely
+  to satisfy deletion. Built-in Units of Account are always protected.
 
 Both run in one transaction with the delete, so a value never disappears while
 a row still points at it.
@@ -2763,7 +2775,7 @@ a row still points at it.
 Deletion does not blacklist: the next catalog write that names the value creates
 it again.
 
-### 12.6 `PUT /api/v2/admin/vocabulary/tags` and `.../units`
+### 12.6 Put vocabulary values
 
 `SUPERADMIN`-only. Renames a value everywhere it is used:
 
@@ -2771,6 +2783,12 @@ it again.
 PUT /api/v2/admin/vocabulary/tags
 { "value": "Urban Farming", "replacement": "Community Gardens" }
 ```
+
+The equivalent routes are `/api/v2/admin/vocabulary/units` and
+`/api/v2/admin/vocabulary/units-of-account`. Custom Units of Account are renamed
+with `ON UPDATE CASCADE` through profiles, vouchers, pools, and deployment
+metadata. Historical transfer valuation snapshots deliberately do not follow a
+rename.
 
 `value` is located case-insensitively and locked `FOR UPDATE`. `replacement` is
 trimmed and its inner whitespace collapsed, but its casing is kept as sent, so a
@@ -2794,10 +2812,11 @@ deployments keep their association under the new name.
   This is how a deployment makes the shipped defaults its own.
 - **Built-in units** cannot: the apps translate them by their stored spelling,
   and a rename would strip every locale's label from that unit.
-- **A deployment job** saves its tags as names in the job's arguments, outside
-  any foreign key, and writes them when it runs. A tag named by a job that can
-  still run is refused until the job finishes; `completed`, `cancelled` and
-  `discarded` jobs never run again and do not block.
+- **A deployment job** saves tags and Units of Account as names in the job's
+  arguments, outside any foreign key, and writes them when it runs. Renaming or
+  deleting a value named by a job that can still run is refused until the job
+  finishes; `completed`, `cancelled` and `discarded` jobs never run again and do
+  not block.
 
 Like deletion, a rename does not blacklist the old spelling: the next catalog
 write that names it creates it as a new custom value.

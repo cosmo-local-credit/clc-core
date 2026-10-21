@@ -16,33 +16,17 @@ import (
 // restriction is an endpoint-contract change, not a search change.
 
 // marketVoucherPageProjection hydrates one already-selected page of voucher
-// IDs. Selecting the page first and joining afterwards keeps the per-row
-// lateral kind lookup off every candidate row (PG_SEARCH_PLAN.md
-// "Candidate-First Query Shape"). It is byte-identical in output to the static
+// IDs. Selecting the page before hydration keeps the
+// query candidate-first (PG_SEARCH_PLAN.md "Candidate-First Query Shape"). It is byte-identical in output to the static
 // statements' projection, so a filtered page and an unfiltered page return the
 // same fields.
 const (
 	marketVoucherPageProjection = `
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
     v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
-        -- the LEFT JOIN miss (no available offerings), never an unknown type.
-        -- A future third commodity type must extend this CASE, not fall here.
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM page
 INNER JOIN vouchers v ON v.id = page.id
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = page.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 ORDER BY v.id DESC;`
 )
 

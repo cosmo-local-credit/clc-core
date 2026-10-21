@@ -194,3 +194,53 @@ func TestAdminRenameVocabularyDeploymentJobs(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminUnitOfAccountMutationWaitsForUnfinishedDeployments(t *testing.T) {
+	a, priv := newOfferingAPI(t)
+	defer deleteVocabularyFixtures(t, a)
+	ctx := context.Background()
+	migrator, err := rivermigrate.New(riverpgxv5.New(a.store.Pool()), nil)
+	require.NoError(t, err)
+	_, err = migrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
+	require.NoError(t, err)
+	admin := offeringToken(t, priv, offeringOperatorAddr, "SUPERADMIN")
+
+	for _, deployment := range []struct {
+		kind, field string
+	}{{"TOKEN_DEPLOY", "voucherUoa"}, {"POOL_DEPLOY", "unitOfAccount"}} {
+		t.Run(deployment.kind, func(t *testing.T) {
+			value := vocabularyValue(deployment.kind + " Unit")
+			_, err := a.store.Pool().Exec(ctx,
+				`INSERT INTO unit_of_account(value,is_custom) VALUES ($1,true)`, value)
+			require.NoError(t, err)
+			args, err := json.Marshal(map[string]any{deployment.field: strings.ToUpper(value)})
+			require.NoError(t, err)
+			var id int64
+			require.NoError(t, a.store.Pool().QueryRow(ctx, `
+				INSERT INTO river_job(kind,args,state,max_attempts,priority,queue)
+				VALUES ($1,$2,'available',3,1,'default') RETURNING id`, deployment.kind, args).Scan(&id))
+			t.Cleanup(func() {
+				_, cleanupErr := a.store.Pool().Exec(ctx, `DELETE FROM river_job WHERE id=$1`, id)
+				require.NoError(t, cleanupErr)
+			})
+
+			for _, method := range []string{http.MethodPut, http.MethodDelete} {
+				body := map[string]any{"value": value}
+				if method == http.MethodPut {
+					body["replacement"] = value + " New"
+				}
+				res, _ := offeringRequest(t, a, method,
+					"/api/v2/admin/vocabulary/units-of-account", admin, body)
+				require.Equal(t, http.StatusConflict, res.Code, res.Body.String())
+			}
+
+			_, err = a.store.Pool().Exec(ctx,
+				`UPDATE river_job SET state='completed',finalized_at=now() WHERE id=$1`, id)
+			require.NoError(t, err)
+			res, _ := offeringRequest(t, a, http.MethodPut,
+				"/api/v2/admin/vocabulary/units-of-account", admin,
+				map[string]any{"value": value, "replacement": value + " New"})
+			require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+		})
+	}
+}

@@ -11,6 +11,7 @@ import (
 
 type (
 	Store interface {
+		ListTransferSearchTokens(context.Context, pgx.Tx, CatalogFilter) ([]string, error)
 		CuratedCatalogStore
 		SuggestUsername(context.Context, pgx.Tx, string) (string, error)
 		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)
@@ -47,13 +48,20 @@ type (
 		ListOfferingUnits(context.Context, pgx.Tx) ([]string, error)
 		FindOfferingUnit(context.Context, pgx.Tx, string) (string, error)
 		InsertCustomOfferingUnit(context.Context, pgx.Tx, string) error
+		ListUnitsOfAccount(context.Context, pgx.Tx) ([]VocabularyEntry, error)
+		FindUnitOfAccount(context.Context, pgx.Tx, string) (VocabularyEntry, error)
+		InsertCustomUnitOfAccount(context.Context, pgx.Tx, string) error
 		ListVocabulary(context.Context, pgx.Tx) (Vocabulary, error)
 		LockTokenTag(context.Context, pgx.Tx, string) (VocabularyEntry, error)
 		LockOfferingUnit(context.Context, pgx.Tx, string) (VocabularyEntry, error)
+		LockUnitOfAccount(context.Context, pgx.Tx, string) (VocabularyEntry, error)
 		RenameVocabulary(context.Context, pgx.Tx, bool, string, string) (string, error)
 		HasUnfinishedTagDeployment(context.Context, pgx.Tx, string) (bool, error)
 		DeleteCustomTokenTag(context.Context, pgx.Tx, string) (TagVocabularyUsage, error)
 		DeleteCustomOfferingUnit(context.Context, pgx.Tx, string) (UnitVocabularyUsage, error)
+		RenameUnitOfAccount(context.Context, pgx.Tx, string, string) (string, error)
+		HasUnfinishedUnitOfAccountDeployment(context.Context, pgx.Tx, string) (bool, error)
+		DeleteUnusedCustomUnitOfAccount(context.Context, pgx.Tx, string) (UnitOfAccountVocabularyUsage, error)
 		GetProtocolAddress(context.Context, pgx.Tx, string) (string, error)
 		SetProtocolAddress(context.Context, pgx.Tx, string, string) error
 		InsertDeployedPool(context.Context, pgx.Tx, DeployedPool) (uint64, error)
@@ -68,6 +76,7 @@ type (
 		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
 		RestoreVoucherWithinLimits(context.Context, pgx.Tx, string) error
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
+		ProjectCatalogOwnership(context.Context, pgx.Tx, int64, string, string, uint64, uint64) (int64, error)
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
 		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string) (int64, error)

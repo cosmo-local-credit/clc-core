@@ -172,8 +172,8 @@ func seedTaggedOffering(t *testing.T, tx pgx.Tx, voucherID uint64, available boo
 
 	var offeringID uint64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO offerings (voucher_id, seller_address, commodity_name, commodity_type, description, quantity, available)
-		VALUES ($1, '0x0000000000000000000000000000000000000001', 'Search Fixture', 'GOOD', '', 1, $2)
+		INSERT INTO offerings (voucher_id, seller_address, commodity_name, description, quantity, available)
+		VALUES ($1, '0x0000000000000000000000000000000000000001', 'Search Fixture', '', 1, $2)
 		RETURNING id`, voucherID, available).Scan(&offeringID); err != nil {
 		t.Fatalf("seed offering: %v", err)
 	}
