@@ -101,6 +101,34 @@ func (a *API) ensureOfferingUnit(c *echo.Context, tx pgx.Tx, requested string) (
 	return value, false, nil
 }
 
+func (a *API) ensureUnitOfAccount(
+	c *echo.Context,
+	tx pgx.Tx,
+	requested string,
+) (store.VocabularyEntry, bool, error) {
+	collapsed := strings.Join(strings.Fields(requested), " ")
+	if collapsed == "" {
+		return store.VocabularyEntry{}, true, vocabularyValidationError(c, "unit of account must not be blank")
+	}
+	if utf8.RuneCountInString(collapsed) > customUnitMaxLength {
+		return store.VocabularyEntry{}, true, vocabularyValidationError(c, "unit of account must be 32 characters or fewer")
+	}
+
+	ctx := c.Request().Context()
+	entry, err := a.store.FindUnitOfAccount(ctx, tx, collapsed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		candidate := canonicalVocabularyValue(collapsed)
+		if err := a.store.InsertCustomUnitOfAccount(ctx, tx, candidate); err != nil {
+			return store.VocabularyEntry{}, true, handlePostgresError(c, err)
+		}
+		entry, err = a.store.FindUnitOfAccount(ctx, tx, candidate)
+	}
+	if err != nil {
+		return store.VocabularyEntry{}, true, handlePostgresError(c, err)
+	}
+	return entry, false, nil
+}
+
 func (a *API) offeringUnitsHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
@@ -121,6 +149,26 @@ func (a *API) offeringUnitsHandler(c *echo.Context) error {
 	})
 }
 
+func (a *API) unitsOfAccountHandler(c *echo.Context) error {
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	units, err := a.store.ListUnitsOfAccount(ctx, tx)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Available units of account", Result: map[string]any{"unitsOfAccount": units},
+	})
+}
+
 func (a *API) adminVocabularyHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
@@ -138,7 +186,140 @@ func (a *API) adminVocabularyHandler(c *echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok: true, Description: "Vocabulary", Result: map[string]any{
-			"tags": vocabulary.Tags, "units": vocabulary.Units,
+			"tags": vocabulary.Tags, "units": vocabulary.Units, "unitsOfAccount": vocabulary.UnitsOfAccount,
+		},
+	})
+}
+
+func (a *API) adminCreateUnitOfAccountHandler(c *echo.Context) error {
+	var req struct {
+		Value string `json:"value" validate:"required"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	entry, handled, err := a.ensureUnitOfAccount(c, tx, req.Value)
+	if handled || err != nil {
+		return err
+	}
+	if !entry.IsCustom {
+		return vocabularyConflictError(c, "unit of account already exists as a built-in value")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	return c.JSON(http.StatusCreated, apiresp.OKResponse{
+		Ok: true, Description: "Custom unit of account created", Result: map[string]any{"value": entry.Value},
+	})
+}
+
+func (a *API) adminRenameUnitOfAccountHandler(c *echo.Context) error {
+	var req struct {
+		Value       string `json:"value" validate:"required"`
+		Replacement string `json:"replacement" validate:"required"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	req.Value = strings.TrimSpace(req.Value)
+	req.Replacement = strings.Join(strings.Fields(req.Replacement), " ")
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+	if utf8.RuneCountInString(req.Replacement) > customUnitMaxLength {
+		return vocabularyValidationError(c, "unit of account must be 32 characters or fewer")
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	entry, err := a.store.LockUnitOfAccount(ctx, tx, req.Value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return vocabularyNotFoundError(c)
+	}
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if !entry.IsCustom {
+		return vocabularyConflictError(c, "built-in units of account cannot be renamed")
+	}
+	pending, err := a.store.HasUnfinishedUnitOfAccountDeployment(ctx, tx, entry.Value)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if pending {
+		return vocabularyConflictError(c, "This unit of account is being used by an unfinished deployment. Please try again after the deployment finishes.")
+	}
+	replacement := canonicalVocabularyValue(req.Replacement)
+	renamed, err := a.store.RenameUnitOfAccount(ctx, tx, entry.Value, replacement)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Unit of account renamed", Result: map[string]any{"value": renamed},
+	})
+}
+
+func (a *API) adminDeleteUnitOfAccountHandler(c *echo.Context) error {
+	var req deleteVocabularyRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	req.Value = strings.TrimSpace(req.Value)
+	if err := c.Validate(req); err != nil {
+		return a.handleValidateError(c, err)
+	}
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	entry, err := a.store.LockUnitOfAccount(ctx, tx, req.Value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return vocabularyNotFoundError(c)
+	}
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if !entry.IsCustom {
+		return vocabularyConflictError(c, "built-in units of account cannot be deleted")
+	}
+	pending, err := a.store.HasUnfinishedUnitOfAccountDeployment(ctx, tx, entry.Value)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if pending {
+		return vocabularyConflictError(c, "This unit of account is being used by an unfinished deployment. Please try again after the deployment finishes.")
+	}
+	usage, err := a.store.DeleteUnusedCustomUnitOfAccount(ctx, tx, entry.Value)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if !usage.Deleted {
+		return vocabularyConflictError(c, "unit of account is still in use")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Custom unit of account deleted", Result: map[string]any{
+			"value": entry.Value, "usage": usage, "total": usage.Total(),
 		},
 	})
 }

@@ -231,6 +231,13 @@ func (a *API) adminUpdateUserProfileHandler(c *echo.Context) error {
 			Description: err.Error(),
 		})
 	}
+	if update.PreferredCurrency != nil {
+		entry, handled, err := a.ensureUnitOfAccount(c, tx, *update.PreferredCurrency)
+		if handled || err != nil {
+			return err
+		}
+		update.PreferredCurrency = &entry.Value
+	}
 
 	user, err := a.store.UpdateUserProfile(ctx, tx, update)
 	if err != nil {

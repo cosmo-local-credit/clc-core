@@ -80,8 +80,8 @@ func TestProfileUpdateFromRequestTrimsProfilePreferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("profileUpdateFromRequest() error = %v", err)
 	}
-	if update.PreferredCurrency == nil || *update.PreferredCurrency != "KES" {
-		t.Fatalf("preferred currency = %v, want KES", update.PreferredCurrency)
+	if update.PreferredCurrency == nil || *update.PreferredCurrency != "kes" {
+		t.Fatalf("preferred unit of account = %v, want trimmed value", update.PreferredCurrency)
 	}
 	if update.Bio == nil || *update.Bio != "Neighbourhood organiser" {
 		t.Fatalf("bio = %v, want trimmed value", update.Bio)

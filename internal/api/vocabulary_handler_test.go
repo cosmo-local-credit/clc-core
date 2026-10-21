@@ -53,7 +53,7 @@ func TestRenameVocabularyRequiresSuperadmin(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	a := New(APIOpts{Logg: slog.New(slog.DiscardHandler), SigningKey: priv, VerifyingKey: pub})
-	for _, path := range []string{"tags", "units"} {
+	for _, path := range []string{"tags", "units", "units-of-account"} {
 		for _, tc := range []struct {
 			name, token string
 			status      int
@@ -73,7 +73,7 @@ func TestRenameVocabularyRequiresSuperadmin(t *testing.T) {
 
 func TestVocabularyDuplicateErrors(t *testing.T) {
 	a := New(APIOpts{Logg: slog.New(slog.DiscardHandler)})
-	for _, constraint := range []string{"token_tag_pkey", "token_tag_value_lower_idx", "offering_unit_pkey", "offering_unit_value_lower_idx"} {
+	for _, constraint := range []string{"token_tag_pkey", "token_tag_value_lower_idx", "offering_unit_pkey", "offering_unit_value_lower_idx", "unit_of_account_pkey", "unit_of_account_value_lower_idx"} {
 		t.Run(constraint, func(t *testing.T) {
 			res := httptest.NewRecorder()
 			ctx := a.router.NewContext(httptest.NewRequest(http.MethodPut, "/", nil), res)

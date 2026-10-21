@@ -38,7 +38,7 @@ type (
 		FeeAddress       string   `json:"feeAddress,omitempty" validate:"omitempty,eth_addr_checksum"`
 		FeePolicyDefault string   `json:"feePolicyDefault" validate:"required"`
 		BaseCurrency     string   `json:"baseCurrency,omitempty" validate:"omitempty,eth_addr_checksum"`
-		UnitOfAccount    string   `json:"unitOfAccount" validate:"required,max=16"`
+		UnitOfAccount    string   `json:"unitOfAccount" validate:"required,max=32"`
 		Description      string   `json:"description,omitempty"`
 		Website          string   `json:"website,omitempty" validate:"omitempty,url"`
 		Email            string   `json:"email,omitempty" validate:"omitempty,email"`
@@ -73,7 +73,7 @@ type (
 		// only rule is a size cap; clients tell the two apart by whether the value
 		// parses as an http(s) URL.
 		Terms        string   `json:"terms,omitempty" validate:"omitempty,max=5000"`
-		VoucherUoa   string   `json:"voucherUoa,omitempty"`
+		VoucherUoa   string   `json:"voucherUoa,omitempty" validate:"omitempty,max=32"`
 		VoucherValue *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
 		LocationName string   `json:"locationName,omitempty"`
 		GeoLat       *float64 `json:"geoLat,omitempty" validate:"omitempty,min=-90,max=90"`
@@ -290,7 +290,7 @@ type (
 		// makes catalog reads fall back to the immutable contract name.
 		DisplayName   *string  `json:"displayName,omitempty"  validate:"omitempty,max=80"`
 		Description   *string  `json:"description,omitempty"   validate:"omitempty,max=500"`
-		UnitOfAccount *string  `json:"unitOfAccount,omitempty" validate:"omitempty,max=16"`
+		UnitOfAccount *string  `json:"unitOfAccount,omitempty" validate:"omitempty,max=32"`
 		Email         *string  `json:"email,omitempty"         validate:"omitempty,email"`
 		Website       *string  `json:"website,omitempty"       validate:"omitempty,url"`
 		Phone         *string  `json:"phone,omitempty"`
@@ -322,7 +322,7 @@ type (
 		// makes catalog reads fall back to the immutable contract name.
 		DisplayName  *string  `json:"displayName,omitempty"  validate:"omitempty,max=120"`
 		Description  *string  `json:"description,omitempty"  validate:"omitempty,max=500"`
-		VoucherUoa   *string  `json:"voucherUoa,omitempty"   validate:"omitempty,max=16"`
+		VoucherUoa   *string  `json:"voucherUoa,omitempty"   validate:"omitempty,max=32"`
 		VoucherValue *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
 		Email        *string  `json:"email,omitempty"        validate:"omitempty,email"`
 		Website      *string  `json:"website,omitempty"      validate:"omitempty,url"`
@@ -367,7 +367,7 @@ type (
 		// able to update their contact details without clearing them. Website's
 		// explicit empty-string alternative clears a saved value; `omitempty` does
 		// not skip a pointer to an empty string.
-		PreferredCurrency *string  `json:"preferredCurrency,omitempty" validate:"omitempty,len=3,uppercase,alpha"`
+		PreferredCurrency *string  `json:"preferredCurrency,omitempty" validate:"omitempty,max=32"`
 		Bio               *string  `json:"bio,omitempty"               validate:"omitempty,max=500"`
 		Website           *string  `json:"website,omitempty"           validate:"omitempty,http_url|eq="`
 		LocationName      *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`

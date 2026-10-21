@@ -88,6 +88,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "053_relay_operations.sql")
 	assert.Contains(t, sqlFiles, "054_catalog_ownership.sql")
 	assert.Contains(t, sqlFiles, "055_remove_offering_classification.sql")
+	assert.Contains(t, sqlFiles, "056_unit_of_account_vocabulary.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -144,7 +145,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "052_unicode_usernames.sql" ||
 				name == "053_relay_operations.sql" ||
 				name == "054_catalog_ownership.sql" ||
-				name == "055_remove_offering_classification.sql",
+				name == "055_remove_offering_classification.sql" ||
+				name == "056_unit_of_account_vocabulary.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -209,7 +211,20 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"053_relay_operations.sql",
 		"054_catalog_ownership.sql",
 		"055_remove_offering_classification.sql",
+		"056_unit_of_account_vocabulary.sql",
 	}, files)
+}
+
+func TestUnitOfAccountVocabularyMigration(t *testing.T) {
+	content, err := os.ReadFile("056_unit_of_account_vocabulary.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "CREATE TABLE unit_of_account")
+	assert.Contains(t, s, "ALTER TABLE users ALTER COLUMN preferred_currency TYPE TEXT")
+	assert.Contains(t, s, "HOUR")
+	assert.Equal(t, 5, strings.Count(s, "REFERENCES unit_of_account(value) ON UPDATE CASCADE"))
+	assert.Contains(t, s, "char_length(voucher_uoa) <= 32")
+	assert.NotContains(t, s, "UPDATE transfer_valuation_snapshots SET")
 }
 
 func TestCatalogTagsMigration(t *testing.T) {

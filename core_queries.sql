@@ -247,6 +247,18 @@ SELECT value FROM offering_unit WHERE lower(value) = lower($1) FOR KEY SHARE;
 INSERT INTO offering_unit (value, is_custom) VALUES ($1, true)
 ON CONFLICT DO NOTHING;
 
+--name: list-units-of-account
+SELECT value, is_custom FROM unit_of_account ORDER BY is_custom, value;
+
+--name: find-unit-of-account
+SELECT value, is_custom FROM unit_of_account
+WHERE lower(value) = lower($1)
+FOR KEY SHARE;
+
+--name: insert-custom-unit-of-account
+INSERT INTO unit_of_account (value, is_custom) VALUES ($1, true)
+ON CONFLICT DO NOTHING;
+
 --name: list-token-tag-vocabulary
 SELECT
     tt.value,
@@ -269,6 +281,23 @@ SELECT
 FROM offering_unit ou
 ORDER BY ou.value;
 
+--name: list-unit-of-account-vocabulary
+SELECT listed.*,
+    listed.profiles + listed.vouchers + listed.pools
+        + listed.voucher_deployments + listed.pool_deployments AS total
+FROM (
+    SELECT
+        uoa.value,
+        uoa.is_custom,
+        (SELECT count(*) FROM users u WHERE u.preferred_currency = uoa.value) AS profiles,
+        (SELECT count(*) FROM vouchers v WHERE v.voucher_uoa = uoa.value) AS vouchers,
+        (SELECT count(*) FROM pools p WHERE p.unit_of_account = uoa.value) AS pools,
+        (SELECT count(*) FROM deployed_tokens dt WHERE dt.voucher_uoa = uoa.value) AS voucher_deployments,
+        (SELECT count(*) FROM deployed_pools dp WHERE dp.unit_of_account = uoa.value) AS pool_deployments
+    FROM unit_of_account uoa
+) listed
+ORDER BY listed.is_custom, listed.value;
+
 --name: lock-token-tag
 SELECT value, is_custom FROM token_tag
 WHERE lower(value) = lower($1)
@@ -279,11 +308,19 @@ SELECT value, is_custom FROM offering_unit
 WHERE lower(value) = lower($1)
 FOR UPDATE;
 
+--name: lock-unit-of-account
+SELECT value, is_custom FROM unit_of_account
+WHERE lower(value) = lower($1)
+FOR UPDATE;
+
 --name: rename-token-tag
 UPDATE token_tag SET value = $2 WHERE value = $1 RETURNING value;
 
 --name: rename-custom-offering-unit
 UPDATE offering_unit SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
+
+--name: rename-custom-unit-of-account
+UPDATE unit_of_account SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
 
 --name: has-unfinished-tag-deployment
 SELECT EXISTS (
@@ -292,6 +329,33 @@ SELECT EXISTS (
       AND state NOT IN ('completed', 'cancelled', 'discarded')
       AND args->'tags' ? $1
 );
+
+--name: has-unfinished-unit-of-account-deployment
+SELECT EXISTS (
+    SELECT 1 FROM river_job
+    WHERE state NOT IN ('completed', 'cancelled', 'discarded')
+      AND (
+        (kind = 'TOKEN_DEPLOY' AND lower(args->>'voucherUoa') = lower($1))
+        OR (kind = 'POOL_DEPLOY' AND lower(args->>'unitOfAccount') = lower($1))
+      )
+);
+
+--name: delete-unused-custom-unit-of-account
+WITH usage AS (
+    SELECT
+        (SELECT count(*) FROM users u WHERE u.preferred_currency = $1) AS profiles,
+        (SELECT count(*) FROM vouchers v WHERE v.voucher_uoa = $1) AS vouchers,
+        (SELECT count(*) FROM pools p WHERE p.unit_of_account = $1) AS pools,
+        (SELECT count(*) FROM deployed_tokens dt WHERE dt.voucher_uoa = $1) AS voucher_deployments,
+        (SELECT count(*) FROM deployed_pools dp WHERE dp.unit_of_account = $1) AS pool_deployments
+), deleted_value AS (
+    DELETE FROM unit_of_account
+    WHERE value = $1
+      AND is_custom
+      AND (SELECT profiles + vouchers + pools + voucher_deployments + pool_deployments FROM usage) = 0
+    RETURNING value
+)
+SELECT usage.*, EXISTS (SELECT 1 FROM deleted_value) AS deleted FROM usage;
 
 --name: delete-custom-token-tag
 WITH
@@ -802,7 +866,7 @@ WHERE lower(v.address) = ANY($2::text[])
   AND v.voucher_value IS NOT NULL
   AND v.voucher_value > 0
   AND NULLIF(btrim(v.voucher_uoa), '') IS NOT NULL
-  AND btrim(v.voucher_uoa) ~ '^[A-Za-z0-9]{2,16}$'
+  AND char_length(btrim(v.voucher_uoa)) <= 32
 ON CONFLICT (tracking_id, token_address) DO NOTHING
 RETURNING token_address, voucher_value::text, voucher_uoa;
 

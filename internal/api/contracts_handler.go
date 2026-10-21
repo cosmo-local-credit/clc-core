@@ -117,6 +117,14 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 		return err
 	}
 	req.Tags = tags
+	unitOfAccount, handled, err := a.ensureUnitOfAccount(c, tx, req.UnitOfAccount)
+	if handled || err != nil {
+		return err
+	}
+	if req.QuoterType == "oracle" && unitOfAccount.IsCustom {
+		return vocabularyValidationError(c, "custom units of account cannot use oracle pricing")
+	}
+	req.UnitOfAccount = unitOfAccount.Value
 
 	// Service tokens and superadmins retain their deployment exemption.
 	if callerType == "user" {
@@ -289,6 +297,13 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		return err
 	}
 	req.Tags = tags
+	if strings.TrimSpace(req.VoucherUoa) != "" {
+		unitOfAccount, handled, err := a.ensureUnitOfAccount(c, tx, req.VoucherUoa)
+		if handled || err != nil {
+			return err
+		}
+		req.VoucherUoa = unitOfAccount.Value
+	}
 
 	// Service tokens and superadmins retain their deployment exemption.
 	if callerType == "user" {
