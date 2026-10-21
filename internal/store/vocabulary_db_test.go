@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
@@ -135,4 +137,100 @@ func TestVocabularyReferencesHoldLockUntilWriterFinishes(t *testing.T) {
 	require.NoError(t, tx.Rollback(ctx))
 	_, err = conn.Exec(ctx, `SELECT value FROM token_tag WHERE value=$1 FOR UPDATE`, tag)
 	require.NoError(t, err, "lock released when writer finishes")
+}
+
+func TestUnitOfAccountVocabularyCountsAndCascadesCurrentMetadataOnly(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	value, replacement := "Zqstore Community Hours", "Zqstore Crédit Temps"
+	_, err := tx.Exec(ctx, `INSERT INTO unit_of_account(value,is_custom) VALUES ($1,true)`, value)
+	require.NoError(t, err)
+
+	address := randomAddress(t, tx)
+	var userID uint64
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO users(blockchain_address,name,email,status,role,preferred_currency)
+		VALUES($1,'UoA user',gen_random_uuid()::text||'@uoa.test','APPROVED','USER',$2)
+		RETURNING id`, address, value).Scan(&userID))
+	poolID, voucherID, registry, limiter, quoter, _, _ := seedComposablePool(t, tx)
+	_, err = tx.Exec(ctx, `UPDATE vouchers SET voucher_uoa=$1 WHERE id=$2`, value, voucherID)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE pools SET unit_of_account=$1 WHERE id=$2`, value, poolID)
+	require.NoError(t, err)
+
+	tokenID, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
+		OTXID: seedDeployOTX(t, tx, TOKEN_PROXY_DEPLOY), PlatformContractID: platformContractID(t, tx, "ERC20"),
+		Name: "UoA Token", Symbol: "ZQUOAT", Decimals: 6, Admin: address, VoucherUoa: &value,
+	})
+	require.NoError(t, err)
+	poolDeployID, err := pg.InsertDeployedPool(ctx, tx, DeployedPool{
+		OTXID: seedDeployOTX(t, tx, POOL_PROXY_DEPLOY), PlatformContractID: platformContractID(t, tx, "SWAPPOOL"),
+		Name: "UoA Pool", Symbol: "ZQUOAP", Decimals: 6, Admin: address,
+		TokenRegistryAddress: registry, LimiterAddress: limiter, QuoterAddress: quoter,
+		FeePolicyAddress: address, ProtocolFeeControllerAddress: address, UnitOfAccount: &value,
+	})
+	require.NoError(t, err)
+
+	trackingID := uuid.NewString()
+	_, err = tx.Exec(ctx, `
+		INSERT INTO transfer_valuation_snapshots(tracking_id,token_address,voucher_value,voucher_uoa)
+		VALUES($1,$2,1,$3)`, trackingID, strings.ToLower(address), value)
+	require.NoError(t, err)
+
+	vocabulary, err := pg.ListVocabulary(ctx, tx)
+	require.NoError(t, err)
+	var row *UnitOfAccountVocabulary
+	for i := range vocabulary.UnitsOfAccount {
+		if vocabulary.UnitsOfAccount[i].Value == value {
+			row = &vocabulary.UnitsOfAccount[i]
+			break
+		}
+	}
+	require.NotNil(t, row)
+	require.Equal(t, int64(1), row.Profiles)
+	require.Equal(t, int64(1), row.Vouchers)
+	require.Equal(t, int64(1), row.Pools)
+	require.Equal(t, int64(1), row.VoucherDeployments)
+	require.Equal(t, int64(1), row.PoolDeployments)
+	require.Equal(t, int64(5), row.Total())
+
+	renamed, err := pg.RenameUnitOfAccount(ctx, tx, value, replacement)
+	require.NoError(t, err)
+	require.Equal(t, replacement, renamed)
+	for _, query := range []string{
+		`SELECT count(*) FROM users WHERE id=$1 AND preferred_currency=$2`,
+		`SELECT count(*) FROM vouchers WHERE id=$1 AND voucher_uoa=$2`,
+		`SELECT count(*) FROM pools WHERE id=$1 AND unit_of_account=$2`,
+		`SELECT count(*) FROM deployed_tokens WHERE id=$1 AND voucher_uoa=$2`,
+		`SELECT count(*) FROM deployed_pools WHERE id=$1 AND unit_of_account=$2`,
+	} {
+		var count int
+		var id uint64
+		switch query {
+		case `SELECT count(*) FROM users WHERE id=$1 AND preferred_currency=$2`:
+			id = userID
+		case `SELECT count(*) FROM vouchers WHERE id=$1 AND voucher_uoa=$2`:
+			id = voucherID
+		case `SELECT count(*) FROM pools WHERE id=$1 AND unit_of_account=$2`:
+			id = poolID
+		case `SELECT count(*) FROM deployed_tokens WHERE id=$1 AND voucher_uoa=$2`:
+			id = tokenID
+		default:
+			id = poolDeployID
+		}
+		require.NoError(t, tx.QueryRow(ctx, query, id, replacement).Scan(&count))
+		require.Equal(t, 1, count)
+	}
+
+	var historical string
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT voucher_uoa FROM transfer_valuation_snapshots WHERE tracking_id=$1 AND token_address=$2`,
+		trackingID, strings.ToLower(address)).Scan(&historical))
+	require.Equal(t, value, historical, "historical claim snapshots must not cascade")
+
+	usage, err := pg.DeleteUnusedCustomUnitOfAccount(ctx, tx, replacement)
+	require.NoError(t, err)
+	require.False(t, usage.Deleted)
+	require.Equal(t, int64(5), usage.Total())
 }
