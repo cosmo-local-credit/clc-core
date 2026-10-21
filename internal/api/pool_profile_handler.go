@@ -92,6 +92,30 @@ func (a *API) savePoolProfile(
 	address string,
 	req apiresp.UpdatePoolProfileRequest,
 ) (store.Pool, bool, error) {
+	current, err := a.store.GetPoolByAddress(ctx, tx, address)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return store.Pool{}, true, poolProfileNotFoundError(c)
+		}
+		return store.Pool{}, true, handlePostgresError(c, err)
+	}
+	if current.QuoterType != nil && *current.QuoterType == "oracle" {
+		if req.UnitOfAccount != nil && (current.UnitOfAccount == nil || !strings.EqualFold(
+			strings.Join(strings.Fields(*req.UnitOfAccount), " "), *current.UnitOfAccount,
+		)) {
+			return store.Pool{}, true, vocabularyConflictError(c, "the unit of account of an existing oracle pool cannot be changed")
+		}
+		// Older clients omit this metadata during unrelated edits. Preserve the
+		// deployed oracle base instead of clearing it.
+		req.UnitOfAccount = current.UnitOfAccount
+	} else if req.UnitOfAccount != nil {
+		unitOfAccount, handled, err := a.ensureUnitOfAccount(c, tx, *req.UnitOfAccount)
+		if handled || err != nil {
+			return store.Pool{}, true, err
+		}
+		req.UnitOfAccount = &unitOfAccount.Value
+	}
+
 	// See saveVoucherProfile: only a non-empty override can collide, and the
 	// pool's own address is excluded so an unchanged re-save is not a conflict.
 	if req.DisplayName != nil && *req.DisplayName != "" {

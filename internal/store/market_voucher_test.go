@@ -70,12 +70,8 @@ func TestLoadMarketVoucherQueries(t *testing.T) {
 		if strings.Contains(query, "internal") {
 			t.Errorf("%s must not filter on the internal import artifact", name)
 		}
-		if !strings.Contains(query, "o.available") {
-			t.Errorf("%s must derive kind from available offerings only", name)
-		}
-		// Ties between GOOD and SERVICE resolve to goods via the ASC tiebreak.
-		if !strings.Contains(query, "ORDER BY COUNT(*) DESC, o.commodity_type ASC") {
-			t.Errorf("%s must break a GOOD/SERVICE count tie toward GOOD", name)
+		if !strings.Contains(query, "'voucher'::TEXT AS kind") {
+			t.Errorf("%s must return the generic voucher kind", name)
 		}
 		if !strings.Contains(query, "AS MATERIALIZED") {
 			t.Errorf("%s must limit the voucher page before deriving kinds", name)
@@ -247,7 +243,7 @@ func TestMarketVoucherDetailJSONContract(t *testing.T) {
 		Phone:        text("+254700000000"),
 		IconURL:      text("https://content.example/icon.jpg"),
 		BannerURL:    text("https://content.example/banner.jpg"),
-		Kind:         "goods",
+		Kind:         "voucher",
 	})
 	if err != nil {
 		t.Fatalf("marshal voucher detail: %v", err)
@@ -263,7 +259,7 @@ func TestMarketVoucherDetailJSONContract(t *testing.T) {
 		`"geoLat":-1.450979`, `"geoLng":38.235115`, `"email":"issuer@example.org"`,
 		`"website":"https://example.org"`, `"phone":"+254700000000"`,
 		`"iconUrl":"https://content.example/icon.jpg"`,
-		`"bannerUrl":"https://content.example/banner.jpg"`, `"kind":"goods"`,
+		`"bannerUrl":"https://content.example/banner.jpg"`, `"kind":"voucher"`,
 	} {
 		if !strings.Contains(payload, field) {
 			t.Errorf("expected voucher detail JSON to contain %s, got %s", field, payload)

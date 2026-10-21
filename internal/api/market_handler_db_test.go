@@ -129,7 +129,7 @@ func TestGuestReceivesTheCatalogWithoutCredentials(t *testing.T) {
 		if v.GeoLat == nil || v.GeoLng == nil {
 			t.Fatalf("voucher %d has incomplete coordinates", v.ID)
 		}
-		if v.Kind != "goods" && v.Kind != "services" && v.Kind != "voucher" {
+		if v.Kind != "voucher" {
 			t.Errorf("voucher %d has unexpected kind %q", v.ID, v.Kind)
 		}
 		if v.ChainID == 0 {

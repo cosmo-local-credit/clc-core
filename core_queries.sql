@@ -142,7 +142,9 @@ upserted AS (
         marker_color, contract_version, platform_contract_id
     )
     SELECT
-        d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
+        d.chain_id, d.address, d.name, d.symbol, d.decimals,
+        COALESCE((SELECT o.owner_address FROM catalog_ownership o
+                  WHERE o.chain_id = d.chain_id AND o.address = lower(d.address)), d.admin),
         -- Every clc-core token deploy goes through the giftable token
         -- implementation. The expiring variant is indistinguishable here
         -- because the deploy row does not retain the expiry timestamp.
@@ -156,7 +158,7 @@ upserted AS (
         name                 = COALESCE(EXCLUDED.name,          vouchers.name),
         symbol               = COALESCE(EXCLUDED.symbol,        vouchers.symbol),
         decimals             = COALESCE(EXCLUDED.decimals,      vouchers.decimals),
-        owner_address        = COALESCE(EXCLUDED.owner_address,  vouchers.owner_address),
+        owner_address        = COALESCE((SELECT o.owner_address FROM catalog_ownership o WHERE o.chain_id = vouchers.chain_id AND o.address = lower(vouchers.address)), vouchers.owner_address, EXCLUDED.owner_address),
         voucher_type         = COALESCE(EXCLUDED.voucher_type,   vouchers.voucher_type),
         description          = COALESCE(EXCLUDED.description,    vouchers.description),
         voucher_uoa          = COALESCE(EXCLUDED.voucher_uoa,    vouchers.voucher_uoa),
@@ -245,6 +247,18 @@ SELECT value FROM offering_unit WHERE lower(value) = lower($1) FOR KEY SHARE;
 INSERT INTO offering_unit (value, is_custom) VALUES ($1, true)
 ON CONFLICT DO NOTHING;
 
+--name: list-units-of-account
+SELECT value, is_custom FROM unit_of_account ORDER BY is_custom, value;
+
+--name: find-unit-of-account
+SELECT value, is_custom FROM unit_of_account
+WHERE lower(value) = lower($1)
+FOR KEY SHARE;
+
+--name: insert-custom-unit-of-account
+INSERT INTO unit_of_account (value, is_custom) VALUES ($1, true)
+ON CONFLICT DO NOTHING;
+
 --name: list-token-tag-vocabulary
 SELECT
     tt.value,
@@ -267,6 +281,23 @@ SELECT
 FROM offering_unit ou
 ORDER BY ou.value;
 
+--name: list-unit-of-account-vocabulary
+SELECT listed.*,
+    listed.profiles + listed.vouchers + listed.pools
+        + listed.voucher_deployments + listed.pool_deployments AS total
+FROM (
+    SELECT
+        uoa.value,
+        uoa.is_custom,
+        (SELECT count(*) FROM users u WHERE u.preferred_currency = uoa.value) AS profiles,
+        (SELECT count(*) FROM vouchers v WHERE v.voucher_uoa = uoa.value) AS vouchers,
+        (SELECT count(*) FROM pools p WHERE p.unit_of_account = uoa.value) AS pools,
+        (SELECT count(*) FROM deployed_tokens dt WHERE dt.voucher_uoa = uoa.value) AS voucher_deployments,
+        (SELECT count(*) FROM deployed_pools dp WHERE dp.unit_of_account = uoa.value) AS pool_deployments
+    FROM unit_of_account uoa
+) listed
+ORDER BY listed.is_custom, listed.value;
+
 --name: lock-token-tag
 SELECT value, is_custom FROM token_tag
 WHERE lower(value) = lower($1)
@@ -277,11 +308,19 @@ SELECT value, is_custom FROM offering_unit
 WHERE lower(value) = lower($1)
 FOR UPDATE;
 
+--name: lock-unit-of-account
+SELECT value, is_custom FROM unit_of_account
+WHERE lower(value) = lower($1)
+FOR UPDATE;
+
 --name: rename-token-tag
 UPDATE token_tag SET value = $2 WHERE value = $1 RETURNING value;
 
 --name: rename-custom-offering-unit
 UPDATE offering_unit SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
+
+--name: rename-custom-unit-of-account
+UPDATE unit_of_account SET value = $2 WHERE value = $1 AND is_custom RETURNING value;
 
 --name: has-unfinished-tag-deployment
 SELECT EXISTS (
@@ -290,6 +329,33 @@ SELECT EXISTS (
       AND state NOT IN ('completed', 'cancelled', 'discarded')
       AND args->'tags' ? $1
 );
+
+--name: has-unfinished-unit-of-account-deployment
+SELECT EXISTS (
+    SELECT 1 FROM river_job
+    WHERE state NOT IN ('completed', 'cancelled', 'discarded')
+      AND (
+        (kind = 'TOKEN_DEPLOY' AND lower(args->>'voucherUoa') = lower($1))
+        OR (kind = 'POOL_DEPLOY' AND lower(args->>'unitOfAccount') = lower($1))
+      )
+);
+
+--name: delete-unused-custom-unit-of-account
+WITH usage AS (
+    SELECT
+        (SELECT count(*) FROM users u WHERE u.preferred_currency = $1) AS profiles,
+        (SELECT count(*) FROM vouchers v WHERE v.voucher_uoa = $1) AS vouchers,
+        (SELECT count(*) FROM pools p WHERE p.unit_of_account = $1) AS pools,
+        (SELECT count(*) FROM deployed_tokens dt WHERE dt.voucher_uoa = $1) AS voucher_deployments,
+        (SELECT count(*) FROM deployed_pools dp WHERE dp.unit_of_account = $1) AS pool_deployments
+), deleted_value AS (
+    DELETE FROM unit_of_account
+    WHERE value = $1
+      AND is_custom
+      AND (SELECT profiles + vouchers + pools + voucher_deployments + pool_deployments FROM usage) = 0
+    RETURNING value
+)
+SELECT usage.*, EXISTS (SELECT 1 FROM deleted_value) AS deleted FROM usage;
 
 --name: delete-custom-token-tag
 WITH
@@ -481,7 +547,9 @@ upserted AS (
         image_url, banner_url, platform_contract_id
     )
     SELECT
-        d.chain_id, d.address, d.name, d.symbol, d.decimals, d.admin,
+        d.chain_id, d.address, d.name, d.symbol, d.decimals,
+        COALESCE((SELECT o.owner_address FROM catalog_ownership o
+                  WHERE o.chain_id = d.chain_id AND o.address = lower(d.address)), d.admin),
         d.token_registry_address, d.limiter_address, d.quoter_address, d.quoter_type,
         d.fee_policy_address, d.protocol_fee_controller_address, d.fees_decoupled,
         d.fee_ppm, d.fee_address,
@@ -493,7 +561,7 @@ upserted AS (
         name                            = COALESCE(EXCLUDED.name,     pools.name),
         symbol                          = COALESCE(EXCLUDED.symbol,   pools.symbol),
         decimals                        = COALESCE(EXCLUDED.decimals, pools.decimals),
-        owner_address                   = COALESCE(EXCLUDED.owner_address, pools.owner_address),
+        owner_address                   = COALESCE((SELECT o.owner_address FROM catalog_ownership o WHERE o.chain_id = pools.chain_id AND o.address = lower(pools.address)), pools.owner_address, EXCLUDED.owner_address),
         token_registry_address          = COALESCE(EXCLUDED.token_registry_address, pools.token_registry_address),
         limiter_address                 = COALESCE(EXCLUDED.limiter_address, pools.limiter_address),
         quoter_address                  = COALESCE(EXCLUDED.quoter_address, pools.quoter_address),
@@ -798,7 +866,7 @@ WHERE lower(v.address) = ANY($2::text[])
   AND v.voucher_value IS NOT NULL
   AND v.voucher_value > 0
   AND NULLIF(btrim(v.voucher_uoa), '') IS NOT NULL
-  AND btrim(v.voucher_uoa) ~ '^[A-Za-z0-9]{2,16}$'
+  AND char_length(btrim(v.voucher_uoa)) <= 32
 ON CONFLICT (tracking_id, token_address) DO NOTHING
 RETURNING token_address, voucher_value::text, voucher_uoa;
 
@@ -1553,7 +1621,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
         THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
     v.decimals AS voucher_decimals,
-    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.seller_address, o.commodity_name, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
     COALESCE((
@@ -1575,7 +1643,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
         THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
     v.decimals AS voucher_decimals,
-    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.seller_address, o.commodity_name, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
     COALESCE((
@@ -1599,7 +1667,7 @@ SELECT * FROM (
             AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
             THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
         v.decimals AS voucher_decimals,
-        o.seller_address, o.commodity_name, o.commodity_type, o.description,
+        o.seller_address, o.commodity_name, o.description,
         o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
         o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
         COALESCE((
@@ -1624,7 +1692,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
         THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
     v.decimals AS voucher_decimals,
-    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.seller_address, o.commodity_name, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
     COALESCE((
@@ -1647,7 +1715,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
         THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
     v.decimals AS voucher_decimals,
-    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.seller_address, o.commodity_name, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
     COALESCE((
@@ -1671,7 +1739,7 @@ SELECT * FROM (
             AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
             THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
         v.decimals AS voucher_decimals,
-        o.seller_address, o.commodity_name, o.commodity_type, o.description,
+        o.seller_address, o.commodity_name, o.description,
         o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
         o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
         COALESCE((
@@ -1701,7 +1769,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
         THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
     v.decimals AS voucher_decimals,
-    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.seller_address, o.commodity_name, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
     COALESCE((
@@ -1726,7 +1794,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
         THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
     v.decimals AS voucher_decimals,
-    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.seller_address, o.commodity_name, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
     COALESCE((
@@ -1753,7 +1821,7 @@ SELECT * FROM (
             AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
             THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
         v.decimals AS voucher_decimals,
-        o.seller_address, o.commodity_name, o.commodity_type, o.description,
+        o.seller_address, o.commodity_name, o.description,
         o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
         o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
         COALESCE((
@@ -1792,7 +1860,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
         THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
     v.decimals AS voucher_decimals,
-    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.seller_address, o.commodity_name, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
     COALESCE((
@@ -1816,7 +1884,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
         THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
     v.decimals AS voucher_decimals,
-    o.seller_address, o.commodity_name, o.commodity_type, o.description,
+    o.seller_address, o.commodity_name, o.description,
     o.quantity::TEXT AS quantity, o.unit, o.frequency, o.price::TEXT AS price,
     o.available, o.location_name, o.geo_lat, o.geo_lng, o.image_url,
     COALESCE((
@@ -1884,7 +1952,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
     v.decimals AS voucher_decimals, v.icon_url AS voucher_image_url,
     v.location_name AS voucher_location_name, v.geo_lat AS voucher_geo_lat,
     v.geo_lng AS voucher_geo_lng, o.seller_address, o.commodity_name,
-    o.commodity_type, o.description, o.quantity::TEXT AS quantity, o.unit,
+    o.description, o.quantity::TEXT AS quantity, o.unit,
     o.frequency, o.price::TEXT AS price, o.available, o.location_name,
     o.geo_lat, o.geo_lng, o.image_url,
     COALESCE(o.location_name, v.location_name) AS effective_location_name,
@@ -1961,7 +2029,7 @@ SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
     v.decimals AS voucher_decimals, v.icon_url AS voucher_image_url,
     v.location_name AS voucher_location_name, v.geo_lat AS voucher_geo_lat,
     v.geo_lng AS voucher_geo_lng, o.seller_address, o.commodity_name,
-    o.commodity_type, o.description, o.quantity::TEXT AS quantity, o.unit,
+    o.description, o.quantity::TEXT AS quantity, o.unit,
     o.frequency, o.price::TEXT AS price, o.available, o.location_name,
     o.geo_lat, o.geo_lng, o.image_url,
     COALESCE(o.location_name, v.location_name) AS effective_location_name,
@@ -2054,18 +2122,18 @@ INNER JOIN vouchers v ON v.id = o.voucher_id
 WHERE o.id = $1 AND lower(v.address) = lower($2)
 FOR UPDATE OF o;
 
--- The six product fields a caller owns, plus the compatibility values the legacy
+-- The five product fields a caller owns, plus the compatibility values the legacy
 -- import columns still require. quantity is 1 because the column is NOT NULL and
 -- this product does not manage stock -- it must never be rendered as "1
 -- available". seller_address is server-selected from the locked voucher owner (or
 -- the authenticated superadmin for an ownerless voucher) and never read from JSON.
 --name: create-offering
 INSERT INTO offerings (
-    voucher_id, seller_address, commodity_name, commodity_type, description,
+    voucher_id, seller_address, commodity_name, description,
     quantity, unit, frequency, price, available,
     location_name, geo_lat, geo_lng, image_url
 )
-VALUES ($1, $2, $3, $4, $5, 1, $6, NULL, $7::NUMERIC, true, NULL, NULL, NULL, $8)
+VALUES ($1, $2, $3, $4, 1, $5, NULL, $6::NUMERIC, true, NULL, NULL, NULL, $7)
 RETURNING id;
 
 -- Assign-all editing of the product fields only. voucher_id, seller_address,
@@ -2075,11 +2143,10 @@ RETURNING id;
 --name: update-offering
 UPDATE offerings
 SET commodity_name = $2,
-    commodity_type = $3,
-    description = $4,
-    unit = $5,
-    price = $6::NUMERIC,
-    image_url = $7
+    description = $3,
+    unit = $4,
+    price = $5::NUMERIC,
+    image_url = $6
 WHERE id = $1;
 
 -- An unlist, not a destruction. The row keeps its Sarafu source_id, timestamps
@@ -2101,23 +2168,8 @@ WITH page AS MATERIALIZED (
     LIMIT $1
 )
 SELECT page.*,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
-        -- the LEFT JOIN miss (no available offerings), never an unknown type.
-        -- A future third commodity type must extend this CASE, not fall here.
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM page
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = page.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 ORDER BY page.id DESC;
 
 --name: list-market-vouchers-next
@@ -2130,23 +2182,8 @@ WITH page AS MATERIALIZED (
     LIMIT $2
 )
 SELECT page.*,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
-        -- the LEFT JOIN miss (no available offerings), never an unknown type.
-        -- A future third commodity type must extend this CASE, not fall here.
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM page
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = page.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 ORDER BY page.id DESC;
 
 --name: list-market-vouchers-prev
@@ -2161,23 +2198,8 @@ WITH page AS MATERIALIZED (
     ) window_page
 )
 SELECT page.*,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
-        -- the LEFT JOIN miss (no available offerings), never an unknown type.
-        -- A future third commodity type must extend this CASE, not fall here.
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM page
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = page.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 ORDER BY page.id DESC;
 
 --name: list-market-vouchers-bounded
@@ -2191,23 +2213,8 @@ WITH page AS MATERIALIZED (
     LIMIT $5
 )
 SELECT page.*,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
-        -- the LEFT JOIN miss (no available offerings), never an unknown type.
-        -- A future third commodity type must extend this CASE, not fall here.
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM page
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = page.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 ORDER BY page.id DESC;
 
 --name: list-market-vouchers-next-bounded
@@ -2222,23 +2229,8 @@ WITH page AS MATERIALIZED (
     LIMIT $6
 )
 SELECT page.*,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
-        -- the LEFT JOIN miss (no available offerings), never an unknown type.
-        -- A future third commodity type must extend this CASE, not fall here.
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM page
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = page.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 ORDER BY page.id DESC;
 
 --name: list-market-vouchers-prev-bounded
@@ -2255,23 +2247,8 @@ WITH page AS MATERIALIZED (
     ) window_page
 )
 SELECT page.*,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        -- commodity_type is FK-constrained to GOOD/SERVICE, so ELSE represents
-        -- the LEFT JOIN miss (no available offerings), never an unknown type.
-        -- A future third commodity type must extend this CASE, not fall here.
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM page
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = page.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 ORDER BY page.id DESC;
 
 -- Public voucher detail for one contract address. Backs the map card and the
@@ -2295,22 +2272,8 @@ SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
         FROM voucher_tags vt
         WHERE vt.voucher_id = v.id
     ), ARRAY[]::TEXT[]) AS tags,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        -- Same derivation as the list statements: ELSE is the LEFT JOIN miss
-        -- (no available offerings), never an unknown commodity type.
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM vouchers v
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = v.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 WHERE lower(v.address) = lower($1) AND v.active;
 
 -- The console's read of one voucher. Identical projection to
@@ -2331,20 +2294,8 @@ SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
         FROM voucher_tags vt
         WHERE vt.voucher_id = v.id
     ), ARRAY[]::TEXT[]) AS tags,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM vouchers v
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = v.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 WHERE lower(v.address) = lower($1);
 
 -- Report feed. Ordered by updated_at because that is the timestamp the feed
@@ -3087,11 +3038,7 @@ WITH raw AS MATERIALIZED (
     SELECT 'voucher',v.id::BIGINT,v.chain_id::BIGINT,v.address,
         COALESCE(v.display_name,v.name,v.address),v.description,v.symbol,v.icon_url,
         v.marker_icon,v.marker_color,
-        COALESCE((
-            SELECT CASE o3.commodity_type WHEN 'GOOD' THEN 'goods' WHEN 'SERVICE' THEN 'services' END
-            FROM offerings o3 WHERE o3.voucher_id=v.id AND o3.available
-            GROUP BY o3.commodity_type ORDER BY count(*) DESC,o3.commodity_type ASC LIMIT 1
-        ),'voucher') AS voucher_kind,
+        'voucher'::TEXT AS voucher_kind,
         v.location_name,v.geo_lat::FLOAT8,v.geo_lng::FLOAT8,
         COALESCE(vt.tags,ARRAY[]::TEXT[]),
         NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,NULL::BIGINT,

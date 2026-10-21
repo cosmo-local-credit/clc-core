@@ -25,7 +25,6 @@ type (
 		VoucherGeoLng         *float64  `db:"voucher_geo_lng"       json:"voucherGeoLng"`
 		SellerAddress         string    `db:"seller_address"   json:"sellerAddress"`
 		CommodityName         string    `db:"commodity_name"   json:"commodityName"`
-		CommodityType         string    `db:"commodity_type"   json:"commodityType"`
 		Description           string    `db:"description"      json:"description"`
 		Quantity              string    `db:"quantity"         json:"quantity"`
 		Unit                  *string   `db:"unit"             json:"unit"`
@@ -45,7 +44,7 @@ type (
 		UpdatedAt             time.Time `db:"updated_at"       json:"updatedAt"`
 	}
 
-	// OfferingWrite is the six product fields a caller owns.
+	// OfferingWrite is the five product fields a caller owns.
 	//
 	// Absent on purpose: voucher_id (the immutable relationship, taken from the
 	// route), seller_address (server-selected from the locked voucher owner),
@@ -55,7 +54,6 @@ type (
 	// to trust them.
 	OfferingWrite struct {
 		CommodityName string
-		CommodityType string
 		Description   string
 		Unit          string
 		// Plain decimal text all the way to NUMERIC. Never a float64: the column
@@ -226,7 +224,6 @@ func (pg *Pg) CreateOffering(
 		voucherID,
 		sellerAddress,
 		offering.CommodityName,
-		offering.CommodityType,
 		offering.Description,
 		offering.Unit,
 		offering.Price,
@@ -242,7 +239,6 @@ func (pg *Pg) UpdateOffering(ctx context.Context, tx pgx.Tx, id uint64, offering
 		pg.queries.UpdateOffering,
 		id,
 		offering.CommodityName,
-		offering.CommodityType,
 		offering.Description,
 		offering.Unit,
 		offering.Price,

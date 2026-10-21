@@ -118,7 +118,6 @@ func bindOffering(t *testing.T, body string) (*httptest.ResponseRecorder, bool) 
 func validOfferingBody(overrides map[string]any) string {
 	body := map[string]any{
 		"commodityName": "Fresh maize flour",
-		"commodityType": "GOOD",
 		"description":   "Stone-ground flour packed on collection day.",
 		"unit":          "kg",
 		"price":         "120.50",
@@ -141,9 +140,6 @@ func TestBindOfferingWriteRejects(t *testing.T) {
 		"missing name":              validOfferingBody(map[string]any{"commodityName": nil}),
 		"over-long name":            validOfferingBody(map[string]any{"commodityName": strings.Repeat("a", 121)}),
 		"over-long description":     validOfferingBody(map[string]any{"description": strings.Repeat("a", 2001)}),
-		"third commodity type":      validOfferingBody(map[string]any{"commodityType": "UNCLASSIFIED"}),
-		"lower-case commodity type": validOfferingBody(map[string]any{"commodityType": "good"}),
-		"missing commodity type":    validOfferingBody(map[string]any{"commodityType": nil}),
 		"missing unit":              validOfferingBody(map[string]any{"unit": nil}),
 		"blank unit":                validOfferingBody(map[string]any{"unit": "  "}),
 		"exponent price":            validOfferingBody(map[string]any{"price": "1e3"}),
@@ -188,7 +184,6 @@ func TestBindOfferingWriteNormalizes(t *testing.T) {
 		"commodityName": "  Fresh maize flour  ",
 		"description":   "  Stone-ground.  ",
 		"unit":          " KG ",
-		"commodityType": "SERVICE",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v2/vouchers/"+ownerAddress+"/offerings", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -209,11 +204,7 @@ func TestBindOfferingWriteNormalizes(t *testing.T) {
 	if write.Unit != "KG" {
 		t.Errorf("unit = %q, want the trimmed value", write.Unit)
 	}
-	// The classification is passed through exactly: it is a database enum value,
-	// not display text.
-	if write.CommodityType != "SERVICE" {
-		t.Errorf("commodityType = %q, want SERVICE", write.CommodityType)
-	}
+
 }
 
 // A decimal that JavaScript's Number and Go's float64 both round must survive

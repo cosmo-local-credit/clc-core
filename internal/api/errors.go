@@ -159,7 +159,7 @@ func handlePostgresError(c *echo.Context, err error) error {
 		switch pgErr.ConstraintName {
 		case "identity_claims_name_key", "identity_claims_owner_key":
 			return handleConflictError(c, "name or symbol is already in use")
-		case "token_tag_pkey", "token_tag_value_lower_idx", "offering_unit_pkey", "offering_unit_value_lower_idx":
+		case "token_tag_pkey", "token_tag_value_lower_idx", "offering_unit_pkey", "offering_unit_value_lower_idx", "unit_of_account_pkey", "unit_of_account_value_lower_idx":
 			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
 				Ok: false, ErrCode: apiresp.ErrCodeConflict,
 				Description: "a vocabulary value with this name already exists",

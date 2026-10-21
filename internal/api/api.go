@@ -230,6 +230,7 @@ func New(o APIOpts) *API {
 
 	apiGroup.GET("/token-tags", a.tokenTagsHandler)
 	apiGroup.GET("/offering-units", a.offeringUnitsHandler)
+	apiGroup.GET("/units-of-account", a.unitsOfAccountHandler, a.requireUserAuth())
 	apiGroup.GET("/symbols", a.symbolsLookupHandler)
 	apiGroup.GET("/names", a.namesLookupHandler)
 	apiGroup.GET("/recipients", a.recipientSearchHandler)
@@ -333,8 +334,11 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/vocabulary", a.adminVocabularyHandler)
 	adminGroup.PUT("/vocabulary/tags", a.adminRenameTokenTagHandler)
 	adminGroup.PUT("/vocabulary/units", a.adminRenameOfferingUnitHandler)
+	adminGroup.POST("/vocabulary/units-of-account", a.adminCreateUnitOfAccountHandler)
+	adminGroup.PUT("/vocabulary/units-of-account", a.adminRenameUnitOfAccountHandler)
 	adminGroup.DELETE("/vocabulary/tags", a.adminDeleteTokenTagHandler)
 	adminGroup.DELETE("/vocabulary/units", a.adminDeleteOfferingUnitHandler)
+	adminGroup.DELETE("/vocabulary/units-of-account", a.adminDeleteUnitOfAccountHandler)
 
 	// Global post moderation reads. The write half stays on apiGroup with the
 	// other report mutations, where the role check is already per-handler.

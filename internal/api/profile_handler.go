@@ -72,7 +72,7 @@ func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) 
 		update.LocationName = &locationName
 	}
 	if req.PreferredCurrency != nil {
-		currency := strings.ToUpper(strings.TrimSpace(*req.PreferredCurrency))
+		currency := strings.Join(strings.Fields(*req.PreferredCurrency), " ")
 		update.PreferredCurrency = &currency
 	}
 	if req.Bio != nil {
@@ -274,6 +274,14 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	if update.PreferredCurrency != nil {
+		entry, handled, err := a.ensureUnitOfAccount(c, tx, *update.PreferredCurrency)
+		if handled || err != nil {
+			return err
+		}
+		update.PreferredCurrency = &entry.Value
+	}
 
 	user, err := a.store.UpdateUserProfile(ctx, tx, update)
 	if err != nil {

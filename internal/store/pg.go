@@ -64,15 +64,23 @@ type (
 		ListOfferingUnits            string `query:"list-offering-units"`
 		FindOfferingUnit             string `query:"find-offering-unit"`
 		InsertCustomOfferingUnit     string `query:"insert-custom-offering-unit"`
+		ListUnitsOfAccount           string `query:"list-units-of-account"`
+		FindUnitOfAccount            string `query:"find-unit-of-account"`
+		InsertCustomUnitOfAccount    string `query:"insert-custom-unit-of-account"`
 		ListTokenTagVocabulary       string `query:"list-token-tag-vocabulary"`
 		ListOfferingUnitVocabulary   string `query:"list-offering-unit-vocabulary"`
+		ListUnitOfAccountVocabulary  string `query:"list-unit-of-account-vocabulary"`
 		LockTokenTag                 string `query:"lock-token-tag"`
 		LockOfferingUnit             string `query:"lock-offering-unit"`
+		LockUnitOfAccount            string `query:"lock-unit-of-account"`
 		RenameTokenTag               string `query:"rename-token-tag"`
 		RenameCustomOfferingUnit     string `query:"rename-custom-offering-unit"`
+		RenameCustomUnitOfAccount    string `query:"rename-custom-unit-of-account"`
 		HasUnfinishedTagDeployment   string `query:"has-unfinished-tag-deployment"`
+		HasUnfinishedUOADeployment   string `query:"has-unfinished-unit-of-account-deployment"`
 		DeleteCustomTokenTag         string `query:"delete-custom-token-tag"`
 		DeleteCustomOfferingUnit     string `query:"delete-custom-offering-unit"`
+		DeleteUnusedCustomUOA        string `query:"delete-unused-custom-unit-of-account"`
 		GetProtocolAddress           string `query:"get-protocol-address"`
 		SetProtocolAddress           string `query:"set-protocol-address"`
 		InsertDeployedPool           string `query:"insert-deployed-pool"`

@@ -365,7 +365,6 @@ func (a *API) bindOfferingWrite(c *echo.Context) (store.OfferingWrite, bool, err
 
 	return store.OfferingWrite{
 		CommodityName: req.CommodityName,
-		CommodityType: req.CommodityType,
 		Description:   req.Description,
 		Unit:          req.Unit,
 		Price:         req.Price,

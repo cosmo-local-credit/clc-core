@@ -74,21 +74,9 @@ const (
 	adminVoucherPageProjection = `
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
     v.location_name, v.geo_lat, v.geo_lng, v.active,
-    CASE dominant.commodity_type
-        WHEN 'GOOD' THEN 'goods'
-        WHEN 'SERVICE' THEN 'services'
-        ELSE 'voucher'
-    END AS kind
+    'voucher'::TEXT AS kind
 FROM page
 INNER JOIN vouchers v ON v.id = page.id
-LEFT JOIN LATERAL (
-    SELECT o.commodity_type
-    FROM offerings o
-    WHERE o.voucher_id = page.id AND o.available
-    GROUP BY o.commodity_type
-    ORDER BY COUNT(*) DESC, o.commodity_type ASC
-    LIMIT 1
-) dominant ON TRUE
 ORDER BY v.id DESC;`
 )
 

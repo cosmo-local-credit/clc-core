@@ -31,7 +31,7 @@ func TestResourceLimitsOffersAcrossVouchersDB(t *testing.T) {
 	})
 	_, err := a.store.Pool().Exec(ctx, `UPDATE users SET max_offers=1 WHERE id=$1`, id)
 	require.NoError(t, err)
-	body := `{"commodityName":"Apples","commodityType":"GOOD","description":"Fresh apples","unit":"kg","price":"2"}`
+	body := `{"commodityName":"Apples","description":"Fresh apples","unit":"kg","price":"2"}`
 	responses := make([]*httptest.ResponseRecorder, 2)
 	var wg sync.WaitGroup
 	for i := range responses {
