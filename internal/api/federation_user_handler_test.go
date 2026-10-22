@@ -2,6 +2,9 @@ package api
 
 import (
 	"testing"
+
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExactRawUnitValue(t *testing.T) {
@@ -31,4 +34,32 @@ func TestExactRawUnitValue(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestActivityLegUsesImmutableClaimAndExactRawAmount(t *testing.T) {
+	name, symbol, decimals := "Voucher", "VCH", int32(6)
+	address := "0x1111111111111111111111111111111111111111"
+	txHash := "0xtransaction"
+	metadata := map[string]store.VoucherMetadata{
+		address: {Address: address, Name: &name, Symbol: &symbol, Decimals: &decimals},
+	}
+	valuations := map[string]store.TransferValuationSnapshot{
+		transferValuationKey(txHash, address): {
+			TxHash:       txHash,
+			TokenAddress: address,
+			VoucherValue: "1.25",
+			VoucherUOA:   "Community Hours",
+		},
+	}
+
+	leg := activityLeg(address, "900719925474099325000000", metadata, valuations, txHash)
+	require.Equal(t, "Voucher", leg.TokenName)
+	require.Equal(t, "VCH", leg.TokenSymbol)
+	require.EqualValues(t, 6, leg.TokenDecimals)
+	require.Equal(t, "1125899906842624156.25", leg.UOAValue)
+	require.Equal(t, "Community Hours", leg.UOA)
+
+	legacy := activityLeg(address, "1000000", metadata, nil, txHash)
+	require.Empty(t, legacy.UOAValue)
+	require.Empty(t, legacy.UOA)
 }
