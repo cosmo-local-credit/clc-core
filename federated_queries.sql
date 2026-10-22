@@ -308,6 +308,139 @@ SELECT * FROM (
 ) page
 ORDER BY id DESC;
 
+-- Logical account activity --------------------------------------------------
+-- Unlike transfer history, this feed returns one row per user-visible action.
+-- All pool_swap rows initiated by the account in one transaction are one route:
+-- the first input and final output are what the user sent and received. Direct
+-- transfer rows consumed by those route endpoints are excluded, while unrelated
+-- transfers batched into the same transaction remain visible.
+--
+-- $1 account, $2 selected kinds (empty = all), $3 voucher addresses matching q,
+-- $4 normalized q, $5 optional cursor, $6 next direction, $7 page size.
+--name: list-user-activity
+WITH swap_routes AS (
+    SELECT
+        ps.tx_id,
+        (tx.id::bigint * 1000000 + MIN(ps.log_index)::bigint) AS id,
+        tx.tx_hash,
+        tx.date_block,
+        tx.success,
+        (ARRAY_AGG(ps.token_in_address ORDER BY ps.log_index ASC))[1] AS token_in_address,
+        (ARRAY_AGG(ps.in_value::text ORDER BY ps.log_index ASC))[1] AS amount_in,
+        (ARRAY_AGG(ps.token_out_address ORDER BY ps.log_index DESC))[1] AS token_out_address,
+        (ARRAY_AGG(ps.out_value::text ORDER BY ps.log_index DESC))[1] AS amount_out,
+        (ARRAY_AGG(ps.fee::text ORDER BY ps.log_index DESC))[1] AS fee,
+        ARRAY_AGG(ps.contract_address ORDER BY ps.log_index ASC) AS pool_addresses,
+        (ARRAY_AGG(ps.contract_address ORDER BY ps.log_index ASC))[1] AS first_pool_address,
+        (ARRAY_AGG(ps.contract_address ORDER BY ps.log_index DESC))[1] AS last_pool_address
+    FROM pool_swap ps
+    JOIN tx ON tx.id = ps.tx_id
+    WHERE ps.initiator_address = $1
+    GROUP BY ps.tx_id, tx.id, tx.tx_hash, tx.date_block, tx.success
+),
+direct_events AS (
+    SELECT
+        (tx.id::bigint * 1000000 + tt.log_index::bigint) AS id,
+        CASE
+            WHEN tt.sender_address = '0x0000000000000000000000000000000000000000' THEN 'creation'
+            WHEN tt.recipient_address = $1 THEN 'received'
+            ELSE 'sent'
+        END AS kind,
+        tx.tx_hash,
+        tx.date_block,
+        tx.success,
+        CASE
+            WHEN tt.recipient_address = $1 THEN tt.sender_address
+            ELSE tt.recipient_address
+        END AS counterparty_address,
+        tt.sender_address,
+        tt.recipient_address,
+        tt.contract_address AS token_address,
+        tt.transfer_value::text AS amount,
+        NULL::text AS token_in_address,
+        NULL::text AS amount_in,
+        NULL::text AS token_out_address,
+        NULL::text AS amount_out,
+        NULL::text AS fee,
+        NULL::text[] AS pool_addresses
+    FROM token_transfer tt
+    JOIN tx ON tx.id = tt.tx_id
+    WHERE (tt.recipient_address = $1 OR tt.sender_address = $1)
+      AND NOT EXISTS (
+          SELECT 1
+          FROM swap_routes sr
+          WHERE sr.tx_id = tt.tx_id
+            AND (
+                (tt.sender_address = $1
+                    AND tt.recipient_address = sr.first_pool_address
+                    AND tt.contract_address = sr.token_in_address)
+                OR
+                (tt.recipient_address = $1
+                    AND tt.sender_address = sr.last_pool_address
+                    AND tt.contract_address = sr.token_out_address)
+            )
+      )
+),
+swap_events AS (
+    SELECT
+        sr.id,
+        'swapped'::text AS kind,
+        sr.tx_hash,
+        sr.date_block,
+        sr.success,
+        NULL::text AS counterparty_address,
+        NULL::text AS sender_address,
+        NULL::text AS recipient_address,
+        NULL::text AS token_address,
+        NULL::text AS amount,
+        sr.token_in_address,
+        sr.amount_in,
+        sr.token_out_address,
+        sr.amount_out,
+        sr.fee,
+        sr.pool_addresses
+    FROM swap_routes sr
+),
+events AS (
+    SELECT * FROM direct_events
+    UNION ALL
+    SELECT * FROM swap_events
+),
+filtered AS (
+    SELECT *
+    FROM events e
+    WHERE (cardinality($2::text[]) = 0 OR e.kind = ANY($2::text[]))
+      AND (
+          $4 = ''
+          OR lower(e.tx_hash) LIKE '%' || lower($4) || '%'
+          OR lower(COALESCE(e.counterparty_address, '')) LIKE '%' || lower($4) || '%'
+          OR lower(COALESCE(e.token_address, '')) LIKE '%' || lower($4) || '%'
+          OR lower(COALESCE(e.token_in_address, '')) LIKE '%' || lower($4) || '%'
+          OR lower(COALESCE(e.token_out_address, '')) LIKE '%' || lower($4) || '%'
+          OR lower(COALESCE(e.token_address, '')) = ANY($3::text[])
+          OR lower(COALESCE(e.token_in_address, '')) = ANY($3::text[])
+          OR lower(COALESCE(e.token_out_address, '')) = ANY($3::text[])
+          OR EXISTS (
+              SELECT 1 FROM unnest(COALESCE(e.pool_addresses, ARRAY[]::text[])) pool_address
+              WHERE lower(pool_address) LIKE '%' || lower($4) || '%'
+          )
+      )
+      AND (
+          $5::bigint IS NULL
+          OR ($6 AND e.id < $5::bigint)
+          OR (NOT $6 AND e.id > $5::bigint)
+      )
+),
+page AS (
+    SELECT *
+    FROM filtered
+    ORDER BY
+        CASE WHEN NOT $6 THEN id END ASC,
+        CASE WHEN $6 THEN id END DESC
+    LIMIT $7
+)
+SELECT * FROM page ORDER BY id DESC;
+
 -- Filled envelope series from tx only. One foreign scan:
 -- postgres_fdw ships the date filter but not GROUP BY, so the remote
 -- returns date_block rows and we bucket locally. A separate COUNT(*) is
