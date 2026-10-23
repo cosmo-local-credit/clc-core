@@ -147,38 +147,24 @@ func (a *API) userPoolsHandler(c *echo.Context) error {
 }
 
 func (a *API) userTokenByAddressHandler(c *echo.Context) error {
-	ctx := c.Request().Context()
-	address := c.Param("address")
-
-	tx, err := a.store.Pool().Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	token, err := a.store.GetDeployedTokenByAddress(ctx, tx, address)
-	if err != nil {
-		return handlePostgresError(c, err)
-	}
-
-	if err := a.requireDeploymentOwner(c, tx, token.TrackingID); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return handlePostgresError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok:          true,
-		Description: fmt.Sprintf("Token at address %s", address),
-		Result: map[string]any{
-			"token": token,
-		},
-	})
+	return userDeploymentByAddress(a, c, "token", "Token", a.store.GetDeployedTokenByAddress,
+		func(t store.DeployedToken) string { return t.TrackingID })
 }
 
 func (a *API) userPoolByAddressHandler(c *echo.Context) error {
+	return userDeploymentByAddress(a, c, "pool", "Pool", a.store.GetDeployedPoolByAddress,
+		func(p store.DeployedPool) string { return p.TrackingID })
+}
+
+// userDeploymentByAddress answers GET /users/me/{tokens,pools}/:address. It
+// returns the deployment only to the user who started it, and to a superadmin.
+func userDeploymentByAddress[T any](
+	a *API,
+	c *echo.Context,
+	key, label string,
+	load func(context.Context, pgx.Tx, string) (T, error),
+	trackingID func(T) string,
+) error {
 	ctx := c.Request().Context()
 	address := c.Param("address")
 
@@ -188,12 +174,12 @@ func (a *API) userPoolByAddressHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	pool, err := a.store.GetDeployedPoolByAddress(ctx, tx, address)
+	deployment, err := load(ctx, tx, address)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
 
-	if err := a.requireDeploymentOwner(c, tx, pool.TrackingID); err != nil {
+	if err := a.requireDeploymentOwner(c, tx, trackingID(deployment)); err != nil {
 		return err
 	}
 
@@ -203,9 +189,9 @@ func (a *API) userPoolByAddressHandler(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
-		Description: fmt.Sprintf("Pool at address %s", address),
+		Description: fmt.Sprintf("%s at address %s", label, address),
 		Result: map[string]any{
-			"pool": pool,
+			key: deployment,
 		},
 	})
 }
