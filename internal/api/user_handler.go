@@ -161,6 +161,10 @@ func (a *API) userTokenByAddressHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
+	if err := a.requireDeploymentOwner(c, tx, token.TrackingID); err != nil {
+		return err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -187,6 +191,10 @@ func (a *API) userPoolByAddressHandler(c *echo.Context) error {
 	pool, err := a.store.GetDeployedPoolByAddress(ctx, tx, address)
 	if err != nil {
 		return handlePostgresError(c, err)
+	}
+
+	if err := a.requireDeploymentOwner(c, tx, pool.TrackingID); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
