@@ -9,7 +9,7 @@ import (
 )
 
 type (
-	// Pool is a network pool catalog row (MIGRATION.md §3) — the directory
+	// Pool is a network pool catalog row — the directory
 	// serving model. Distinct from DeployedPool, which is the deploy
 	// pipeline's record. Most fields are pointers: catalog rows merged from
 	// sparse sources (federation import, deploy metadata) may lack them.

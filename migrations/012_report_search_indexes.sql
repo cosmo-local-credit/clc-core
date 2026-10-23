@@ -8,7 +8,7 @@
 --
 -- Title *and* description are indexed because both are useful targets and both
 -- are ordinary columns on `reports`. Report **body** search stays parked
--- (PG_SEARCH_PLAN.md): the body is normalized into a separate structure by
+--: the body is normalized into a separate structure by
 -- migration 010, and searching it is a different problem with a different index
 -- shape. Title and description are the fields a reader scans in the feed, so
 -- they are what a feed search should match.

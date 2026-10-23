@@ -66,7 +66,7 @@ func TestLoadMarketVoucherQueries(t *testing.T) {
 		if !strings.Contains(query, "v.marker_icon, v.marker_color") {
 			t.Errorf("%s must select the marker for the map", name)
 		}
-		// `internal` is an import artifact, not a visibility flag (MIGRATION.md 4.7).
+		// `internal` is an import artifact, not a visibility flag.
 		if strings.Contains(query, "internal") {
 			t.Errorf("%s must not filter on the internal import artifact", name)
 		}

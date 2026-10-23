@@ -1,5 +1,4 @@
--- Supporting indexes for voucher and pool catalog search and tag filtering
--- (PG_SEARCH_PLAN.md Slices 1 and 2).
+-- Supporting indexes for voucher and pool catalog search and tag filtering.
 --
 -- `pg_trgm` rather than a `text_pattern_ops` B-tree: pgx runs these statements
 -- through QueryExecModeCacheStatement, so PostgreSQL may execute them under a
@@ -52,8 +51,8 @@ CREATE INDEX IF NOT EXISTS pools_symbol_trgm_idx
 -- serves "load one entity's tags" but not the tag-first direction that filters
 -- and facet aggregation need.
 --
--- Voucher tag filtering is offering-derived (PG_SEARCH_PLAN.md "Direct and
--- derived tags"): `voucher_tags` is empty, so `offering_tags` is the junction
+-- Voucher tag filtering is offering-derived (direct and
+-- derived tags): `voucher_tags` is empty, so `offering_tags` is the junction
 -- the voucher facet and filter actually read. `voucher_tags` gets its index
 -- anyway so curated voucher tags need no further migration; the pool index
 -- serves the direct `pool_tags` filter that Slice 2 ships. The report index

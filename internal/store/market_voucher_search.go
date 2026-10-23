@@ -17,7 +17,7 @@ import (
 
 // marketVoucherPageProjection hydrates one already-selected page of voucher
 // IDs. Selecting the page before hydration keeps the
-// query candidate-first (PG_SEARCH_PLAN.md "Candidate-First Query Shape"). It is byte-identical in output to the static
+// query candidate-first. It is byte-identical in output to the static
 // statements' projection, so a filtered page and an unfiltered page return the
 // same fields.
 const (

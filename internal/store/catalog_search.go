@@ -14,7 +14,7 @@ import (
 )
 
 // Catalog search and tag filtering for the public voucher catalog and the pool
-// catalog (PG_SEARCH_PLAN.md Slices 1 and 2).
+// catalog.
 //
 // The store loads static named SQL from core_queries.sql into a fixed Queries
 // struct. Copying a whole statement for every combination of entity, page

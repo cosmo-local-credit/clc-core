@@ -8,7 +8,7 @@ LOAD_ENV := test ! -f $(ENV_FILE) || . ./$(ENV_FILE)
 CORE_DSN ?= postgres://postgres:postgres@127.0.0.1:5432/clc_core
 FEDERATION_DSN ?= postgres://postgres:postgres@127.0.0.1:5433/federation
 
-.PHONY: build build-clccore run run-clccore clean docs gen-service-token test test-integration seed seed-generate
+.PHONY: build build-clccore run run-clccore clean gen-service-token test test-integration seed seed-generate
 
 # CORE_TEST_DSN is what makes the catalog search suites run rather than skip. They are the
 # only place the query plans are pinned, so a run without it proves less than it appears to.
@@ -40,10 +40,6 @@ run:
 
 run-clccore:
 	$(LOAD_ENV) && ${BUILD_CONF} ${DEBUG} go run cmd/core/*.go -queries core_queries.sql -federation-queries federated_queries.sql
-
-docs:
-	swag fmt --dir internal/api/
-	swag init --v3.1 --parseDependency --dir internal/api/ -g swagger.go
 
 gen-service-token:
 	$(LOAD_ENV) && ${BUILD_CONF} ${DEBUG} go run cmd/gen-service-token/main.go -service ussd-staging

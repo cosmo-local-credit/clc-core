@@ -18,7 +18,7 @@ func naiveUTC(t time.Time) pgtype.Timestamp {
 type (
 	// FederationTokenBalance carries chain facts scanned from the federation
 	// DB; the token metadata fields (db:"-") are enriched afterwards from the
-	// local vouchers catalog (MIGRATION.md §2 — the catalog is the metadata
+	// local vouchers catalog (the catalog is the metadata
 	// home). CatalogActive distinguishes retired vouchers from uncatalogued tokens.
 	FederationTokenBalance struct {
 		// Nil means this token has no local catalog entry.

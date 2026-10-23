@@ -1,4 +1,4 @@
--- Backfill the confirm-path promotion that MIGRATION.md §2.4 / §3.5 locked but
+-- Backfill the confirm-path promotion that was locked but
 -- which landed as schema only: 006 added deployed_tokens.voucher_id and
 -- deployed_pools.pool_id nullable, and nothing ever linked or created the
 -- catalog rows. From this migration forward the promotion runs in the
@@ -9,8 +9,8 @@
 -- live confirm carries a fresh request and wins field by field; a backfill is
 -- reconstructing history, so an existing catalog row — which may hold curated
 -- or imported values the deploy snapshot never knew — wins, and the deploy only
--- fills columns that are still NULL. This closes the STAGING_TRANSFER.md gap
--- ("staging's 5 deployed tokens are not in the voucher catalog") by adding those
+-- fills columns that are still NULL. This closes the gap where staging's 5 deployed
+-- tokens are not in the voucher catalog, by adding those
 -- rows, without regressing the 2 pools that already match catalog entries.
 --
 -- Only rows with a NULL link are touched, so the migration is idempotent and

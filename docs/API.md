@@ -1,83 +1,30 @@
-# CLC Core — API Reference
+# CLC Core API Reference
 
-> **Version:** 2.0  
+> **Version:** 2.0
 > **License:** [AGPL-3.0](../LICENSE)
 
----
+This document describes the HTTP API of the CLC Core service.
+It lists each route with its access level, parameters, responses and errors.
+The code is the source of truth. The generated Swagger files in this folder are a secondary reference.
 
-## Table of Contents
+## Table of contents
 
 1. [Overview](#1-overview)
 2. [Authentication](#2-authentication)
-   - [Token Types](#21-token-types)
-   - [SIWE Flow Summary](#22-siwe-flow-summary)
-   - [Service Token Usage](#23-service-token-usage)
-3. [Response Format](#3-response-format)
-   - [Success](#31-success)
-   - [Error](#32-error)
-   - [Error Codes](#33-error-codes)
-4. [Public Auth Endpoints (`/auth/*`)](#4-public-auth-endpoints-auth)
-   - [POST /auth/nonce](#41-post-authnonce)
-   - [POST /auth/signup](#42-post-authsignup)
-   - [POST /auth/signin](#43-post-authsignin)
-   - [POST /auth/logout](#44-post-authlogout)
-   - [POST /auth/siwe/nonce](#45-post-authsiwenonce)
-   - [POST /auth/siwe/verify](#46-post-authsiweverify)
-   - [GET /auth/session](#47-get-authsession)
-   - [GET /auth/profile](#48-get-authprofile)
-   - [POST /auth/profile](#49-post-authprofile)
-   - [POST /auth/storage-token](#410-post-authstorage-token)
-5. [Protected Endpoints (`/api/v2/*`)](#5-protected-endpoints-apiv2)
-   - [GET /api/v2/system](#51-get-apiv2system)
-   - [GET /api/v2/otx/track/:trackingId](#52-get-apiv2otxtracktrackingid)
-   - [GET /api/v2/account/otx/:address](#53-get-apiv2accountotxaddress)
-   - [GET /api/v2/account/status/:address](#54-get-apiv2accountstatusaddress)
-   - [POST /api/v2/contracts/token](#55-post-apiv2contractstoken)
-   - [POST /api/v2/contracts/pool](#56-post-apiv2contractspool)
-   - [GET /api/v2/names](#57-get-apiv2names)
-   - [Pretium Backend Endpoints (`/api/v2/pretium/*`)](#58-pretium-backend-endpoints-apiv2pretium)
-   - [GET /api/v2/pools](#59-get-apiv2pools)
-   - [GET /api/v2/pools/:address](#510-get-apiv2poolsaddress)
-6. [User-Only Endpoints (`/api/v2/users/*`)](#6-user-only-endpoints-apiv2users)
-   - [GET /api/v2/users/me](#61-get-apiv2usersme)
-   - [GET /api/v2/users/me/tokens](#62-get-apiv2usersmetokens)
-   - [GET /api/v2/users/me/pools](#63-get-apiv2usersmepools)
-   - [GET /api/v2/users/me/pools/:address](#64-get-apiv2usersmepoolsaddress)
-   - [GET /api/v2/users/me/deployments](#65-get-apiv2usersmedeployments)
-7. [Superadmin Endpoints (`/api/v2/admin/*`)](#7-superadmin-endpoints-apiv2admin)
-   - [GET /api/v2/admin/users](#71-get-apiv2adminusers)
-   - [PUT /api/v2/admin/users/:address/approve](#72-put-apiv2adminusersaddressapprove)
-   - [PUT /api/v2/admin/users/:address/reject](#73-put-apiv2adminusersaddressreject)
-   - [PUT /api/v2/admin/users/:address/limits](#74-put-apiv2adminusersaddresslimits)
-   - [PUT /api/v2/admin/users/:address/profile](#75-put-apiv2adminusersaddressprofile)
-   - [GET /api/v2/admin/users/:address/pools](#76-get-apiv2adminusersaddresspools)
-   - [GET /api/v2/admin/users/:address/stats](#77-get-apiv2adminusersaddressstats)
-   - [GET /api/v2/admin/tokens](#78-get-apiv2admintokens)
-   - [GET /api/v2/admin/pools](#79-get-apiv2adminpools)
-   - [GET /api/v2/admin/deployments](#710-get-apiv2admindeployments)
-   - [GET /api/v2/admin/dashboard/stats](#711-get-apiv2admindashboardstats)
-8. [SIWE Message Construction](#8-siwe-message-construction)
-9. [Public Market Catalog (`GET /api/v2/vouchers`)](#9-public-market-catalog-get-apiv2vouchers)
-   - [9.6 Voucher detail (`GET /api/v2/vouchers/:address`)](#96-voucher-detail-get-apiv2vouchersaddress)
-   - [9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)](#97-voucher-offerings-get-apiv2vouchersaddressofferings)
-10. [Pool offerings (`GET /api/v2/pools/:address/offerings`)](#10-pool-offerings-get-apiv2poolsaddressofferings)
-11. [Reports / Posts (`/api/v2/reports`)](#11-reports--posts-apiv2reports)
-   - [Feed (`GET /api/v2/reports`)](#111-feed-get-apiv2reports)
-   - [Detail (`GET /api/v2/reports/:id`)](#112-detail-get-apiv2reportsid)
-   - [Write contract](#113-write-contract)
-   - [Create (`POST /api/v2/reports`)](#114-create-post-apiv2reports)
-   - [Update (`PUT /api/v2/reports/:id`)](#115-update-put-apiv2reportsid)
-   - [Approve (`PUT /api/v2/reports/:id/approve`)](#116-approve-put-apiv2reportsidapprove)
-   - [Delete (`DELETE /api/v2/reports/:id`)](#117-delete-delete-apiv2reportsid)
-12. [Shared vocabulary (`token_tag`, `offering_unit`, `unit_of_account`)](#12-shared-vocabulary-token_tag-offering_unit-unit_of_account)
-   - [Reads](#121-reads)
-   - [Creation is a side effect of the owning write](#122-creation-is-a-side-effect-of-the-owning-write)
-   - [Tag filters are still closed](#123-tag-filters-are-still-closed)
-   - [GET /api/v2/admin/vocabulary](#124-get-apiv2adminvocabulary)
-   - [DELETE vocabulary values](#125-delete-vocabulary-values)
-   - [PUT vocabulary values](#126-put-vocabulary-values)
-
-13. [User-created catalogs (`/api/v2/catalogs`)](#13-user-created-catalogs-apiv2catalogs)
+3. [Responses and errors](#3-responses-and-errors)
+4. [Auth endpoints](#4-auth-endpoints)
+5. [Relayer](#5-relayer)
+6. [Contracts, tracking and system](#6-contracts-tracking-and-system)
+7. [Vouchers and offerings](#7-vouchers-and-offerings)
+8. [Pools](#8-pools)
+9. [Curated catalogs](#9-curated-catalogs)
+10. [Posts](#10-posts)
+11. [Lookups and shared vocabulary](#11-lookups-and-shared-vocabulary)
+12. [Account data](#12-account-data)
+13. [Pretium](#13-pretium)
+14. [Current user](#14-current-user)
+15. [Admin](#15-admin)
+16. [Route index](#16-route-index)
 
 ---
 
@@ -85,695 +32,1198 @@
 
 | Property | Value |
 |---|---|
-| Base URL | `http(s)://<host>/` |
-| Protected API prefix | `/api/v2` |
-| Public `/api/v2` routes | [`GET /api/v2/vouchers`](#9-public-market-catalog-get-apiv2vouchers), [`GET /api/v2/vouchers/:address`](#96-voucher-detail-get-apiv2vouchersaddress), [`GET /api/v2/vouchers/:address/offerings`](#97-voucher-offerings-get-apiv2vouchersaddressofferings), [`GET /api/v2/pools`](#59-get-apiv2pools), [`GET /api/v2/pools/:address`](#510-get-apiv2poolsaddress), `GET /api/v2/pools/:address/vouchers`, [public catalog reads](#13-user-created-catalogs-apiv2catalogs), [`GET /api/v2/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) |
-| Auth mechanism | SIWE (Sign-In With Ethereum, EIP-4361) |
-| Default chain | Celo Mainnet (`chainId: 42220`) |
-| Content-Type | `application/json` |
+| Base URL | `https://example.com` (use the host of your deployment) |
+| Auth routes | `/auth/*` |
+| API routes | `/api/v2/*` |
+| Content type | `application/json` |
+| Maximum request body | 1 MB. A larger body returns `E08`. |
+| Request time limit | 15 seconds. A slower request returns `E09`. |
+| Sign-in method | Sign-In With Ethereum (SIWE, EIP-4361) or WebAuthn |
+
+### 1.1 Terms
+
+This document uses each term below for one meaning only.
+
+| Term | Meaning |
+|---|---|
+| account | An Ethereum address. |
+| user | A person with a registered account and a role. |
+| caller | The party that sends a request. A caller is a user, a service or an anonymous client. |
+| voucher | A token that an account issues. |
+| pool | A swap pool contract. |
+| relay | To send a transaction through the relayer. |
+
+### 1.2 Access levels
+
+Each route in this document has one access level.
+
+| Level | Meaning |
+|---|---|
+| Public | No credential is required. |
+| User session | The caller must be a user. A service token is rejected with `E10`. |
+| User or service token | The caller must send a valid user or service credential. |
+| Superadmin | The caller must be a user with the role `SUPERADMIN`. |
+
+Some routes add checks, for example "the caller must own the voucher".
+The route section lists these checks.
+
+### 1.3 CORS
+
+The service reads the list of allowed origins from its configuration.
+For an allowed origin, the service sets `Access-Control-Allow-Credentials: true`.
+The allowed request headers are `Origin`, `Content-Type`, `Accept` and `Authorization`.
+Browsers can cache a preflight response for 86400 seconds.
 
 ---
 
 ## 2. Authentication
 
-### 2.1 Token Types
+### 2.1 Credentials
 
-Two mutually exclusive token types are accepted on protected routes.
+The service accepts two kinds of credential on protected routes: a user JWT and a service JWT.
+Both are EdDSA tokens. The service verifies them with one public key.
 
-#### User JWT (`__clc_auth` cookie)
+#### User JWT
 
-Issued after a successful `/auth/signin` or `/auth/siwe/verify` for an approved user. Delivered and expected as an **HttpOnly cookie** named `__clc_auth`.
-
-| Property | Value |
-|---|---|
-| Algorithm | EdDSA |
-| Expiry | 30 days |
-| Transport | `Set-Cookie: __clc_auth=<token>; HttpOnly` |
-
-**Claims:**
-
-| Claim | Type | Description |
-|---|---|---|
-| `userId` | `number` | Internal user identifier |
-| `ethereumAddress` | `string` | Checksummed Ethereum address |
-| `role` | `"USER"` \| `"SUPERADMIN"` | Authorization role |
-
-#### Service JWT (`Authorization` header)
-
-Long-lived tokens issued offline by the `gen-service-token` CLI tool. Intended for backend-to-backend integrations.
+The service issues a user JWT after a successful sign-in for an approved user.
+The service sends the token in an `HttpOnly` cookie named `__clc_auth`.
+A client can also send the same token in the header `Authorization: Bearer <token>`.
 
 | Property | Value |
 |---|---|
 | Algorithm | EdDSA |
-| Expiry | Long-lived (no hard expiry) |
-| Transport | `Authorization: Bearer <token>` header **or** `__ge_cust_auth` cookie |
+| Lifetime | 30 days |
+| Cookie name | `__clc_auth` |
+| Cookie path | `/` |
+| Cookie `Secure` flag | Set in production mode only |
+| Cookie `SameSite` | `None` in production mode, `Lax` otherwise |
 
-**Claims:**
+The token has these claims:
 
-| Claim | Type | Description |
+| Claim | Type | Meaning |
 |---|---|---|
-| `publicKey` | `string` | Service identity key |
-| `service` | `true` | Marks the token as a service credential |
+| `userId` | number | Internal user identifier. |
+| `ethereumAddress` | string | Address of the user. |
+| `role` | string | `USER` or `SUPERADMIN`. |
+| `iat`, `exp` | number | Issue and expiry time. |
 
-> **Important:** Service JWTs bypass user quota checks but **cannot** access user-only routes (`/api/v2/users/*`). Those routes require a user JWT.
+The service checks the cookie first. If the cookie is missing or invalid, the service checks the `Authorization` header.
 
-### 2.2 SIWE Flow Summary
+#### Service JWT
 
-```
-1. POST /auth/nonce        → receive a one-time nonce (5-min TTL)
-2. Client builds an EIP-4361 message embedding the nonce, then signs it
-   with a connected wallet
-3. Either:
-   POST /auth/signup       → create a new PENDING account with profile fields
-   POST /auth/signin       → authenticate an existing APPROVED account
-   POST /auth/siwe/verify  → unified flow: create unknown addresses as PENDING,
-                             authenticate APPROVED accounts
-                             → server sets __clc_auth HttpOnly cookie on success
-4. Include cookie automatically on all /api/v2/* requests
-5. POST /auth/logout       → invalidates the cookie
-```
+A service JWT is for server-to-server calls. An operator creates it with the `gen-service-token` command.
 
-### 2.3 Service Token Usage
+| Property | Value |
+|---|---|
+| Algorithm | EdDSA |
+| Default lifetime | 365 days |
+| Transport | Header `Authorization: Bearer <token>` or the legacy cookie `__ge_cust_auth` |
 
-Generate a service token using the bundled CLI:
+The token has these claims:
 
-```clc-core/cmd/gen-service-token/main.go#L1-1
+| Claim | Type | Meaning |
+|---|---|---|
+| `service` | boolean | Must be `true`. |
+| `publicKey` | string | Identity of the service. |
+| `sub`, `iss`, `iat`, `exp` | | Standard claims. |
+
+To create a service token, run this command:
+
+```bash
 go run ./cmd/gen-service-token -config config.toml -service my-service
 ```
 
-Pass the token with every request:
+To use the token, send it in each request:
 
-```/dev/null/http.txt#L1-1
+```http
 Authorization: Bearer <token>
 ```
 
-Service tokens are intended for backend-to-backend flows such as contract
-upgrade/version registration. `/api/v2/pretium/*` also accepts service tokens
-for service callers, but browser clients may use normal user authentication.
+### 2.2 Caller roles
+
+| Role | Credential | Notes |
+|---|---|---|
+| `USER` | User JWT | Can use every user route. |
+| `SUPERADMIN` | User JWT | Can use every route, including `/api/v2/admin/*`. |
+| `SERVICE` | Service JWT | Cannot use user-only routes. Gets `E10` there. |
+
+A route with the level "User session" rejects service tokens.
+A route with the level "Superadmin" rejects every caller whose role is not `SUPERADMIN`.
+A missing or invalid credential on a protected route returns status 401 with code `E06`.
+
+### 2.3 Sign-in flow
+
+1. Send `POST /auth/nonce` to get a one-time nonce. The nonce is valid for a short time.
+2. Build an EIP-4361 message that contains the nonce. Sign the message with the wallet.
+3. Send the signed message to one of these routes:
+   - `POST /auth/signup` creates an account and signs it in.
+   - `POST /auth/signin` signs in an existing approved account.
+   - `POST /auth/siwe/verify` creates an account for an unknown address and signs in.
+4. On success, the service sets the `__clc_auth` cookie. The browser sends it with each later request.
+5. Send `POST /auth/logout` to clear the cookie.
+
+Section 4 describes each route and the message format.
+
+### 2.4 Rate limits
+
+Some public routes have a per-client limit.
+Section 7.1 describes the market limit. Section 8.1 describes the pool limit.
+A client that exceeds a limit gets status 429, code `E11` and a `Retry-After` header.
 
 ---
 
-## 3. Response Format
+## 3. Responses and errors
 
-All responses are JSON objects. HTTP status codes are only used for top-level categories; use `ok` and `code` for programmatic branching.
+Every response is a JSON object.
+Use the `ok` field to decide if a request succeeded.
 
 ### 3.1 Success
 
-```/dev/null/success.json#L1-5
+```json
 {
   "ok": true,
   "description": "Human-readable status message",
-  "result": { ... }
+  "result": {}
 }
 ```
+
+The shape of `result` depends on the route.
+Some list routes add paging data inside `result`.
 
 ### 3.2 Error
 
-```/dev/null/error.json#L1-5
+```json
 {
   "ok": false,
   "description": "Human-readable error message",
-  "code": "E0X"
+  "code": "E04"
 }
 ```
 
-### 3.3 Error Codes
+A few errors add a `result` object with data that the client can use.
+For example, a response can carry the tracking id of a request that is already pending.
+
+The `description` text is for people. Do not parse it.
+Use the HTTP status and the `code` field in client logic.
+
+### 3.3 Error codes
 
 | Code | Meaning |
 |---|---|
-| `E01` | Internal server error |
-| `E02` | Invalid or malformed JSON body |
-| `E03` | Resource not found |
-| `E04` | Validation failed |
-| `E05` | Method not allowed |
-| `E06` | JWT authentication failure |
-| `E07` | No record found |
-| `E08` | Payload too large |
-| `E09` | Request timeout |
-| `E10` | Forbidden (insufficient role or permissions) |
-| `E11` | Rate or quota limit exceeded |
-| `E12` | Relayer disabled |
-| `E13` | EIP-7702 authorization required |
-| `E14` | Relayer executor mismatch |
-| `E15` | WebAuthn verification failed |
-| `E16` | Address conflict |
-| `E17` | Email conflict |
-| `E18` | Phone conflict |
-| `E19` | Private share or confirmed send is unavailable |
+| `E01` | Internal server error. |
+| `E02` | The request body is not valid JSON or has the wrong shape. |
+| `E03` | The route does not exist. |
+| `E04` | Validation failed on one or more fields. |
+| `E05` | The method is not allowed. |
+| `E06` | Authentication failed. |
+| `E07` | No record found. |
+| `E08` | The request body is too large. |
+| `E09` | The request timed out. |
+| `E10` | The caller is not allowed to do this. |
+| `E11` | A rate limit or quota is exceeded. |
+| `E12` | The relayer is disabled. |
+| `E13` | An EIP-7702 authorization is required. |
+| `E14` | The relayer executor does not match. |
+| `E15` | WebAuthn verification failed. |
+| `E16` | The request conflicts with existing data, for example a name that is in use. |
+| `E17` | The email is linked to another account. |
+| `E18` | The phone number is linked to another account. |
+| `E19` | A private share or a confirmed send is not available. |
+
+### 3.4 Common statuses
+
+| Status | When it occurs |
+|---|---|
+| 200 | The request succeeded. |
+| 201 | The request created a record, on routes that say so. |
+| 202 | The service accepted the request and queued work. |
+| 400 | The request is malformed or fails validation (`E02`, `E04`). |
+| 401 | Authentication is missing or invalid (`E06`). |
+| 403 | The caller lacks the right role or ownership (`E10`). |
+| 404 | The route or the record does not exist (`E03`, `E07`). |
+| 409 | The request conflicts with existing data (`E16`, `E17`, `E18`). |
+| 413 | The body is larger than 1 MB (`E08`). |
+| 429 | A rate limit is exceeded (`E11`). |
+| 500 | An internal error occurred (`E01`). |
+
+Each route section lists the statuses that are specific to that route.
 
 ---
 
-## 4. Public Auth Endpoints (`/auth/*`)
+## 4. Auth endpoints
 
-These endpoints require **no JWT**. They handle the SIWE authentication lifecycle.
+The auth endpoints use Sign-In with Ethereum (SIWE, EIP-4361) and WebAuthn passkeys. A successful sign-in sets a session cookie. See section 2 for the cookie and token rules.
 
----
+The routes in this section are not under `/api/v2`. They use the `/auth` prefix. Auth routes have no rate limit. The global request body limit is 1 MB and the request timeout is 15 seconds.
 
-### 4.1 `POST /auth/nonce`
+#### Session cookie set by sign-in
 
-Generates a one-time 32-character hex nonce to embed in a SIWE message. The nonce expires after **5 minutes** and is invalidated once consumed by a signup or signin attempt.
+`POST /auth/signup`, `POST /auth/signin`, `POST /auth/siwe/verify` and `POST /auth/webauthn/verify` set the same cookie.
 
-**Request body:** none
+| Attribute | Value |
+|---|---|
+| Name | `__clc_auth` |
+| Value | EdDSA JWT with claims `userId`, `ethereumAddress`, `role`, `exp`, `iat` |
+| Lifetime | 30 days |
+| `HttpOnly` | Always |
+| `Path` | `/` |
+| `Secure` | Set in production mode only |
+| `SameSite` | `None` in production mode, `Lax` otherwise |
 
-**Response `200`:**
+`POST /auth/logout` clears the cookie with the same attributes.
 
-```/dev/null/nonce-response.json#L1-7
+#### Account status
+
+A user has the status `PENDING`, `APPROVED` or `REJECTED`. A sign-in for a `PENDING` or `REJECTED` user returns `403` with `E10`. The sign-up and unified verify routes create new users as `APPROVED`. A superadmin can change the status later (see section 15, Admin).
+
+### SIWE message construction
+
+The client builds the message and signs it with `personal_sign` (EIP-191). Follow these steps.
+
+1. Send `POST /auth/nonce` or `POST /auth/siwe/nonce`. Keep the `nonce` value.
+2. Build the message text. Use `\n` as the line separator.
+3. Sign the exact message text with the wallet.
+4. Send the message and the signature in the same request.
+
+Use this layout.
+
+```text
+example.com wants you to sign in with your Ethereum account:
+0x1111111111111111111111111111111111111111
+
+Sign in to the platform
+
+URI: https://example.com
+Version: 1
+Chain ID: 42220
+Nonce: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+Issued At: 2026-01-01T00:00:00.000Z
+```
+
+The server checks only these parts of the message.
+
+| Part | Rule |
+|---|---|
+| Line 2 | Must be the account address, with no other text. The server compares it with the address that the signature recovers. |
+| Line `Nonce: <nonce>` | Must exist. The text after `Nonce: ` must be a nonce that the server issued. |
+| Signature | Must be a `0x`-prefixed hex string of 65 bytes (`r`, `s`, `v`). The `v` byte can be `0`, `1`, `27` or `28`. |
+
+The server does not check the domain, the URI, the chain ID, the statement or the time fields. The nonce is the replay protection. Use a clear domain and statement for the user.
+
+Each nonce has these properties.
+
+- The server makes the nonce from 16 random bytes. It has 32 hex characters.
+- The server keeps nonces in memory. A nonce expires after 5 minutes.
+- The server removes a nonce on first use. This includes a failed request. Request a new nonce for each attempt.
+- A restart of the service removes all nonces.
+
+### 4.1 `POST /auth/nonce` and `POST /auth/siwe/nonce`
+
+**Access:** Public.
+
+Neither route reads a request body.
+
+Response `200`:
+
+```json
 {
   "ok": true,
   "description": "Nonce generated for SIWE challenge",
-  "result": {
-    "nonce": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
-  }
+  "result": { "nonce": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" }
 }
 ```
-
----
 
 ### 4.2 `POST /auth/signup`
 
-Registers a new Ethereum address. The client constructs and signs an EIP-4361 message client-side before submitting here.
+**Access:** Public.
 
-**Verification steps performed by the server:**
-1. Recovers the signing address from the SIWE message and signature.
-2. Confirms the recovered address matches the `address` field in the message.
-3. Validates the nonce is active and consumes it (one-time use).
-4. Returns `409 Conflict` if the address is already registered.
+Creates a user with the status `APPROVED` and the role `USER`. The response sets the session cookie. The caller does not need to call `POST /auth/signin` after sign-up.
 
-**Account defaults:**
-- Status starts as `PENDING` and requires approval before the account can sign in.
-- `/auth/signup` does not auto-approve on the request path.
-- Legacy federation auto-approval is triggered asynchronously by `/auth/siwe/verify` for pending users when the address exists in `sarafu_network.accounts.blockchain_address` on the configured federation database.
-- New signups receive role `USER`. Superadmin role is granted by an operator updating records outside the public signup flow.
+Request body:
 
-**Request body:**
-
-```/dev/null/signup-request.json#L1-6
-{
-  "message":   "<EIP-4361 SIWE message string>",
-  "signature": "0x<65-byte hex signature>",
-  "name":      "Alice",
-  "email":     "alice@example.com"
-}
-```
-
-| Field | Type | Required | Description |
+| Field | Type | Required | Rule |
 |---|---|---|---|
-| `message` | `string` | Yes | Full EIP-4361 plaintext message |
-| `signature` | `string` | Yes | `0x`-prefixed 65-byte hex ECDSA signature |
-| `name` | `string` | Yes | Display name for the account |
-| `email` | `string` | Yes | Contact email address |
+| `message` | string | Yes | SIWE message. |
+| `signature` | string | Yes | SIWE signature. |
+| `name` | string | Yes | Display name. |
+| `email` | string | Yes | Must be a valid email. The server stores it in lower case. |
 
-**Response `200`:**
+The server runs these steps in order.
 
-```/dev/null/signup-response.json#L1-8
+1. Recover the signer from the signature.
+2. Compare the signer with the address on line 2 of the message.
+3. Consume the nonce.
+4. Check that the address and the email are not in use.
+5. Create the user.
+
+Response `200`:
+
+```json
 {
   "ok": true,
   "description": "Registration successful",
+  "result": { "userId": 123, "status": "APPROVED", "role": "USER" }
+}
+```
+
+Errors:
+
+| Status | Code | Condition |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field fails validation. |
+| `400` | `E04` | The signature is not valid, the signer does not match line 2, or the nonce is not valid or is expired. |
+| `409` | `E16` | The address is already linked to a user. Use `POST /auth/signin` instead. |
+| `409` | `E17` | The email is already linked to another user. The address is not registered. |
+| `409` | `E16` or `E17` | Another request registered the same address or email at the same time. The code follows the constraint that failed. |
+
+### 4.3 `POST /auth/signin`
+
+**Access:** Public.
+
+Signs in a registered user. The response sets the session cookie.
+
+Request body:
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `message` | string | Yes | SIWE message. |
+| `signature` | string | Yes | SIWE signature. |
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Signed in successfully",
+  "result": { "userId": 123, "role": "USER" }
+}
+```
+
+Errors:
+
+| Status | Code | Condition |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field is missing, the signature is not valid, the signer does not match line 2, or the nonce is not valid or is expired. |
+| `404` | `E03` | The address is not registered. Call `POST /auth/signup` first. |
+| `403` | `E10` | The user status is `PENDING` or `REJECTED`. |
+
+### 4.4 `POST /auth/siwe/verify`
+
+**Access:** Public.
+
+Signs in a user and registers the user if the address is new. Use this route for wallet SDKs. The request has the same fields as `POST /auth/signin`.
+
+A new address creates a user with the status `APPROVED`, the role `USER` and an empty name. The email is a placeholder of the form `pending+<address without 0x>@clc.local`. The caller can set real values with `POST /auth/profile`.
+
+If the user status is `PENDING`, the server can approve the user later from the legacy federation data. The response is still `403`.
+
+This route is the only sign-in route that returns the token in the body. The response also sets the session cookie.
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Authenticated successfully",
   "result": {
-    "userId": 123,
-    "status": "PENDING",
-    "role":   "USER"
+    "token": "<token>",
+    "address": "0x1111111111111111111111111111111111111111",
+    "expiresAt": "2026-02-01T00:00:00Z"
   }
 }
 ```
 
-**Error cases:**
+`address` is the address as stored for the user. `expiresAt` is 30 days after the response, in RFC 3339 format.
 
-| HTTP | `code` | Condition |
+Errors:
+
+| Status | Code | Condition |
 |---|---|---|
-| `409` | `E04` | Ethereum address already registered |
-| `400` | `E02` | Malformed request body |
-| `400` | `E04` | Invalid or expired nonce, signature mismatch |
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field is missing. |
+| `400` | `E04` | The nonce is not valid or is expired. |
+| `401` | `E04` | The signature is not valid, or the signer does not match line 2. |
+| `403` | `E10` | The user status is `PENDING` or `REJECTED`. |
 
----
+### 4.5 `POST /auth/logout`
 
-### 4.3 `POST /auth/signin`
+**Access:** Public.
 
-Authenticates an existing registered address via SIWE. On success, sets the `__clc_auth` HttpOnly JWT cookie (30-day expiry).
+Clears the session cookie. The route does not read a body. The route succeeds when the caller has no session. The server keeps no token blocklist. A copy of the token stays valid until it expires.
 
-**Request body:**
+Response `200`:
 
-```/dev/null/signin-request.json#L1-4
-{
-  "message":   "<EIP-4361 SIWE message string>",
-  "signature": "0x<65-byte hex signature>"
-}
+```json
+{ "ok": true, "description": "Signed out successfully", "result": {} }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `message` | `string` | Yes | Full EIP-4361 plaintext message |
-| `signature` | `string` | Yes | `0x`-prefixed 65-byte hex ECDSA signature |
+### 4.6 `POST /auth/webauthn/verify`
 
-**Response `200`:**
+**Access:** Public.
 
-Sets `Set-Cookie: __clc_auth=<jwt>; HttpOnly; Path=/; Max-Age=2592000`.
+Signs in with a passkey. The request does not need a SIWE message. The assertion is the proof. The response sets the session cookie.
 
-```/dev/null/signin-response.json#L1-8
+Request body. All fields are required strings.
+
+| Field | Description |
+|---|---|
+| `credentialId` | The credential ID that the wallet registered. |
+| `authenticatorData` | Base64url. Padded and unpadded forms work. At least 37 bytes after decoding. |
+| `clientDataJSON` | Base64url. The type must be `webauthn.get`. The origin must be on the allowed origin list. |
+| `signature` | Base64url, DER-encoded ECDSA P-256 signature. |
+
+Get the challenge from `GET /api/v2/relayer/webauthn/challenge` (see section 5). The challenge is in `clientDataJSON`. The server consumes the challenge before it checks the signature. The assertion must have the user-present and user-verified flags set.
+
+The server finds an active credential for `credentialId`, verifies the assertion, and finds the user for the credential address. It then checks the user status.
+
+Response `200`:
+
+```json
 {
   "ok": true,
   "description": "Signed in successfully",
   "result": {
     "userId": 123,
-    "role":   "USER"
+    "role": "USER",
+    "address": "0x1111111111111111111111111111111111111111",
+    "keyHash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "publicKeyX": "1",
+    "publicKeyY": "2"
   }
 }
 ```
 
-**Error cases:**
+`publicKeyX` and `publicKeyY` are decimal strings.
 
-| HTTP | `code` | Condition |
+Errors:
+
+| Status | Code | Condition |
 |---|---|---|
-| `404` | `E03` | Ethereum address not registered |
-| `403` | `E10` | Account status is `PENDING` or `REJECTED` |
-| `400` | `E04` | Invalid or expired nonce, signature mismatch |
-
----
-
-### 4.4 `POST /auth/logout`
-
-Clears the `__clc_auth` session cookie. Safe to call even when not authenticated.
-
-**Request body:** none
-
-**Response `200`:**
-
-```/dev/null/logout-response.json#L1-6
-{
-  "ok": true,
-  "description": "Signed out successfully",
-  "result": {}
-}
-```
-
----
-
-### 4.5 `POST /auth/siwe/nonce`
-
-Alias for `POST /auth/nonce`. Generates a one-time SIWE nonce for clients that expect SIWE routes under `/auth/siwe/*`.
-
-**Request body:** none
-
-**Response `200`:** same shape as [`POST /auth/nonce`](#41-post-authnonce).
-
----
-
-### 4.6 `POST /auth/siwe/verify`
-
-Unified SIWE sign-in / registration endpoint. The server verifies the SIWE signature and nonce, then:
-
-- If the address already exists and is `APPROVED`, issues a JWT cookie and returns a token in the response body.
-- If the address already exists and is `PENDING` or `REJECTED`, returns `403`.
-- If the address is unknown, inserts a `PENDING` user record, queues a background legacy-federation approval check, and returns `403` until approval completes.
-
-The legacy check is performed asynchronously by a River worker against `sarafu_network.accounts.blockchain_address` on the configured federation database, so this route does not block on the old database.
-
-**Request body:**
-
-```/dev/null/siwe-verify-request.json#L1-4
-{
-  "message":   "<EIP-4361 SIWE message string>",
-  "signature": "0x<65-byte hex signature>"
-}
-```
-
-**Response `200` — approved user:**
-
-```/dev/null/siwe-verify-response.json#L1-10
-{
-  "ok": true,
-  "description": "Authenticated successfully",
-  "result": {
-    "token": "<jwt>",
-    "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-    "expiresAt": "2026-07-17T12:00:00Z"
-  }
-}
-```
-
-Also sets `Set-Cookie: __clc_auth=<jwt>; HttpOnly; SameSite=Strict; Path=/; Expires=<30 days>`.
-
-**Error cases:**
-
-| HTTP | `code` | Condition |
-|---|---|---|
-| `403` | `E10` | Account is newly registered as `PENDING`, still pending approval, or rejected |
-| `400` | `E04` | Invalid or expired nonce |
-| `401` | `E04` | Signature verification failed or signer/address mismatch |
-
----
+| `400` | `E02` or `E04` | The body is not valid JSON, or a field is missing. |
+| `404` | `E07` | No active credential has this `credentialId`. |
+| `401` | `E15` | The assertion is not valid. The challenge can be unknown, expired or used. The origin can be wrong. The signature can be wrong. |
+| `404` | `E03` | The credential address has no user. |
+| `403` | `E10` | The user status is `PENDING` or `REJECTED`. |
 
 ### 4.7 `GET /auth/session`
 
-Returns the active session address and chain ID. Designed for use by wallet SDKs (e.g. Reown AppKit) that need to detect existing session state on page load.
+**Access:** Public. The route reads the `__clc_auth` cookie. It ignores the `Authorization` header.
 
-**Request body:** none
+Returns the session of the caller. This response does not use the standard envelope.
 
-**Response `200` — authenticated:**
+Response `200`:
 
-```/dev/null/session-response.json#L1-4
+```json
 {
-  "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-  "chainId": 42220
+  "address": "0x1111111111111111111111111111111111111111",
+  "chainId": 42220,
+  "role": "USER"
 }
 ```
 
-**Response `204 No Content` — no active session.**
+`address` is in EIP-55 checksum form. `role` is `USER` or `SUPERADMIN`.
 
-No body is returned. Use this to redirect the user to a sign-in flow.
+Response `204` with no body: the cookie is missing or is not valid.
 
----
+### 4.8 `GET /auth/webauthn/credentials`
 
-### 4.8 `GET /auth/profile`
+**Access:** User session. The route reads the `__clc_auth` cookie. A service token does not work.
 
-Returns the authenticated user's editable contact profile. A user JWT cookie is
-required. Location fields and `avatarUrl` are nullable:
+Lists the passkeys that are mapped to the account of the session. The server reads only stored data. It does not read the chain. The order is newest first.
+
+Response `200`:
 
 ```json
 {
   "ok": true,
+  "description": "WebAuthn credentials",
   "result": {
-    "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-    "name": "Alice",
-    "email": "alice@example.com",
-    "phone": "+254700000000",
-    "country": "KE",
-    "locationName": "Nairobi, Kenya",
-    "geoLat": -1.286389,
-    "geoLng": 36.817223,
-    "avatarUrl": "https://cdn.cosmolocal.credit/profile/ab12_400_a3f91c2e.webp",
-    "createdAt": "2026-08-04T12:00:00Z"
-  }
-}
-```
-
-### 4.9 `POST /auth/profile`
-
-Updates contact fields and, optionally, the saved location pin and profile image.
-Omitted location fields preserve their current values. Send `clearLocation: true`
-to remove the label and coordinates together. Supplying `clearLocation` with any
-location field is rejected.
-
-```json
-{
-  "name": "Alice",
-  "email": "alice@example.com",
-  "phone": "+254700000000",
-  "country": "KE",
-  "locationName": "Nairobi, Kenya",
-  "geoLat": -1.286389,
-  "geoLng": 36.817223,
-  "avatarUrl": "https://cdn.cosmolocal.credit/profile/ab12_400_a3f91c2e.webp"
-}
-```
-
-`geoLat` and `geoLng` must be supplied together and must be valid latitude and
-longitude values. A blank `locationName` is rejected.
-
-`avatarUrl` behaves like the location fields: omitted preserves the stored image,
-and `clearAvatar: true` removes it. Sending both is rejected. The URL must be
-`http` or `https` — `users_avatar_url_http` refuses anything else at the database,
-so the request is refused first. Upload the image to the storage service (§4.10)
-and send the URL it returns; bytes never reach this endpoint.
-
-The response carries the saved row, `avatarUrl` included, so a client can seed its
-cache instead of re-reading the profile.
-
-### 4.10 `POST /auth/storage-token`
-
-Returns a readable copy of the caller's own session token, for uploading images to
-the storage service.
-
-Requires an authenticated user — the session cookie, or the same user JWT as a
-bearer token. A service token is rejected with `403`: it has no browser to hand a
-token to, and it already holds its own credential.
-
-The storage service accepts an ordinary `clc-core` user JWT in an `Authorization`
-header. It reads no cookies and is served from another host, so the session cookie
-can neither be read by JavaScript nor be sent there. This endpoint bridges that
-gap, and it is needed even though `POST /auth/siwe/verify` already returns a token:
-the cookie survives a page reload and an in-memory token does not, so a signed-in
-user must be able to ask for one again.
-
-**Request body:** none
-
-**Response `200`:**
-
-```json
-{
-  "ok": true,
-  "description": "Storage token issued",
-  "result": {
-    "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
-    "expiresAt": "2026-09-19T10:00:00Z"
-  }
-}
-```
-
-The response carries `Cache-Control: no-store`.
-
-**This is the full session token, not a scoped one.** It is echoed, never
-re-minted — minting here would issue a fresh 30-day token on every upload and roll
-the session forward indefinitely — so two calls in a row return the same string and
-the same `expiresAt`.
-
-Because it is the session itself, and because `flexibleAuthMiddleware` accepts a
-user JWT as a bearer token as well as in the cookie, a leaked copy is API access as
-that user until it expires; signing out clears the cookie but there is no token
-blocklist. Clients must therefore keep it in memory only — never `localStorage`,
-`sessionStorage`, a persisted cache, or a server-rendered payload — and drop it at
-every identity boundary. If that trade needs reversing, this endpoint is where a
-short-lived, audience-scoped token would be minted instead, with no client change.
-
----
-
-## 5. Protected Endpoints (`/api/v2/*`)
-
-> The three public voucher catalog routes are the only exceptions to the
-> `/api/v2` prefix being protected. They are not part of this section — see
-> [section 9](#9-public-market-catalog-get-apiv2vouchers). Every statement
-> below applies unchanged to all other `/api/v2` routes.
-
-All routes in this section require **one** of:
-
-- `__clc_auth` cookie containing a valid user JWT, **or**
-- `Authorization: Bearer <token>` header containing a valid service JWT.
-
-A missing or invalid credential returns:
-
-```/dev/null/auth-error.json#L1-5
-{
-  "ok": false,
-  "description": "Authentication required",
-  "code": "E06"
-}
-```
-
----
-
-### 5.1 `GET /api/v2/system`
-
-Returns the server's signer public key and current build version. Useful for verifying the identity of the signing node.
-
-**Auth:** user JWT or service JWT
-
-**Response `200`:**
-
-```/dev/null/system-response.json#L1-8
-{
-  "ok": true,
-  "description": "Current system information",
-  "result": {
-    "systemSigner": "0x4a9f1234...",
-    "build":        "v1.2.3"
-  }
-}
-```
-
----
-
-### 5.2 `GET /api/v2/otx/track/:trackingId`
-
-Tracks an on-chain transaction (OTX) by its UUID. Returns the full transaction chain associated with the tracking ID.
-
-**Auth:** user JWT or service JWT
-
-**Access control:**
-- Regular users (`USER` role) may only query tracking IDs that belong to their own account.
-- Service JWTs may query any tracking ID.
-- `SUPERADMIN` users may query any tracking ID.
-
-**Path parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `trackingId` | `string` (UUID) | The tracking UUID returned at deploy/operation time |
-
-**Response `200`:**
-
-```/dev/null/otx-track-response.json#L1-17
-{
-  "ok": true,
-  "description": "OTX chain for tracking ID f47ac10b-...",
-  "result": {
-    "otx": [
+    "address": "0x1111111111111111111111111111111111111111",
+    "credentials": [
       {
-        "id":         1,
-        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-        "otxType":    "TOKEN_PROXY_DEPLOY",
-        "txHash":     "0xabc123...",
-        "nonce":      5,
-        "replaced":   false,
-        "createdAt":  "2024-01-15T10:30:00Z"
+        "credentialId": "abc",
+        "state": "pending",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
       }
     ]
   }
 }
 ```
 
-**OTX object fields:**
-
 | Field | Type | Description |
 |---|---|---|
-| `id` | `int` | Internal OTX record ID |
-| `trackingId` | `string` (UUID) | Tracking UUID |
-| `otxType` | `string` | Operation type (e.g. `TOKEN_PROXY_DEPLOY`) |
-| `txHash` | `string` | On-chain transaction hash (`0x...`) |
-| `nonce` | `int` | Account nonce at submission time |
-| `replaced` | `bool` | Whether this tx was replaced by a later one |
-| `createdAt` | `string` (ISO 8601) | Submission timestamp |
+| `credentialId` | string | The credential ID. |
+| `state` | string | `pending`, `active`, `failed`, `legacy` or `unverified`. |
+| `createdAt` | string | RFC 3339 time. |
+| `trackingId` | string or null | Set only while `state` is `pending`. Use it with `GET /api/v2/relayer/track/:trackingId`. |
 
----
+A credential is `pending` until the registration transaction is confirmed. It becomes `active` on success and `failed` on a revert. Only `active` credentials work with `POST /auth/webauthn/verify` and `POST /api/v2/relayer/webauthn/recover`.
 
-### 5.3 `GET /api/v2/account/otx/:address`
+Errors:
 
-Returns a paginated list of OTXs for a custodial account address.
-
-**Auth:** user JWT or service JWT
-
-**Path parameters:**
-
-| Parameter | Type | Description |
+| Status | Code | Condition |
 |---|---|---|
-| `address` | `string` | Checksummed Ethereum address |
+| `401` | `E06` | The cookie is missing, or is not valid, or has no valid address. |
 
-**Query parameters:**
+### 4.9 `GET /auth/profile` and `POST /auth/profile`
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `perPage` | `int` | `100` | Results per page (max `100`) |
-| `next` | `bool` | `false` | When `true`, paginates forward from `cursor` |
-| `cursor` | `int` | — | Last seen OTX `id` from the previous page |
+**Access:** User session. A service token returns `403` with `E10`. A caller without a valid credential gets `401` with `E06`.
 
-**Response `200`:**
+These two routes read and write the profile of the signed-in user. The address comes from the session.
 
-```/dev/null/account-otx-response.json#L1-12
+#### `GET /auth/profile`
+
+Response `200`:
+
+```json
 {
   "ok": true,
-  "description": "Successfully fetched OTX for 0xd8dA6BF2...",
+  "description": "User profile",
   "result": {
-    "otx":   [ { "id": 1, "trackingId": "...", "otxType": "...", "txHash": "0x...", "nonce": 1, "replaced": false, "createdAt": "..." } ],
-    "first": 1,
-    "last":  50
+    "address": "0x1111111111111111111111111111111111111111",
+    "name": "Alice",
+    "username": "alice",
+    "email": "alice@example.com",
+    "phone": "+254700000000",
+    "country": "KE",
+    "preferredCurrency": "USD",
+    "bio": "Farmer",
+    "website": "https://example.com",
+    "locationName": "Nairobi, Kenya",
+    "geoLat": -1.286389,
+    "geoLng": 36.817223,
+    "avatarUrl": "https://example.com/avatar.webp",
+    "createdAt": "2026-01-01T00:00:00Z"
   }
 }
 ```
 
-| Field | Type | Description |
+`username`, `preferredCurrency`, `bio`, `website`, `locationName`, `geoLat`, `geoLng` and `avatarUrl` can be `null`. The server stores no value for an empty `email` or `phone` and returns an empty string.
+
+Error: `404` with `E03` if the user does not exist.
+
+#### `POST /auth/profile`
+
+Saves the profile and returns the saved values. The response has the same fields as `GET /auth/profile` except `createdAt`.
+
+Request body:
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `name` | string | No | Maximum 80 characters. Omitted sets an empty name. |
+| `email` | string | No | Must be a valid email. Omitted or empty clears the email. |
+| `phone` | string | No | Omitted or empty clears the phone. |
+| `country` | string | No | Exactly 2 characters if sent. Omitted sets an empty value. |
+| `username` | string | No | 1 to 80 characters after trimming. The server applies Unicode NFC. Omitted keeps the current value. |
+| `preferredCurrency` | string | No | Maximum 32 characters. Omitted keeps the value. See the note below. |
+| `bio` | string | No | Maximum 500 characters. Omitted keeps the value. An empty string clears it. |
+| `website` | string | No | Must be an `http` or `https` URL, or an empty string. Omitted keeps the value. An empty string clears it. |
+| `locationName` | string | No | Maximum 200 characters. Must not be blank. Omitted keeps the value. |
+| `geoLat` | number | No | -90 to 90. Send with `geoLng`. |
+| `geoLng` | number | No | -180 to 180. Send with `geoLat`. |
+| `clearLocation` | boolean | No | If `true`, the server clears `locationName`, `geoLat` and `geoLng`. |
+| `avatarUrl` | string | No | Must be an `http` or `https` URL. Omitted keeps the value. |
+| `clearAvatar` | boolean | No | If `true`, the server clears `avatarUrl`. |
+
+Rules:
+
+- `name`, `email`, `phone` and `country` replace the stored values on every call. Send the full current value to keep it.
+- If the user has no username and `name` is not blank, the server picks a username from `name`. If no free name exists, the profile still saves.
+- The server trims `bio`, `website` and `locationName`. It collapses repeated spaces in `preferredCurrency`.
+- `preferredCurrency` must be a unit of account.
+  If the unit does not exist, the server creates it as a custom unit.
+  A new unit gets the canonical spelling (each word capitalized).
+  An existing unit matches without regard to case.
+  The unit can have at most 32 characters.
+- `clearLocation` cannot be sent with `locationName`, `geoLat` or `geoLng`.
+- `clearAvatar` cannot be sent with `avatarUrl`.
+- `geoLat` and `geoLng` must be sent together.
+
+Errors:
+
+| Status | Code | Condition |
 |---|---|---|
-| `otx` | `array` | Page of OTX objects (see [§5.2](#52-get-apiv2otxtracktrackingid) for field definitions) |
-| `first` | `int` | Lowest OTX `id` in this page |
-| `last` | `int` | Highest OTX `id` in this page — use as `cursor` for the next page |
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field fails a rule above. The description names the problem. |
+| `404` | `E03` | The user does not exist. |
+| `409` | `E17` | The email is linked to another user. |
+| `409` | `E18` | The phone is linked to another user. |
+| `409` | `E16` | The username is already in use. |
 
----
+### 4.10 `POST /auth/storage-token`
 
-### 5.4 `GET /api/v2/account/status/:address`
+**Access:** User session. A service token returns `403` with `E10`.
 
-Returns on-chain and internal state for a custodial account.
+Returns the session token of the caller so that the caller can send it to the image storage service. The storage service reads only an `Authorization` header. A browser script cannot read the `HttpOnly` cookie.
 
-**Auth:** user JWT or service JWT
+The route does not read a body. The route returns the same token that authenticated the request. It does not make a new token. Two calls with the same session return the same `token` and `expiresAt`.
 
-**Path parameters:**
+The response has the header `Cache-Control: no-store`.
 
-| Parameter | Type | Description |
-|---|---|---|
-| `address` | `string` | Checksummed Ethereum address |
+Response `200`:
 
-**Response `200`:**
-
-```/dev/null/account-status-response.json#L1-10
+```json
 {
   "ok": true,
-  "description": "Custodial account status",
+  "description": "Storage token issued",
+  "result": { "token": "<token>", "expiresAt": "2026-02-01T00:00:00Z" }
+}
+```
+
+The token is the full session token, not a limited one. A leaked copy gives API access as the user until it expires. The client must keep the token in memory only. The client must not write it to `localStorage`, `sessionStorage` or any cache.
+
+Errors:
+
+| Status | Code | Condition |
+|---|---|---|
+| `401` | `E06` | The caller has no valid credential. |
+| `403` | `E10` | The caller uses a service token. |
+| `401` | `E06` | The credential is not a user token that the route can read. |
+
+## 5. Relayer
+
+The relayer sends transactions for a user who has no gas. The user signs. The relayer pays the gas and sends the transaction. The wallet is an EIP-7702 account that delegates to the Calibur contract.
+
+All relayer routes have the prefix `/api/v2/relayer`. They are public. They need no cookie and no token. The proof of authority is the signature in the request. All relayer routes use the standard envelope (see section 3).
+
+### 5.1 Flow
+
+1. Build a list of 1 to 16 calls.
+2. Call `GET /api/v2/relayer/health` to get the `relayerAddress`. Use it as the `executor`.
+3. Call `POST /api/v2/relayer/relay/preview` to get the `nonce` and the `digest`.
+4. Sign the `digest` with the root key or a passkey.
+5. Call `POST /api/v2/relayer/relay` with the signed batch.
+6. Poll `GET /api/v2/relayer/track/:trackingId` until the transaction lands.
+
+For the first relay of a wallet, add an `authorization`. See `POST /api/v2/relayer/relay`.
+
+#### Data types
+
+All numbers in requests and responses are decimal strings. Addresses in requests must use the EIP-55 checksum form. An address that has no letters, such as `0x1111111111111111111111111111111111111111`, always passes.
+
+A call:
+
+| Field | Type | Rule |
+|---|---|---|
+| `to` | string | Required. Checksummed address. |
+| `value` | string | Required. Decimal number of wei. |
+| `data` | string | Required. Must start with `0x`. |
+
+A batched call:
+
+| Field | Type | Rule |
+|---|---|---|
+| `calls` | array | Required. 1 to 16 calls. The relayer runs them in order. |
+| `revertOnFailure` | boolean | If `true`, the whole batch reverts when one call fails. |
+
+A signed batch:
+
+| Field | Type | Rule |
+|---|---|---|
+| `batchedCall` | object | Required. A batched call. |
+| `nonce` | string | Required. Decimal number. Use the `nonce` from `POST /api/v2/relayer/relay/preview`. |
+| `keyHash` | string | Required. `0x` and 64 hex characters. All zeros for the root key. |
+| `executor` | string | Required. Checksummed address. Must be the `relayerAddress` or the zero address. |
+| `deadline` | string | Required. Decimal number. Unix seconds. `"0"` means no deadline. |
+
+An authorization:
+
+| Field | Type | Rule |
+|---|---|---|
+| `chainId` | string | Required. Decimal number. Must equal the chain of the service. |
+| `contractAddress` | string | Required. Checksummed address. Must be the Calibur address. |
+| `nonce` | string | Required. Decimal number. The EOA nonce from `GET /api/v2/relayer/nonce/:address`. |
+| `yParity` | number | `0` or `1`. |
+| `r` | string | Required. `0x` and 64 hex characters. |
+| `s` | string | Required. `0x` and 64 hex characters. |
+
+### 5.2 `GET /api/v2/relayer/health`
+
+**Access:** Public.
+
+Returns the state of the relayer.
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Relayer status",
   "result": {
-    "gasBalance":    "1000000000000000000",
-    "networkNonce":  4,
-    "internalNonce": 5,
-    "active":        true
+    "status": "healthy",
+    "build": "<build>",
+    "chainId": 42220,
+    "relayerAddress": "0x1111111111111111111111111111111111111111",
+    "idempotentRelay": true
   }
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `gasBalance` | `string` (wei) | Native gas token balance as a decimal string |
-| `networkNonce` | `int` | Last confirmed nonce on-chain |
-| `internalNonce` | `int` | Next nonce tracked internally (may be ahead of network) |
-| `active` | `bool` | Whether the account is active and usable |
+`relayerAddress` is the address of the signer that sends the transactions. Use it as `executor`. `idempotentRelay` is always `true`. It shows that `POST /api/v2/relayer/relay` accepts `operationId`.
 
----
+### 5.3 `GET /api/v2/relayer/nonce/:address`
 
-### 5.5 `POST /api/v2/contracts/token`
+**Access:** Public.
 
-Submits a request to deploy an ERC-20 token contract. The deployment is queued and processed asynchronously; use the returned `trackingId` with [`GET /api/v2/otx/track/:trackingId`](#52-get-apiv2otxtracktrackingid) to monitor progress.
+Returns the transaction nonce of an account on the chain. Use it as the `nonce` of an EIP-7702 authorization.
 
-**Auth:** user JWT or service JWT
+| Path parameter | Rule |
+|---|---|
+| `address` | Required. Checksummed address. |
 
-**Quota:** Regular `USER` accounts are limited to `maxTokens` deployments (default: **20**). `SUPERADMIN` users and service JWTs are exempt.
+Response `200`:
 
-**Request body:**
-
-```/dev/null/token-deploy-request.json#L1-8
+```json
 {
-  "name":            "My Token",
-  "symbol":          "MTK",
-  "decimals":        "6",
-  "owner":           "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-  "expiryTimestamp": "2026-01-01T00:00:00Z"
+  "ok": true,
+  "description": "EOA nonce",
+  "result": { "address": "0x1111111111111111111111111111111111111111", "nonce": "0" }
 }
 ```
 
-| Field | Type | Required | Description |
+Errors: `400` with `E04` if `address` is not a valid checksummed address. A failed chain read returns `500` with `E01`.
+
+### 5.4 `GET /api/v2/relayer/calibur-nonce/:address` and `GET /api/v2/relayer/calibur-nonce/:address/:keyHash`
+
+**Access:** Public.
+
+Returns the Calibur sequence number for the account and key. Without `keyHash`, the route uses the root key (all zeros).
+
+| Path parameter | Rule |
+|---|---|
+| `address` | Required. Checksummed address. |
+| `keyHash` | Optional. `0x` and 64 hex characters. |
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Calibur sequence",
+  "result": {
+    "address": "0x1111111111111111111111111111111111111111",
+    "keyHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "nonce": "0"
+  }
+}
+```
+
+`nonce` is the sequence only.
+For a non-zero `keyHash`, the full nonce in a signed batch is different.
+It is the first 24 bytes of the key hash, shifted left by 64 bits, combined with the sequence.
+For the root key, the full nonce equals the sequence.
+Use `POST /api/v2/relayer/relay/preview` to get the full nonce.
+
+Errors: `400` with `E04` if a path parameter is not valid. A failed chain read returns `500` with `E01`.
+
+### 5.5 `POST /api/v2/relayer/relay/preview`
+
+**Access:** Public.
+
+Returns the full nonce and the EIP-712 digest for a batch.
+The call is read-only. It queues nothing and needs no signature.
+A signature over this digest matches the batch that the relayer submits.
+The client can also compute the digest itself.
+
+Request body:
+
+| Field | Type | Required | Rule |
 |---|---|---|---|
-| `name` | `string` | Yes | Full token name, up to 120 characters. Must be unique — see below |
-| `symbol` | `string` | Yes | Ticker symbol (e.g. `MTK`). Not required to be unique |
-| `decimals` | `string` (int) | Yes | Token decimal places (e.g. `"6"`) |
-| `owner` | `string` | Yes | Checksummed Ethereum address of the token owner |
-| `expiryTimestamp` | `string` (ISO 8601) | No | Optional expiry date for the token |
-| `iconUrl` | `string` (http/https URL) | No | Off-chain catalog image, carried to the voucher on confirmation |
-| `bannerUrl` | `string` (http/https URL) | No | Off-chain catalog header image, same path as `iconUrl` |
-| `markerIcon` | `string` | No | Map marker glyph: `basket`, `hand-coin`, `coupon`, `food`, `farm`, `tools`, `health` or `education`. Omitted means automatic |
-| `markerColor` | `string` | No | Map marker colour: `blue`, `purple`, `orange`, `pink`, `cyan` or `brown`. Omitted means automatic |
+| `userAddress` | string | Yes | Checksummed address of the wallet. |
+| `batchedCall` | object | Yes | A batched call with 1 to 16 calls. |
+| `keyHash` | string | No | `0x` and 64 hex characters. Omitted or empty means the root key. |
+| `executor` | string | Yes | Checksummed address. |
+| `deadline` | string | Yes | Decimal number. |
 
-A marker value outside those sets is rejected with `400` before the deploy is
-queued, for the same reason as the image schemes below.
+Response `200`:
 
-Image URLs must be `http` or `https`. Other schemes — including `data:` — are
-rejected with `400` before the deploy is queued, because the catalog column that
-finally receives them is HTTP-only and by then the transaction would already be
-signed and its nonce spent.
+```json
+{
+  "ok": true,
+  "description": "Relay batch preview",
+  "result": {
+    "nonce": "0",
+    "digest": "0x<64 hex characters>"
+  }
+}
+```
 
-`name` is trimmed and its inner whitespace collapsed before anything else
-happens, and the collapsed form is what reaches the ERC-20 constructor. It must
-not already be in use by another voucher, whether by a catalog row or by a
-deploy still in flight. The comparison ignores case and whitespace, so
-`"  community   MARKET "` collides with `"Community Market"`. A deploy that
-previously failed releases its name. Use
-[`GET /api/v2/names`](#57-get-apiv2names) to check before submitting.
+Put `nonce` in `signedBatch.nonce`. Sign `digest`. Do not change any field after the preview. A change gives a different digest.
+
+Errors: `400` with `E02` for a body that is not valid JSON. `400` with `E04` for a field that fails a rule. A failed chain read returns `500` with `E01`.
+
+### 5.6 `POST /api/v2/relayer/relay`
+
+**Access:** Public.
+
+Queues a signed batch for the relayer. The route returns after the job is queued. The relayer builds, signs and sends the transaction later. The batch can have 1 to 16 calls. There is no separate batch route. One signature covers all calls.
+
+Request body:
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `operationId` | string | No | UUID. Makes the request idempotent. See below. |
+| `userAddress` | string | Yes | Checksummed address of the wallet. |
+| `signedBatch` | object | Yes | A signed batch. |
+| `signature` | string | Yes | Must start with `0x`. ABI encoding of `(bytes signature, bytes hookData)`. |
+| `signatureType` | string | Yes | `secp256k1` or `webauthn`. |
+| `authorization` | object | No | An authorization. Required for the first relay of a wallet. |
+| `credentialId` | string | No | Registers a passkey. See below. |
+| `publicKeyX` | string | No | Decimal number. P-256 x coordinate. |
+| `publicKeyY` | string | No | Decimal number. P-256 y coordinate. |
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Relay request accepted",
+  "result": {
+    "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "valuationSnapshots": [],
+    "operationId": "6f1c0a52-8d4e-4b87-9f3a-2d1b7c5e9a10",
+    "replayed": false
+  }
+}
+```
+
+`operationId` and `replayed` are present only if the request has an `operationId`. `valuationSnapshots` is a list of voucher claim records that the server stores before it sends the transaction. The server fills the list only for these two batch shapes.
+
+- One zero-value ERC-20 `transfer` call.
+- A pool swap route. Each hop has three calls: `approve` to zero, `approve` for the amount, and the pool `withdraw`.
+
+For other batches the list is empty.
+
+#### Rules that the server checks before it queues the job
+
+The server does not check the signature of a normal batch. The chain checks it.
+The server does not check the delegation state, the nonce, the deadline or the executor.
+A fault in these values appears when the relayer builds the transaction. The failed job has no transaction.
+In this case `GET /api/v2/relayer/track/:trackingId` keeps returning `404`.
+To avoid such faults, use `POST /api/v2/relayer/relay/preview` and the `executor` value from `GET /api/v2/relayer/health`.
+
+The relayer rejects a batch when the `executor` is not the zero address and is not the `relayerAddress`.
+
+#### First relay for a wallet
+
+If the wallet is not delegated, the request needs an `authorization`.
+The relayer then sends one transaction that delegates the wallet and runs the batch.
+
+- `authorization.contractAddress` must be the Calibur address.
+- `authorization.chainId` must equal the chain of the service.
+- `authorization.nonce` must be the EOA nonce from `GET /api/v2/relayer/nonce/:address`. It is not the Calibur sequence.
+
+Later relays omit the `authorization`.
+If the wallet is not delegated and the request has no `authorization`, the job fails. The track route then returns `404`.
+
+#### Passkey registration
+
+A relay can register a passkey for the wallet. Send `credentialId`, `publicKeyX` and `publicKeyY` together. A request with only some of the three fields returns `400` with `E04`.
+
+The route is public. Therefore the server checks that the root key of the wallet allowed the registration. The server rejects the request with `400` and `E04` unless all of these are true.
+
+- `signatureType` is `secp256k1` and `signedBatch.keyHash` is all zeros.
+- The signature recovers to `userAddress` over the batch digest.
+- `signedBatch.batchedCall.revertOnFailure` is `true`.
+- The batch has exactly one call. The call goes to `userAddress`, has value `0`, and has the data of `register` for a WebAuthn P-256 key with the supplied coordinates.
+- The coordinates are positive decimal numbers on the P-256 curve.
+
+The server computes the key hash itself. The credential state is `pending`. It becomes `active` when the transaction succeeds and `failed` when it reverts. Use `GET /auth/webauthn/credentials` to read the state.
+
+If the `credentialId` already exists, the server returns `409` with `E16`.
+This happens when the credential maps to a different wallet or key, or is already `pending` or `active`.
+A credential in state `failed` or `unverified` for the same wallet and key can register again.
+For a `pending` credential of the same mapping, the error body has `result.trackingId`.
+Follow that tracking ID. Do not relay again.
+
+```json
+{
+  "ok": false,
+  "description": "webauthn registration is already pending",
+  "code": "E16",
+  "result": { "state": "pending", "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479" }
+}
+```
+
+#### Idempotent submission with `operationId`
+
+A response can get lost. Send an `operationId` (a UUID that you make once for each payment). Keep the signed request. If the response does not arrive, send the identical request again.
+
+| Request | Status | Result |
+|---|---|---|
+| New `operationId` | `200` | The job is queued. `replayed` is `false`. |
+| Same `operationId`, identical request | `200` | The response has the first `trackingId` and `replayed: true`. The description is `Relay request already accepted`. The server queues nothing. |
+| Same `operationId`, any other request | `409` with `E16` | The ID is bound to its first request. |
+| `operationId` is not a UUID | `400` with `E04` | None. |
+
+The server binds the ID to the chain, `userAddress` and every other field of the request.
+The comparison is exact, including the case of hex strings. Send the same bytes.
+There is no lookup by `operationId` alone.
+A request without an `operationId` always queues a job.
+Two requests with the same `operationId` at the same time are safe. One queues the job. The other returns its tracking ID.
+
+The server checks the `operationId` before the passkey registration conflict. A replay of a registration returns its first tracking ID.
+
+#### Gas budget
+
+The server cannot estimate gas for the first relay because the wallet is not yet delegated. The relayer sets the gas limit from a budget.
+
+```text
+limit = (base_exec_gas
+         + per_call_gas * number_of_calls
+         + delegation_overhead_gas   (only if the wallet is not delegated)
+         + webauthn_verify_gas       (only if signatureType is webauthn)) * 1.10
+```
+
+The limit has an upper bound of `max_relay_gas`. The settings are in the `[relayer]` section of the service configuration. A setting that is `0` or missing uses the default.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `base_exec_gas` | 50,000 | Fixed cost of one relayed batch. |
+| `per_call_gas` | 200,000 | Cost for each call. It covers the heaviest single action, a first token mint. |
+| `delegation_overhead_gas` | 150,000 | Added when the relay also delegates the wallet. |
+| `webauthn_verify_gas` | 400,000 | Added for a passkey signature. P-256 verification is costly. |
+| `max_relay_gas` | 4,000,000 | Upper bound. A batch of 16 calls fits in the default bound. |
+| `delegate_gas_limit` | none | Limit for a bare delegation. The service requires this setting. The code default of 200,000 applies only if the value is 0. |
+
+The user pays no gas. The relayer pays the gas. The gas price comes from the gas oracle of the service.
+
+#### Errors
+
+| Status | Code | Condition |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field fails a rule, for example more than 16 calls, an address that is not checksummed, or `signatureType` that is not `secp256k1` or `webauthn`. |
+| `400` | `E04` | The passkey registration is incomplete or is not valid. |
+| `409` | `E16` | The `operationId` was used for a different request. |
+| `409` | `E16` | The `credentialId` is already mapped. |
+
+### 5.7 `POST /api/v2/relayer/delegate`
+
+**Access:** Public.
+
+Delegates a wallet to Calibur without any call. Use it when the wallet must be a smart account before the first relay.
+
+Request body:
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `ephemeralAddress` | string | Yes | Checksummed address of the wallet. |
+| `authorization` | object | Yes | An authorization. |
+
+The server queues a delegation job. It also queues a job that registers the address on the account index, unless the delegation job is a duplicate.
+A delegation job is a duplicate when the same `ephemeralAddress` already has a job. The server then returns the first `trackingId`.
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Delegate request accepted",
+  "result": {
+    "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "registerTrackingId": "0d3f5c1e-2b4a-4c6d-8e9f-1a2b3c4d5e6f",
+    "duplicate": false
+  }
+}
+```
+
+If `duplicate` is `true`, `registerTrackingId` is an empty string.
+The registration job does not send a transaction if the service has no account index address.
+`registerTrackingId` is for the account registration transaction. `GET /api/v2/relayer/track/:trackingId` returns `403` for that ID.
+Use the `trackingId` for the delegation.
+
+Errors: `400` with `E02` or `E04` for a bad body. An internal fault returns `500` with `E01`.
+
+### 5.8 `GET /api/v2/relayer/track/:trackingId`
+
+**Access:** Public.
+
+Returns the transactions for a tracking ID. A relay can have more than one transaction when the service replaces a transaction. The order is oldest first.
+
+| Path parameter | Rule |
+|---|---|
+| `trackingId` | Required. UUID. |
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Relayer OTX chain",
+  "result": {
+    "otx": [
+      {
+        "id": 1,
+        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "otxType": "RELAY_EXEC",
+        "signerAccount": "0x1111111111111111111111111111111111111111",
+        "rawTx": "0x<raw transaction>",
+        "txHash": "0x<transaction hash>",
+        "nonce": 7,
+        "replaced": false,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-01T00:00:05Z",
+        "status": "SUCCESS"
+      }
+    ]
+  }
+}
+```
+
+| Field | Description |
+|---|---|
+| `otxType` | `RELAY_DELEGATE` (bare delegation), `RELAY_EXEC` (batch for a delegated wallet) or `RELAY_DELEGATE_EXEC` (delegation and batch). |
+| `signerAccount` | The relayer account that signed the transaction. |
+| `nonce` | The nonce of the relayer account. |
+| `replaced` | `true` if a later transaction replaced this one. |
+| `status` | The dispatch status. See the list below. |
+
+Dispatch status values: `PENDING`, `IN_NETWORK`, `SUCCESS`, `REVERTED`, `LOW_NONCE`, `NO_GAS`, `LOW_GAS_PRICE`, `NETWORK_ERROR`, `REPLACEMENT_UNDERPRICED`, `UNKNOWN_RPC_ERROR`, `POOL_FULL`, `POOL_CONFLICT`, `NONCE_GAP`, `INVALID_TX`. `SUCCESS` means the chain confirmed the transaction. `REVERTED` means the transaction ran and failed.
+
+The route returns only relay transaction types. A tracking ID of another type returns `403` with `E10`.
+
+Errors:
+
+| Status | Code | Condition |
+|---|---|---|
+| `400` | `E04` | `trackingId` is not a UUID. |
+| `404` | `E03` | No transaction exists for the tracking ID. This is normal for a short time after `POST /api/v2/relayer/relay`, because the relayer writes the record after the job runs. Poll again. |
+| `403` | `E10` | The tracking ID belongs to a transaction that is not a relay type. |
+
+### 5.9 `GET /api/v2/relayer/webauthn/challenge`
+
+**Access:** Public.
+
+Returns a challenge for a passkey assertion. The challenge has 32 random bytes in base64url form without padding (43 characters).
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "WebAuthn challenge",
+  "result": { "challenge": "<43 characters>" }
+}
+```
+
+The server keeps the challenge in memory for 5 minutes. The challenge works once. The server removes it on the first use, also when the verification fails. A restart removes all challenges. The challenge store is for a single instance of the service.
+
+### 5.10 `POST /api/v2/relayer/webauthn/recover`
+
+**Access:** Public.
+
+Returns the wallet that belongs to a passkey. The caller proves that it holds the passkey. The route does not set a session cookie. Use `POST /auth/webauthn/verify` to sign in.
+
+The request body and the assertion rules are the same as for `POST /auth/webauthn/verify`. All four fields are required: `credentialId`, `authenticatorData`, `clientDataJSON` and `signature`.
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Wallet recovered",
+  "result": {
+    "address": "0x1111111111111111111111111111111111111111",
+    "keyHash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "publicKeyX": "1",
+    "publicKeyY": "2"
+  }
+}
+```
+
+Errors:
+
+| Status | Code | Condition |
+|---|---|---|
+| `400` | `E02` or `E04` | The body is not valid JSON, or a field is missing. |
+| `404` | `E07` | No active credential has this `credentialId`. |
+| `401` | `E15` | The assertion is not valid. |
+
+---
+
+## 6. Contracts, tracking and system
+
+These routes deploy and upgrade contracts, track origin transactions (OTX), and report system state.
+All routes in this section are under the `/api/v2` prefix and need authentication (see section 2, Authentication).
+A missing or invalid credential returns `401` with code `E06`.
+
+Deploy and upgrade requests are asynchronous.
+The server queues a job and returns a `trackingId` with status `200`.
+Use `GET /api/v2/otx/track/:trackingId` to follow the transactions.
+Use `GET /api/v2/otx/track/:trackingId/contract` to get the deployed contract.
+
+Address fields in request bodies and path parameters must be valid EIP-55 checksummed addresses.
+An address with wrong letter case fails validation with code `E04`.
+
+### 6.1 `POST /api/v2/contracts/token`
+
+**Access:** User or service token. A user caller counts against the voucher limit. A superadmin or service token has no limit.
+
+Queues a job that deploys a voucher (ERC-20 proxy).
+
+**Request body (JSON):**
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `name` | string | Yes | Trimmed, inner spaces collapsed. Must not be blank. Maximum 120 characters. |
+| `symbol` | string | Yes | Must be unique (see Name rules below). |
+| `decimals` | string | Yes | Send an integer from 0 to 255 as a string. The API does not check the format (see Late checks). |
+| `owner` | string | Yes | Checksummed address. |
+| `expiryTimestamp` | string | No | Unix time in seconds, as a string. The API does not check the format (see Late checks). |
+| `description` | string | No | No limit in the API. |
+| `website` | string | No | Must be a URL. |
+| `email` | string | No | Must be an email address. |
+| `phone` | string | No | No check. |
+| `terms` | string | No | Maximum 5000 characters. A link or Markdown text. |
+| `voucherUoa` | string | No | Unit of account. Maximum 32 characters. See Unit of account below. |
+| `voucherValue` | number | No | Value of one voucher unit in the unit of account. Must be 0 or more. |
+| `locationName` | string | No | No limit in the API. |
+| `geoLat` | number | No | From -90 to 90. |
+| `geoLng` | number | No | From -180 to 180. |
+| `iconUrl` | string | No | Must be an `http` or `https` URL. |
+| `bannerUrl` | string | No | Must be an `http` or `https` URL. |
+| `markerIcon` | string | No | One of `basket`, `hand-coin`, `coupon`, `food`, `farm`, `tools`, `health`, `education`. |
+| `markerColor` | string | No | One of `blue`, `purple`, `orange`, `pink`, `cyan`, `brown`. |
+| `tags` | array of string | No | See Tags below. |
+
+**Name rules.**
+The API trims `name` and collapses inner white space before it checks anything.
+The deployed contract receives the cleaned name.
+The name must not match another voucher name, including a deploy in progress.
+The comparison ignores case and extra white space.
+The `symbol` is reserved in a shared claim table, together with pool symbols.
+A deploy that fails releases its name and symbol.
+
+**Tags.**
+Each tag has inner white space collapsed.
+A tag must not be blank, must not contain a comma, and must have 100 characters or fewer.
+A tag must not repeat inside the list (the comparison ignores case).
+A tag that does not exist is created as a custom tag.
+The API stores the tags sorted.
+
+**Unit of account.**
+If `voucherUoa` is not blank, the API finds an existing unit with the same name (ignoring case) or creates a custom one.
+Custom values are written in title case.
+
+**Late checks.**
+The API does not check `decimals` and `expiryTimestamp`.
+The worker reads them after the response.
+A bad value makes the deploy job fail and the job is not retried.
+The voucher never appears in that case.
+
+**Limit.**
+For a user caller who is not a superadmin, the API checks the `maxTokens` limit before it queues the job.
+A new user starts with a limit of 1 voucher.
+A superadmin can change the limit.
+A voucher counts until its deploy fails on chain or the voucher is retired.
 
 **Response `200`:**
 
-```/dev/null/token-deploy-response.json#L1-7
+```json
 {
   "ok": true,
   "description": "Token deploy request accepted",
@@ -783,66 +1233,80 @@ previously failed releases its name. Use
 }
 ```
 
-**Error cases:**
+For a user caller, the API records the tracking ID for the user.
+The user can then track it, and it shows in `GET /api/v2/users/me/deployments`.
 
-| HTTP | `code` | Condition |
+**Errors:**
+
+| Status | Code | When |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, bad address, name over 120 characters or blank after trimming) |
-| `403` | `E11` | User has reached their `maxTokens` quota |
-| `409` | `E16` | `name` is already used by another voucher or an in-flight deploy |
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | A field fails validation. Examples: bad address, `name` blank or longer than 120, bad `markerIcon`, bad tag, bad unit of account. |
+| 401 | `E06` | No valid credential. |
+| 404 | `E07` | No platform contract row exists for the configured chain. |
+| 409 | `E16` | The voucher name is in use, or the `name` or `symbol` is already claimed. |
+| 429 | `E11` | The user reached the voucher limit. The `result` object has `resource` (`vouchers`), `used` and `limit`. |
 
----
+### 6.2 `POST /api/v2/contracts/pool`
 
-### 5.6 `POST /api/v2/contracts/pool`
+**Access:** User or service token. A user caller counts against the pool limit. A superadmin or service token has no limit.
 
-Submits a request to deploy a SwapPool instance. Like token deployments, processing is asynchronous.
+Queues a job that deploys a pool.
 
-**Auth:** user JWT or service JWT
+**Request body (JSON):**
 
-**Quota:** Regular `USER` accounts are limited to `maxPools` deployments (default: **10**). `SUPERADMIN` users and service JWTs are exempt.
-
-**Request body:**
-
-```/dev/null/pool-deploy-request.json#L1-10
-{
-  "name":             "My Pool",
-  "symbol":           "MYP",
-  "decimals":         "6",
-  "owner":            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-  "quoterType":       "relative",
-  "feesDecoupled":    false,
-  "feePolicyDefault": "",
-  "baseCurrency":     "",
-  "unitOfAccount":    "KES"
-}
-```
-
-| Field | Type | Required | Description |
+| Field | Type | Required | Rules |
 |---|---|---|---|
-| `name` | `string` | Yes | Pool name, up to 80 characters. Unique among pools, on the same terms as a token name |
-| `symbol` | `string` | Yes | Pool symbol. Not required to be unique |
-| `decimals` | `string` (int) | Yes | Decimal precision |
-| `owner` | `string` | Yes | Checksummed owner address |
-| `quoterType` | `string` | Yes | Pricing strategy — see below |
-| `feesDecoupled` | `bool` | No | If `true`, fee policy executes independently of swaps (default: `false`) |
-| `feePolicyDefault` | `string` | No | Default fee policy identifier |
-| `baseCurrency` | `string` | Conditional | Checksummed non-zero token address; **required** when `quoterType` is `"oracle"` |
-| `unitOfAccount` | `string` | Yes | Built-in or reusable custom Unit of Account, normalized case-insensitively and limited to 32 Unicode characters. A custom value cannot be used with `quoterType: "oracle"` |
-| `terms` | `string` | No | HTTP(S) link or Markdown terms, up to 5,000 characters |
-| `imageUrl` | `string` (http/https URL) | No | Optional pool image URL |
-| `bannerUrl` | `string` | No | Optional pool banner image URL |
+| `name` | string | Yes | Trimmed, inner spaces collapsed. Must not be blank. Maximum 80 characters. |
+| `symbol` | string | Yes | Must be unique (see Name rules below). |
+| `decimals` | string | Yes | Send an integer from 0 to 255 as a string. The API does not check the format. |
+| `owner` | string | Yes | Checksummed address. |
+| `quoterType` | string | Yes | One of `decimal`, `oracle`, `relative`. |
+| `feesDecoupled` | boolean | No | Default `false`. |
+| `feePolicyDefault` | string | Yes | Default fee as a percentage. A number from 0 to 100, for example `"0.5"`. |
+| `feeAddress` | string | No | Checksummed address that receives the fees. Needs a `feePolicyDefault` above 0. |
+| `baseCurrency` | string | If `quoterType` is `oracle` | Checksummed address. Must not be the zero address. |
+| `unitOfAccount` | string | Yes | Maximum 32 characters. See Unit of account below. |
+| `description` | string | No | No limit in the API. |
+| `website` | string | No | Must be a URL. |
+| `email` | string | No | Must be an email address. |
+| `phone` | string | No | No check. |
+| `terms` | string | No | Maximum 5000 characters. |
+| `locationName` | string | No | No limit in the API. |
+| `geoLat` | number | No | From -90 to 90. |
+| `geoLng` | number | No | From -180 to 180. |
+| `imageUrl` | string | No | Must be an `http` or `https` URL. |
+| `bannerUrl` | string | No | Must be an `http` or `https` URL. |
+| `tags` | array of string | No | Same rules as for `POST /api/v2/contracts/token`. |
 
-**`quoterType` values:**
+**Quoter types.**
 
-| Value | Description |
+| Value | Meaning |
 |---|---|
-| `"decimal"` | Equal-value pricing adjusted only for token decimals |
-| `"oracle"` | Price sourced from an on-chain oracle; `baseCurrency` must be set |
-| `"relative"` | Per-voucher rates relative to a common unit *(default)* |
+| `decimal` | Prices tokens one to one. It adjusts only for token decimals. |
+| `relative` | Each voucher has a rate relative to the others. |
+| `oracle` | Prices come from an oracle. `baseCurrency` is required. |
+
+`quoterType` has no default. The API rejects a request without it.
+
+**Name rules.**
+The API trims `name` and collapses inner white space before it checks anything.
+The pool name must not match another pool name, a user name, or a name of a deploy in progress.
+The comparison ignores case and extra white space.
+The `symbol` is reserved in the same claim table as voucher symbols.
+A deploy that fails releases its name and symbol.
+
+**Unit of account.**
+The API finds an existing unit with the same name (ignoring case) or creates a custom one.
+A custom unit cannot be used with `quoterType` `oracle`.
+
+**Limit.**
+For a user caller who is not a superadmin, the API checks the `maxPools` limit before it queues the job.
+A new user starts with a limit of 10 pools.
 
 **Response `200`:**
 
-```/dev/null/pool-deploy-response.json#L1-7
+```json
 {
   "ok": true,
   "description": "Pool deploy request accepted",
@@ -852,439 +1316,3330 @@ Submits a request to deploy a SwapPool instance. Like token deployments, process
 }
 ```
 
-**Error cases:**
+A pool deploy sends more than one transaction under one tracking ID.
 
-| HTTP | `code` | Condition |
+**Errors:**
+
+| Status | Code | When |
 |---|---|---|
-| `400` | `E04` | Validation failure (missing fields, `baseCurrency` absent for oracle quoter, name over 80 characters or blank after trimming) |
-| `403` | `E11` | User has reached their `maxPools` quota |
-| `409` | `E16` | `name` is already used by another pool or an in-flight deploy |
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | A field fails validation. Examples: `name` blank or longer than 80, `quoterType` missing or unknown, `feePolicyDefault` not a number from 0 to 100, `feeAddress` set with a fee of 0, `baseCurrency` missing, invalid or zero for `oracle`, custom unit with `oracle`. |
+| 401 | `E06` | No valid credential. |
+| 404 | `E07` | A platform contract row is missing for the configured chain. |
+| 409 | `E16` | The pool name or symbol is already in use. |
+| 429 | `E11` | The user reached the pool limit. The `result` object has `resource` (`pools`), `used` and `limit`. |
 
----
+### 6.3 `POST /api/v2/contracts/version`
 
-### 5.7 `GET /api/v2/names`
+**Access:** Service token only. A user caller gets `403`.
 
-Reports whether a voucher or pool name is still free, so a creation form can say
-so before the user has filled in everything else.
+Sets the implementation address and version string for a platform contract on the configured chain.
 
-This is an advisory read, not a reservation. Nothing is held: the deploy request
-is the claim, and it re-runs the same check. Two clients told a name is free
-moments apart can still race, and the loser gets `409` from the deploy.
+**Request body (JSON):**
 
-**Auth:** user JWT or service JWT
-
-**Query parameters:**
-
-| Name | Required | Description |
-|---|---|---|
-| `kind` | Yes | `voucher` or `pool`. The two are separate namespaces |
-| `name` | Yes | The name to check. Trimmed and inner-whitespace-collapsed before comparison; at most 120 characters for a voucher, 80 for a pool |
-| `exclude` | No | A contract address whose own name should not count as a conflict, for a rename form checking the value already in its field |
-
-A name is occupied by a catalog row or by a deploy that may still land on-chain
-(`PENDING` or `CONFIRMED`). A deploy that `FAILED` releases its name. Where a
-voucher or pool carries an off-chain display name, that label is what is
-compared, not the immutable contract name it overrides.
-
-**Response `200`:**
-
-```/dev/null/name-availability-response.json#L1-9
-{
-  "ok": true,
-  "description": "Name availability",
-  "result": {
-    "kind": "voucher",
-    "name": "Community Market",
-    "available": false
-  }
-}
-```
-
-`result.name` echoes the normalized form the comparison used, so a client can
-show the user exactly what was checked. Responses are sent `Cache-Control: no-store`.
-
-**Error cases:**
-
-| HTTP | `code` | Condition |
-|---|---|---|
-| `400` | `E04` | `kind` is not `voucher` or `pool`; `name` is blank or over the limit for that kind; `exclude` is not an address |
-| `401` | `E06` | Missing or invalid credentials |
-
----
-
-### 5.8 `Pretium Backend Endpoints (/api/v2/pretium/*)`
-
-These routes proxy the configured Pretium Ramp service for cash in/out flows.
-
-**Auth:** user JWT cookie or service JWT
-
-**Mount condition:** the route group is only registered when
-`pretium.base_url` is configured.
-
-**Config:**
-
-```toml
-[pretium]
-base_url = "https://pretium.example.com/api/v1"
-```
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/api/v2/pretium/trigger-onramp` | Initiate fiat-to-crypto onramp |
-| `POST` | `/api/v2/pretium/link` | Link a wallet address to a phone number (re-links on phone change) |
-| `GET` | `/api/v2/pretium/link/:phoneNumber` | Fetch wallet links for a phone number |
-| `GET` | `/api/v2/pretium/link-by-address/:address` | Fetch the active link (phone) for a wallet address |
-| `GET` | `/api/v2/pretium/transactions/:phoneNumber` | Fetch transactions for a phone number |
-| `GET` | `/api/v2/pretium/transactions-by-address/:address` | Fetch transactions for an address |
-| `GET` | `/api/v2/pretium/transactions-recent` | Fetch recent transactions |
-| `GET` | `/api/v2/pretium/rates` | Fetch current Pretium rates |
-
-**Behaviour:**
-- Success responses are passed through from the upstream Pretium service.
-- Upstream `5xx` responses are surfaced as `502 Bad Gateway`.
-- Local validation failures still use this API's standard error envelope.
-
-See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
-
----
-
-### 5.9 `GET /api/v2/pools`
-
-Returns **all confirmed** (on-chain) SwapPool contracts across all users — the global pools catalog for the app. Cursor pagination matches activity and `/users/me/pools`.
-
-**Auth:** none required. The four pool reads — this route, [`/pools/:address`](#510-get-apiv2poolsaddress), `/pools/:address/vouchers` and [`/pools/:address/offerings`](#10-pool-offerings-get-apiv2poolsaddressofferings) — are public so the map's voucher card can list the pools that hold a voucher. A request with a valid user or service JWT is served exactly as before and is not rate limited. Any other request, including one whose session has expired, is served as signed out and limited per client IP (60 a minute, burst 60, `429` with `Retry-After`) by a budget separate from the market catalog's. Pool writes (`PUT /api/v2/pools/:address/profile`) still require a user JWT.
-
-**Query parameters:**
-
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Rules |
 |---|---|---|---|
-| `perPage` | `int` | `100` | Results per page (max `100`) |
-| `next` | `bool` | `false` | When `true`, page toward older records from `cursor` (load more) |
-| `cursor` | `int` | — | Use `last` with `next=true` for the next older page, or `first` without `next` to move back toward newer records |
-| `q` | `string` | — | Pool name/symbol search; normalized length must be `2`–`64` characters |
-| `tags` | `string` or repeated | — | Comma-separated pool tags; at most `12` distinct values |
-| `tagMatch` | `any` \| `all` | `any` | Whether a pool must carry any or all selected tags |
-| `vouchers` | `string` or repeated | — | Comma-separated stable voucher references (`chainId:0xAddress`); at most `12` |
-| `voucherMatch` | `any` \| `all` | `any` | Whether a pool must contain any or all selected vouchers |
-| `author` | `string` | — | Only reports authored by this address. Compared case-insensitively; a malformed address is a `400` |
-| `facets` | `bool` | `false` | With `true` on the first page, include tag and voucher facet counts |
-
-Voucher membership uses allowed `pool_tokens` rows, matching the pool voucher
-list and `voucherCount`; a historical disallowed row does not satisfy the
-filter. Voucher references are resolved by `(chainId, address)` rather than by
-environment-local numeric IDs. An invalid or unknown reference rejects the
-whole filter with `400` instead of silently broadening it.
+| `version` | string | Yes | Version label. |
+| `contractType` | string | Yes | `ERC20`, `ERC20_DEMURRAGE`, `SWAPPOOL`, `TOKEN_UNIQUE_SYMBOL_INDEX`, `LIMITER`, `FEE_POLICY`, `ORACLE_QUOTER` or `RELATIVE_QUOTER`. |
+| `implementationAddress` | string | Yes | Checksummed address. Must not be the zero address. |
 
 **Response `200`:**
 
 ```json
 {
   "ok": true,
-  "description": "Confirmed pools",
+  "description": "Contract version updated",
   "result": {
-    "pools": [
-      {
-        "id": 51,
-        "address": "0xAbCd5678...",
-        "name": "My Pool",
-        "symbol": "MYP",
-        "description": "...",
-        "tags": ["Market"],
-        "imageUrl": null,
-        "tokenRegistryAddress": "0x...",
-        "feePolicyAddress": "0x...",
-        "quoterAddress": "0x...",
-        "feesDecoupled": false,
-        "locationName": null,
-        "createdAt": "2024-01-15T10:30:00Z",
-        "updatedAt": "2024-01-15T10:30:00Z"
-      }
-    ],
-    "first": 51,
-    "last": 44
+    "contractType": "ERC20",
+    "implementationAddress": "0x1111111111111111111111111111111111111111",
+    "version": "v1.0.0"
   }
 }
 ```
 
-| Field | Type | Description |
+**Errors:**
+
+| Status | Code | When |
 |---|---|---|
-| `pools` | `array` | Current page of confirmed pools (`[]` when empty) |
-| `first` | `int` | Highest record ID in the current page |
-| `last` | `int` | Lowest record ID in the current page — use as `cursor` with `next=true` |
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | A field fails validation, or the address is not a valid non-zero address. |
+| 401 | `E06` | No valid credential. |
+| 403 | `E04` | The caller is not a service token. The description is `Insufficient permissions: service token required`. |
+| 404 | `E07` | No platform contract row matches. |
 
-When `facets=true` is requested on the first page, `result.tagFacets` contains
-`{tag, count}` rows and `result.voucherFacets` contains
-`{id, chainId, address, name, symbol, count}` rows. Each facet retains the
-search and the other facet dimension while omitting its own selected reducer,
-so the counts describe options the user can add. Facet keys are absent from
-cursor pages.
+### 6.4 `POST /api/v2/contracts/upgrade/token`
 
-**Note:** Prefer this endpoint for the Pools tab browse list. `GET /api/v2/users/me/pools` remains the authenticated user's own deployed pools only.
+**Access:** Service token only. A user caller gets `403`.
 
----
+Queues a job that upgrades one voucher proxy to the current ERC-20 implementation in the platform contract table.
 
-### 5.10 `GET /api/v2/pools/:address`
+**Request body (JSON):**
 
-Returns a single confirmed SwapPool by contract address. Address match is case-insensitive. Any client may load any confirmed pool.
-
-**Auth:** none required — see [5.9](#59-get-apiv2pools)
-
-**Path parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `address` | `string` | Pool contract address |
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `address` | string | Yes | Checksummed address of a confirmed deployed voucher. The match is exact. |
 
 **Response `200`:**
 
 ```json
 {
   "ok": true,
-  "description": "Pool at address 0xAbCd5678...",
+  "description": "Token upgrade request accepted",
   "result": {
-    "pool": {
-      "id": 51,
-      "address": "0xAbCd5678...",
-      "name": "My Pool",
-      "symbol": "MYP",
-      "description": "...",
-      "tags": ["Market"],
-      "imageUrl": null,
-      "tokenRegistryAddress": "0x...",
-      "feePolicyAddress": "0x...",
-      "quoterAddress": "0x...",
-      "feesDecoupled": false,
-      "locationName": null,
-      "createdAt": "2024-01-15T10:30:00Z",
-      "updatedAt": "2024-01-15T10:30:00Z"
-    }
+    "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "address": "0x1111111111111111111111111111111111111111"
   }
 }
 ```
 
----
+The API always queues the job. It does not check whether the proxy already uses the current implementation.
 
-## 6. User-Only Endpoints (`/api/v2/users/*`)
+**Errors:**
 
-These endpoints require a valid **user JWT** (`__clc_auth` cookie). Service JWTs are rejected with `403 Forbidden`.
-
-`GET /api/v2/users/me/reports` and `GET /api/v2/users/me/reports/:id` are on this
-group too and are documented with the rest of Posts, in [§11.8](#118-an-authors-own-posts).
-
----
-
-### 6.1 `GET /api/v2/users/me`
-
-Returns the full profile of the currently authenticated user.
-
-**Response `200`:**
-
-```/dev/null/me-response.json#L1-16
-{
-  "ok": true,
-  "description": "Current user profile",
-  "result": {
-    "user": {
-      "id":              "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-      "ethereumAddress": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-      "name":            "Alice",
-      "email":           "alice@example.com",
-      "role":            "USER",
-      "status":          "APPROVED",
-      "maxPools":        10,
-      "maxTokens":       20
-    }
-  }
-}
-```
-
-| Field | Type | Description |
+| Status | Code | When |
 |---|---|---|
-| `id` | `string` (UUID) | Internal user ID |
-| `ethereumAddress` | `string` | Checksummed Ethereum address |
-| `name` | `string` | Display name |
-| `email` | `string` | Email address |
-| `role` | `"USER"` \| `"SUPERADMIN"` | Authorization role |
-| `status` | `"PENDING"` \| `"APPROVED"` \| `"REJECTED"` | Account approval status |
-| `maxPools` | `int` | Maximum number of pools this user may deploy |
-| `maxTokens` | `int` | Maximum number of tokens this user may deploy |
+| 400 | `E02`, `E04` | The body is not valid JSON, or `address` fails validation. |
+| 401 | `E06` | No valid credential. |
+| 403 | `E04` | The caller is not a service token. |
+| 404 | `E07` | No confirmed deployed voucher has this address, or no ERC-20 platform contract exists. |
 
----
+### 6.5 `POST /api/v2/contracts/upgrade/pool`
 
-### 6.2 `GET /api/v2/users/me/tokens`
+**Access:** Service token only. A user caller gets `403`.
 
-Returns **confirmed** (on-chain) token contracts deployed by the authenticated user using cursor pagination.
+Queues upgrade jobs for a pool proxy and its sub-contracts.
+All jobs share one tracking ID.
 
-**Query parameters:**
+**Request body (JSON):**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Rules |
 |---|---|---|---|
-| `perPage` | `int` | `100` | Results per page (max `100`) |
-| `next` | `bool` | `false` | When `true`, page toward newer records from `cursor` |
-| `cursor` | `int` | — | Use `last` to fetch older records or `first` with `next=true` to move back toward newer records |
+| `address` | string | Yes | Checksummed address of a confirmed deployed pool. The comparison ignores case. |
 
-**Response `200`:**
+**Contracts in the batch.**
+The API builds one job for each of these contracts, if the platform contract table has an entry and the pool record has the address:
 
-```/dev/null/me-tokens-response.json#L1-18
-{
-  "ok": true,
-  "description": "Confirmed tokens for user f47ac10b-...",
-  "result": {
-    "tokens": [
-      {
-        "id":      42,
-        "address": "0xAbCd1234...",
-        "symbol":  "MTK",
-        "name":    "My Token",
-        "admin":   "0xd8dA6BF2...",
-        "createdAt": "2024-01-15T10:30:00Z"
-      }
-    ],
-    "first": 42,
-    "last": 33
-  }
-}
-```
+| Type | Proxy |
+|---|---|
+| `SWAPPOOL` | The pool itself. |
+| `TOKEN_UNIQUE_SYMBOL_INDEX` | The token registry of the pool. |
+| `LIMITER` | The limiter of the pool. |
+| `FEE_POLICY` | The fee policy of the pool. |
+| `ORACLE_QUOTER` or `RELATIVE_QUOTER` | The quoter of the pool. The recorded `quoterType` of the pool selects the type. |
 
-| Field | Type | Description |
-|---|---|---|
-| `tokens` | `array` | Current page of deployed tokens |
-| `first` | `int` | Highest record ID in the current page |
-| `last` | `int` | Lowest record ID in the current page |
+The shared decimal quoter is not a proxy. The API does not upgrade it.
+The API reads the implementation slot of each proxy on chain.
+It removes a proxy that already runs the target implementation.
+If the API cannot read the slot, it keeps the proxy in the batch.
 
----
-
-### 6.3 `GET /api/v2/users/me/pools`
-
-Returns **confirmed** (on-chain) SwapPool contracts deployed by the authenticated user using cursor pagination.
-
-**Query parameters:**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `perPage` | `int` | `100` | Results per page (max `100`) |
-| `next` | `bool` | `false` | When `true`, page toward older records from `cursor` (load more) |
-| `cursor` | `int` | — | Use `last` with `next=true` for the next older page, or `first` without `next` to move back toward newer records |
-
-**Response `200`:**
-
-```/dev/null/me-pools-response.json#L1-18
-{
-  "ok": true,
-  "description": "Confirmed pools for user f47ac10b-...",
-  "result": {
-    "pools": [
-      {
-        "id":      51,
-        "address": "0xAbCd5678...",
-        "symbol":  "MYP",
-        "name":    "My Pool",
-        "admin":   "0xd8dA6BF2...",
-        "createdAt": "2024-01-15T10:30:00Z"
-      }
-    ],
-    "first": 51,
-    "last": 44
-  }
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `pools` | `array` | Current page of deployed pools (`[]` when empty) |
-| `first` | `int` | Highest record ID in the current page |
-| `last` | `int` | Lowest record ID in the current page — use as `cursor` with `next=true` |
-
----
-
-### 6.4 `GET /api/v2/users/me/pools/:address`
-
-Returns a single confirmed SwapPool by contract address. Address match is case-insensitive.
-
-**Path parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `address` | `string` | Pool contract address |
-
-**Response `200`:**
+**Response `200` when jobs are queued:**
 
 ```json
 {
   "ok": true,
-  "description": "Pool at address 0xAbCd5678...",
+  "description": "Pool upgrade request accepted",
   "result": {
-    "pool": {
-      "id": 51,
-      "address": "0xAbCd5678...",
-      "name": "My Pool",
-      "symbol": "MYP",
-      "description": "...",
-      "tags": ["Market"],
-      "imageUrl": null,
-      "tokenRegistryAddress": "0x...",
-      "feePolicyAddress": "0x...",
-      "quoterAddress": "0x...",
-      "feesDecoupled": false,
-      "locationName": null,
-      "createdAt": "2024-01-15T10:30:00Z",
-      "updatedAt": "2024-01-15T10:30:00Z"
-    }
-  }
-}
-```
-
----
-
-### 6.5 `GET /api/v2/users/me/deployments`
-
-Returns the complete deployment history for the authenticated user, covering both tokens and pools in reverse-chronological order.
-
-**Response `200`:**
-
-```/dev/null/me-deployments-response.json#L1-13
-{
-  "ok": true,
-  "description": "Deployment history for user f47ac10b-...",
-  "result": {
-    "deployments": [
+    "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "upgrades": [
+      { "type": "SWAPPOOL", "address": "0x1111111111111111111111111111111111111111" }
+    ],
+    "skipped": [
       {
-        "trackingId":    "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-        "resourceType":  "TOKEN",
-        "createdAt":     "2024-01-15T10:30:00Z"
+        "type": "LIMITER",
+        "address": "0x0000000000000000000000000000000000000001",
+        "reason": "already on the current implementation"
       }
     ]
   }
 }
 ```
 
-| Field | Type | Description |
+`skipped` is always an array. Each item has `type`, `address` and `reason`.
+The `reason` is `already on the current implementation` or `pool has no recorded quoterType; upgrade it explicitly`.
+
+**Response `200` when no job is needed.**
+The `description` is `No upgrade tasks found for this pool`.
+The `result` has `upgrades` as an empty array and `skipped`.
+The result has no `trackingId`.
+
+**Errors:**
+
+| Status | Code | When |
 |---|---|---|
-| `trackingId` | `string` (UUID) | Use with [`GET /api/v2/otx/track/:trackingId`](#52-get-apiv2otxtracktrackingid) |
-| `resourceType` | `"TOKEN"` \| `"POOL"` | Type of deployed resource |
-| `createdAt` | `string` (ISO 8601) | When the deploy request was submitted |
+| 400 | `E02`, `E04` | The body is not valid JSON, or `address` fails validation. |
+| 401 | `E06` | No valid credential. |
+| 403 | `E04` | The caller is not a service token. |
+| 404 | `E07` | No confirmed deployed pool has this address. |
 
----
+### 6.6 `GET /api/v2/otx/track/:trackingId`
 
-### 6.6 `GET /api/v2/users/me/shares/eligibility/:address`
+**Access:** User or service token. A user caller who is not a superadmin can track only IDs that the API recorded for that user at deploy time.
 
-Checks whether an exact wallet address belongs to a different, approved Cosmo
-user and can therefore receive a private send attachment.
+Returns the OTX chain for a tracking ID.
+
+**Path parameter:**
+
+| Name | Type | Rules |
+|---|---|---|
+| `trackingId` | string | Required. Must be a UUID. |
+
+**Response `200`:**
 
 ```json
 {
   "ok": true,
-  "result": { "eligible": true }
+  "description": "OTX chain for tracking ID f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "result": {
+    "otx": [
+      {
+        "id": 1,
+        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "otxType": "TOKEN_PROXY_DEPLOY",
+        "signerAccount": "0x0000000000000000000000000000000000000001",
+        "rawTx": "0x02f8...",
+        "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "nonce": 5,
+        "replaced": false,
+        "createdAt": "2026-01-15T10:30:00Z",
+        "updatedAt": "2026-01-15T10:30:05Z",
+        "status": "SUCCESS"
+      }
+    ]
+  }
 }
 ```
 
-This endpoint only exposes a boolean and never returns the recipient's profile.
+The route orders the list by `id`, lowest first.
+If no OTX exists for the ID, `otx` is empty. A service caller can get `null` instead of `[]`.
 
-### 6.7 `POST /api/v2/users/me/shares/:txHash`
+**OTX fields:**
 
-Creates a private attachment after the token send is confirmed. This endpoint
-works for transactions paid by the user's wallet and for transactions submitted
-through the Cosmo relayer.
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | number | OTX record ID. |
+| `trackingId` | string | Tracking UUID. |
+| `otxType` | string | Operation type. |
+| `signerAccount` | string | Address of the account that signed the transaction. |
+| `rawTx` | string | Signed transaction as hex. |
+| `txHash` | string | Transaction hash. |
+| `nonce` | number | Nonce of the signer account. |
+| `replaced` | boolean | `true` if a later transaction replaced this one. |
+| `createdAt`, `updatedAt` | string | RFC 3339 times. |
+| `status` | string | Dispatch status. |
+
+**`otxType` values:** `TOKEN_PROXY_DEPLOY`, `POOL_TOKEN_INDEX_DEPLOY`, `POOL_LIMITER_DEPLOY`, `POOL_FEE_POLICY_DEPLOY`, `POOL_ORACLE_QUOTER_DEPLOY`, `POOL_RELATIVE_QUOTER_DEPLOY`, `POOL_PROXY_DEPLOY`, `PROXY_UPGRADE`, `RELAY_DELEGATE`, `RELAY_EXEC`, `RELAY_DELEGATE_EXEC`, `ACCOUNT_REGISTER`.
+
+**`status` values:** `PENDING`, `IN_NETWORK`, `SUCCESS`, `REVERTED`, `LOW_NONCE`, `NO_GAS`, `LOW_GAS_PRICE`, `REPLACEMENT_UNDERPRICED`, `NETWORK_ERROR`, `UNKNOWN_RPC_ERROR`, `POOL_FULL`, `POOL_CONFLICT`, `NONCE_GAP`, `INVALID_TX`.
+`SUCCESS`, `REVERTED`, `LOW_NONCE` and `INVALID_TX` are final.
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `E04` | `trackingId` is not a UUID. |
+| 401 | `E06` | No valid credential. |
+| 404 | `E07` | A user caller (not a superadmin) does not own the tracking ID. |
+
+### 6.7 `GET /api/v2/otx/track/:trackingId/contract`
+
+**Access:** User or service token. A user caller who is not a superadmin can read only IDs that the API recorded for that user at deploy time.
+
+Returns the contract that a deploy created.
+The route looks for a voucher first, then for a pool.
+
+**Path parameter:**
+
+| Name | Type | Rules |
+|---|---|---|
+| `trackingId` | string | A UUID. The route does not check the format. |
+
+**Response `200`** when a confirmed contract exists:
+
+```json
+{
+  "ok": true,
+  "description": "Deployed token for tracking ID f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "result": {
+    "type": "TOKEN",
+    "contract": { "id": 42, "status": "CONFIRMED", "address": "0x1111111111111111111111111111111111111111" }
+  }
+}
+```
+
+`type` is `TOKEN` or `POOL`.
+For `TOKEN`, `contract` has the fields in section 14, `GET /api/v2/users/me/tokens/:address`.
+For `POOL`, `contract` has the fields in section 14, `GET /api/v2/users/me/pools/:address`.
+The example shows only some fields.
+
+**Response `204`** with an empty body when no confirmed voucher or pool exists yet.
+Poll this route until the status is `200`.
+A deploy that fails stays `204`. Check `GET /api/v2/otx/track/:trackingId` for the failure.
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `E06` | No valid credential. |
+| 404 | `E07` | A user caller (not a superadmin) does not own the tracking ID. |
+| 500 | `E01` | A user caller sends a value that is not a UUID. |
+
+### 6.8 `GET /api/v2/account/otx/:address`
+
+**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or a superadmin.
+
+Returns the OTX that a custodial signer account signed, newest first.
+
+**Path parameter:**
+
+| Name | Type | Rules |
+|---|---|---|
+| `address` | string | Required. Checksummed address. |
+
+**Query parameters:**
+
+| Name | Type | Default | Rules |
+|---|---|---|---|
+| `perPage` | integer | 100 | A value of 0, or above 100, becomes 100. |
+| `cursor` | integer | none | An OTX `id`. |
+| `next` | boolean | `false` | Sets the direction. See below. |
+
+**Pagination.**
+The route sorts the page by `id`, highest first.
+The first request has no `cursor` and no `next`.
+To get older rows, send `cursor` set to `last` and leave `next` out.
+To get newer rows, send `next=true` and `cursor` set to `first`.
+Send `cursor` whenever you send `next`.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Successfully fetched OTX for 0x0000000000000000000000000000000000000001",
+  "result": {
+    "otx": [
+      {
+        "id": 50,
+        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "otxType": "RELAY_EXEC",
+        "signerAccount": "0x0000000000000000000000000000000000000001",
+        "rawTx": "0x02f8...",
+        "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "nonce": 4,
+        "replaced": false,
+        "createdAt": "2026-01-15T10:30:00Z",
+        "updatedAt": "2026-01-15T10:30:05Z",
+        "status": "SUCCESS"
+      }
+    ],
+    "first": 50,
+    "last": 50
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `otx` | array | The page. See section 6.6 for the OTX fields. Can be `null` when empty. |
+| `first` | number | `id` of the first item (the highest). 0 when the page is empty. |
+| `last` | number | `id` of the last item (the lowest). 0 when the page is empty. |
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `E02` | `perPage`, `cursor` or `next` has a wrong type. |
+| 400 | `E04` | `address` is not a valid checksummed address. |
+| 401 | `E06` | No valid credential. |
+| 403 | `E10` | The caller is a user and `address` is not the caller's own address. |
+
+### 6.9 `GET /api/v2/account/status/:address`
+
+**Access:** User or service token.
+
+Returns the chain and internal state of a custodial account.
+
+**Path parameter:**
+
+| Name | Type | Rules |
+|---|---|---|
+| `address` | string | Required. Checksummed address. |
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Custodial account status",
+  "result": {
+    "gasBalance": "1000000000000000000",
+    "networkNonce": 4,
+    "internalNonce": 5,
+    "active": true
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `gasBalance` | string | Native balance in wei, as a decimal string. |
+| `networkNonce` | number | The chain transaction count minus 1. It is 0 when the count is 0. |
+| `internalNonce` | number | The next nonce that the service holds for the account. |
+| `active` | boolean | The `active` flag of the key pair of the account. |
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `E04` | `address` is not a valid checksummed address. |
+| 401 | `E06` | No valid credential. |
+| 404 | `E07` | The service has no key pair or nonce record for the address. |
+| 500 | `E01` | The chain node call fails. |
+
+### 6.10 `GET /api/v2/system`
+
+**Access:** User or service token.
+
+Returns the public address of the master signer and the build string.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Current system information",
+  "result": {
+    "systemSigner": "0x0000000000000000000000000000000000000001",
+    "build": "v1.0.0"
+  }
+}
+```
+
+### 6.11 `GET /api/v2/federation/system`
+
+**Access:** User or service token.
+
+The route exists only when the service has federation configured.
+Without it, the route is not registered.
+
+Checks that federation answers a ping within 5 seconds.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Federation DB connectivity check",
+  "result": {
+    "status": "UP"
+  }
+}
+```
+
+**Response `503`** when the ping fails.
+The body has `ok` set to `false`, the description `Federation DB unreachable`, and an empty `code`.
+
+---
+
+## 7. Vouchers and offerings
+
+A voucher is a token issued by an account. An offering is a product or service that the voucher owner publishes against a voucher. This section covers the public market reads, the review routes, and the owner writes for vouchers and offerings.
+
+All paths in this section start with `/api/v2`. The error envelope and the codes `E01` to `E19` are defined in section 3.
+
+### 7.1 Shared behavior of the market reads
+
+These routes share the behavior in this part:
+
+- `GET /api/v2/vouchers`
+- `GET /api/v2/vouchers/:address`
+- `GET /api/v2/vouchers/:address/offerings`
+- `GET /api/v2/vouchers/:address/offerings/:id`
+- `GET /api/v2/vouchers/:address/reviews`
+- `GET /api/v2/offerings`
+- `GET /api/v2/marketplace`
+
+#### Access
+
+These routes are public. A caller does not need a session. The routes `GET /api/v2/vouchers`, `GET /api/v2/offerings` and `GET /api/v2/marketplace` need a user session when the request has `nearby=true`.
+
+#### Rate limit
+
+Each client IP address has a token bucket.
+The bucket gives 60 requests each minute (one token each second) with a burst of 60.
+A request that has no token gets status `429`, code `E11`, description `rate limit exceeded, retry later`, and a `Retry-After` header in whole seconds.
+
+- The limit applies to every caller, also to a caller with a valid session.
+- The limit runs before the session check. A rejected `nearby=true` request from a signed-out caller still uses one token.
+- The public catalog, report and recipient routes in other sections use the same bucket.
+- The client key is the direct peer address. When the deployment trusts its proxy, the key is the last entry of the `X-Forwarded-For` header.
+- The server keeps at most 10000 client entries and removes an entry after 10 minutes without requests. When the table is full of active clients, a new client gets `429` with `Retry-After: 1`.
+
+```json
+{
+  "ok": false,
+  "description": "rate limit exceeded, retry later",
+  "code": "E11"
+}
+```
+
+#### Cache headers
+
+A successful `200` response from these routes has one of two cache policies.
+
+| Condition | `Cache-Control` | `Vary` |
+|---|---|---|
+| `nearby` is not `true` | `public, max-age=60, stale-while-revalidate=300` | `Origin` is added to any existing value |
+| `nearby=true` | `private, no-store` | not changed |
+
+The routes that use the public policy are `GET /api/v2/vouchers`, `GET /api/v2/vouchers/:address`, `GET /api/v2/vouchers/:address/offerings`, `GET /api/v2/vouchers/:address/offerings/:id` and `GET /api/v2/offerings`. A guest and a signed-in user get the same representation, so a shared cache can store it.
+
+These routes use `no-store` for every response: `GET /api/v2/marketplace` and the review routes. A request with `nearby=true` also gets `private, no-store` on its error responses. Error responses from the other routes do not carry the public policy.
+
+#### Vouchers tag facet cache
+
+`GET /api/v2/vouchers` can return a tag facet (see section 7.2).
+If the request has none of `bbox`, `q`, `tags`, `pools`, `owner` and `nearby`, the server caches the facet for 60 seconds.
+A new tag can take up to 60 seconds to show in the facet.
+Any other request returns a current facet.
+
+#### Search and filter parameters
+
+These query parameters are common to the list routes. A route can accept a subset. The table in each route section lists what the route accepts.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `q` | string | none | The server trims the value and collapses inner spaces. The length must be 2 to 64 characters. An empty value means no search. A value of 2 characters matches a prefix. A longer value matches a substring. The match is case-insensitive. The characters `%`, `_` and `\` match themselves. |
+| `tags` | string | none | Tag values. Repeat the parameter or use commas. At most 12 distinct values. The server trims, deduplicates and sorts the values. Tag values are case-sensitive. |
+| `tagMatch` | string | `any` | `any` or `all`. Other values return `400` `E04`. |
+| `facets` | boolean | `false` | Value for Go `ParseBool`, for example `true` or `false`. The server computes tag facets on the first page only. |
+| `pools` | string | none | Pool references in the form `chainId:address`. Repeat the parameter or use commas. At most 100 distinct references. The chain ID must be a positive integer. A voucher matches when at least one selected pool allows it. |
+| `nearby` | string | none | `true` or `false`. Other values return `400` `E04`. |
+
+Validation rules for these parameters:
+
+- A value outside the rules returns `400` with code `E04`. The description names the parameter.
+- A `tags` value outside the tag vocabulary returns `400` `E04`. To read the valid values, retry without `tags` and with `facets=true`.
+- A `pools` reference that does not exist returns `400` `E04`. The server never drops it.
+
+#### Nearby search
+
+The request `nearby=true` limits the result to rows within 1000 kilometers of the caller. The server takes the center from the `geoLat` and `geoLng` values of the caller profile. The caller cannot set the center or the radius.
+
+- The caller must have a user session. A request without a session returns `401` `E06`. A service token returns `403` `E10`.
+- A caller without a saved location gets `400` `E04` with the description `a valid saved profile location is required`.
+- On `GET /api/v2/offerings` and `GET /api/v2/marketplace`, each row has `distanceMeters` and the order is nearest first. Without `nearby`, `distanceMeters` is `null`.
+- On `GET /api/v2/vouchers` and on `GET /api/v2/pools`, `nearby` only filters rows. The rows have no distance field and the order does not change.
+
+#### Pagination styles
+
+The routes use two styles.
+
+| Style | Routes | Request | Response |
+|---|---|---|---|
+| Numeric keyset | `GET /api/v2/vouchers`, `GET /api/v2/vouchers/:address/offerings` | `perPage`, `next`, `cursor` | `first`, `last` |
+| Opaque cursor | `GET /api/v2/offerings`, `GET /api/v2/marketplace` | `perPage`, `cursor` | `nextCursor` |
+
+For the numeric keyset style:
+
+- Rows are in descending `id` order. A request without `cursor` returns the newest rows.
+- `next=true` with `cursor` returns rows with an `id` below the cursor. Use the `last` value from the previous response.
+- `cursor` without `next=true` returns rows with an `id` above the cursor. Use the `first` value. The rows are still in descending order.
+- `first` is the `id` of the first row. `last` is the `id` of the last row. An empty page has `first` and `last` equal to `0` and an empty array, never `null`.
+- A value that is not a number in `perPage` or `cursor` returns `400` `E02`.
+
+For the opaque cursor style:
+
+- `perPage` is an integer from 1 to 100. The default is 20. Other values return `400` `E04`.
+- `nextCursor` is a string, or `null` on the last page. Send it unchanged as `cursor`.
+- A cursor is valid only for the same search, the same location and the same caller. A cursor from another search returns `400` `E04` on `GET /api/v2/offerings`. Keep the search parameters fixed while you read pages.
+- A cursor longer than 1024 characters (offerings) is invalid.
+
+#### Offering object
+
+The offering routes return this object. The fields that only `GET /api/v2/offerings` fills are `null` on the other routes.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | Offering ID. |
+| `sourceId` | integer or null | ID in the import source. |
+| `voucherId` | integer | Voucher ID. |
+| `voucherAddress` | string | Voucher address. |
+| `voucherName` | string or null | Display name of the voucher. |
+| `voucherSymbol` | string or null | |
+| `voucherUoa` | string or null | Unit of account of the voucher. |
+| `priceInUnitOfAccount` | string or null | `price` multiplied by the voucher value, as decimal text. The value is `null` unless the price, the unit, the voucher value and the unit of account are all set and positive. |
+| `voucherDecimals` | integer or null | |
+| `voucherImageUrl` | string or null | Only `GET /api/v2/offerings`. |
+| `voucherLocationName` | string or null | Only `GET /api/v2/offerings`. |
+| `voucherGeoLat`, `voucherGeoLng` | number or null | Only `GET /api/v2/offerings`. |
+| `sellerAddress` | string | The seller. |
+| `commodityName` | string | Name of the offering. |
+| `description` | string | |
+| `quantity` | string | Decimal text. New offerings have `"1"`. |
+| `unit` | string or null | |
+| `frequency` | string or null | |
+| `price` | string or null | Decimal text. |
+| `available` | boolean | |
+| `locationName` | string or null | |
+| `geoLat`, `geoLng` | number or null | |
+| `imageUrl` | string or null | |
+| `effectiveLocationName` | string or null | Only `GET /api/v2/offerings`. The offering value, or the voucher value when the offering has none. |
+| `effectiveGeoLat`, `effectiveGeoLng` | number or null | Only `GET /api/v2/offerings`. Same fallback. |
+| `distanceMeters` | number or null | Only `GET /api/v2/offerings` with `nearby=true`. |
+| `tags` | array of string | Sorted. Empty array when none. |
+| `createdAt`, `updatedAt` | string | RFC 3339 time. |
+
+```json
+{
+  "id": 42,
+  "sourceId": null,
+  "voucherId": 7,
+  "voucherAddress": "0x0000000000000000000000000000000000000001",
+  "voucherName": "Example Voucher",
+  "voucherSymbol": "EXV",
+  "voucherUoa": "KES",
+  "priceInUnitOfAccount": "50",
+  "voucherDecimals": 6,
+  "voucherImageUrl": null,
+  "voucherLocationName": null,
+  "voucherGeoLat": null,
+  "voucherGeoLng": null,
+  "sellerAddress": "0x1111111111111111111111111111111111111111",
+  "commodityName": "Fresh maize",
+  "description": "Maize from the village farm",
+  "quantity": "1",
+  "unit": "kg",
+  "frequency": null,
+  "price": "5",
+  "available": true,
+  "locationName": null,
+  "geoLat": null,
+  "geoLng": null,
+  "imageUrl": null,
+  "effectiveLocationName": null,
+  "effectiveGeoLat": null,
+  "effectiveGeoLng": null,
+  "distanceMeters": null,
+  "tags": ["Food"],
+  "createdAt": "2025-01-15T10:30:00Z",
+  "updatedAt": "2025-01-15T10:30:00Z"
+}
+```
+
+### 7.2 `GET /api/v2/vouchers`
+
+**Access:** Public. A user session is needed when `nearby=true`. See section 7.1 for the rate limit and the cache headers.
+
+Returns active vouchers that have complete coordinates. The route supports a map viewport, search, tag filters and an owner filter.
+
+#### Query parameters
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `perPage` | integer | `500` | Maximum is `500`. `0` or a larger value becomes `500`. |
+| `next` | boolean | `false` | See pagination in section 7.1. |
+| `cursor` | integer | none | A voucher `id`. |
+| `bbox` | string | none | `minLng,minLat,maxLng,maxLat`. Four finite numbers. Longitude from -180 to 180, latitude from -90 to 90, and each minimum not above its maximum. A box cannot cross the antimeridian. Split the viewport into two requests in that case. An invalid value returns `400` `E04`. |
+| `owner` | string | none | A hex address. The server compares it with the voucher owner and ignores case. An invalid address returns `400` `E04`. |
+| `q`, `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. `q` matches the voucher name and the symbol. The name is the display name when one is set. |
+
+Keep `bbox` and the filters fixed while you read pages.
+
+#### Response
+
+Status `200`, description `Market vouchers`. The `result` has these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `vouchers` | array | Voucher summaries. Empty array when none. |
+| `first` | integer | See section 7.1. |
+| `last` | integer | See section 7.1. |
+| `tagFacets` | array | Only with `facets=true` on the first page. Rows of `{"tag": string, "count": integer}`. |
+
+The facet lists every value of the tag vocabulary, also with count `0`.
+The counts ignore the selected `tags`, so a selected tag does not set the counts of other tags to zero.
+A voucher counts for a tag when the tag is on the voucher or on one of its available offerings.
+
+Voucher summary fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | |
+| `chainId` | integer | |
+| `address` | string | |
+| `name` | string or null | The display name, or the contract name when no display name is set. |
+| `symbol` | string or null | |
+| `iconUrl` | string or null | |
+| `locationName` | string or null | |
+| `geoLat`, `geoLng` | number | Never `null` on this route. |
+| `kind` | string | Always `voucher`. |
+| `markerIcon`, `markerColor` | string or null | The marker the owner chose. `null` means automatic. |
+
+```json
+{
+  "ok": true,
+  "description": "Market vouchers",
+  "result": {
+    "vouchers": [
+      {
+        "id": 7,
+        "chainId": 42220,
+        "address": "0x0000000000000000000000000000000000000001",
+        "name": "Example Voucher",
+        "symbol": "EXV",
+        "iconUrl": null,
+        "locationName": "Nairobi",
+        "geoLat": -1.286389,
+        "geoLng": 36.817223,
+        "kind": "voucher",
+        "markerIcon": null,
+        "markerColor": null
+      }
+    ],
+    "first": 7,
+    "last": 7
+  }
+}
+```
+
+#### Errors
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | `perPage`, `next` or `cursor` is not valid. |
+| 400 | `E04` | `bbox`, `owner`, a search parameter or a `pools` reference is not valid. |
+| 400 | `E04` | `nearby=true` and the caller has no saved location. |
+| 401 | `E06` | `nearby=true` and the request has no valid session. |
+| 403 | `E10` | `nearby=true` and the caller uses a service token. |
+| 429 | `E11` | The rate limit is exceeded. |
+
+### 7.3 `GET /api/v2/vouchers/:address`
+
+**Access:** Public. See section 7.1 for the rate limit and the cache headers.
+
+Returns the detail of one active voucher.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `address` | string | A hex address. The lookup ignores case. |
+
+Status `200`, description `Market voucher`. The `result` is `{"voucher": {...}}`. The voucher fields are:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id`, `chainId`, `address` | | As in the list. |
+| `name` | string or null | The display name, or the contract name. |
+| `contractName` | string or null | The name stored on the contract. |
+| `symbol` | string or null | |
+| `decimals` | integer or null | |
+| `ownerAddress` | string or null | |
+| `description` | string or null | |
+| `voucherUoa` | string or null | Unit of account. |
+| `voucherValue` | string or null | The value of one voucher in `voucherUoa`, as decimal text. |
+| `locationName` | string or null | |
+| `geoLat`, `geoLng` | number or null | Can be `null` on this route. |
+| `email`, `website`, `phone`, `terms` | string or null | |
+| `iconUrl`, `bannerUrl` | string or null | |
+| `tags` | array of string | Never `null`. |
+| `kind` | string | Always `voucher`. |
+| `markerIcon`, `markerColor` | string or null | |
+
+```json
+{
+  "ok": true,
+  "description": "Market voucher",
+  "result": {
+    "voucher": {
+      "id": 7,
+      "chainId": 42220,
+      "address": "0x0000000000000000000000000000000000000001",
+      "name": "Example Voucher",
+      "contractName": "Example Voucher",
+      "symbol": "EXV",
+      "decimals": 6,
+      "ownerAddress": "0x1111111111111111111111111111111111111111",
+      "description": "A community voucher",
+      "voucherUoa": "KES",
+      "voucherValue": "10",
+      "locationName": "Nairobi",
+      "geoLat": -1.286389,
+      "geoLng": 36.817223,
+      "email": "issuer@example.com",
+      "website": "https://example.com",
+      "phone": null,
+      "terms": null,
+      "iconUrl": null,
+      "bannerUrl": null,
+      "tags": ["Food"],
+      "kind": "voucher",
+      "markerIcon": null,
+      "markerColor": null
+    }
+  }
+}
+```
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `address` is not a valid hex address. |
+| 404 | `E07` | The voucher does not exist or is retired. The two cases give the same response. |
+| 429 | `E11` | The rate limit is exceeded. |
+
+### 7.4 `GET /api/v2/vouchers/:address/offerings`
+
+**Access:** Public. See section 7.1 for the rate limit and the cache headers.
+
+Returns the available offerings of one active voucher. The order is descending `id`. The route uses the numeric keyset pagination of section 7.1.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `address` (path) | string | required | A hex address. The lookup ignores case. |
+| `perPage` | integer | `100` | Maximum is `100`. `0` or a larger value becomes `100`. |
+| `next`, `cursor` | | | See section 7.1. |
+
+Status `200`, description `Offerings for voucher <address>`. The `result` has `offerings` (array of offering objects, see section 7.1), `first` and `last`. An unknown or retired voucher returns an empty list, not an error.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `address` is not a valid hex address. |
+| 400 | `E02` | `perPage`, `next` or `cursor` is not valid. |
+| 429 | `E11` | The rate limit is exceeded. |
+
+### 7.5 `GET /api/v2/vouchers/:address/offerings/:id`
+
+**Access:** Public. See section 7.1 for the rate limit and the cache headers.
+
+Returns one available offering of an active voucher.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `address` | string | A hex address. |
+| `id` | integer | A positive integer. |
+
+Status `200`, description `Offering`. The `result` is `{"offering": {...}}` (see section 7.1).
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `address` is not a hex address, or `id` is not a positive integer. |
+| 404 | `E03` | The offering does not exist, is unlisted, belongs to another voucher, or its voucher is retired. |
+| 429 | `E11` | The rate limit is exceeded. |
+
+### 7.6 `GET /api/v2/offerings`
+
+**Access:** Public. A user session is needed when `nearby=true`. See section 7.1 for the rate limit and the cache headers.
+
+Returns available offerings of active vouchers. An offering must have a location. The location is the offering location, or the voucher location when the offering has none. The order is newest first, or nearest first with `nearby=true`.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `perPage` | integer | `20` | From 1 to 100. |
+| `cursor` | string | none | The `nextCursor` of the previous response. |
+| `q` | string | none | Matches the offering name, the offering description, the voucher name, the voucher symbol and the offering tags. |
+| `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. The tags are the offering tags. |
+
+Status `200`, description `Offerings`. The `result` has these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `offerings` | array | Offering objects (see section 7.1). |
+| `nextCursor` | string or null | |
+| `tagFacets` | array | Only with `facets=true` and no `cursor`. Rows of `{"tag": string, "count": integer}`. |
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `perPage`, `cursor`, a search parameter or a `pools` reference is not valid. |
+| 400 | `E04` | `nearby=true` and the caller has no saved location. |
+| 401 | `E06` | `nearby=true` and the request has no valid session. |
+| 403 | `E10` | `nearby=true` and the caller uses a service token. |
+| 429 | `E11` | The rate limit is exceeded. |
+
+### 7.7 `GET /api/v2/marketplace`
+
+**Access:** Public. A user session is needed when `nearby=true`. See section 7.1 for the rate limit.
+
+Returns one mixed list of offerings, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has `Cache-Control: no-store`.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `perPage` | integer | `20` | From 1 to 100. |
+| `cursor` | string | none | The `nextCursor` of the previous response. |
+| `kinds` | string | all kinds | Values `catalog`, `offering`, `pool` and `voucher`. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns `400` `E04`. |
+| `q` | string | none | Matches the name, symbol, description, tags and related names of a row. |
+| `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. The tags are the tags of each row. |
+
+The server includes only rows that have coordinates. Offerings and vouchers must be available and active. The order is:
+
+1. Match rank, from the best match to the worst. The rank is used only with `q`. An exact name or symbol match is best, then a name prefix, then a tag match, then a name substring, then any other match.
+2. Distance, nearest first, with `nearby=true`.
+3. `updatedAt`, newest first.
+4. `kind`, ascending.
+5. `id`, descending.
+
+Status `200`. The response has no description. The `result` has these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `results` | array | Rows. Empty array when none. |
+| `nextCursor` | string or null | |
+| `tagFacets` | array | Only with `facets=true` and no `cursor`. Rows of `{"tag": string, "count": integer}`. The counts cover the rows that match the current filter, including the selected tags. |
+
+Row fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `kind` | string | `offering`, `voucher`, `pool` or `catalog`. |
+| `id` | integer | ID in the table of the kind. |
+| `chainId` | integer or null | `null` for a catalog. |
+| `address` | string or null | The voucher address for an offering. `null` for a catalog. |
+| `name` | string | |
+| `description` | string or null | |
+| `symbol` | string or null | |
+| `imageUrl` | string or null | |
+| `markerIcon`, `markerColor`, `voucherKind` | string or null | For a voucher row only. |
+| `locationName` | string or null | |
+| `geoLat`, `geoLng` | number | |
+| `distanceMeters` | number or null | Set with `nearby=true`. |
+| `tags` | array of string | |
+| `voucherAddress`, `voucherName`, `voucherSymbol`, `voucherUoa` | string or null | For an offering row only. |
+| `priceInUnitOfAccount`, `unit` | string or null | For an offering row only. |
+| `poolCount` | integer or null | For a catalog row only. |
+| `voucherCount` | integer or null | For a pool row and a catalog row. |
+| `createdAt`, `updatedAt` | string | RFC 3339 time. |
+
+```json
+{
+  "ok": true,
+  "description": "",
+  "result": {
+    "results": [
+      {
+        "kind": "voucher",
+        "id": 7,
+        "chainId": 42220,
+        "address": "0x0000000000000000000000000000000000000001",
+        "name": "Example Voucher",
+        "description": null,
+        "symbol": "EXV",
+        "imageUrl": null,
+        "markerIcon": null,
+        "markerColor": null,
+        "voucherKind": "voucher",
+        "locationName": "Nairobi",
+        "geoLat": -1.286389,
+        "geoLng": 36.817223,
+        "distanceMeters": null,
+        "tags": ["Food"],
+        "voucherAddress": null,
+        "voucherName": null,
+        "voucherSymbol": null,
+        "voucherUoa": null,
+        "priceInUnitOfAccount": null,
+        "unit": null,
+        "poolCount": null,
+        "voucherCount": null,
+        "createdAt": "2025-01-15T10:30:00Z",
+        "updatedAt": "2025-01-15T10:30:00Z"
+      }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `perPage`, `kinds`, a search parameter or a `pools` reference is not valid. |
+| 400 | `E04` | `nearby=true` and the caller has no saved location. |
+| 401 | `E06` | `nearby=true` and the request has no valid session. |
+| 403 | `E10` | `nearby=true` and the caller uses a service token. |
+| 429 | `E11` | The rate limit is exceeded. |
+| 500 | `E01` | The `cursor` is not valid for this search. The cursor check does not return a validation error. |
+
+### 7.8 Voucher reviews
+
+A review has 1 to 5 stars and an optional comment.
+A reviewer can review a voucher after the reviewer redeems it.
+Redeeming means a successful transfer of voucher tokens from the reviewer to the voucher owner.
+The reviewer can write or change the review for 7 days after the latest redemption.
+A voucher owner cannot review the own voucher.
+One reviewer has one review for each voucher.
+
+Review responses differ from the other routes:
+
+- A success response has `ok` and `result`. It has no `description`.
+- The review routes return `Cache-Control: no-store`.
+- Most error responses have `"code": ""`. The routes return a code only where the table in the route lists it.
+- The review routes accept retired vouchers.
+
+Review object:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | |
+| `stars` | integer | 1 to 5. |
+| `comment` | string | |
+| `reply` | string or null | The reply of the voucher owner. |
+
+#### 7.8.1 `GET /api/v2/vouchers/:address/reviews`
+
+**Access:** Public. See section 7.1 for the rate limit.
+
+Returns the visible reviews of a voucher, newest first. Each page has at most 20 reviews.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `address` (path) | string | required | A hex address. |
+| `stars` | integer | none | From 1 to 5. The filter applies to the list only. `counts`, `total` and `average` cover all visible reviews. |
+| `before` | integer | none | A review `id`. Returns reviews with a lower `id`. Use the `next` value of the previous response. |
+
+Status `200`. The `result` has these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `reviews` | array | Review objects. |
+| `counts` | object | The number of reviews for each star value. The keys are `"1"` to `"5"`. |
+| `total` | integer | |
+| `average` | number | `0` when there are no reviews. |
+| `next` | integer or null | The `before` value for the next page. |
+
+```json
+{
+  "ok": true,
+  "result": {
+    "reviews": [{"id": 12, "stars": 5, "comment": "Good service", "reply": null}],
+    "counts": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 1},
+    "total": 1,
+    "average": 5,
+    "next": null
+  }
+}
+```
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `address` is not a valid hex address. |
+| 400 | none | `stars` is not an integer from 1 to 5, or `before` is not a valid number. |
+| 404 | none | The voucher does not exist. |
+| 429 | `E11` | The rate limit is exceeded. |
+
+#### 7.8.2 `GET /api/v2/vouchers/:address/reviews/me`
+
+**Access:** User session.
+
+Returns what the caller can do with the reviews of this voucher.
+
+Status `200`. The `result` has these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `isOwner` | boolean | `true` when the caller owns the voucher. |
+| `editableUntil` | string or null | End of the time the caller can write a review. `null` when the caller cannot write one. |
+| `review` | object or null | The review of the caller. |
+| `hidden` | boolean | `true` when a moderator hid the review of the caller. |
+| `editableReplyIds` | array of integer | Review IDs that the caller (as owner) already replied to. Empty for a reviewer. |
+| `flaggedReviewIds` | array of integer | Review IDs that the caller (as owner) flagged. Empty for a reviewer. |
+
+For a caller who is not the owner, the server reads the latest redemption from the transfer index. It sets `editableUntil` to 7 days after that redemption. When the redemption is older than 7 days, `editableUntil` is in the past.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `address` is not a valid hex address. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller uses a service token. |
+| 404 | none | The voucher does not exist. |
+| 503 | none | The voucher is not on the configured chain, or the transfer index is not available. |
+
+#### 7.8.3 `PUT /api/v2/vouchers/:address/reviews/me`
+
+**Access:** User session. The caller must be a reviewer with a redemption in the last 7 days.
+
+Creates or replaces the review of the caller.
+
+| Body field | Type | Required | Rules |
+|---|---|---|---|
+| `stars` | integer | yes | From 1 to 5. |
+| `comment` | string | no | The server trims the value. At most 2000 characters. |
+
+Status `200`. The `result` is `{"saved": true}`.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | `address` is not a valid hex address. |
+| 400 | none | `stars` or `comment` is outside the rules. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller uses a service token, owns the voucher, has a hidden review, has no redemption in the last 7 days, or the edit window closed. |
+| 404 | none | The voucher does not exist. |
+| 503 | none | The voucher is not on the configured chain, or the transfer index is not available. |
+
+#### 7.8.4 `PUT /api/v2/vouchers/:address/reviews/:id/reply`
+
+**Access:** User session. The caller must be the current voucher owner.
+
+Sets the reply of the owner on a review. A new reply replaces the old reply of the same owner.
+
+| Parameter | Type | Rules |
+|---|---|---|
+| `address` (path) | string | A hex address. |
+| `id` (path) | integer | A positive review ID. |
+| `reply` (body) | string | Required. The server trims it. From 1 to 2000 characters. |
+
+Status `200`. The `result` is `{"saved": true}`.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | `address` is not a valid hex address. |
+| 400 | none | `id` is not valid, or `reply` is empty or too long. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller is not the current voucher owner, or uses a service token. |
+| 404 | none | The voucher or the review does not exist, the review is hidden, or another account wrote the reply. |
+
+#### 7.8.5 `POST /api/v2/vouchers/:address/reviews/:id/flag`
+
+**Access:** User session. The caller must be the current voucher owner.
+
+Reports a review to the moderators. A second flag from the same owner on the same review has no effect and still returns success.
+
+| Parameter | Type | Rules |
+|---|---|---|
+| `address` (path) | string | A hex address. |
+| `id` (path) | integer | A positive review ID. |
+| `reason` (body) | string | Required. The server trims it. From 1 to 500 characters. |
+
+Status `200`. The `result` is `{"saved": true}`. The errors are the same as in section 7.8.4, with `reason` in place of `reply`.
+
+### 7.9 `POST /api/v2/vouchers/:address/offerings`
+
+**Access:** User session. The caller must be the voucher owner or a superadmin.
+
+Creates an offering for a voucher. The server sets the seller. The seller is the voucher owner. When the voucher has no owner, only a superadmin can create the offering, and the seller is that superadmin.
+
+| Body field | Type | Required | Rules |
+|---|---|---|---|
+| `commodityName` | string | yes | The server trims it. At most 120 characters. |
+| `description` | string | yes | The server trims it. At most 2000 characters. |
+| `unit` | string | yes | The server trims it. At most 32 characters. A value that is not in the unit list becomes a new custom unit. |
+| `price` | string | yes | Plain decimal text, for example `5` or `12.50`. No sign, no exponent and no separator. The value must be above zero. At most 64 characters. |
+| `imageUrl` | string or null | no | An `http` or `https` URL. An empty string or `null` means no image. |
+
+Status `201`, description `Offering created`. The `result` is `{"offering": {...}}` (see section 7.1). The response has `Cache-Control: no-store`.
+
+```json
+{
+  "commodityName": "Fresh maize",
+  "description": "Maize from the village farm",
+  "unit": "kg",
+  "price": "5",
+  "imageUrl": "https://example.com/maize.jpg"
+}
+```
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | `address` is not valid, or a body field is outside the rules. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 404 | `E03` | The voucher does not exist. |
+| 409 | `E16` | The voucher is retired. |
+| 429 | `E11` | The caller reached the offer limit of the account. The `result` has `resource`, `used` and `limit`. A superadmin has no limit. |
+
+### 7.10 `PUT /api/v2/vouchers/:address/offerings/:id`
+
+**Access:** User session. The caller must be the voucher owner or a superadmin.
+
+Replaces the product fields of an offering. The body is the same as for `POST /api/v2/vouchers/:address/offerings`. Every field is written. A request without `imageUrl` removes the image. There is no partial update.
+
+Status `200`, description `Offering updated`. The `result` is `{"offering": {...}}`. The response has `Cache-Control: no-store`.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | `address` or `id` is not valid, or a body field is outside the rules. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 404 | `E03` | The offering does not exist, belongs to another voucher, or is unlisted. |
+| 409 | `E16` | The voucher is retired. |
+
+### 7.11 `DELETE /api/v2/vouchers/:address/offerings/:id`
+
+**Access:** User session. The caller must be the voucher owner or a superadmin.
+
+Unlists an offering. The server keeps the row and sets `available` to `false`. The public routes no longer return it. The server does not delete the stored image.
+
+Status `200`, description `Offering deleted`. The `result` is `{"id": <offering id>}`. The response has `Cache-Control: no-store`.
+
+The errors are the same as for `PUT /api/v2/vouchers/:address/offerings/:id`, except that the body errors do not apply. A repeated request returns `404` `E03`.
+
+### 7.12 `PUT /api/v2/vouchers/:address/display-name`
+
+**Access:** User session. The caller must be the voucher owner or a superadmin.
+
+Sets the public name of a voucher. The contract name does not change.
+
+| Body field | Type | Required | Rules |
+|---|---|---|---|
+| `displayName` | string | yes | The server trims it. From 1 to 120 characters. |
+
+Status `200`, description `Voucher display name updated`. The `result` is `{"voucher": {...}}` with the detail fields of section 7.3. The response has `Cache-Control: no-store`.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | `address` is not valid, `displayName` is missing, blank or longer than 120 characters. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 404 | `E03` | The voucher does not exist. |
+| 409 | `E16` | The voucher is retired, or another voucher or pending token already uses the name. |
+
+### 7.13 `PUT /api/v2/vouchers/:address/profile`
+
+**Access:** User session. The caller must be the voucher owner or a superadmin.
+
+Replaces the off-chain profile of a voucher.
+The route writes every field, so a request must send the full record.
+An omitted field is cleared.
+The fields `displayName`, `iconUrl`, `bannerUrl`, `markerIcon` and `markerColor` are the exception: an omitted field keeps its stored value, and an empty string clears it.
+The tags are always replaced.
+
+| Body field | Type | Rules |
+|---|---|---|
+| `displayName` | string | At most 120 characters. The server trims it. |
+| `description` | string | At most 500 characters. |
+| `voucherUoa` | string | At most 32 characters. Must not be blank. A new value becomes a custom unit of account. Omit the field to clear it. |
+| `voucherValue` | number | Zero or more. The value of one voucher in `voucherUoa`. |
+| `email` | string | A valid email address. |
+| `website` | string | A valid URL. |
+| `phone` | string | No rule. |
+| `terms` | string | At most 5000 characters. |
+| `locationName` | string | At most 200 characters. |
+| `geoLat` | number | From -90 to 90. Send with `geoLng`. |
+| `geoLng` | number | From -180 to 180. Send with `geoLat`. |
+| `iconUrl`, `bannerUrl` | string | An `http` or `https` URL, or an empty string. |
+| `tags` | array of string | Each tag at most 100 characters, with no comma, not blank, and no duplicate. A tag that is not in the vocabulary becomes a new custom tag. |
+| `markerIcon` | string | `basket`, `hand-coin`, `coupon`, `food`, `farm`, `tools`, `health`, `education`, or an empty string. |
+| `markerColor` | string | `blue`, `purple`, `orange`, `pink`, `cyan`, `brown`, or an empty string. |
+
+Status `200`, description `Voucher profile updated`. The `result` is `{"voucher": {...}}` with the detail fields of section 7.3. The response has `Cache-Control: no-store`.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | `address` is not valid, a field is outside the rules, or only one of `geoLat` and `geoLng` is present. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 404 | `E03` | The voucher does not exist. |
+| 409 | `E16` | The voucher is retired, or another voucher or pending token already uses the display name. |
+
+### 7.14 `DELETE /api/v2/vouchers/:address`
+
+**Access:** User session. The caller must be the voucher owner or a superadmin.
+
+Retires a voucher.
+The server sets the voucher to inactive.
+The voucher then disappears from the public reads.
+The server keeps the voucher row, its offerings and its reports.
+The route takes no body.
+A superadmin restores a retired voucher with a route in section 15, Admin.
+
+Status `200`, description `Voucher retired`. The `result` is `null`. The response has `Cache-Control: no-store`.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `address` is not a valid hex address. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 404 | `E03` | The voucher does not exist. |
+| 409 | `E16` | The voucher is already retired. The server checks this before the owner check. |
+
+## 8. Pools
+
+A pool is a swap pool contract. The pool catalog reads are public. The pool profile write needs a user session.
+
+All paths in this section start with `/api/v2`.
+
+### 8.1 Access and rate limit of the pool reads
+
+The routes `GET /api/v2/pools`, `GET /api/v2/pools/:address`, `GET /api/v2/pools/:address/vouchers` and `GET /api/v2/pools/:address/offerings` use the pool catalog rate limit.
+
+- A caller with a valid user session or a valid service token has no rate limit.
+- Any other caller is a signed-out caller. This includes a caller whose session expired. The limit for a signed-out caller is 60 requests each minute for each client IP address, with a burst of 60.
+- A signed-out caller that exceeds the limit gets `429`, code `E11`, and a `Retry-After` header. The response is the same as in section 7.1.
+- The pool limit is separate from the market limit of section 7.1. A pool request does not use a market token.
+- `GET /api/v2/pools` with `nearby=true` needs a user session. The pool limit runs first. A signed-out caller gets `401` `E06`, and a service token gets `403` `E10`.
+
+The pool routes do not set a public cache policy. The exception is `nearby=true` on `GET /api/v2/pools`, which returns `Cache-Control: private, no-store`.
+
+### 8.2 `GET /api/v2/pools`
+
+**Access:** Public, with the rate limit of section 8.1. A user session is needed when `nearby=true`.
+
+Returns the pool catalog, newest first.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `perPage` | integer | `100` | Maximum is `100`. `0` or a larger value becomes `100`. |
+| `next`, `cursor` | | | Numeric keyset pagination, as in section 7.1. The `id` is the pool `id`. |
+| `q` | string | none | See section 7.1. Matches the pool name or symbol, or the name or symbol of an active voucher that the pool allows. The name is the display name when one is set. |
+| `tags` | string | none | See section 7.1. The tags are the tags of the pool itself. |
+| `tagMatch` | string | `any` | `any` or `all`. |
+| `vouchers` | string | none | Voucher references in the form `chainId:address`. Repeat the parameter or use commas. At most 12 distinct references. The pool must allow the voucher. |
+| `voucherMatch` | string | `any` | `any` or `all`. Other values return `400` `E04`. |
+| `owner` | string | none | A hex address. The server compares it with the pool owner and ignores case. |
+| `facets` | boolean | `false` | With `true` on the first page, the response has `tagFacets` and `voucherFacets`. |
+| `nearby` | string | none | `true` or `false`. Limits the result to pools within 1000 kilometers (see section 7.1). The pool rows have no distance field. |
+
+Status `200`, description `Pools`. The `result` has these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `pools` | array | Pool objects. Empty array when none. |
+| `first` | integer | `id` of the first pool. `0` when the page is empty. |
+| `last` | integer | `id` of the last pool. `0` when the page is empty. |
+| `tagFacets` | array | Only with `facets=true` on the first page. Rows of `{"tag": string, "count": integer}`. |
+| `voucherFacets` | array | Only with `facets=true` on the first page. Rows of `{"id", "chainId", "address", "name", "symbol", "count"}`. |
+
+Each facet ignores its own selected filter, so the counts show what a caller can add. The facet keys are not in the cursor pages.
+
+Pool object fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | |
+| `chainId` | integer | |
+| `address` | string | |
+| `name` | string or null | The display name, or the contract name. |
+| `contractName` | string or null | The name stored on the contract. |
+| `symbol` | string or null | |
+| `ownerAddress` | string or null | |
+| `feePpm` | number or null | |
+| `feeAddress` | string or null | |
+| `tokenRegistryAddress` | string or null | |
+| `limiterAddress` | string or null | |
+| `quoterAddress` | string or null | |
+| `quoterType` | string or null | `decimal`, `oracle` or `relative`. `null` for an imported pool. |
+| `feePolicyAddress` | string or null | |
+| `protocolFeeControllerAddress` | string or null | |
+| `feesDecoupled` | boolean or null | |
+| `decimals` | integer or null | |
+| `description` | string or null | |
+| `unitOfAccount` | string or null | |
+| `locationName` | string or null | |
+| `geoLat`, `geoLng` | number or null | |
+| `email`, `website`, `phone`, `terms` | string or null | |
+| `imageUrl`, `bannerUrl` | string or null | |
+| `defaultVoucherId` | integer or null | |
+| `platformContractId` | integer or null | |
+| `voucherCount` | integer | The number of allowed, active vouchers. |
+| `tags` | array of string | Sorted. Empty array when none. |
+| `createdAt`, `updatedAt` | string | RFC 3339 time. |
+
+```json
+{
+  "ok": true,
+  "description": "Pools",
+  "result": {
+    "pools": [
+      {
+        "id": 51,
+        "chainId": 42220,
+        "address": "0x0000000000000000000000000000000000000002",
+        "name": "Example Pool",
+        "contractName": "Example Pool",
+        "symbol": "EXP",
+        "ownerAddress": "0x1111111111111111111111111111111111111111",
+        "feePpm": 1000,
+        "feeAddress": null,
+        "tokenRegistryAddress": null,
+        "limiterAddress": null,
+        "quoterAddress": null,
+        "quoterType": "decimal",
+        "feePolicyAddress": null,
+        "protocolFeeControllerAddress": null,
+        "feesDecoupled": false,
+        "decimals": 6,
+        "description": null,
+        "unitOfAccount": "KES",
+        "locationName": null,
+        "geoLat": null,
+        "geoLng": null,
+        "email": null,
+        "website": null,
+        "phone": null,
+        "terms": null,
+        "imageUrl": null,
+        "bannerUrl": null,
+        "defaultVoucherId": null,
+        "platformContractId": null,
+        "voucherCount": 3,
+        "tags": ["Market"],
+        "createdAt": "2025-01-15T10:30:00Z",
+        "updatedAt": "2025-01-15T10:30:00Z"
+      }
+    ],
+    "first": 51,
+    "last": 51
+  }
+}
+```
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | `perPage`, `next` or `cursor` is not valid. |
+| 400 | `E04` | A search parameter, `voucherMatch`, `owner` or a `vouchers` reference is not valid, or a voucher reference does not exist. |
+| 400 | `E04` | `nearby=true` and the caller has no saved location. |
+| 401 | `E06` | `nearby=true` and the request has no valid session. |
+| 403 | `E10` | `nearby=true` and the caller uses a service token. |
+| 429 | `E11` | A signed-out caller exceeds the pool rate limit. |
+
+### 8.3 `GET /api/v2/pools/:address`
+
+**Access:** Public, with the rate limit of section 8.1.
+
+Returns one pool. The lookup ignores case. The route does not check the address format, so a value that is not an address returns `404`.
+
+Status `200`, description `Pool at address <address>`. The `result` is `{"pool": {...}}` with the pool object of section 8.2.
+
+| Status | Code | Condition |
+|---|---|---|
+| 404 | `E07` | No pool has this address. |
+| 429 | `E11` | A signed-out caller exceeds the pool rate limit. |
+
+### 8.4 `GET /api/v2/pools/:address/vouchers`
+
+**Access:** Public, with the rate limit of section 8.1.
+
+Returns the active vouchers that the pool allows, newest voucher `id` first. The route uses the numeric keyset pagination of section 7.1.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `address` (path) | string | required | A hex address. |
+| `perPage` | integer | `100` | Maximum is `100`. `0` or a larger value becomes `100`. |
+| `next`, `cursor` | | | A voucher `id`. |
+
+Status `200`, description `Vouchers in pool <address>`. The `result` has `vouchers`, `first` and `last`. An unknown pool returns an empty list.
+
+Pool voucher fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id`, `chainId`, `address` | | |
+| `name` | string or null | The display name, or the contract name. |
+| `symbol` | string or null | |
+| `decimals` | integer or null | |
+| `ownerAddress` | string or null | |
+| `voucherType`, `sinkAddress`, `redemptionAddress` | string or null | |
+| `description` | string or null | |
+| `voucherUoa`, `voucherValue` | string or null | |
+| `locationName` | string or null | |
+| `geoLat`, `geoLng` | number or null | |
+| `email`, `website`, `phone`, `terms` | string or null | |
+| `iconUrl`, `bannerUrl` | string or null | |
+| `contractVersion` | string or null | |
+| `active` | boolean | Always `true` on this route. |
+| `internal` | boolean | |
+| `isAllowed` | boolean | Always `true` on this route. |
+| `tokenLimit` | string or null | The pool limit for this voucher, as decimal text. |
+| `syncedAt` | string | RFC 3339 time. |
+| `oracleFeedId` | integer or null | |
+| `oracleName`, `oracleAddress` | string or null | |
+| `offerCount` | integer | All offerings of the voucher. |
+| `availableOfferCount` | integer | Available offerings of the voucher. |
+| `tags` | array of string | The tags on the voucher. |
+| `createdAt`, `updatedAt` | string | RFC 3339 time. |
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `address` is not a valid hex address. |
+| 400 | `E02` | `perPage`, `next` or `cursor` is not valid. |
+| 429 | `E11` | A signed-out caller exceeds the pool rate limit. |
+
+### 8.5 `GET /api/v2/pools/:address/offerings`
+
+**Access:** Public, with the rate limit of section 8.1.
+
+Returns the available offerings of the active vouchers that the pool allows. The order is descending offering `id`. The route uses the numeric keyset pagination of section 7.1. The route sets no cache headers.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `address` (path) | string | required | A hex address. |
+| `perPage` | integer | `100` | Maximum is `100`. `0` or a larger value becomes `100`. |
+| `next`, `cursor` | | | An offering `id`. |
+
+Status `200`, description `Offerings in pool <address>`. The `result` has `offerings` (offering objects, see section 7.1), `first` and `last`. An unknown pool returns an empty list. Each offering has `voucherAddress`, `voucherName` and `voucherSymbol`, because a pool lists offerings of many vouchers.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E04` | `address` is not a valid hex address. |
+| 400 | `E02` | `perPage`, `next` or `cursor` is not valid. |
+| 429 | `E11` | A signed-out caller exceeds the pool rate limit. |
+
+### 8.6 `PUT /api/v2/pools/:address/profile`
+
+**Access:** User session. The caller must be the pool owner or a superadmin. A pool with no owner can only be changed by a superadmin. This route has no rate limit.
+
+Replaces the off-chain profile of a pool.
+The route writes every field, so a request must send the full record.
+An omitted field is cleared.
+The fields `displayName`, `imageUrl` and `bannerUrl` are the exception: an omitted field keeps its stored value, and an empty string clears it.
+The tags are always replaced.
+
+| Body field | Type | Rules |
+|---|---|---|
+| `displayName` | string | At most 80 characters. The server trims it. |
+| `description` | string | At most 500 characters. |
+| `unitOfAccount` | string | At most 32 characters. Must not be blank. A new value becomes a custom unit of account. Omit the field to clear it. |
+| `email` | string | A valid email address. |
+| `website` | string | A valid URL. |
+| `phone` | string | No rule. |
+| `terms` | string | At most 5000 characters. |
+| `locationName` | string | At most 200 characters. |
+| `geoLat` | number | From -90 to 90. Send with `geoLng`. |
+| `geoLng` | number | From -180 to 180. Send with `geoLat`. |
+| `imageUrl`, `bannerUrl` | string | An `http` or `https` URL, or an empty string. |
+| `tags` | array of string | Each tag at most 100 characters, with no comma, not blank, and no duplicate. A tag that is not in the vocabulary becomes a new custom tag. |
+
+For a pool with `quoterType` equal to `oracle`, the unit of account is fixed. The server keeps the stored value when `unitOfAccount` is omitted. A different value returns `409`.
+
+Status `200`, description `Pool profile updated`. The `result` is `{"pool": {...}}` with the pool object of section 8.2. The response has `Cache-Control: no-store`.
+
+| Status | Code | Condition |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | `address` is not a valid address, a field is outside the rules, or only one of `geoLat` and `geoLng` is present. |
+| 401 | `E06` | No valid session. |
+| 403 | `E10` | The caller uses a service token, or is not the pool owner or a superadmin. |
+| 404 | `E03` | The pool does not exist. |
+| 409 | `E16` | Another pool uses the display name, or the request changes the unit of account of an oracle pool. |
+
+---
+
+## 9. Curated catalogs
+
+A curated catalog is a list that a user makes.
+The catalog links to existing pools and vouchers.
+This resource is separate from the network pool and voucher search in section 7, Vouchers and offerings, and section 8, Pools.
+
+All paths in this section start with `/api/v2`. Each user can own a limited number of catalogs. The default limit is 1.
+
+### 9.1 Catalog object and common rules
+
+#### Catalog object
+
+Catalog reads and writes return this object.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | number | Catalog ID. The ID is the stable public identity. Names do not need to be unique. |
+| `name` | string | Display name. |
+| `description` | string or null | Optional text. |
+| `imageUrl` | string or null | Absolute `http` or `https` URL. |
+| `locationName` | string | Place name. |
+| `geoLat` | number | Latitude. |
+| `geoLng` | number | Longitude. |
+| `ownerAddress` | string | Account address of the owner. |
+| `poolCount` | number | Number of pools in the catalog. |
+| `voucherCount` | number | Number of active vouchers in the catalog. |
+| `distanceMeters` | number or null | Distance from the caller. The value is not null only in `nearby=true` list results. |
+| `tags` | array of string | Tags in sorted order. The array is empty when the catalog has no tags. |
+| `createdAt` | string | RFC 3339 time. |
+| `updatedAt` | string | RFC 3339 time. |
+
+#### Member object
+
+The member lists return this object for a pool or a voucher.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | number | Internal ID of the pool or voucher. Use this ID in the membership routes. |
+| `chainId` | number | Chain ID. |
+| `address` | string | Contract address. |
+| `name` | string | Display name, or the name, or the address when no name exists. |
+| `imageUrl` | string or null | Pool image or voucher icon. |
+
+#### Common rules
+
+- Every successful catalog response uses status `200`, the envelope from section 3, and an empty `description`.
+- Every successful catalog response has `Cache-Control: no-store`.
+- Every catalog read and write has a time limit of 5 seconds. A request that takes longer returns `500 E01`.
+- The public reads use the market limit (section 7.1).
+- The `:id` path parameter must be a positive integer up to 2147483647. Other values return `400 E04` with the description `id must be a positive integer`.
+- A catalog that does not exist returns `404 E07`.
+- A caller that is not the owner of the catalog gets `403 E10`. A superadmin has no exception. Only the owner can change a catalog.
+- A malformed JSON body returns `400 E02`.
+
+#### Pagination
+
+The catalog routes use an opaque cursor.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | integer | `20` | From 1 to 100. Other values return `400 E04`. |
+| `cursor` | string | none | The `nextCursor` value from the previous page. The maximum length is 1024 characters. |
+
+- Each page response has `nextCursor`. The value is a string, or `null` on the last page.
+- A cursor is valid only for the same list, the same caller, and the same filters.
+  A cursor from another list or search returns `400 E04` with the description `catalog cursor does not match this list and location; restart pagination`.
+  A malformed cursor returns `400 E04` with the description `invalid catalog cursor`.
+- For `nearby=true`, a cursor also depends on the saved profile location. After the caller changes the location, the caller must start again without a cursor.
+
+### 9.2 `GET /api/v2/catalogs`
+
+**Access:** Public. With `nearby=true`, a user session is required.
+
+Returns a page of catalogs. The default order is newest first (`id` descending). With `nearby=true`, the order is nearest first, then `id` ascending.
+
+A request with `nearby=true` and no valid session returns `401 E06`. A request with `nearby=true` and a service token returns `403 E10`. A caller without a saved profile location gets `400 E04` with the description `a valid saved profile location is required`.
+
+#### Query parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | integer | `20` | See section 9.1. |
+| `cursor` | string | none | See section 9.1. |
+| `nearby` | `true` or `false` | `false` | Use the saved profile location of the caller. Only catalogs within 1000 km are returned. The response is not cached. |
+| `q` | string | none | Search text. Whitespace is trimmed and repeated spaces become one space. The length must be 2 to 64 characters. The search is not case-sensitive. It matches `name`, `locationName`, and `description`. A term of 2 characters matches the start of the text. A longer term matches any part of the text. |
+| `tags` | string | none | Tag filter. Repeat the parameter or use a comma-separated list. At most 12 distinct values. Each value must exist in the tag vocabulary. The comparison is exact. |
+| `tagMatch` | `any` or `all` | `any` | A catalog must have any of the tags, or all of the tags. |
+| `pools` | string | none | Pool filter. Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 100 distinct values. A catalog matches when it contains one of the pools, or contains a voucher that one of the pools allows. |
+| `facets` | `true` or `false` | `false` | With `true` on the first page, add `tagFacets` to the response. |
+
+A value of `tags` that is not in the vocabulary returns `400 E04`. A `pools` value that has a wrong form or does not exist returns `400 E04`. The tag vocabulary is described in section 11.
+
+#### Response
+
+| Field | Type | Description |
+|---|---|---|
+| `catalogs` | array of catalog object | The page. |
+| `nextCursor` | string or null | See section 9.1. |
+| `tagFacets` | array | Only when `facets=true` and the request has no `cursor`. |
+
+Each `tagFacets` item is `{"tag": "Art", "count": 3}`. The array has every tag of the vocabulary, with count 0 for unused tags. The count uses `q`, `pools`, and `nearby`. It does not use `tags`, so the caller can add more tags.
+
+```json
+{
+  "ok": true,
+  "description": "",
+  "result": {
+    "catalogs": [
+      {
+        "id": 12,
+        "name": "Community market",
+        "description": null,
+        "imageUrl": "https://example.com/catalog.png",
+        "locationName": "Nairobi",
+        "geoLat": -1.2864,
+        "geoLng": 36.8172,
+        "ownerAddress": "0x0000000000000000000000000000000000000001",
+        "poolCount": 2,
+        "voucherCount": 5,
+        "distanceMeters": null,
+        "tags": ["Art"],
+        "createdAt": "2026-08-01T08:00:00Z",
+        "updatedAt": "2026-08-02T08:00:00Z"
+      }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+### 9.3 `GET /api/v2/catalogs/:id`
+
+**Access:** Public.
+
+Returns one catalog. The distance filter does not apply. Any catalog is visible by ID.
+
+| Part | Description |
+|---|---|
+| Path | `id`: catalog ID. |
+| Success | `200`. `result` is `{"catalog": <catalog object>}`. |
+| Errors | `400 E04` for a bad ID. `404 E07` when the catalog does not exist. `429 E11` over the rate limit. |
+
+### 9.4 `GET /api/v2/catalogs/:id/pools` and `GET /api/v2/catalogs/:id/vouchers`
+
+**Access:** Public.
+
+`GET /api/v2/catalogs/:id/pools` lists the pools of a catalog.
+`GET /api/v2/catalogs/:id/vouchers` lists the vouchers of a catalog.
+
+- The order is `id` ascending.
+- The pool list has every pool in the catalog.
+- The voucher list has only active vouchers. A retired voucher is hidden. The link remains, and the owner can remove it.
+- The pool list and the voucher list are independent. A pool in a catalog does not add its vouchers.
+
+Query parameters: `perPage` and `cursor` (see section 9.1). A cursor is valid only for the same catalog and the same list.
+
+The success response is `{"items": [<member object>], "nextCursor": null}`. An empty list is an empty array. Errors: `400 E04`, `404 E07` for an unknown catalog, and `429 E11`.
+
+```json
+{
+  "ok": true,
+  "description": "",
+  "result": {
+    "items": [
+      {
+        "id": 7,
+        "chainId": 42220,
+        "address": "0x1111111111111111111111111111111111111111",
+        "name": "Community pool",
+        "imageUrl": null
+      }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+### 9.5 `POST /api/v2/catalogs` and `PUT /api/v2/catalogs/:id`
+
+**Access:** User session. For `PUT`, the caller must be the owner of the catalog.
+
+Both routes use one body.
+`POST /api/v2/catalogs` creates a catalog. The owner is the caller. A body field cannot set the owner.
+`PUT /api/v2/catalogs/:id` replaces the editable state of a catalog. An omitted optional field is cleared.
+
+#### Body
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `name` | string | Yes | Trimmed. 1 to 120 Unicode characters. |
+| `description` | string | No | Trimmed. At most 500 characters. An empty string clears the description. |
+| `locationName` | string | Yes | Trimmed. 1 to 200 characters. |
+| `geoLat` | number | Yes | From -90 to 90. |
+| `geoLng` | number | Yes | From -180 to 180. |
+| `imageUrl` | string or null | No | An absolute `http` or `https` URL without spaces. A missing, null, or blank value clears the image. The service stores the URL only. Upload the image with the storage flow first. |
+| `tags` | array of string | No | At most 12 values. A missing array removes all tags. See the tag rules below. |
+
+Tag rules: Each value is trimmed and repeated spaces become one space.
+The value must not be blank, must not have a comma, and must have at most 100 characters.
+The check is not case-sensitive, so two values that differ only in case are duplicates.
+An existing tag keeps its stored spelling.
+A new tag is created.
+See section 11 for the creation rule.
+The new list replaces the tags of the catalog.
+
+```json
+{
+  "name": "Community market",
+  "description": "Pools and vouchers of our market.",
+  "locationName": "Nairobi",
+  "geoLat": -1.2864,
+  "geoLng": 36.8172,
+  "imageUrl": "https://example.com/catalog.png",
+  "tags": ["Art", "Culture"]
+}
+```
+
+#### Response
+
+Status `200` for both routes. Creation does not return `201`. `result` is `{"catalog": <catalog object>}`.
+
+#### Errors
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field breaks a rule. The description names the field. Also for tag errors. |
+| `401` | `E06` | The request has no valid session. |
+| `403` | `E10` | The caller uses a service token. Or the caller is not the owner (`PUT`). |
+| `404` | `E07` | `PUT` and the catalog does not exist. |
+| `429` | `E11` | `POST` and the caller used all the catalog slots. |
+
+A quota error has this body. The `used` and `limit` values come from the account.
+
+```json
+{
+  "ok": false,
+  "description": "catalogs creation limit reached (1 of 1 used)",
+  "code": "E11",
+  "result": { "resource": "catalogs", "used": 1, "limit": 1 }
+}
+```
+
+A superadmin has no catalog limit. Section 14, Current user, shows the usage of the caller. Section 15, Admin, shows how a superadmin sets the limit.
+
+### 9.6 `GET /api/v2/users/me/catalogs`
+
+**Access:** User session.
+
+Returns the catalogs that the caller owns. There is no distance filter and no search. The order is `id` descending. Each page has 100 catalogs. The `perPage` parameter is not used. The `cursor` parameter works as in section 9.1.
+
+The success response is `{"catalogs": [<catalog object>], "nextCursor": null}`. `nextCursor` is a string when more catalogs exist. A bad cursor returns `400 E04`.
+
+### 9.7 `GET /api/v2/catalogs/:id/membership`
+
+**Access:** User session. The caller must be the owner of the catalog.
+
+Tells whether one pool or voucher is in the catalog.
+
+| Query parameter | Type | Required | Description |
+|---|---|---|---|
+| `kind` | `pool` or `voucher` | Yes | Type of the resource. |
+| `resourceId` | integer | Yes | The internal `id` of the pool or voucher. It is the `id` of the member object. It must be a positive integer. |
+
+The success response is `{"added": true}` or `{"added": false}`. A resource that does not exist gives `added: false`.
+
+Errors: `400 E04` for a bad `kind`, `resourceId`, or `:id`. `401 E06`. `403 E10` for a service token or a caller that is not the owner. `404 E07` when the catalog does not exist.
+
+### 9.8 Membership writes
+
+**Access:** User session. The caller must be the owner of the catalog.
+
+| Route | Effect |
+|---|---|
+| `PUT /api/v2/catalogs/:id/pools/:poolId` | Adds the pool to the catalog. |
+| `DELETE /api/v2/catalogs/:id/pools/:poolId` | Removes the pool from the catalog. |
+| `PUT /api/v2/catalogs/:id/vouchers/:voucherId` | Adds the voucher to the catalog. |
+| `DELETE /api/v2/catalogs/:id/vouchers/:voucherId` | Removes the voucher from the catalog. |
+
+The membership read is in section 9.7.
+The `:poolId` and `:voucherId` values are internal IDs. They must be positive integers.
+
+- The routes are idempotent. A second `PUT` or `DELETE` gives the same final state.
+- `PUT` returns `{"added": true}`. `DELETE` returns `{"added": false}`.
+- The owner can add any pool. The owner can add only an active voucher. A pool or voucher that does not exist, or a voucher that is not active, returns `404 E07`.
+- A voucher without map coordinates can be in a catalog.
+- A catalog change does not change the pool or the voucher.
+- `DELETE` of a link that does not exist succeeds.
+
+Errors: `400 E04` for a bad ID. `401 E06`. `403 E10` for a service token or a caller that is not the owner. `404 E07` for an unknown catalog, or for a resource that cannot be added.
+
+---
+
+## 10. Posts
+
+Posts are community reports. The API path uses the word `reports`. A post has text, optional images and attachments, tags, and links to vouchers.
+
+All paths in this section start with `/api/v2`.
+This section covers the public reads, the author writes, and the reads of an author for the author own posts.
+The global admin reads (`GET /api/v2/admin/reports` and `GET /api/v2/admin/reports/:id`) and the review notifications are in section 15, Admin.
+
+### 10.1 Access summary
+
+| Operation | Access |
+|---|---|
+| `GET /api/v2/reports` and `GET /api/v2/reports/:id` | Public. Shows only `APPROVED` posts. With `nearby=true`, a user session is required. |
+| `POST /api/v2/reports` | User session. |
+| `PUT /api/v2/reports/:id` | User session. The caller must be the author or a superadmin. |
+| `PUT /api/v2/reports/:id/approve` | Superadmin. |
+| `DELETE /api/v2/reports/:id` | Superadmin. |
+| `GET /api/v2/users/me/reports` and `GET /api/v2/users/me/reports/:id` | User session. Shows the posts of the caller in every status. |
+
+### 10.2 Post object
+
+A post list item has the fields below. The detail response has more fields.
+
+| Field | Type | In list | In detail | Description |
+|---|---|---|---|---|
+| `id` | number | Yes | Yes | Post ID. |
+| `title` | string | Yes | Yes | Title. |
+| `description` | string | Yes | Yes | Summary. |
+| `imageUrl` | string or null | Yes | Yes | Cover image. The value is null when the stored value is not an `http` or `https` URL. |
+| `geoLat` | number or null | Yes | Yes | Latitude. |
+| `geoLng` | number or null | Yes | Yes | Longitude. |
+| `periodFrom` | string or null | Yes | Yes | RFC 3339 time. |
+| `periodTo` | string or null | Yes | Yes | RFC 3339 time. |
+| `authorAddress` | string | Yes | Yes | The account of the original author. It never changes. |
+| `status` | string | Only in `/users/me/reports` | Yes | `DRAFT`, `SUBMITTED`, `APPROVED`, or `REJECTED`. |
+| `createdAt` | string | Yes | Yes | RFC 3339 time. |
+| `updatedAt` | string | Yes | Yes | RFC 3339 time. |
+| `tags` | array of string | Yes | Yes | Tags in sorted order. |
+| `vouchers` | array | Yes | Yes | Linked vouchers: `{"id", "chainId", "address", "name", "symbol"}`. `name` and `symbol` can be null. |
+| `body` | string | No | Yes | Markdown text. Omitted when empty. |
+| `hostName` | string | No | Yes | Free text. Omitted when not set. |
+| `participants` | string | No | Yes | Free text. Omitted when not set. |
+| `timeTaken` | string | No | Yes | Free text. Omitted when not set. |
+| `images` | array | No | Yes | `{"url", "width", "height", "maxWidth", "maxHeight", "byteSize", "caption"}`. Each number and `caption` can be null. `width` and `height` are the display size. `maxWidth` and `maxHeight` are the original size. Omitted when empty. |
+| `attachments` | array | No | Yes | `{"kind", "url", "filename", "byteSize"}`. `kind` is `FILE` or `EMBED`. `filename` is set only for uploaded files. Omitted when empty. |
+
+The service stores only `http` and `https` URLs for images and attachments.
+
+### 10.3 `GET /api/v2/reports`
+
+**Access:** Public. With `nearby=true`, a user session is required.
+
+Returns a page of `APPROVED` posts.
+The order is `updatedAt` descending, then `id` descending.
+The route uses the market limit (section 7.1).
+A request with `nearby=true` and no valid session returns `401 E06`.
+A service token returns `403 E10`.
+The response has no `Cache-Control` header, except for `nearby=true`, which sets `private, no-store`.
+
+#### Query parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | integer | `20` | `0` or no value means 20. A value above 100 becomes 100. A value that is not a non-negative integer returns `400 E04`. |
+| `cursorUpdatedAt` | string | none | RFC 3339 time (nanoseconds allowed). Send with `cursorId`. |
+| `cursorId` | integer | none | Positive integer. Send with `cursorUpdatedAt`. |
+| `q` | string | none | Search in `title` and `description`. The length must be 2 to 64 characters after trimming. A term of 2 characters matches the start of the text. A longer term matches any part of the text. |
+| `tags` | string | none | Repeat the parameter or use a comma-separated list. At most 12 distinct values. Each value must exist in the tag vocabulary. |
+| `tagMatch` | `any` or `all` | `any` | A post must have any of the tags, or all of the tags. |
+| `vouchers` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every voucher must exist. |
+| `voucherMatch` | `any` or `all` | `any` | A post must link any of the vouchers, or all of the vouchers. |
+| `author` | string | none | A hex account address. Shows only the posts of this author. |
+| `nearby` | `true` or `false` | `false` | Show only posts with coordinates within 1000 km of the saved profile location of the caller. The order does not change. A caller without a saved location gets `400 E04`. |
+| `facets` | `true` or `false` | `false` | With `true` and no cursor, add `tagFacets` and `voucherFacets`. |
+
+A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04`. A bad time or ID returns `400 E04`. A tag that is not in the vocabulary returns `400 E04`. A voucher that is not valid, or does not exist, returns `400 E04`.
+
+#### Response
+
+| Field | Type | Description |
+|---|---|---|
+| `reports` | array of post | The page. The array is empty when there are no matches. |
+| `next` | object or null | `{"updatedAt": "<RFC 3339 time>", "id": 4633}`. Send the two values as `cursorUpdatedAt` and `cursorId` to get the next page. The value is `null` when the page has fewer than `perPage` posts. A full last page can still give a `next` value, and the next page is then empty. |
+| `tagFacets` | array | Only with `facets=true` and no cursor. Items are `{"tag", "count"}`. It lists only tags that appear on a matching post. The count ignores `tags`. |
+| `voucherFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `vouchers`. |
+
+```json
+{
+  "ok": true,
+  "description": "Reports",
+  "result": {
+    "reports": [
+      {
+        "id": 4633,
+        "title": "August community harvest",
+        "description": "Twenty members took part.",
+        "imageUrl": null,
+        "geoLat": -1.2864,
+        "geoLng": 36.8172,
+        "periodFrom": null,
+        "periodTo": null,
+        "authorAddress": "0x0000000000000000000000000000000000000001",
+        "createdAt": "2026-08-01T08:00:00Z",
+        "updatedAt": "2026-08-02T08:00:00Z",
+        "tags": ["Agriculture"],
+        "vouchers": []
+      }
+    ],
+    "next": { "updatedAt": "2026-08-02T08:00:00Z", "id": 4633 }
+  }
+}
+```
+
+### 10.4 `GET /api/v2/reports/:id`
+
+**Access:** Public.
+
+Returns one post with the detail fields in section 10.2.
+`result` is `{"report": <post>}` and `description` is `Report`.
+The route returns only `APPROVED` posts.
+A post in another status gives `404 E03`, the same as a post that does not exist.
+The route uses the market limit (section 7.1).
+The response has no `Cache-Control` header.
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `E04` | `:id` is not a positive integer. |
+| `404` | `E03` | The post does not exist or is not `APPROVED`. |
+| `429` | `E11` | Over the rate limit. |
+
+### 10.5 Write body for `POST /api/v2/reports` and `PUT /api/v2/reports/:id`
+
+Both routes use the same body.
+`PUT` replaces all editable fields and all four collections.
+An omitted optional field is cleared. An omitted collection becomes empty.
+A failed request changes nothing.
+
+The body cannot set `authorAddress`, `status`, or a time. The service takes the author from the session.
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `title` | string | Yes | Trimmed. Not blank. At most 200 characters. |
+| `body` | string | No | Markdown. At most 500000 characters. |
+| `description` | string | No | At most 10000 characters. |
+| `imageUrl` | string | No | An `http` or `https` URL. |
+| `geoLat` | number | No | From -90 to 90. Send with `geoLng`. |
+| `geoLng` | number | No | From -180 to 180. Send with `geoLat`. |
+| `periodFrom` | string | No | RFC 3339 time. Must not be after `periodTo`. |
+| `periodTo` | string | No | RFC 3339 time. |
+| `hostName` | string | No | Trimmed. At most 200 characters. A blank value is cleared. |
+| `participants` | string | No | Trimmed. At most 100 characters. A blank value is cleared. |
+| `timeTaken` | string | No | Trimmed. At most 100 characters. A blank value is cleared. |
+| `tags` | array of string | No | At most 12 values. Each value must not be blank and has at most 100 characters. No duplicates. A tag that is not in the vocabulary is created. See section 11. |
+| `vouchers` | array | No | At most 12 items: `{"chainId": 42220, "address": "0x..."}`. `chainId` must be positive. `address` must be a hex address. No duplicates. Every voucher must exist. |
+| `images` | array | No | At most 50 items. No duplicate URLs. See below. |
+| `attachments` | array | No | At most 20 items. No duplicate `kind` and `url` pairs. See below. |
+
+Each item of `images` has these fields. `url` is required and must be an `http` or `https` URL. `width`, `height`, `maxWidth`, `maxHeight`, and `byteSize` are optional integers greater than 0. `caption` is optional and has at most 500 characters.
+
+Each item of `attachments` has these fields.
+`kind` is required and is `FILE` or `EMBED`.
+`url` is required and must be an `http` or `https` URL.
+`filename` is optional and has at most 255 characters.
+`byteSize` is an optional integer greater than 0.
+The same URL can appear twice when the two items have different `kind` values.
+
+A caller that is not a superadmin can link only vouchers that the caller owns. Another voucher returns `403 E10`.
+
+```json
+{
+  "title": "August community harvest",
+  "body": "## Harvest\n\nTwenty members took part.",
+  "description": "A summary for the feed.",
+  "imageUrl": "https://example.com/posts/cover.jpg",
+  "geoLat": -1.2864,
+  "geoLng": 36.8172,
+  "periodFrom": "2026-08-01T08:00:00Z",
+  "periodTo": "2026-08-01T12:00:00Z",
+  "hostName": "Example Group",
+  "participants": "20",
+  "timeTaken": "4 hours",
+  "tags": ["Agriculture", "Youth"],
+  "vouchers": [
+    { "chainId": 42220, "address": "0x1111111111111111111111111111111111111111" }
+  ],
+  "images": [
+    { "url": "https://example.com/posts/1.jpg", "width": 720, "height": 1080, "caption": "Sorting" }
+  ],
+  "attachments": [
+    { "kind": "FILE", "url": "https://example.com/posts/notes.pdf", "filename": "notes.pdf", "byteSize": 81920 }
+  ]
+}
+```
+
+### 10.6 `POST /api/v2/reports`
+
+**Access:** User session.
+
+Creates a post. The status is `APPROVED` at once. There is no review queue. Status `201`. `description` is `Report created`. `result` is `{"report": <post>}` with the detail fields.
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field breaks a rule in section 10.5. Also for a voucher that does not exist, and for a tag error. |
+| `401` | `E06` | The request has no valid session. |
+| `403` | `E10` | The caller uses a service token. Or the caller links a voucher that the caller does not own. |
+
+### 10.7 `PUT /api/v2/reports/:id`
+
+**Access:** User session. The caller must be the original author or a superadmin.
+
+Replaces the post with the body in section 10.5. Status `200`. `description` is `Report updated`. `result` is `{"report": <post>}`.
+
+| Caller | Status after the edit |
+|---|---|
+| Original author | `APPROVED` |
+| Superadmin | Unchanged |
+
+The body is validated first, then the author, then the tags and vouchers.
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | `:id` is not a positive integer, or a field breaks a rule. |
+| `401` | `E06` | The request has no valid session. |
+| `403` | `E10` | The caller is not the author and not a superadmin. Or a service token. Or a voucher that the caller does not own. |
+| `404` | `E03` | The post does not exist. |
+
+### 10.8 `PUT /api/v2/reports/:id/approve`
+
+**Access:** Superadmin.
+
+Sets the status of the post to `APPROVED`. The request has no body. The route changes nothing else. A post that is already `APPROVED` stays the same and returns `200`. Status `200`. `description` is `Report approved`. `result` is `{"report": <post>}`.
+
+Errors: `400 E04` for a bad `:id`. `403 E10` for a caller that is not a superadmin. `404 E03` when the post does not exist.
+
+### 10.9 `DELETE /api/v2/reports/:id`
+
+**Access:** Superadmin.
+
+Deletes the post with its tags, voucher links, images, and attachments. An author cannot delete the own post. Status `200`. `description` is `Report deleted`. `result` is `{"id": 4633}`.
+
+Errors: `400 E04` for a bad `:id`. `403 E10` for a caller that is not a superadmin. `404 E03` when the post does not exist.
+
+### 10.10 `GET /api/v2/users/me/reports`
+
+**Access:** User session.
+
+Returns the posts that the caller wrote, in every status. The author is the caller. The `author` parameter is not used. The response has `Cache-Control: no-store`.
+
+#### Query parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | integer | `20` | Same rule as section 10.3. |
+| `status` | string | none | `DRAFT`, `SUBMITTED`, `APPROVED`, or `REJECTED`. The case does not matter. No value shows every status. Another value returns `400 E04`. |
+| `cursorUpdatedAt`, `cursorId` | string, integer | none | Send both or neither. One alone returns `400 E04`. |
+| `next` | `true` or `false` | `true` when a cursor exists | `true` gets the older page. `false` gets the newer page. `next` without a cursor returns `400 E04`. |
+| `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch` | | | Same rules as section 10.3. |
+
+The parameters `nearby` and `facets` have no effect on this route.
+
+#### Response
+
+The order is always `updatedAt` descending, then `id` descending. Each item is a list item with `status` (see section 10.2).
+
+| Field | Type | Description |
+|---|---|---|
+| `reports` | array | The page. |
+| `first` | object or null | `{"updatedAt", "id"}` of the first post. Send it with `next=false` for the newer page. |
+| `last` | object or null | `{"updatedAt", "id"}` of the last post. Send it with `next=true` for the older page. |
+
+`first` and `last` are `null` when the page is empty.
+
+Errors: `400 E04` for a bad parameter. `401 E06`. `403 E10` for a service token.
+
+### 10.11 `GET /api/v2/users/me/reports/:id`
+
+**Access:** User session.
+
+Returns one post that the caller wrote, in any status, with the detail fields. `description` is `Report`. `result` is `{"report": <post>}`. The response has `Cache-Control: no-store`.
+
+The post of another author returns `404 E03`, the same as a post that does not exist. Errors: `400 E04` for a bad `:id`. `401 E06`. `403 E10` for a service token.
+
+---
+
+## 11. Lookups and shared vocabulary
+
+This section describes the read routes for lookups and the shared vocabulary. All paths start with `/api/v2`.
+
+### 11.1 Shared vocabulary
+
+Three global tables hold the values that clients show in pickers.
+
+| Vocabulary | Used for | Value limit |
+|---|---|---|
+| `token_tag` | Tags on vouchers, pools, posts, and curated catalogs. | 100 characters. No comma. |
+| `offering_unit` | The `unit` of an offering. | 32 characters. |
+| `unit_of_account` | The unit of account of a voucher, a pool, or a user profile. | 32 characters. |
+
+Each table has built-in values and custom values. A custom value has `isCustom: true` where the API shows the flag.
+
+#### How values are created
+
+There is no route to create a tag or an offering unit.
+The write that names the value creates it.
+A request that fails leaves no value behind.
+
+| Write | Creates |
+|---|---|
+| `POST /api/v2/contracts/pool` | Each `tags` value and the `unitOfAccount`. |
+| `POST /api/v2/contracts/token` | Each `tags` value and the `voucherUoa`, when sent. |
+| `PUT /api/v2/vouchers/:address/profile` and `PUT /api/v2/admin/vouchers/:address/profile` | Each `tags` value and the `voucherUoa`. |
+| `PUT /api/v2/pools/:address/profile` and `PUT /api/v2/admin/pools/:address/profile` | Each `tags` value and the `unitOfAccount`. |
+| `POST /api/v2/vouchers/:address/offerings` and `PUT /api/v2/vouchers/:address/offerings/:id` | The `unit` of the offering. |
+| `POST /api/v2/reports` and `PUT /api/v2/reports/:id` | Each `tags` value. |
+| `POST /api/v2/catalogs` and `PUT /api/v2/catalogs/:id` | Each `tags` value. |
+| `POST /auth/profile` and `PUT /api/v2/admin/users/:address/profile` | The `preferredCurrency`. |
+
+An administrator can also create a custom unit of account with a route in section 15, Admin. That section also describes how a superadmin lists, renames, and deletes vocabulary values.
+
+#### Rules for a value
+
+1. The service trims the value and changes repeated spaces to one space.
+2. A blank value returns `400 E04`.
+3. The service looks for an existing value, and the comparison is not case-sensitive. An existing value always wins. For example, `KG` resolves to the built-in `kg`. The response and the stored data use the existing spelling.
+4. If no value exists, the service creates a custom value in Title Case. Each word starts with a capital letter. The rest is lower case. For example, `  urban   FARMING ` becomes `Urban Farming`.
+5. Two requests that create the same new value at the same time make one value. Both requests succeed.
+
+| Rule | Tags | Offering units | Units of account |
+|---|---|---|---|
+| Maximum length | 100 characters | 32 characters | 32 characters |
+| A comma | `400 E04` | Allowed | Allowed |
+| A duplicate in one request (not case-sensitive) | `400 E04` | Not applicable | Not applicable |
+
+A tag has no comma because the tag filter uses a comma-separated list. A custom unit of account cannot be used with oracle pricing when the pool is deployed. That request returns `400 E04`.
+
+#### Tag filters are closed
+
+The `tags` filter on a read does not create values.
+A filter value that is not in the tag vocabulary returns `400 E04`.
+This rule applies to `GET /api/v2/catalogs`, `GET /api/v2/reports`, `GET /api/v2/users/me/reports`, and to the voucher, offering, and pool reads in sections 7 and 8.
+To get the valid values, call `GET /api/v2/token-tags`, or send `facets=true` on a request without `tags`.
+
+### 11.2 `GET /api/v2/token-tags`
+
+**Access:** User or service token.
+
+Returns every tag, built-in and custom, sorted by value.
+
+```json
+{
+  "ok": true,
+  "description": "Available token tags",
+  "result": { "tags": ["Agriculture", "Art", "Culture"] }
+}
+```
+
+### 11.3 `GET /api/v2/offering-units`
+
+**Access:** User or service token.
+
+Returns every offering unit, built-in and custom, sorted by value.
+
+```json
+{
+  "ok": true,
+  "description": "Available offering units",
+  "result": { "units": ["bag", "kg", "Produce Crate"] }
+}
+```
+
+### 11.4 `GET /api/v2/units-of-account`
+
+**Access:** User session. A service token returns `403 E10`.
+
+Returns every unit of account. Built-in values come first, then custom values. Each group is sorted by value.
+
+```json
+{
+  "ok": true,
+  "description": "Available units of account",
+  "result": {
+    "unitsOfAccount": [
+      { "value": "KES", "isCustom": false },
+      { "value": "Community Credits", "isCustom": true }
+    ]
+  }
+}
+```
+
+### 11.5 `GET /api/v2/symbols`
+
+**Access:** User or service token.
+
+Shows the symbols that are in use under one symbol stem. Use it before a voucher or pool deployment. The result is advice only. It does not reserve a symbol.
+
+| Query parameter | Type | Required | Rule |
+|---|---|---|---|
+| `kind` | `voucher` or `pool` | Yes | Type of the symbol. |
+| `prefix` | string | Yes | 1 to 6 letters or digits. |
+
+The service changes `prefix` to upper case.
+A symbol is taken when it equals the prefix, or when it is the prefix followed by 1 or 2 digits.
+Taken symbols come from existing vouchers, pools, and open deployments.
+The response has at most 128 symbols in sorted order.
+It has `Cache-Control: no-store`.
+
+```json
+{
+  "ok": true,
+  "description": "Taken symbols",
+  "result": { "kind": "voucher", "prefix": "FARM", "taken": ["FARM", "FARM1"] }
+}
+```
+
+An invalid `kind` or `prefix` returns `400 E04`.
+
+### 11.6 `GET /api/v2/names`
+
+**Access:** User or service token.
+
+Tells whether a voucher name or a pool name is free. Use it before a deployment or a rename. The result is advice only. The deployment makes the real claim.
+
+| Query parameter | Type | Required | Rule |
+|---|---|---|---|
+| `kind` | `voucher` or `pool` | Yes | Type of the name. |
+| `name` | string | Yes | The service trims it and changes repeated spaces to one space. It must not be blank. A voucher name has at most 120 characters. A pool name has at most 80 characters. |
+| `exclude` | string | No | A hex address. The name of this voucher or pool does not count as taken. Use it for a rename form. |
+
+The response has `Cache-Control: no-store`. The `name` value in the response is the normalized name that the service compared.
+
+```json
+{
+  "ok": true,
+  "description": "Name availability",
+  "result": { "kind": "pool", "name": "Community pool", "available": true }
+}
+```
+
+An invalid parameter returns `400 E04`.
+
+### 11.7 Recipient routes
+
+A recipient is a public identity that can receive a payment: an approved user with a username, or a pool with a name. A recipient has this shape.
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | `user` or `pool` | Type of the recipient. |
+| `name` | string | The name of the user, or the username when the user has no name. For a pool: the display name or the name. |
+| `alias` | string | The username, or for a pool the display name or the name. |
+| `address` | string | Account address. |
+| `chainId` | number | Chain ID. For a user, the chain ID of the service. |
+
+A recipient response never has a phone number or contact data. Every recipient route sets `Cache-Control: no-store`.
+
+#### Username text rules
+
+- A username has 1 to 80 Unicode code points after the service trims it and changes it to NFC form.
+- A username must not be blank. An explicit blank username is rejected. If a client sends no username, the service keeps the automatic assignment.
+- The service keeps case, internal spaces, punctuation, digits, and all scripts for display.
+- A username and a pool name share one namespace.
+  The comparison trims the text, changes it to NFC form, makes repeated whitespace one space, and makes it lower case.
+  The lower-case rule depends on the locale of the server.
+  A taken name returns `409 E16`.
+- A suggested name adds a number to the end when the name is taken. The service cuts the text by code point so that the result has at most 80 characters.
+
+#### `GET /api/v2/recipients`
+
+**Access:** User or service token.
+
+Searches recipients.
+
+| Query parameter | Type | Required | Rule |
+|---|---|---|---|
+| `q` | string | Yes | Trimmed. 1 to 120 characters. |
+| `kind` | `user` or `pool` | No | Filter by type. |
+
+Rules:
+
+- The route returns at most 20 recipients, in `result.recipients`. The array is empty when there are no matches.
+- A text search matches any part of the username of a user, or the name of a pool. The comparison ignores case and uses the same normalization as the username rules.
+- Only approved users with a username are searched. Pools are limited to the chain of the service.
+- The order is: exact name matches first, then the lower-case alias, then `kind`, then `address`.
+- Phone search: the service treats `q` as a phone number when it has digits. It can also have a leading `+`, spaces, parentheses and hyphens.
+  After the service removes these characters, at least 3 digits must remain.
+  Then the route also searches approved users with a username by the start of the stored phone number.
+  The route keeps every digit, including leading zeros.
+  For example, `071` is not changed to an international number.
+- With a phone search, the order is: exact name matches, then phone matches (exact phone first), then other name matches. A phone search returns only users for the phone part. A pool phone is never searched.
+- A phone number is never in the response.
+- A bad `q` or `kind` returns `400 E04`.
+
+```json
+{
+  "ok": true,
+  "description": "",
+  "result": {
+    "recipients": [
+      {
+        "kind": "user",
+        "name": "Amina",
+        "alias": "amina",
+        "address": "0x0000000000000000000000000000000000000001",
+        "chainId": 42220
+      }
+    ]
+  }
+}
+```
+
+#### `GET /api/v2/recipients/resolve` and `GET /api/v2/recipients/resolve/:name`
+
+**Access:** User or service token.
+
+Finds the one recipient with an exact name. Use the query form `GET /api/v2/recipients/resolve?name=...` for a name with punctuation or a slash. The path form `GET /api/v2/recipients/resolve/:name` works for simple names. If both are present, the `name` query parameter wins.
+
+The name must not be blank and has at most 120 characters. The match is exact after the normalization in the username rules. The route reads the current identity claims. A name that a deployment only reserved does not resolve.
+
+Success: `result` is `{"recipient": <recipient>}`.
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `E02` | The name is blank or longer than 120 characters. |
+| `404` | `E07` | No recipient has this name. |
+| `409` | `E16` | More than one recipient matches. |
+
+#### `GET /api/v2/recipients/reverse/:address`
+
+**Access:** User or service token.
+
+Finds the recipient identity of an account address. The comparison ignores case. Use it to show a name for an address. An address with no recipient is still a valid destination.
+
+Success: `result` is `{"recipient": <recipient>}`.
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `E02` | `:address` is not a hex address. |
+| `404` | `E07` | No recipient has this address. |
+| `409` | `E16` | More than one recipient matches. |
+
+#### `GET /api/v2/recipients/suggest`
+
+**Access:** Public. The route uses the market limit (section 7.1).
+
+Suggests a free username. The route does not reserve the name. The unique rule is checked when the user saves the username.
+
+| Query parameter | Type | Required | Rule |
+|---|---|---|---|
+| `hint` | string | Yes in practice | Trimmed. At most 120 characters. The service changes it to NFC form and cuts it to 80 code points. |
+
+The service tries the hint first. If it is taken, the service adds the numbers 1 to 99 to the end. It returns the first free name. The success response is `{"username": "Amina2"}`.
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `E04` | `hint` is longer than 120 characters. |
+| `409` | `E16` | The hint is blank, or no free name exists in the 100 candidates. |
+| `429` | `E11` | Over the rate limit. |
+
+### 11.8 `GET /api/v2/oracle-feeds`
+
+**Access:** User or service token.
+
+Lists the price oracle feeds that a pool can use for oracle pricing, sorted by `name`.
+
+| Query parameter | Type | Default | Description |
+|---|---|---|---|
+| `chainId` | integer | The chain ID of the service | Must be a positive integer. Another value returns `400 E04`. |
+
+Each feed has these fields: `id`, `chainId`, `name`, `address`, `createdAt`, `updatedAt`.
+
+```json
+{
+  "ok": true,
+  "description": "Available oracle feeds",
+  "result": {
+    "feeds": [
+      {
+        "id": 1,
+        "chainId": 42220,
+        "name": "KES/USD",
+        "address": "0x1111111111111111111111111111111111111111",
+        "createdAt": "2026-08-01T08:00:00Z",
+        "updatedAt": "2026-08-01T08:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 12. Account data
+
+These routes read balances, transfers and activity for any account.
+They read the indexed chain data.
+The routes exist only when the service has federation configured.
+Without it, the routes are not registered.
+
+**Access** for all routes in this section: User or service token.
+Any authenticated caller can read the data of any address.
+
+**Path parameter** for all routes in this section:
+
+| Name | Type | Rules |
+|---|---|---|
+| `address` | string | Required. Checksummed address. A bad value returns `400` with code `E04`. |
+
+**Token metadata.**
+The indexed chain data holds chain facts only.
+The API fills `tokenSymbol`, `tokenName`, `tokenDecimals` and `iconUrl` from the local voucher catalog, matched by token address.
+The name is the display name if one is set.
+A token that is not in the catalog has empty `tokenSymbol` and `tokenName`, `tokenDecimals` 0, and no `iconUrl`.
+
+**Amounts.**
+Amounts and balances are decimal strings of raw integer units.
+Use `tokenDecimals` to format them.
+Do not use floating-point numbers to parse them.
+
+**Cursor pagination** applies to `/tokens`, `/tokens/issued`, `/transfers` and `/activity`.
+
+| Query | Type | Default | Rules |
+|---|---|---|---|
+| `perPage` | integer | 100 | A value of 0, or above 100, becomes 100. |
+| `cursor` | integer | none | An `id` from a previous page. |
+| `next` | boolean | `false` | Sets the direction. |
+
+The route sorts every page by `id`, highest first.
+The first request has no `cursor` and no `next`.
+To get older rows, send `next=true` and `cursor` set to `last`.
+To get newer rows, leave `next` out and send `cursor` set to `first`.
+A wrong type in a query parameter returns `400` with code `E02`.
+Every paged response has `first` (the `id` of the first item) and `last` (the `id` of the last item).
+Both are 0 when the page is empty.
+The list can be `null` when the page is empty.
+
+**Common errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `E02` | A query parameter has a wrong type. |
+| 400 | `E04` | `address` is not valid, or a search value is not valid. |
+| 401 | `E06` | No valid credential. |
+| 404 | `E03` | Federation is not configured, so the route does not exist. |
+
+### 12.1 `GET /api/v2/accounts/:address/tokens/latest`
+
+**Access:** User or service token.
+
+Returns up to 5 token balances of an account, most recent movement first.
+The balance is the sum of the successful transfers of the account for each token.
+Only balances above 0 count.
+The route skips tokens that the catalog marks as retired.
+It looks further back in the history to fill the 5 places.
+This route has no pagination.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Latest token balances for 0x0000000000000000000000000000000000000001",
+  "result": {
+    "tokens": [
+      {
+        "id": 1043746,
+        "tokenAddress": "0x1111111111111111111111111111111111111111",
+        "tokenSymbol": "VCH",
+        "tokenName": "Example Voucher",
+        "tokenDecimals": 6,
+        "balance": "100000",
+        "iconUrl": "https://example.com/icon.png",
+        "lastDateBlock": "2026-07-01T12:20:29Z",
+        "catalogActive": true
+      }
+    ]
+  }
+}
+```
+
+**Token balance fields** (also used by `/tokens` and `/tokens/issued`):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | number | Cursor value. For holdings it is the ID of the last transaction that moved the token. |
+| `tokenAddress` | string | Token contract address. |
+| `tokenSymbol` | string | From the catalog. |
+| `tokenName` | string | From the catalog. |
+| `tokenDecimals` | number | From the catalog. |
+| `balance` | string | Raw units. |
+| `iconUrl` | string | From the catalog. Not present if there is none. |
+| `lastDateBlock` | string | Time of the last movement. |
+| `catalogActive` | boolean | `false` if the voucher is retired. Not present if the token is not in the catalog. |
+
+### 12.2 `GET /api/v2/accounts/:address/tokens/issued`
+
+**Access:** User or service token.
+
+Returns the active catalog vouchers that the address owns, each with the balance of the address.
+The route uses cursor pagination (see the start of this section).
+The route sorts rows by catalog voucher ID, newest first.
+
+Unlike `/tokens`, this route keeps a zero balance.
+A voucher that the owner never moved has `balance` `"0"` and a `lastDateBlock` of `0001-01-01T00:00:00Z`.
+Retired vouchers are not listed.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Issued tokens for 0x0000000000000000000000000000000000000001",
+  "result": {
+    "tokens": [
+      {
+        "id": 12,
+        "tokenAddress": "0x1111111111111111111111111111111111111111",
+        "tokenSymbol": "VCH",
+        "tokenName": "Example Voucher",
+        "tokenDecimals": 6,
+        "balance": "0",
+        "lastDateBlock": "0001-01-01T00:00:00Z",
+        "catalogActive": true
+      }
+    ],
+    "first": 12,
+    "last": 12
+  }
+}
+```
+
+The `id` is the catalog ID of the voucher. For the other fields, see section 12.1.
+
+### 12.3 `GET /api/v2/accounts/:address/tokens`
+
+**Access:** User or service token.
+
+Returns all token balances above 0 for an account.
+The route uses cursor pagination (see the start of this section).
+The route sorts rows by the ID of the last transaction that moved the token, highest first.
+The page can have more than `perPage` rows when two tokens share the same last transaction.
+The route does not hide retired vouchers. Check `catalogActive`.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Token balances for 0x0000000000000000000000000000000000000001",
+  "result": {
+    "tokens": [
+      {
+        "id": 1043746,
+        "tokenAddress": "0x1111111111111111111111111111111111111111",
+        "tokenSymbol": "VCH",
+        "tokenName": "Example Voucher",
+        "tokenDecimals": 6,
+        "balance": "100000",
+        "lastDateBlock": "2026-07-01T12:20:29Z",
+        "catalogActive": true
+      }
+    ],
+    "first": 1043746,
+    "last": 1043746
+  }
+}
+```
+
+For the fields, see section 12.1.
+
+### 12.4 `GET /api/v2/accounts/:address/transfers`
+
+**Access:** User or service token.
+
+Returns the raw token transfers of an account.
+The route uses cursor pagination (see the start of this section).
+The route sorts rows by transfer ID, highest first.
+The list includes failed transactions. Check `success`.
+A transfer from an account to itself shows once, as `IN`.
+
+**Extra query parameter:**
+
+| Name | Type | Rules |
+|---|---|---|
+| `q` | string | Optional search text. White space is collapsed. From 2 to 66 characters. |
+
+`q` matches the transaction hash, the counterparty address, the token address, and the tokens of catalog vouchers that match the text.
+The filter runs before paging.
+A value of 1 character returns `400` with code `E04` and the description `q must be at least 2 characters`.
+A value above 66 characters returns `400` with code `E04` and the description `q must be at most 66 characters`.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Transfer history for 0x0000000000000000000000000000000000000001",
+  "result": {
+    "transfers": [
+      {
+        "id": 743839,
+        "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "dateBlock": "2026-07-01T12:20:29Z",
+        "direction": "IN",
+        "counterpartyAddress": "0x0000000000000000000000000000000000000002",
+        "senderAddress": "0x0000000000000000000000000000000000000002",
+        "recipientAddress": "0x0000000000000000000000000000000000000001",
+        "tokenAddress": "0x1111111111111111111111111111111111111111",
+        "tokenSymbol": "VCH",
+        "tokenName": "Example Voucher",
+        "tokenDecimals": 6,
+        "amount": "100000",
+        "success": true,
+        "uoaValue": "125",
+        "uoa": "Community Hours",
+        "hasNote": false
+      }
+    ],
+    "first": 743839,
+    "last": 743839
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | number | Transfer ID. Use it as the cursor. |
+| `txHash` | string | Transaction hash. |
+| `dateBlock` | string | Block time. |
+| `direction` | string | `IN` or `OUT`, from the view of `address`. |
+| `counterpartyAddress` | string | The other party. |
+| `senderAddress`, `recipientAddress` | string | The parties of the transfer. |
+| `tokenAddress`, `tokenSymbol`, `tokenName`, `tokenDecimals` | string, string, string, number | The token. |
+| `amount` | string | Raw units. |
+| `success` | boolean | `false` if the transaction reverted. |
+| `uoaValue` | string | Value of the amount in the unit of account. Not present if there is no value. |
+| `uoa` | string | Name of the unit of account. Not present if there is no value. |
+| `hasNote` | boolean | `true` if the caller can read a private attachment for this transaction. |
+
+**Value of a transfer.**
+The relayer stores a value claim of each voucher when it submits a transfer.
+The API multiplies the raw amount by that stored claim.
+`uoaValue` and `uoa` are present only if the claim exists and the voucher has decimals in the catalog.
+Transfers that did not go through the relayer have no value.
+
+**Notes.**
+`hasNote` is `true` only for a caller who is the sender or the recipient of a private attachment (see section 14, `GET /api/v2/users/me/shares/:txHash`).
+For a service token, `hasNote` is always `false`.
+
+### 12.5 `GET /api/v2/accounts/:address/activity`
+
+**Access:** User or service token.
+
+Returns the activity feed of an account.
+The feed has one row for each action that a user sees.
+The user can see creation, sent, received and swapped actions.
+All swap events that the account started in one transaction form one `swapped` row.
+The transfers that belong to a swap are not shown again as `sent` or `received`.
+Other transfers in the same transaction stay visible.
+Use `GET /api/v2/accounts/:address/transfers` for the raw transfers.
+
+The route uses cursor pagination (see the start of this section).
+The route sorts rows by `id`, highest first.
+The `id` is an opaque number. Use it only as a cursor.
+
+**Extra query parameters:**
+
+| Name | Type | Rules |
+|---|---|---|
+| `q` | string | Optional search text. Same rules as for `/transfers`. It also matches pool addresses. |
+| `types` | string | Optional filter. Values: `creation`, `sent`, `received`, `swapped`. Send a comma-separated list, repeat the parameter, or both. The comparison ignores case. No value means all types. |
+
+An unknown `types` value returns `400` with code `E04` and the description `types contains an unsupported activity type`.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Activity for 0x0000000000000000000000000000000000000001",
+  "result": {
+    "activity": [
+      {
+        "id": 98765000001,
+        "kind": "received",
+        "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "dateBlock": "2026-07-01T12:20:29Z",
+        "success": true,
+        "counterpartyAddress": "0x0000000000000000000000000000000000000002",
+        "senderAddress": "0x0000000000000000000000000000000000000002",
+        "recipientAddress": "0x0000000000000000000000000000000000000001",
+        "transfer": {
+          "tokenAddress": "0x1111111111111111111111111111111111111111",
+          "tokenName": "Example Voucher",
+          "tokenSymbol": "VCH",
+          "tokenDecimals": 6,
+          "amount": "100000"
+        },
+        "hasNote": false
+      }
+    ],
+    "first": 98765000001,
+    "last": 98765000001
+  }
+}
+```
+
+**Activity fields:**
+
+| Field | Type | Present | Meaning |
+|---|---|---|---|
+| `id` | number | Always | Cursor value. |
+| `kind` | string | Always | `creation`, `sent`, `received` or `swapped`. `creation` is a transfer from the zero address. |
+| `txHash` | string | Always | Transaction hash. |
+| `dateBlock` | string | Always | Block time. |
+| `success` | boolean | Always | `false` if the transaction reverted. |
+| `counterpartyAddress`, `senderAddress`, `recipientAddress` | string | Not for `swapped` | The parties. |
+| `transfer` | object | Not for `swapped` | The token leg. |
+| `hasNote` | boolean | Not for `swapped` | Same meaning as in `/transfers`. |
+| `poolAddresses` | array of string | `swapped` | The pools on the route, in order. |
+| `sent` | object | `swapped` | The first input of the route. |
+| `received` | object | `swapped` | The last output of the route. |
+| `protocolFee` | object | `swapped`, if the fee is above 0 | The fee, in the output token. |
+
+**Leg fields** (`transfer`, `sent`, `received`, `protocolFee`):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `tokenAddress` | string | Token contract address. |
+| `tokenName`, `tokenSymbol` | string | From the catalog. |
+| `tokenDecimals` | number | From the catalog. |
+| `amount` | string | Raw units. |
+| `uoaValue`, `uoa` | string | Same rules as in `/transfers`. Not present if there is no value. |
+
+## 13. Pretium
+
+These routes proxy the Pretium Ramp service for cash-in and cash-out flows.
+The routes exist only when the service has the `pretium.base_url` setting.
+Without it, the routes are not registered.
+The base URL must include the upstream `/api/v1` prefix.
+
+**Access** for all routes in this section: User or service token, with these limits:
+
+- A user can act only on the user's own address. A request for another address returns `403` with code `E10`.
+- The routes in sections 13.3, 13.5 and 13.7 are for a service token or a superadmin only. Any other caller gets `403` with code `E10`.
+- A service token or a superadmin can act on any address.
+
+**Proxy behavior:**
+
+- The API checks the request, then calls the upstream service with a 10-second timeout.
+- The API path-escapes `phoneNumber` and `address` before it calls upstream.
+- The API returns the upstream status code for a success. Upstream must return a JSON object with the `ok`, `description` and `result` keys. The API returns only these three keys.
+- The `result` value is an object. Any other shape is a decode failure and returns `500` with code `E01`.
+- An upstream `4xx` response keeps its status code. The body is the standard error envelope.
+- An upstream `5xx` response becomes `502` with code `E01`.
+- A network failure or a decode failure returns `500` with code `E01`.
+- The `description` of an error is the upstream description. If upstream sends no JSON description, it is the upstream body text.
+
+**Upstream status to code:**
+
+| Status | Code |
+|---|---|
+| 400, 422 | `E04` |
+| 401 | `E06` |
+| 403 | `E10` |
+| 404 | `E03` |
+| 405 | `E05` |
+| 408 | `E09` |
+| 409 | `E16` |
+| 413 | `E08` |
+| 502 (from upstream 5xx) | `E01` |
+| Other | `E01` |
+
+**Common errors** (in addition to the table above):
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | The request fails local validation. |
+| 401 | `E06` | No valid credential. |
+| 403 | `E10` | The caller is not allowed to use this address or this route. |
+
+### 13.1 `POST /api/v2/pretium/trigger-onramp`
+
+**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or a superadmin.
+
+Starts a fiat-to-crypto onramp.
+
+**Request body (JSON):**
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `address` | string | Yes | Checksummed address. |
+| `phoneNumber` | string | No | No check in this API. |
+| `asset` | string | Yes | `USDT`, `USDC` or `cUSD`. |
+| `amount` | number | Yes | From 20 to 250000. |
+
+```json
+{
+  "address": "0x0000000000000000000000000000000000000001",
+  "phoneNumber": "+254700000000",
+  "asset": "USDT",
+  "amount": 20
+}
+```
+
+The response is the upstream response.
+
+### 13.2 `POST /api/v2/pretium/link`
+
+**Access:** User or service token. `publicKey` must be the caller's own address, unless the caller is a service token or a superadmin.
+
+Links a public key to a phone number.
+
+**Request body (JSON):**
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `publicKey` | string | Yes | Checksummed address. |
+| `phoneNumber` | string | Yes | Must not be empty. |
+
+```json
+{
+  "publicKey": "0x0000000000000000000000000000000000000001",
+  "phoneNumber": "+254700000000"
+}
+```
+
+The response is the upstream response.
+The link rules (for example, what happens when a key moves to a new phone number) belong to the upstream service.
+This repository does not define them.
+
+### 13.3 `GET /api/v2/pretium/link/:phoneNumber`
+
+**Access:** Service token or superadmin.
+
+Returns the links of a phone number.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `phoneNumber` | string | Required. |
+
+The response is the upstream response.
+
+### 13.4 `GET /api/v2/pretium/link-by-address/:address`
+
+**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or a superadmin.
+
+Returns the link of a wallet address.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `address` | string | Required. Checksummed address. |
+
+The response is the upstream response.
+
+### 13.5 `GET /api/v2/pretium/transactions/:phoneNumber`
+
+**Access:** Service token or superadmin.
+
+Returns the transactions of a phone number.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `phoneNumber` | string | Required. |
+
+The response is the upstream response.
+
+### 13.6 `GET /api/v2/pretium/transactions-by-address/:address`
+
+**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or a superadmin.
+
+Returns the transactions of an address.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `address` | string | Required. Checksummed address. |
+
+The response is the upstream response.
+
+### 13.7 `GET /api/v2/pretium/transactions-recent`
+
+**Access:** Service token or superadmin.
+
+Returns recent transactions. The route has no parameters.
+The response is the upstream response.
+
+### 13.8 `GET /api/v2/pretium/rates`
+
+**Access:** User or service token.
+
+Returns the current rates. The route has no parameters.
+The response is the upstream response.
+
+**Example of a success response (shape only):**
+
+```json
+{
+  "ok": true,
+  "description": "Rates",
+  "result": {}
+}
+```
+
+## 14. Current user
+
+All routes in this section need a user session.
+A service token returns `403` with code `E10`.
+A missing or invalid credential returns `401` with code `E06`.
+Both `USER` and `SUPERADMIN` callers can use these routes.
+The user routes for posts and catalogs (`GET /api/v2/users/me/reports`, `GET /api/v2/users/me/catalogs`) are in other sections.
+
+**Cursor pagination** applies to `/me/vouchers`, `/me/tokens` and `/me/pools`.
+
+| Query | Type | Default | Rules |
+|---|---|---|---|
+| `perPage` | integer | 100 | A value of 0, or above 100, becomes 100. |
+| `cursor` | integer | none | An `id` from a previous page. |
+| `next` | boolean | `false` | Sets the direction. |
+
+The route sorts every page by `id`, highest first.
+The first request has no `cursor` and no `next`.
+`first` is the `id` of the first item (the highest). `last` is the `id` of the last item (the lowest).
+Both are 0 when the page is empty.
+An empty page has `[]` as the list.
+A wrong type in a query parameter returns `400` with code `E02`.
+Send `cursor` whenever you send `next`.
+
+The direction of `next` is different for each route:
+
+| Route | Older rows | Newer rows |
+|---|---|---|
+| `/me/vouchers` | `next=true`, `cursor=last` | `cursor=first` (no `next`) |
+| `/me/pools` | `next=true`, `cursor=last` | `cursor=first` (no `next`) |
+| `/me/tokens` | `cursor=last` (no `next`) | `next=true`, `cursor=first` |
+
+### 14.1 `GET /api/v2/users/me`
+
+**Access:** User session.
+
+Returns the profile of the caller.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Current user profile",
+  "result": {
+    "user": {
+      "id": 7,
+      "ethereumAddress": "0x0000000000000000000000000000000000000001",
+      "username": "alice",
+      "name": "Alice",
+      "email": "alice@example.com",
+      "phone": "",
+      "country": "KE",
+      "preferredCurrency": "KES",
+      "bio": "Baker",
+      "website": "https://example.com",
+      "locationName": "Nairobi",
+      "geoLat": -1.286389,
+      "geoLng": 36.817223,
+      "avatarUrl": "https://example.com/avatar.png",
+      "role": "USER",
+      "status": "APPROVED",
+      "maxPools": 10,
+      "maxTokens": 1,
+      "maxCatalogs": 1,
+      "maxOffers": 3,
+      "createdAt": "2026-01-15T10:30:00Z",
+      "updatedAt": "2026-01-15T10:30:00Z"
+    }
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | number | User ID. |
+| `ethereumAddress` | string | Address of the user. |
+| `username` | string or `null` | Public user name. |
+| `name`, `email`, `phone`, `country` | string | Contact fields. Empty string if not set. |
+| `preferredCurrency`, `bio`, `website`, `locationName`, `geoLat`, `geoLng`, `avatarUrl` | mixed | Profile fields. Not present if not set. |
+| `role` | string | `USER` or `SUPERADMIN`. |
+| `status` | string | `PENDING`, `APPROVED` or `REJECTED`. |
+| `maxPools`, `maxTokens`, `maxCatalogs`, `maxOffers` | number | Limits for pools, vouchers, catalogs and offerings. |
+| `createdAt`, `updatedAt` | string | RFC 3339 times. |
+
+**Errors:** `404` with code `E07` if the user record does not exist.
+
+### 14.2 `GET /api/v2/users/me/resource-usage`
+
+**Access:** User session.
+
+Returns how much of each limit the caller used.
+The response has the header `Cache-Control: no-store`.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "",
+  "result": {
+    "usage": {
+      "vouchers": { "used": 1, "limit": 1, "unlimited": false, "canCreate": false },
+      "pools": { "used": 2, "limit": 10, "unlimited": false, "canCreate": true },
+      "catalogs": { "used": 0, "limit": 1, "unlimited": false, "canCreate": true },
+      "offers": { "used": 3, "limit": 3, "unlimited": false, "canCreate": false }
+    }
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `used` | number | Current use. |
+| `limit` | number | The limit of the user. |
+| `unlimited` | boolean | `true` for a `SUPERADMIN` user. |
+| `canCreate` | boolean | `true` if the user is unlimited or `used` is below `limit`. |
+
+A voucher deploy counts until the deploy fails on chain or the voucher is retired.
+An offering counts while it is available and its voucher is active.
+
+### 14.3 `GET /api/v2/users/me/vouchers`
+
+**Access:** User session.
+
+Returns the vouchers that the caller owns now.
+The catalog owner address must equal the address of the caller.
+The list includes retired vouchers and vouchers with no location.
+The route uses cursor pagination (see the start of this section).
+The response has the header `Cache-Control: no-store`.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Currently owned vouchers for user 7",
+  "result": {
+    "vouchers": [
+      {
+        "id": 12,
+        "chainId": 42220,
+        "address": "0x1111111111111111111111111111111111111111",
+        "name": "Example Voucher",
+        "symbol": "VCH",
+        "decimals": 6,
+        "iconUrl": null,
+        "ownerAddress": "0x0000000000000000000000000000000000000001",
+        "active": true
+      }
+    ],
+    "first": 12,
+    "last": 12
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | number | Catalog ID. Use it as the cursor. |
+| `chainId` | number | Chain ID. |
+| `address` | string | Voucher address. |
+| `name` | string | Display name, else contract name, else address. |
+| `symbol` | string | Symbol, or a short form of the address if there is none. |
+| `decimals` | number or `null` | Token decimals. |
+| `iconUrl` | string or `null` | Icon URL. |
+| `ownerAddress` | string | Catalog owner address. |
+| `active` | boolean | `false` if the voucher is retired. |
+
+### 14.4 `GET /api/v2/users/me/tokens`
+
+**Access:** User session.
+
+Returns the confirmed vouchers that the caller deployed with this API.
+Only deploys recorded for the caller appear.
+The route uses cursor pagination (see the start of this section).
+The route sorts rows by deployment ID, highest first.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Confirmed tokens for user 7",
+  "result": {
+    "tokens": [
+      {
+        "id": 42,
+        "otxId": 100,
+        "platformContractId": 1,
+        "status": "CONFIRMED",
+        "address": "0x1111111111111111111111111111111111111111",
+        "symbol": "VCH",
+        "name": "Example Voucher",
+        "decimals": 6,
+        "admin": "0x0000000000000000000000000000000000000001",
+        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "createdAt": "2026-01-15T10:30:00Z",
+        "updatedAt": "2026-01-15T10:35:00Z"
+      }
+    ],
+    "first": 42,
+    "last": 42
+  }
+}
+```
+
+The list rows have only the fields in the example.
+The other fields of the voucher record are `null`, and `tags` is `null`.
+Use `GET /api/v2/users/me/tokens/:address` for the full record.
+
+### 14.5 `GET /api/v2/users/me/tokens/:address`
+
+**Access:** User session. The caller must have started the deployment, or be a superadmin.
+
+Returns one confirmed deployed voucher.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `address` | string | Voucher address. The match is exact. No format check. |
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Token at address 0x1111111111111111111111111111111111111111",
+  "result": {
+    "token": {
+      "id": 42,
+      "otxId": 100,
+      "platformContractId": 1,
+      "status": "CONFIRMED",
+      "address": "0x1111111111111111111111111111111111111111",
+      "symbol": "VCH",
+      "name": "Example Voucher",
+      "decimals": 6,
+      "admin": "0x0000000000000000000000000000000000000001",
+      "description": "A voucher for example goods",
+      "website": null,
+      "email": null,
+      "phone": null,
+      "terms": null,
+      "voucherUoa": "Hours",
+      "voucherValue": 1.5,
+      "locationName": "Nairobi",
+      "geoLat": -1.286389,
+      "geoLng": 36.817223,
+      "iconUrl": null,
+      "bannerUrl": null,
+      "markerIcon": "basket",
+      "markerColor": "blue",
+      "tags": ["Food"],
+      "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "createdAt": "2026-01-15T10:30:00Z",
+      "updatedAt": "2026-01-15T10:35:00Z"
+    }
+  }
+}
+```
+
+The `name` is the catalog display name if one is set.
+**Errors:** `404` with code `E07` if no confirmed deployed voucher has this address, or if another user started it.
+
+### 14.6 `GET /api/v2/users/me/pools`
+
+**Access:** User session.
+
+Returns the confirmed pools that the caller deployed with this API.
+The route uses cursor pagination (see the start of this section).
+The route sorts rows by deployment ID, highest first.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Confirmed pools for user 7",
+  "result": {
+    "pools": [
+      {
+        "id": 51,
+        "otxId": 120,
+        "platformContractId": 2,
+        "status": "CONFIRMED",
+        "address": "0x2222222222222222222222222222222222222222",
+        "name": "Example Pool",
+        "symbol": "EXP",
+        "decimals": 6,
+        "tokenRegistryAddress": "0x3333333333333333333333333333333333333333",
+        "limiterAddress": "0x4444444444444444444444444444444444444444",
+        "feePolicyAddress": "0x5555555555555555555555555555555555555555",
+        "quoterAddress": "0x6666666666666666666666666666666666666666",
+        "quoterType": "relative",
+        "protocolFeeControllerAddress": "0x7777777777777777777777777777777777777777",
+        "feesDecoupled": false,
+        "feePpm": null,
+        "feeAddress": null,
+        "admin": "0x0000000000000000000000000000000000000001",
+        "description": null,
+        "unitOfAccount": null,
+        "website": null,
+        "email": null,
+        "phone": null,
+        "terms": null,
+        "locationName": null,
+        "geoLat": null,
+        "geoLng": null,
+        "imageUrl": null,
+        "bannerUrl": null,
+        "tags": [],
+        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "createdAt": "2026-01-15T10:30:00Z",
+        "updatedAt": "2026-01-15T10:35:00Z"
+      }
+    ],
+    "first": 51,
+    "last": 51
+  }
+}
+```
+
+In the list, `feePpm`, `feeAddress`, `unitOfAccount` and `terms` are always `null`.
+Use `GET /api/v2/users/me/pools/:address` for the full record.
+
+### 14.7 `GET /api/v2/users/me/pools/:address`
+
+**Access:** User session. The caller must have started the deployment, or be a superadmin.
+
+Returns one confirmed deployed pool.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `address` | string | Pool address. The comparison ignores case. No format check. |
+
+**Response `200`:** `result.pool` has the same fields as one item of the list in section 14.6.
+The description is `Pool at address <address>`.
+In this route `feePpm`, `feeAddress`, `unitOfAccount` and `terms` have their stored values.
+`feePpm` is the fee in parts per million.
+
+**Errors:** `404` with code `E07` if no confirmed deployed pool has this address, or if another user started it.
+
+### 14.8 `GET /api/v2/users/me/deployments`
+
+**Access:** User session.
+
+Returns all deploy requests of the caller, newest first.
+The route has no pagination.
+Use `trackingId` with `GET /api/v2/otx/track/:trackingId`.
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Deployment history for user 7",
+  "result": {
+    "deployments": [
+      {
+        "id": 3,
+        "userId": 7,
+        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "resourceType": "TOKEN",
+        "createdAt": "2026-01-15T10:30:00Z"
+      }
+    ]
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | number | Record ID. |
+| `userId` | number | User ID. |
+| `trackingId` | string | Tracking UUID. |
+| `resourceType` | string | `TOKEN` or `POOL`. |
+| `createdAt` | string | RFC 3339 time of the request. |
+
+The list can be `null` when the user has no deploy requests.
+
+### 14.9 `GET /api/v2/users/me/shares/eligibility/:address`
+
+**Access:** User session.
+
+Checks if an address can receive a private send attachment.
+The route returns only a boolean. It never returns profile data.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `address` | string | Required. A hex address. The route does not check the checksum. |
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "description": "Private share eligibility",
+  "result": {
+    "eligible": true
+  }
+}
+```
+
+`eligible` is `true` when the address belongs to a user with status `APPROVED` who is not the caller.
+
+**Errors:** `400` with code `E04` and the description `invalid recipient address` if `address` is not a hex address.
+
+### 14.10 `POST /api/v2/users/me/shares/:txHash`
+
+**Access:** User session.
+
+Creates a private attachment for a confirmed token send.
+Only the sender and the recipient of the send can read it later.
+The note and the profile data stay off chain.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `txHash` | string | Required. 66 characters. Starts with `0x`. Hexadecimal. |
+
+**Request body (JSON):**
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `permission` | integer | No | Bit mask from 0 to 7. Default 0. `1` is email, `2` is phone, `4` is location. |
+| `note` | string | No | Trimmed. Maximum 500 characters. |
+
+The body must have a non-empty `note`, or `permission` above 0.
 
 ```json
 {
@@ -1293,43 +4648,61 @@ through the Cosmo relayer.
 }
 ```
 
+**Checks.**
+The API reads the transaction and the receipt from the chain.
+The receipt must show success.
+The caller must own the transaction. The caller address must be the signer, or the target of the transaction (for a send that the relayer submitted).
+The receipt must have exactly one ERC-20 `Transfer` event from the caller address with an amount above 0.
+The recipient of that event must be a user with status `APPROVED` who is not the caller.
+For each permission bit, the profile of the caller must have the data. The data is an email that does not end in `@clc.local`, a phone number, or a location with a name and coordinates.
+
+**Response `200`:**
+
 ```json
 {
   "ok": true,
+  "description": "Private send attachment saved",
   "result": {
     "shareId": 42,
-    "txHash": "0xabc..."
+    "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111"
   }
 }
 ```
 
-The backend rechecks the receipt even if the client already waited for it. The
-receipt must be successful, belong to the authenticated wallet either as the
-outer signer or smart-account target, and contain exactly one positive ERC-20
-`Transfer` from that wallet. The event recipient must be a different, approved
-Cosmo user.
+The request is idempotent.
+If the same attachment exists (same recipient, `permission` and `note`), the response is `200` with the same `shareId`.
 
-`permission` is a bitmask: email is `1`, phone is `2`, and location (label plus
-coordinates) is `4`. Any authenticated sender whose transaction is verified may
-add a trimmed note with `permission: 0`; no profile PII is required in that
-case. PII is opt-in and only the sender chooses the bits. Repeating an identical
-request is idempotent and returns the same `shareId`; trying to replace an
-existing attachment for the transaction returns `409` with `E16`. An
-unconfirmed, failed, ambiguous, or unrelated transaction returns `422` with
-`E19`.
+**Errors:**
 
-### 6.8 `GET /api/v2/users/me/shares/:txHash`
+| Status | Code | When |
+|---|---|---|
+| 400 | `E02` | The body is not valid JSON. |
+| 400 | `E04` | `txHash` or `permission` is not valid, `note` is too long, an unknown permission bit is set, or both `note` and `permission` are empty. |
+| 401 | `E06` | No valid credential. |
+| 403 | `E10` | The caller is a service token, or the user record does not match the session address. |
+| 409 | `E16` | A different attachment already exists for this transaction. |
+| 422 | `E19` | The transaction is not a confirmed token send from the caller, the recipient is not available (not registered, not approved, or the caller), or the profile lacks the data for a permission bit. |
+| 500 | `E01` | The chain node call fails. |
 
-Returns the private attachment for a confirmed ERC-20 transfer. Only its sender
-and designated recipient may read it. Missing and unauthorized records both
-return `404`.
+### 14.11 `GET /api/v2/users/me/shares/:txHash`
+
+**Access:** User session. Only the sender (owner) and the recipient of the attachment can read it.
+
+Returns the private attachment of a send.
+
+| Path parameter | Type | Rules |
+|---|---|---|
+| `txHash` | string | Required. 66 characters. Starts with `0x`. Hexadecimal. The comparison ignores case. |
+
+**Response `200`:**
 
 ```json
 {
   "ok": true,
+  "description": "Private send attachment",
   "result": {
     "id": 42,
-    "txHash": "0xabc...",
+    "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
     "permission": 5,
     "note": "Thanks for the supplies",
     "sharedBy": {
@@ -1346,373 +4719,1474 @@ return `404`.
 }
 ```
 
-The note is always returned to an authorized participant. PII is fetched from
-the sender's current profile only when its permission bit is set; the SQL query
-and response serializer both enforce the bitset. The note and all
-contact/location fields remain off-chain.
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | number | Attachment ID. |
+| `txHash` | string | Transaction hash. |
+| `permission` | number | The bit mask. |
+| `note` | string | The note. Empty string if none. |
+| `sharedBy.name` | string | Name of the sender. Always present. |
+| `sharedBy.email` | string | Present if bit `1` is set and the sender has an email. |
+| `sharedBy.phone` | string | Present if bit `2` is set and the sender has a phone number. |
+| `sharedBy.location` | object | Present if bit `4` is set and the sender has a location. It has `locationName`, `lat` and `lng`. |
+| `createdAt` | string | RFC 3339 time. |
+
+The API reads the profile data from the current profile of the sender.
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `E04` | `txHash` is not valid. |
+| 401 | `E06` | No valid credential. |
+| 403 | `E10` | The caller is a service token. |
+| 404 | `E03` | No attachment exists, or the caller is not the sender or the recipient. |
 
 ---
 
-## 7. Superadmin Endpoints (`/api/v2/admin/*`)
+## 15. Admin
 
-These endpoints require a caller with role `SUPERADMIN`. Any other caller (including service JWTs) receives `403 Forbidden` with error code `E10`.
+This section describes all routes under `/api/v2/admin`. Only a superadmin can use them.
 
-The baseline migration seeds an initial approved superadmin account. Additional superadmins must be granted directly in the `users` table by an operator with write access; public signup and SIWE verify create normal `USER` accounts only.
+### 15.1 Common rules
 
-`GET /api/v2/admin/reports` and `GET /api/v2/admin/reports/:id` are on this group
-too and are documented with the rest of Posts, in [§11.9](#119-global-moderation-reads).
+**Access:** Superadmin.
 
----
+#### Access control
 
-### 7.1 `GET /api/v2/admin/users`
+- The caller must have a user session with the role `SUPERADMIN`. See section 2.
+- A service token has the role `SERVICE`. A service token gets `403` with `E10` and the description `superadmin access required`.
+- A caller with the role `USER` also gets `403` with `E10`.
+- A request without valid credentials gets `401` with `E06`.
+- This section does not repeat these three errors for each route.
 
-Returns one page of the account directory, newest first, using cursor pagination that matches the catalog (`perPage`, `cursor`, `next`). Optionally narrowed by approval status and by a search term.
+#### Address path parameters
 
-> **Breaking change.** This endpoint previously ignored pagination and answered with every row. `users` is now at most `perPage` accounts and the response carries `first` / `last`. A client that pages or filters the directory locally must move both jobs to the server, or it will silently present a truncated directory as the whole one.
+- A path parameter named `:address` must be a valid Ethereum address. The case of the letters does not matter.
+- The server converts the address to the checksum form before it uses the address.
+- On every route in this section except `GET /api/v2/admin/pools/:address/vouchers`, an invalid address returns `400` with `E04` and the description `invalid Ethereum address`.
+- On `GET /api/v2/admin/pools/:address/vouchers`, an invalid address returns `400` with `E04` and the description `address must be a valid hex address`.
 
-**Query parameters:**
+#### Cursor pagination
+
+These routes use the same cursor pagination: `GET /api/v2/admin/users`, `GET /api/v2/admin/users/:address/pools`, `GET /api/v2/admin/pools/:address/vouchers`, `GET /api/v2/admin/vouchers`, and the three routes under `/api/v2/admin/transactions`.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `q` | `string` | — | Search over name, email, phone and address. 2–64 characters; a shorter or longer term is rejected. Country and role are not searched |
-| `status` | `string` | — | Filter by status: `PENDING`, `APPROVED`, or `REJECTED` (case-insensitive) |
-| `perPage` | `int` | `100` | Results per page (max `100`) |
-| `next` | `bool` | `false` | When `true`, page toward newer records from `cursor` |
-| `cursor` | `int` | — | Use `last` to fetch older records or `first` with `next=true` to move back toward newer records |
+| `perPage` | integer | `100` | Number of rows in one page. The maximum is `100`. A value of `0` or a value above `100` becomes `100`. |
+| `cursor` | integer | none | A row ID from an earlier response. Use the value of `first` or `last`. |
+| `next` | boolean | `false` | Direction from `cursor`. |
 
-`q` matches as a prefix at two characters and as a substring above that, and the same rules and error messages apply as on the public catalog search.
+- Rows are always in descending order, newest first.
+- A request with no `cursor` and `next=false` returns the first page.
+- `next=true` with `cursor` returns the rows that come after the cursor in this order. These rows are older. Send the `last` value of the previous page as `cursor`.
+- `next=false` with a `cursor` greater than `0` returns the rows that come before the cursor. These rows are newer. Send the `first` value of the page as `cursor`. The rows in the page are still newest first.
+- The result contains a list under a route-specific key, and the two fields `first` and `last`.
+- `first` is the ID of the first row in the page. `last` is the ID of the last row in the page. Both are `0` when the page is empty.
+- For the transaction routes, the ID is a packed number. Use it only as a cursor.
+- A request with an invalid `next` or a non-numeric `cursor` or `perPage` returns `400` with `E02`.
+- A list read has a time limit of 5 seconds. The two chain transaction routes (see section 15.28) have no such limit.
 
-**Response `200`:**
+#### Search term `q`
 
-```/dev/null/admin-users-response.json#L1-20
+- The server trims the term and replaces runs of white space with one space.
+- An empty term means no search.
+- The term must have 2 to 64 characters (counted as Unicode characters).
+  A shorter term returns `400` with `E04` and the description `q must be at least 2 characters`.
+  A longer term returns `400` with `E04` and the description `q must be at most 64 characters`.
+- The match is not case-sensitive. A term of 2 characters matches the start of a value. A term of 3 or more characters matches any part of a value.
+- The characters `%` and `_` match themselves.
+
+#### Cache headers
+
+- These responses send `Cache-Control: no-store`: `GET /api/v2/admin/pools/:address/vouchers`, `GET /api/v2/admin/vouchers/:address`, `PUT /api/v2/admin/vouchers/:address/restore`, `PUT /api/v2/admin/pools/:address/profile`, `GET /api/v2/admin/reports`, `GET /api/v2/admin/reports/:id`, `GET /api/v2/admin/review-notifications`, and `PUT /api/v2/admin/review-notifications/:id`.
+- The other routes in this section send no cache header.
+
+#### Routes that are not paginated
+
+`GET /api/v2/admin/tokens`, `GET /api/v2/admin/pools` and `GET /api/v2/admin/deployments` return the full list in one response. They have no query parameters.
+
+### 15.2 `GET /api/v2/admin/users`
+
+**Access:** Superadmin.
+
+Return one page of the account directory. Rows are newest first.
+
+**Query parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `q` | string | No | Search term. The server searches the name, email, phone and address of each account. It does not search country or role. See section 15.1. |
+| `status` | string | No | Filter by approval status. Values are `PENDING`, `APPROVED` and `REJECTED`. The case does not matter. |
+| `perPage`, `cursor`, `next` | | No | See section 15.1. |
+
+**Response 200**
+
+The description is `Users list`. The result has the keys `users`, `first` and `last`. The value of `first` and `last` is the `id` of an account.
+
+```json
 {
   "ok": true,
   "description": "Users list",
   "result": {
     "users": [
       {
-        "id":              4210,
-        "ethereumAddress": "0xd8dA6BF2...",
-        "name":            "Ada Lovelace",
-        "email":           "ada@example.com",
-        "phone":           "+254700000000",
-        "country":         "KE",
-        "role":            "USER",
-        "status":          "PENDING"
+        "id": 4210,
+        "ethereumAddress": "0x0000000000000000000000000000000000000001",
+        "username": "ada",
+        "name": "Ada Lovelace",
+        "email": "ada@example.com",
+        "phone": "+254700000000",
+        "country": "KE",
+        "role": "USER",
+        "status": "PENDING",
+        "maxPools": 5,
+        "maxTokens": 5,
+        "maxCatalogs": 5,
+        "maxOffers": 5,
+        "createdAt": "2026-08-12T10:00:00Z",
+        "updatedAt": "2026-08-12T10:00:00Z"
       }
     ],
     "first": 4210,
-    "last": 4187
+    "last": 4210
   }
 }
 ```
 
+**User object**
+
 | Field | Type | Description |
 |---|---|---|
-| `users` | `array` | Current page of accounts |
-| `first` | `int` | Highest account ID in the current page |
-| `last` | `int` | Lowest account ID in the current page |
+| `id` | integer | Account ID. |
+| `ethereumAddress` | string | Account address. |
+| `username` | string or null | Public username. |
+| `name` | string | Name. |
+| `email` | string | Email. The value is an empty string when the account has none. |
+| `phone` | string | Phone number. The value is an empty string when the account has none. |
+| `country` | string | Country code. The value is an empty string when the account has none. |
+| `preferredCurrency` | string | Unit of account. The field is absent when the value is null. |
+| `bio` | string | Biography. The field is absent when the value is null. |
+| `website` | string | Website. The field is absent when the value is null. |
+| `locationName` | string | Location label. The field is absent when the value is null. |
+| `geoLat` | number | Latitude. The field is absent when the value is null. |
+| `geoLng` | number | Longitude. The field is absent when the value is null. |
+| `avatarUrl` | string | Avatar URL. The field is absent when the value is null. |
+| `role` | string | Role of the user. |
+| `status` | string | `PENDING`, `APPROVED` or `REJECTED`. |
+| `maxPools` | integer | Pool limit. |
+| `maxTokens` | integer | Voucher limit. |
+| `maxCatalogs` | integer | Catalog limit. |
+| `maxOffers` | integer | Offering limit. |
+| `createdAt` | string | RFC 3339 time. |
+| `updatedAt` | string | RFC 3339 time. |
 
-**Errors:**
+The routes in sections 15.3, 15.4 and 15.5 return the same user object under `result.user`.
+
+**Errors**
 
 | Status | Code | Cause |
 |---|---|---|
-| `400` | `E02` | `q` is shorter than 2 or longer than 64 characters, or `status` is not one of the three approval states |
+| `400` | `E04` | `q` is shorter than 2 or longer than 64 characters. |
+| `400` | `E04` | `status` is not one of the three values. The description is `status must be "PENDING", "APPROVED" or "REJECTED"`. |
 
----
+### 15.3 `PUT /api/v2/admin/users/:address/approve` and `PUT /api/v2/admin/users/:address/reject`
 
-### 7.2 `PUT /api/v2/admin/users/:address/approve`
+**Access:** Superadmin.
 
-Approves a user account, setting its status to `APPROVED`. The user can then sign in.
+Set the status of an account. `approve` sets `APPROVED`. `reject` sets `REJECTED`. The route does not check the old status or the role of the account.
 
-**Path parameters:**
+**Path parameters**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `address` | `string` | Ethereum address of the account to approve |
+| `address` | string | Account address. |
 
-**Request body:** none
+The request has no body.
 
-**Response `200`:**
+**Response 200**
 
-```/dev/null/admin-approve-response.json#L1-7
+The description is `User status updated to APPROVED` or `User status updated to REJECTED`. The result has the key `user` (see the user object in section 15.2).
+
+```json
 {
   "ok": true,
   "description": "User status updated to APPROVED",
   "result": {
-    "user": { "..." : "..." }
+    "user": { "id": 4210, "ethereumAddress": "0x0000000000000000000000000000000000000001", "status": "APPROVED" }
   }
 }
 ```
 
----
+The example shows only some fields of `user`.
 
-### 7.3 `PUT /api/v2/admin/users/:address/reject`
-
-Rejects a user account, setting its status to `REJECTED`. The user will be blocked from signing in.
-
-**Path parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `address` | `string` | Ethereum address of the account to reject |
-
-**Request body:** none
-
-**Response `200`:**
-
-```/dev/null/admin-reject-response.json#L1-7
-{
-  "ok": true,
-  "description": "User status updated to REJECTED",
-  "result": {
-    "user": { "..." : "..." }
-  }
-}
-```
-
----
-
-### 7.4 `PUT /api/v2/admin/users/:address/limits`
-
-Updates the deployment quotas for a specific user.
-
-**Path parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `address` | `string` | Ethereum address of the target user |
-
-**Request body:**
-
-```/dev/null/admin-limits-request.json#L1-4
-{
-  "maxPools":  20,
-  "maxTokens": 50
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `maxPools` | `int` | Yes | New maximum pool deployment count |
-| `maxTokens` | `int` | Yes | New maximum token deployment count |
-
-**Response `200`:**
-
-```/dev/null/admin-limits-response.json#L1-7
-{
-  "ok": true,
-  "description": "User limits updated",
-  "result": {
-    "user": { "..." : "..." }
-  }
-}
-```
-
----
-
-### 7.5 `PUT /api/v2/admin/users/:address/profile`
-
-Corrects another account's identity, contact details, and profile preferences. `PUT /auth/profile` edits only the signed-in account, so this is the operator equivalent; it takes the same body and applies the same validation.
-
-It cannot change status, role or limits — those have their own endpoints.
-
-**Path parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `address` | `string` | Ethereum address of the target user |
-
-**Request body:**
-
-```/dev/null/admin-profile-request.json#L1-8
-{
-  "name":         "Ada Lovelace",
-  "email":        "ada@example.com",
-  "phone":        "+254700000000",
-  "country":      "KE",
-  "preferredCurrency": "KES",
-  "bio":          "Community organiser",
-  "website":      "https://ada.example",
-  "locationName": "Nairobi",
-  "geoLat":       -1.2921,
-  "geoLng":       36.8219
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | `string` | No | Max 80 characters |
-| `email` | `string` | No | Must be a valid address, unique across accounts |
-| `phone` | `string` | No | Unique across accounts |
-| `country` | `string` | No | ISO 3166-1 alpha-2 code |
-| `preferredCurrency` | `string` | No | Built-in or reusable custom Unit of Account, normalized case-insensitively and limited to 32 Unicode characters. The wire field retains its historical name. |
-| `bio` | `string` | No | Max 500 characters. Send `""` to clear. |
-| `website` | `string` | No | HTTP(S) URL. Send `""` to clear. |
-| `locationName` | `string` | No | Max 200 characters |
-| `geoLat` | `number` | No | −90 to 90. Must be sent with `geoLng` |
-| `geoLng` | `number` | No | −180 to 180. Must be sent with `geoLat` |
-
-Omitted location fields preserve the stored values; they are not cleared.
-
-**Response `200`:**
-
-```/dev/null/admin-profile-response.json#L1-7
-{
-  "ok": true,
-  "description": "User profile updated",
-  "result": {
-    "user": { "..." : "..." }
-  }
-}
-```
-
-**Errors:**
+**Errors**
 
 | Status | Code | Cause |
 |---|---|---|
-| `400` | `E04` | Validation failed, including `geoLat` sent without `geoLng` or vice versa |
-| `404` | `E03` | No account at that address |
-| `409` | `E17` / `E18` | `email` or `phone` already belongs to another account |
+| `400` | `E04` | `address` is not a valid address. |
+| `404` | `E07` | No user has this address. |
 
----
+### 15.4 `PUT /api/v2/admin/users/:address/limits`
 
-### 7.6 `GET /api/v2/admin/users/:address/pools`
+**Access:** Superadmin.
 
-The pools an account belongs to, cursor paginated.
+Change the creation limits of an account. The server changes only the fields that you send.
 
-Membership is **derived**, not stored: nothing records a user joining a pool, but the catalog records which vouchers a pool allows, so an account belongs to the pools that allow a voucher it owns. Pool ownership and deployment history are deliberately not part of this.
+**Request body**
 
-**Query parameters:** `perPage`, `cursor`, `next`, as elsewhere.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `maxPools` | integer | No | Pool limit. The value must be from `0` to `2147483647`. |
+| `maxTokens` | integer | No | Voucher limit. The value must be from `0` to `2147483647`. |
+| `maxCatalogs` | integer | No | Catalog limit. The value must be from `0` to `2147483647`. |
+| `maxOffers` | integer | No | Offering limit. The value must be from `0` to `2147483647`. |
 
-**Response `200`:** `{ "pools": [ … ], "first": 42, "last": 17 }` — pool rows in the same shape as [`GET /api/v2/pools`](#10-pool-offerings-get-apiv2poolsaddressofferings).
+A field that is absent or `null` keeps its old value. A body with no fields changes nothing and still returns `200`.
 
----
+```json
+{ "maxPools": 20, "maxTokens": 50 }
+```
 
-### 7.7 `GET /api/v2/admin/users/:address/stats`
+**Response 200**
 
-The figures behind one account.
+The description is `User limits updated`. The result has the key `user`.
 
-**Response `200`:**
+**Errors**
 
-```/dev/null/admin-account-stats.json#L1-12
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A value is negative or above `2147483647`, or `address` is not valid. |
+| `404` | `E07` | No user has this address. |
+
+### 15.5 `PUT /api/v2/admin/users/:address/profile`
+
+**Access:** Superadmin.
+
+Correct the identity, contact details and preferences of another account.
+The route uses the same body, the same validation and the same store call as the self-service profile update (see section 14, Current user).
+The route does not change the status, the role or the limits.
+
+**Request body**
+
+| Field | Type | Description |
+|---|---|---|
+| `username` | string | Optional. The server trims the value. It must have 1 to 80 characters. If you omit it, the account has no username, and `name` is not empty, the server assigns a username. |
+| `name` | string | Maximum 80 characters. |
+| `email` | string | Must be a valid email address. Must be unique across accounts. |
+| `phone` | string | Must be unique across accounts. |
+| `country` | string | Exactly 2 characters when present. |
+| `preferredCurrency` | string | Optional. Maximum 32 characters. See below. |
+| `bio` | string | Optional. Maximum 500 characters. Send `""` to clear. |
+| `website` | string | Optional. Must be an `http` or `https` URL. Send `""` to clear. |
+| `locationName` | string | Optional. Maximum 200 characters. It must not be blank. |
+| `geoLat` | number | Optional. From `-90` to `90`. Send it with `geoLng`. |
+| `geoLng` | number | Optional. From `-180` to `180`. Send it with `geoLat`. |
+| `clearLocation` | boolean | Optional. If `true`, the server clears the location label and the coordinates. |
+| `avatarUrl` | string | Optional. Must be an `http` or `https` URL. |
+| `clearAvatar` | boolean | Optional. If `true`, the server clears the avatar. |
+
+- The fields `name`, `email`, `phone` and `country` are always written. If you omit one, the server writes an empty value. An empty `email` or `phone` becomes null.
+- Send the current values of these four fields when you want to keep them.
+- The fields `username`, `preferredCurrency`, `bio`, `website`, `locationName`, `geoLat`, `geoLng` and `avatarUrl` keep the stored value when you omit them.
+- `preferredCurrency` is a unit of account. The server removes extra spaces. It finds an existing value without regard to case and stores the existing spelling. If no value matches, the server creates a custom unit of account. A blank value is an error.
+- You cannot send `clearLocation` with `locationName`, `geoLat` or `geoLng`.
+- You cannot send `clearAvatar` with `avatarUrl`.
+
+```json
+{
+  "name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "phone": "+254700000000",
+  "country": "KE",
+  "preferredCurrency": "KES",
+  "bio": "Community organiser",
+  "website": "https://example.com",
+  "locationName": "Nairobi",
+  "geoLat": -1.2921,
+  "geoLng": 36.8219
+}
+```
+
+**Response 200**
+
+The description is `User profile updated`. The result has the key `user` with the full row.
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field fails validation. The description is `Validation failed on one or more fields`. |
+| `400` | `E04` | Only one of `geoLat` and `geoLng` is present. The description is `Validation failed: geoLat and geoLng must be provided together`. |
+| `400` | `E04` | A rule between fields fails (`clearLocation`, `clearAvatar`, blank `locationName`, invalid `username`, blank or too long `preferredCurrency`). The description names the rule. |
+| `404` | `E03` | No user has this address. The description is `user not found`. |
+| `409` | `E16` | The username is in use. |
+| `409` | `E17` | The email belongs to another account. |
+| `409` | `E18` | The phone number belongs to another account. |
+
+### 15.6 `GET /api/v2/admin/users/:address/pools`
+
+**Access:** Superadmin.
+
+Return the pools to which an account belongs, with cursor pagination. The server derives the membership. An account belongs to each pool that allows a voucher that the account owns. Pool ownership and deployment history do not count.
+
+**Query parameters:** `perPage`, `cursor`, `next` (see section 15.1).
+
+**Response 200**
+
+The description is `Account pool memberships`. The result has the keys `pools`, `first` and `last`. Each pool has the fields of the catalog pool object in section 15.11.
+
+The `first` and `last` values are pool IDs.
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `address` is not valid. |
+| `400` | `E02` | A pagination parameter has an invalid type. |
+
+### 15.7 `GET /api/v2/admin/users/:address/stats`
+
+**Access:** Superadmin.
+
+Return the counts for one account.
+
+**Response 200**
+
+The description is `Account statistics`.
+
+```json
 {
   "ok": true,
   "description": "Account statistics",
   "result": {
-    "reports":         3,
-    "vouchers":        2,
+    "reports": 3,
+    "vouchers": 2,
     "poolMemberships": 1,
-    "transactions":    118,
-    "swaps":           4,
-    "partners":        9
+    "transactions": 118,
+    "swaps": 4,
+    "partners": 9
   }
 }
 ```
 
 | Field | Source | Description |
 |---|---|---|
-| `reports` | catalog | Approved reports authored by the account |
-| `vouchers` | catalog | Vouchers the account owns that the public catalog can return (active, geolocated) |
-| `poolMemberships` | catalog | Distinct pools allowing a voucher the account owns |
-| `transactions` | federation | Successful transfers sent or received |
-| `swaps` | federation | Successful swaps the account initiated |
-| `partners` | federation | Distinct counterparties across successful transfers, excluding the account itself |
+| `reports` | catalog | Approved posts that the account wrote. |
+| `vouchers` | catalog | Vouchers that the account owns, that are active and have a location. |
+| `poolMemberships` | catalog | Number of different pools that allow a voucher that the account owns. |
+| `transactions` | federation | Number of successful transactions of the account. |
+| `swaps` | federation | Number of successful swaps. |
+| `partners` | federation | Number of different counterparties. |
 
-The three catalog figures use the same visibility rules as the lists they sit beside, so a count and its list never disagree.
+- The three federation fields are `null` when federation is not configured.
+  They are also `null` when the federation read fails. The route still returns `200`.
+- `null` means that the server has no answer. `0` means that the count is zero.
+- The route returns zero counts for an address that has no data. It does not return `404`.
 
-**The three federation figures are `null` when the federation database is not configured or a read fails.** Null rather than zero, deliberately: a caller must be able to tell "none" from "no answer", and a zero reads as the first. The catalog half is still returned in that case.
+**Errors**
 
----
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `address` is not valid. |
 
-### 7.8 `GET /api/v2/admin/tokens`
+### 15.8 `GET /api/v2/admin/tokens`
 
-Lists all confirmed token contracts deployed across all users.
+**Access:** Superadmin.
 
-**Response `200`:**
+Return all confirmed voucher deployments of all users. The list is not paginated. Rows are newest first by `createdAt`. The name is the display name of the voucher when one exists.
 
-```/dev/null/admin-tokens-response.json#L1-7
+**Response 200**
+
+The description is `All deployed tokens`. The result has the key `tokens`.
+
+```json
 {
   "ok": true,
   "description": "All deployed tokens",
   "result": {
-    "tokens": [ { "address": "0x...", "symbol": "MTK", "name": "My Token" } ]
+    "tokens": [
+      {
+        "id": 12,
+        "otxId": 340,
+        "platformContractId": 1,
+        "status": "CONFIRMED",
+        "address": "0x1111111111111111111111111111111111111111",
+        "symbol": "MTK",
+        "name": "My Token",
+        "decimals": 6,
+        "admin": "0x0000000000000000000000000000000000000001",
+        "description": null,
+        "website": null,
+        "email": null,
+        "phone": null,
+        "terms": null,
+        "voucherUoa": null,
+        "voucherValue": null,
+        "locationName": null,
+        "geoLat": null,
+        "geoLng": null,
+        "iconUrl": null,
+        "bannerUrl": null,
+        "markerIcon": null,
+        "markerColor": null,
+        "tags": null,
+        "trackingId": "",
+        "createdAt": "2026-08-12T10:00:00Z",
+        "updatedAt": "2026-08-12T10:00:00Z"
+      }
+    ]
   }
 }
 ```
 
----
+The query for this route fills only these fields: `id`, `otxId`, `platformContractId`, `status`, `address`, `symbol`, `name`, `decimals`, `admin`, `createdAt` and `updatedAt`. The other fields have their zero value: `null` for optional fields and an empty string for `trackingId`.
 
-### 7.9 `GET /api/v2/admin/pools`
+### 15.9 `GET /api/v2/admin/pools`
 
-Lists all confirmed SwapPool contracts deployed across all users.
+**Access:** Superadmin.
 
-**Response `200`:**
+Return all confirmed pool deployments of all users. The list is not paginated. Rows are newest first by `createdAt`.
 
-```/dev/null/admin-pools-response.json#L1-7
+**Response 200**
+
+The description is `All deployed pools`. The result has the key `pools`.
+
+```json
 {
   "ok": true,
   "description": "All deployed pools",
   "result": {
-    "pools": [ { "address": "0x...", "symbol": "MYP", "name": "My Pool" } ]
+    "pools": [
+      {
+        "id": 7,
+        "otxId": 351,
+        "platformContractId": 2,
+        "status": "CONFIRMED",
+        "address": "0x2222222222222222222222222222222222222222",
+        "name": "My Pool",
+        "symbol": "MYP",
+        "decimals": 6,
+        "tokenRegistryAddress": "0x0000000000000000000000000000000000000003",
+        "limiterAddress": "0x0000000000000000000000000000000000000004",
+        "feePolicyAddress": "0x0000000000000000000000000000000000000005",
+        "quoterAddress": "0x0000000000000000000000000000000000000006",
+        "quoterType": "decimal",
+        "protocolFeeControllerAddress": "0x0000000000000000000000000000000000000007",
+        "feesDecoupled": false,
+        "feePpm": null,
+        "feeAddress": null,
+        "admin": "0x0000000000000000000000000000000000000001",
+        "description": null,
+        "unitOfAccount": null,
+        "website": null,
+        "email": null,
+        "phone": null,
+        "terms": null,
+        "locationName": null,
+        "geoLat": null,
+        "geoLng": null,
+        "imageUrl": null,
+        "bannerUrl": null,
+        "tags": null,
+        "trackingId": "",
+        "createdAt": "2026-08-12T10:00:00Z",
+        "updatedAt": "2026-08-12T10:00:00Z"
+      }
+    ]
   }
 }
 ```
 
----
+The route fills these fields: `id`, `otxId`, `platformContractId`, `status`, `address`, `name`, `symbol`, `decimals`, `tokenRegistryAddress`, `limiterAddress`, `feePolicyAddress`, `quoterAddress`, `quoterType`, `protocolFeeControllerAddress`, `feesDecoupled`, `admin`, `imageUrl`, `bannerUrl`, `createdAt` and `updatedAt`. The other fields have their zero value.
 
-### 7.10 `GET /api/v2/admin/deployments`
+This pool object is the deployment record. The catalog pool object in sections 15.6 and 15.11 is different. See section 15.11.
 
-Lists all deployment history entries across all users.
+### 15.10 `GET /api/v2/admin/pools/:address/vouchers`
 
-**Response `200`:**
+**Access:** Superadmin.
 
-```/dev/null/admin-deployments-response.json#L1-7
+Return the vouchers of one pool, with cursor pagination. Unlike the public route `GET /api/v2/pools/:address/vouchers` (see section 8, Pools), this route includes retired vouchers.
+
+**Query parameters:** `perPage`, `cursor`, `next` (see section 15.1).
+
+**Response 200**
+
+The description is `Vouchers in pool <address>`. The `<address>` value is the address from the path as you sent it. The route sends `Cache-Control: no-store`.
+
+| Key | Type | Description |
+|---|---|---|
+| `vouchers` | array | Page of pool vouchers. |
+| `first` | integer | `id` of the first voucher. |
+| `last` | integer | `id` of the last voucher. |
+| `total` | integer | Number of vouchers of the pool, including retired vouchers. It does not depend on the page. |
+
+Fields of a pool voucher:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Voucher ID. |
+| `chainId` | integer | Chain ID. |
+| `address` | string | Voucher address. |
+| `name` | string or null | Name. |
+| `symbol` | string or null | Symbol. |
+| `decimals` | integer or null | Decimals. |
+| `ownerAddress` | string or null | Owner. |
+| `voucherType` | string or null | Voucher type. |
+| `sinkAddress` | string or null | Sink address. |
+| `redemptionAddress` | string or null | Redemption address. |
+| `description` | string or null | Description. |
+| `voucherUoa` | string or null | Unit of account. |
+| `voucherValue` | string or null | Value in the unit of account, as a decimal string. |
+| `locationName` | string or null | Location label. |
+| `geoLat`, `geoLng` | number or null | Coordinates. |
+| `email`, `website`, `phone` | string or null | Contact details. |
+| `iconUrl`, `bannerUrl` | string or null | Image URLs. |
+| `terms` | string or null | Terms. |
+| `contractVersion` | string or null | Contract version. |
+| `active` | boolean | `false` for a retired voucher. |
+| `internal` | boolean | Internal flag of the voucher. |
+| `isAllowed` | boolean | `true` when the pool allows the voucher. |
+| `tokenLimit` | string or null | Pool limit for the voucher. |
+| `syncedAt` | string | RFC 3339 time of the last sync. |
+| `oracleFeedId` | integer or null | Oracle feed ID. |
+| `oracleName` | string or null | Oracle name. |
+| `oracleAddress` | string or null | Oracle address. |
+| `offerCount` | integer | Number of offerings. |
+| `availableOfferCount` | integer | Number of available offerings. |
+| `tags` | array of strings | Tags. |
+| `createdAt`, `updatedAt` | string | RFC 3339 times. |
+
+```json
+{
+  "ok": true,
+  "description": "Vouchers in pool 0x2222222222222222222222222222222222222222",
+  "result": {
+    "vouchers": [
+      {
+        "id": 88,
+        "chainId": 1,
+        "address": "0x1111111111111111111111111111111111111111",
+        "name": "Community Credit",
+        "symbol": "CCR",
+        "active": false,
+        "isAllowed": true,
+        "tags": []
+      }
+    ],
+    "first": 88,
+    "last": 88,
+    "total": 1
+  }
+}
+```
+
+The example shows only some fields of a voucher.
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `address` is not a valid address. |
+
+### 15.11 `PUT /api/v2/admin/pools/:address/profile`
+
+**Access:** Superadmin.
+
+Replace the off-chain record of a pool. The route changes catalog data only. It does not change the name, symbol, decimals or contract addresses, which are facts from the chain. The owner can use `PUT /api/v2/pools/:address/profile` with the same body. See section 8, Pools.
+
+**Request body**
+
+| Field | Type | Description |
+|---|---|---|
+| `displayName` | string | Maximum 80 characters. The server trims the value. Omit it to keep the old value. Send `""` to remove the override. |
+| `description` | string | Maximum 500 characters. |
+| `unitOfAccount` | string | Maximum 32 characters. See below. |
+| `email` | string | Must be a valid email address. |
+| `website` | string | Must be a valid URL. |
+| `phone` | string | No validation. |
+| `terms` | string | Maximum 5000 characters. |
+| `locationName` | string | Maximum 200 characters. |
+| `geoLat` | number | From `-90` to `90`. Send it with `geoLng`. |
+| `geoLng` | number | From `-180` to `180`. Send it with `geoLat`. |
+| `imageUrl` | string | An `http` or `https` URL. Omit it to keep the old value. Send `""` to clear. |
+| `bannerUrl` | string | An `http` or `https` URL. Omit it to keep the old value. Send `""` to clear. |
+| `tags` | array of strings | The new full set of tags. |
+
+- The route assigns the whole record.
+  The fields `description`, `unitOfAccount`, `email`, `website`, `phone`, `terms`, `locationName`, `geoLat`, `geoLng` and `tags` are replaced by the values that you send.
+  If you omit one of these fields, the server clears it.
+  If you omit `tags`, the server removes all tags.
+- Only `displayName`, `imageUrl` and `bannerUrl` keep the old value when you omit them.
+- Each tag is trimmed and has its spaces collapsed.
+  A tag must not be blank, must not have more than 100 characters, and must not contain a comma.
+  Two tags must not be equal without regard to case.
+  The server uses the stored spelling of a tag that exists.
+  A new tag becomes a custom tag with each word capitalized.
+  The server stores the tags in sorted order.
+- `unitOfAccount` works like `preferredCurrency` in section 15.5. An oracle pool is a special case. For an oracle pool, you can omit the field or send the current value. Any other value is an error.
+- The server saves the profile and the tags together. If a tag is not valid, the server saves nothing.
+
+```json
+{
+  "displayName": "My Pool",
+  "description": "Pool for the community",
+  "unitOfAccount": "KES",
+  "locationName": "Nairobi",
+  "geoLat": -1.2921,
+  "geoLng": 36.8219,
+  "tags": ["Food", "Farming"]
+}
+```
+
+**Response 200**
+
+The description is `Pool profile updated`. The result has the key `pool`. The route sends `Cache-Control: no-store`.
+
+The `pool` value is a catalog pool object:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Pool ID. |
+| `chainId` | integer | Chain ID. |
+| `address` | string | Pool address. |
+| `name` | string or null | Display name, or the contract name when there is no override. |
+| `contractName` | string or null | Name from the contract. |
+| `symbol` | string or null | Symbol. |
+| `ownerAddress` | string or null | Owner. |
+| `feePpm` | number or null | Fee in parts per million. |
+| `feeAddress` | string or null | Fee recipient. |
+| `tokenRegistryAddress` | string or null | Token registry address. |
+| `limiterAddress` | string or null | Limiter address. |
+| `quoterAddress` | string or null | Quoter address. |
+| `quoterType` | string or null | `decimal`, `oracle` or `relative`. |
+| `feePolicyAddress` | string or null | Fee policy address. |
+| `protocolFeeControllerAddress` | string or null | Protocol fee controller address. |
+| `feesDecoupled` | boolean or null | Fee mode. |
+| `decimals` | integer or null | Decimals. |
+| `description` | string or null | Description. |
+| `unitOfAccount` | string or null | Unit of account. |
+| `locationName` | string or null | Location label. |
+| `geoLat`, `geoLng` | number or null | Coordinates. |
+| `email`, `website`, `phone` | string or null | Contact details. |
+| `imageUrl`, `bannerUrl` | string or null | Image URLs. |
+| `terms` | string or null | Terms. |
+| `defaultVoucherId` | integer or null | Default voucher. |
+| `platformContractId` | integer or null | Platform contract ID. |
+| `voucherCount` | integer | Number of vouchers. |
+| `tags` | array of strings | Tags. |
+| `createdAt`, `updatedAt` | string | RFC 3339 times. |
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field fails validation. |
+| `400` | `E04` | Only one of `geoLat` and `geoLng` is present. |
+| `400` | `E04` | A tag or the unit of account is not valid. The description names the problem. |
+| `404` | `E03` | The pool does not exist. The description is `pool not found`. |
+| `409` | `E16` | Another pool has the same `displayName`. The description is `a pool with this name already exists`. |
+| `409` | `E16` | The request changes the unit of account of an oracle pool. |
+
+### 15.12 `GET /api/v2/admin/deployments`
+
+**Access:** Superadmin.
+
+Return the deployment history of all users. The list is not paginated. Rows are newest first by `createdAt`.
+
+**Response 200**
+
+The description is `All deployment history`. The result has the key `deployments`.
+
+```json
 {
   "ok": true,
   "description": "All deployment history",
   "result": {
-    "deployments": [ { "trackingId": "...", "resourceType": "TOKEN", "createdAt": "..." } ]
+    "deployments": [
+      {
+        "id": 55,
+        "userId": 4210,
+        "trackingId": "00000000-0000-0000-0000-000000000001",
+        "resourceType": "TOKEN",
+        "createdAt": "2026-08-12T10:00:00Z",
+        "ethereumAddress": "0x0000000000000000000000000000000000000001",
+        "userName": "Ada Lovelace"
+      }
+    ]
   }
 }
 ```
 
----
+### 15.13 `GET /api/v2/admin/vouchers`
 
-### 7.11 `GET /api/v2/admin/dashboard/stats`
+**Access:** Superadmin.
 
-Dashboard aggregates. Mounted on the `/admin/dashboard` group, not mixed with user/token mutations.
+Return the voucher catalog for the console, with cursor pagination.
+The public list `GET /api/v2/vouchers` (see section 7, Vouchers and offerings) shows only active vouchers that have a location.
+This route shows all vouchers.
+Each row has the field `active`.
+This route has no `bbox` parameter.
 
-**Query parameters:**
+**Query parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `q` | string | No | Search term. See section 15.1. |
+| `tags` | string | No | Tag filter. Repeat the parameter or use a comma list. Maximum 12 values. Each value must be in the tag vocabulary. |
+| `tagMatch` | string | No | `any` (default) or `all`. The case does not matter. |
+| `owner` | string | No | Owner address. |
+| `status` | string | No | `all` (default), `active` or `retired`. The case does not matter. |
+| `perPage`, `cursor`, `next` | | No | See section 15.1. |
+
+The route checks the parameters `facets` and `nearby` like the public list. A value other than `true` or `false` is an error. The route then ignores them.
+
+**Response 200**
+
+The description is `Vouchers`. The result has the keys `vouchers`, `first` and `last`.
+
+```json
+{
+  "ok": true,
+  "description": "Vouchers",
+  "result": {
+    "vouchers": [
+      {
+        "id": 88,
+        "chainId": 1,
+        "address": "0x1111111111111111111111111111111111111111",
+        "name": "Community Credit",
+        "symbol": "CCR",
+        "iconUrl": null,
+        "locationName": null,
+        "geoLat": null,
+        "geoLng": null,
+        "kind": "voucher",
+        "active": false
+      }
+    ],
+    "first": 88,
+    "last": 88
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Voucher ID. |
+| `chainId` | integer | Chain ID. |
+| `address` | string | Voucher address. |
+| `name` | string or null | Display name, or the contract name. |
+| `symbol` | string or null | Symbol. |
+| `iconUrl` | string or null | Icon URL. |
+| `locationName` | string or null | Location label. |
+| `geoLat`, `geoLng` | number or null | Coordinates. |
+| `kind` | string | Marker kind that the server derives. |
+| `active` | boolean | `false` for a retired voucher. |
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `q`, `tags`, `tagMatch`, `owner`, `status`, `facets` or `nearby` is not valid. The description names the rule. |
+| `400` | `E04` | `tags` has a value that is not in the tag vocabulary. |
+
+### 15.14 `GET /api/v2/admin/vouchers/:address`
+
+**Access:** Superadmin.
+
+Return one voucher, whatever its visibility. The route has no `active` filter. A `404` means that the catalog does not hold the address.
+
+**Response 200**
+
+The description is `Voucher`. The result has the key `voucher`. The route sends `Cache-Control: no-store`.
+
+The `voucher` object has these fields. The same object is the result of the routes in sections 15.15 and 15.16, except that `active` is absent in section 15.15.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Voucher ID. |
+| `chainId` | integer | Chain ID. |
+| `address` | string | Voucher address. |
+| `name` | string or null | Display name, or the contract name. |
+| `contractName` | string or null | Name from the contract. |
+| `symbol` | string or null | Symbol. |
+| `decimals` | integer or null | Decimals. |
+| `ownerAddress` | string or null | Owner. |
+| `description` | string or null | Description. |
+| `voucherUoa` | string or null | Unit of account. |
+| `voucherValue` | string or null | Value as a decimal string. |
+| `locationName` | string or null | Location label. |
+| `geoLat`, `geoLng` | number or null | Coordinates. |
+| `email`, `website`, `phone` | string or null | Contact details. |
+| `terms` | string or null | Terms. |
+| `iconUrl`, `bannerUrl` | string or null | Image URLs. |
+| `tags` | array of strings | Tags. The array is empty when there are no tags. |
+| `kind` | string | Marker kind that the server derives. |
+| `markerIcon` | string or null | Marker icon. |
+| `markerColor` | string or null | Marker color. |
+| `active` | boolean | `false` for a retired voucher. |
+
+```json
+{
+  "ok": true,
+  "description": "Voucher",
+  "result": {
+    "voucher": {
+      "id": 88,
+      "chainId": 1,
+      "address": "0x1111111111111111111111111111111111111111",
+      "name": "Community Credit",
+      "contractName": "Community Credit",
+      "symbol": "CCR",
+      "decimals": 6,
+      "ownerAddress": "0x0000000000000000000000000000000000000001",
+      "description": null,
+      "voucherUoa": "KES",
+      "voucherValue": "1",
+      "locationName": null,
+      "geoLat": null,
+      "geoLng": null,
+      "email": null,
+      "website": null,
+      "phone": null,
+      "terms": null,
+      "iconUrl": null,
+      "bannerUrl": null,
+      "tags": [],
+      "kind": "voucher",
+      "markerIcon": null,
+      "markerColor": null,
+      "active": false
+    }
+  }
+}
+```
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `address` is not valid. |
+| `404` | `E07` | The catalog does not hold this address. |
+
+### 15.15 `PUT /api/v2/admin/vouchers/:address/profile`
+
+**Access:** Superadmin.
+
+Replace the off-chain record of a voucher.
+The route changes catalog data only.
+It does not change the contract name, symbol, decimals or owner.
+It does not retire or restore the voucher.
+The owner can use `PUT /api/v2/vouchers/:address/profile` with the same body.
+See section 7, Vouchers and offerings.
+
+**Request body**
+
+| Field | Type | Description |
+|---|---|---|
+| `displayName` | string | Maximum 120 characters. Omit it to keep the old value. Send `""` to remove the override. |
+| `description` | string | Maximum 500 characters. |
+| `voucherUoa` | string | Maximum 32 characters. The server handles it like `unitOfAccount` in section 15.11. |
+| `voucherValue` | number | Value in the unit of account. Must be `0` or more. |
+| `email` | string | Must be a valid email address. |
+| `website` | string | Must be a valid URL. |
+| `phone` | string | No validation. |
+| `terms` | string | Maximum 5000 characters. |
+| `locationName` | string | Maximum 200 characters. |
+| `geoLat` | number | From `-90` to `90`. Send it with `geoLng`. |
+| `geoLng` | number | From `-180` to `180`. Send it with `geoLat`. |
+| `iconUrl` | string | An `http` or `https` URL. Omit it to keep the old value. Send `""` to clear. |
+| `bannerUrl` | string | An `http` or `https` URL. Omit it to keep the old value. Send `""` to clear. |
+| `markerIcon` | string | One of `basket`, `hand-coin`, `coupon`, `food`, `farm`, `tools`, `health`, `education`. Omit it to keep the old value. Send `""` to return to the automatic icon. |
+| `markerColor` | string | One of `blue`, `purple`, `orange`, `pink`, `cyan`, `brown`. Omit it to keep the old value. Send `""` to return to the automatic color. |
+| `tags` | array of strings | The new full set of tags. The tag rules are the same as in section 15.11. |
+
+- The route assigns the whole record. The fields `description`, `voucherUoa`, `voucherValue`, `email`, `website`, `phone`, `terms`, `locationName`, `geoLat`, `geoLng` and `tags` are replaced by the values that you send. If you omit one of these fields, the server clears it.
+- Only `displayName`, `iconUrl`, `bannerUrl`, `markerIcon` and `markerColor` keep the old value when you omit them.
+- The server saves the profile and the tags together.
+
+**Response 200**
+
+The description is `Voucher profile updated`. The result has the key `voucher`. The object has the fields in section 15.14 except `active`.
+
+The server reads the voucher back through the public query. This query hides a retired voucher. For a retired voucher, the route returns `404` and the server does not save the change. Use `PUT /api/v2/admin/vouchers/:address/restore` first.
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | A field fails validation. |
+| `400` | `E04` | Only one of `geoLat` and `geoLng` is present. |
+| `400` | `E04` | A tag or the unit of account is not valid. |
+| `404` | `E03` | The voucher does not exist, or the voucher is retired. The description is `voucher not found`. |
+| `409` | `E16` | Another voucher has the same `displayName`. The description is `a voucher with this name already exists`. |
+
+### 15.16 `PUT /api/v2/admin/vouchers/:address/restore`
+
+**Access:** Superadmin.
+
+Return a retired voucher to the public catalog. The route has no owner version. The request has no body.
+
+- The restore must fit the limits of the affected users. If it does not fit, the route returns `429`.
+- If the voucher is already active, the route changes nothing and returns `200`.
+
+**Response 200**
+
+The description is `Voucher restored`. The result has the key `voucher` with the fields in section 15.14. The route sends `Cache-Control: no-store`.
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `address` is not valid. |
+| `404` | `E07` | The catalog does not hold this address. |
+| `429` | `E11` | The restore puts a user over a limit. The response has `result` with `resource` (`vouchers` or `offers`), `used` and `limit`. |
+
+```json
+{
+  "ok": false,
+  "description": "vouchers creation limit reached (6 of 5 used)",
+  "code": "E11",
+  "result": { "resource": "vouchers", "used": 6, "limit": 5 }
+}
+```
+
+### 15.17 `GET /api/v2/admin/vocabulary`
+
+**Access:** Superadmin.
+
+Return all values of the three shared vocabularies: tags, offering units and units of account. The list includes built-in values and custom values. The response is not paginated.
+
+**Response 200**
+
+The description is `Vocabulary`.
+
+```json
+{
+  "ok": true,
+  "description": "Vocabulary",
+  "result": {
+    "tags": [
+      {
+        "value": "Urban Farming",
+        "isCustom": true,
+        "deployedTokens": 0,
+        "deployedPools": 0,
+        "vouchers": 2,
+        "pools": 0,
+        "posts": 1,
+        "offerings": 0,
+        "catalogs": 0
+      }
+    ],
+    "units": [
+      { "value": "Produce Crate", "isCustom": true, "offerings": 4 }
+    ],
+    "unitsOfAccount": [
+      {
+        "value": "Community Credits",
+        "isCustom": true,
+        "profiles": 1,
+        "vouchers": 2,
+        "pools": 1,
+        "voucherDeployments": 2,
+        "poolDeployments": 1,
+        "total": 7
+      }
+    ]
+  }
+}
+```
+
+| Key | Fields |
+|---|---|
+| `tags` | `value`, `isCustom`, and the usage counts `deployedTokens`, `deployedPools`, `vouchers`, `pools`, `posts`, `offerings`, `catalogs`. |
+| `units` | `value`, `isCustom`, and the usage count `offerings`. |
+| `unitsOfAccount` | `value`, `isCustom`, the usage counts `profiles`, `vouchers`, `pools`, `voucherDeployments`, `poolDeployments`, and `total` (the sum of the five counts). |
+
+The usage counts show what a rename or a delete reaches.
+
+### 15.18 `PUT /api/v2/admin/vocabulary/tags` and `PUT /api/v2/admin/vocabulary/units`
+
+**Access:** Superadmin.
+
+Rename a tag or an offering unit. All records that use the value follow the new name.
+
+**Request body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `value` | string | Yes | Current value. The server trims it and finds it without regard to case. |
+| `replacement` | string | Yes | New value. The server removes extra spaces and keeps the case that you send. Maximum 100 characters for a tag and 32 for a unit. A tag must not contain a comma. |
+
+```json
+{ "value": "Urban Farming", "replacement": "Community Gardens" }
+```
+
+- You can use the rename to change only the case of a value, for example `kwh` to `kWh`.
+- You can rename a built-in tag. It stays built-in.
+- You cannot rename a built-in offering unit.
+- You cannot rename a tag that an unfinished voucher or pool deployment uses. This rule does not apply when `replacement` is equal to the current value.
+
+**Response 200**
+
+The description is `Vocabulary value renamed`. The result has the key `value`, which is the stored spelling.
+
+```json
+{
+  "ok": true,
+  "description": "Vocabulary value renamed",
+  "result": { "value": "Community Gardens" }
+}
+```
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | `value` or `replacement` is missing or blank. |
+| `400` | `E04` | `replacement` is too long (`vocabulary value is too long`), or a tag has a comma. |
+| `404` | `E03` | The value does not exist. The description is `vocabulary value not found`. |
+| `409` | `E16` | A value with this name already exists (not case-sensitive). |
+| `409` | `E16` | The value is a built-in offering unit. |
+| `409` | `E16` | An unfinished deployment uses the tag. |
+
+### 15.19 `PUT /api/v2/admin/vocabulary/units-of-account`
+
+**Access:** Superadmin.
+
+Rename a custom unit of account. The new name applies to profiles, vouchers, pools and deployment data. It does not change the stored valuation snapshots of old transfers.
+
+**Request body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `value` | string | Yes | Current value. The server trims it and finds it without regard to case. |
+| `replacement` | string | Yes | New value. Maximum 32 characters. The server removes extra spaces and writes each word with a capital first letter and lower-case other letters. |
+
+**Response 200**
+
+The description is `Unit of account renamed`. The result has the key `value`, which is the stored spelling.
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | `value` or `replacement` is missing or blank. |
+| `400` | `E04` | `replacement` has more than 32 characters. The description is `unit of account must be 32 characters or fewer`. |
+| `404` | `E03` | The value does not exist. |
+| `409` | `E16` | The value is built-in. The description is `built-in units of account cannot be renamed`. |
+| `409` | `E16` | An unfinished deployment uses the value. |
+| `409` | `E16` | A value with this name already exists. |
+
+### 15.20 `POST /api/v2/admin/vocabulary/units-of-account`
+
+**Access:** Superadmin.
+
+Create a custom unit of account. This is the only vocabulary value that has a create route. The server creates tags and offering units when a write names them.
+
+**Request body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `value` | string | Yes | New value. The server removes extra spaces. Maximum 32 characters. |
+
+- If a custom value with this name exists (not case-sensitive), the route does not change anything and returns `201` with the stored spelling.
+- A new value gets the stored spelling with a capital first letter for each word.
+
+**Response 201**
+
+The description is `Custom unit of account created`. The result has the key `value`.
+
+```json
+{
+  "ok": true,
+  "description": "Custom unit of account created",
+  "result": { "value": "Community Credits" }
+}
+```
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | `value` is missing, blank, or longer than 32 characters. |
+| `409` | `E16` | The value exists as a built-in value. The description is `unit of account already exists as a built-in value`. |
+
+### 15.21 `DELETE /api/v2/admin/vocabulary/tags` and `DELETE /api/v2/admin/vocabulary/units`
+
+**Access:** Superadmin.
+
+Delete a custom tag or a custom offering unit. The value is in the JSON body, not in the path.
+
+**Request body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `value` | string | Yes | Value to delete. The server trims it and finds it without regard to case. |
+
+```json
+{ "value": "Urban Farming" }
+```
+
+- You cannot delete a built-in value.
+- Deleting a tag removes it from all vouchers, pools, posts, offerings, catalogs and deployment data that use it. The records stay.
+- Deleting an offering unit sets the unit to null on all offerings that use it. The offerings stay.
+- The delete does not block the value. A later write that names the value creates it again.
+
+**Response 200**
+
+The description is `Custom vocabulary value deleted`. The result has the keys `value`, `usage` and `total`.
+
+For a tag, `usage` has the counts `deployedTokens`, `deployedPools`, `vouchers`, `pools`, `posts`, `offerings` and `catalogs`. `total` is the sum of the counts.
+
+```json
+{
+  "ok": true,
+  "description": "Custom vocabulary value deleted",
+  "result": {
+    "value": "Urban Farming",
+    "usage": {
+      "deployedTokens": 0,
+      "deployedPools": 0,
+      "vouchers": 2,
+      "pools": 0,
+      "posts": 1,
+      "offerings": 0,
+      "catalogs": 0
+    },
+    "total": 3
+  }
+}
+```
+
+For an offering unit, `usage` has the count `offerings`. `total` is equal to `offerings`.
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | `value` is missing or blank. |
+| `404` | `E03` | The value does not exist. The description is `vocabulary value not found`. |
+| `409` | `E16` | The value is built-in. The description is `built-in vocabulary values cannot be deleted`. |
+
+### 15.22 `DELETE /api/v2/admin/vocabulary/units-of-account`
+
+**Access:** Superadmin.
+
+Delete a custom unit of account. The route deletes the value only when no record uses it.
+
+**Request body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `value` | string | Yes | Value to delete. The server trims it and finds it without regard to case. |
+
+**Response 200**
+
+The description is `Custom unit of account deleted`. The result has the keys `value`, `usage` and `total`. `usage` has the counts `profiles`, `vouchers`, `pools`, `voucherDeployments` and `poolDeployments`. All five counts are `0` after a successful delete. `total` is the sum.
+
+```json
+{
+  "ok": true,
+  "description": "Custom unit of account deleted",
+  "result": {
+    "value": "Community Credits",
+    "usage": {
+      "profiles": 0,
+      "vouchers": 0,
+      "pools": 0,
+      "voucherDeployments": 0,
+      "poolDeployments": 0
+    },
+    "total": 0
+  }
+}
+```
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E02` | The body is not valid JSON. |
+| `400` | `E04` | `value` is missing or blank. |
+| `404` | `E03` | The value does not exist. |
+| `409` | `E16` | The value is built-in (`built-in units of account cannot be deleted`). |
+| `409` | `E16` | An unfinished deployment uses the value. |
+| `409` | `E16` | A record still uses the value (`unit of account is still in use`). |
+
+### 15.23 `GET /api/v2/admin/review-notifications`
+
+**Access:** Superadmin.
+
+Return the open flags on voucher reviews. An owner of a voucher makes a flag with `POST /api/v2/vouchers/:address/reviews/:id/flag`. The list shows flags that nobody has resolved. Rows are newest first. A page has at most 20 rows.
+
+**Query parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `before` | integer | No | Return flags with an `id` below this value. Use `next` from the previous response. |
+
+**Response 200**
+
+This route does not send a `description`. The route sends `Cache-Control: no-store`.
+
+| Key | Type | Description |
+|---|---|---|
+| `notifications` | array | Open flags. |
+| `next` | integer or null | Value for `before` that returns the next page. The value is `null` when there are no more rows. |
+
+| Field of a notification | Type | Description |
+|---|---|---|
+| `id` | integer | Flag ID. Use this ID in section 15.24. |
+| `reviewId` | integer | Review ID. |
+| `voucherAddress` | string | Voucher address. |
+| `reason` | string | Reason from the owner. |
+| `stars` | integer | Current stars of the review. |
+| `comment` | string | Current comment of the review. |
+| `reportedStars` | integer | Stars when the owner made the flag. |
+| `reportedComment` | string | Comment when the owner made the flag. |
+| `createdAt` | string | RFC 3339 time. |
+
+```json
+{
+  "ok": true,
+  "result": {
+    "notifications": [
+      {
+        "id": 31,
+        "reviewId": 12,
+        "voucherAddress": "0x1111111111111111111111111111111111111111",
+        "reason": "Abusive language",
+        "stars": 1,
+        "comment": "Bad comment",
+        "reportedStars": 1,
+        "reportedComment": "Bad comment",
+        "createdAt": "2026-08-12T10:00:00Z"
+      }
+    ],
+    "next": null
+  }
+}
+```
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | none | `before` is not a valid number. The description is `invalid notification cursor`. The `code` field is empty. |
+
+### 15.24 `PUT /api/v2/admin/review-notifications/:id`
+
+**Access:** Superadmin.
+
+Resolve a flag on a review.
+
+**Path parameters**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `range` | `string` | `5m`, `15m`, `30m`, `1h`, `6h`, `1d` (default), or `custom` |
-| `since` | `string` | RFC3339 start, required when `range=custom` |
-| `until` | `string` | RFC3339 end, required when `range=custom` |
+| `id` | integer | Flag ID. It must be above `0`. |
 
-`pools`, `vouchers`, and `accounts` are lifetime catalog stock. `reports` and `transactions` are counts inside the requested window. Two series feed the charts: catalog creations, and `chain_data_v2.tx` envelopes. `transactions` is `null` when federation is down.
+**Request body**
 
-### 7.12 `GET /api/v2/admin/dashboard/transactions`
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `hide` hides the review. `dismiss` keeps the review visible. |
 
-Latest indexed envelopes from `chain_data_v2.tx`, classified from live event tables. Cursor pagination matches the catalog (`perPage`, `cursor`, `next`).
+```json
+{ "action": "hide" }
+```
+
+In both cases the server marks all open flags of the review as resolved. It records the address of the caller.
+
+**Response 200**
+
+This route does not send a `description`. The route sends `Cache-Control: no-store`.
+
+```json
+{ "ok": true, "result": { "saved": true } }
+```
+
+**Errors**
+
+These errors have an empty `code` field.
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | none | `id` is not a positive integer. The description is `invalid notification ID`. |
+| `400` | none | `action` is not `hide` or `dismiss`. The description is `action must be hide or dismiss`. |
+| `400` | `E02` | The body is not valid JSON. |
+| `404` | none | The flag does not exist, or it is already resolved. The description is `review or voucher not found, or action is no longer available`. |
+
+### 15.25 `GET /api/v2/admin/reports`
+
+**Access:** Superadmin.
+
+Return posts in all statuses from all authors. The public list `GET /api/v2/reports` (see section 10, Posts) returns approved posts only.
+
+This list does not use the ID cursor of section 15.1. It orders posts by `updatedAt`, newest first, with `id` as the tie-breaker. The cursor has two parts.
+
+**Query parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `perPage` | integer | `20` | Page size. The maximum is `100`. A value of `0` becomes `20`. A value above `100` becomes `100`. A value that is not a non-negative integer returns `400`. |
+| `cursorUpdatedAt` | string | none | `updatedAt` of the cursor row, in RFC 3339 format. |
+| `cursorId` | integer | none | `id` of the cursor row. You must send it with `cursorUpdatedAt`. |
+| `next` | boolean | see below | Direction from the cursor. |
+| `status` | string | all | `DRAFT`, `SUBMITTED`, `APPROVED` or `REJECTED`. The case does not matter. There is no value for all statuses. Omit the parameter. |
+| `author` | string | all | Author address. The match is exact and not case-sensitive. |
+| `q` | string | none | Search term. See section 15.1. |
+| `tags` | string | none | Tag filter. Repeat the parameter or use a comma list. Maximum 12 values. Each value must be in the tag vocabulary. |
+| `tagMatch` | string | `any` | `any` or `all`. |
+| `vouchers` | string | none | Voucher filter. A list of `chainId:address` values, with commas or repeated parameters. Maximum 12 values. Each voucher must exist in the catalog. |
+| `voucherMatch` | string | `any` | `any` or `all`. |
+
+- If you omit `next` and send a cursor, the route returns the next page. These posts are older.
+- `next=true` also returns older posts. `next=false` returns newer posts. You must send a cursor with `next`.
+- To get the next page, send the `last` cursor of the response. To get the previous page, send the `first` cursor with `next=false`.
+- The route also reads `facets` and `nearby` with the same checks as the public list. The route ignores them.
+
+**Response 200**
+
+The description is `Reports`. The route sends `Cache-Control: no-store`.
+
+| Key | Type | Description |
+|---|---|---|
+| `reports` | array | Page of post summaries. |
+| `first` | object or null | Cursor of the first post: `updatedAt` and `id`. The value is `null` for an empty page. |
+| `last` | object or null | Cursor of the last post. The value is `null` for an empty page. |
+
+A post summary has these fields: `id`, `title`, `description`, `imageUrl`, `geoLat`, `geoLng`, `periodFrom`, `periodTo`, `authorAddress`, `status`, `createdAt`, `updatedAt`, `tags` and `vouchers`. Each item of `vouchers` has `id`, `chainId`, `address`, `name` and `symbol`. The detail route in section 15.26 returns more fields.
+
+```json
+{
+  "ok": true,
+  "description": "Reports",
+  "result": {
+    "reports": [
+      {
+        "id": 4633,
+        "title": "Market day",
+        "description": "Short text",
+        "imageUrl": null,
+        "geoLat": null,
+        "geoLng": null,
+        "periodFrom": null,
+        "periodTo": null,
+        "authorAddress": "0x0000000000000000000000000000000000000001",
+        "status": "APPROVED",
+        "createdAt": "2026-08-12T10:00:00Z",
+        "updatedAt": "2026-08-12T10:00:00Z",
+        "tags": ["Food"],
+        "vouchers": []
+      }
+    ],
+    "first": { "updatedAt": "2026-08-12T10:00:00Z", "id": 4633 },
+    "last": { "updatedAt": "2026-08-12T10:00:00Z", "id": 4633 }
+  }
+}
+```
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `perPage` is not a non-negative integer. |
+| `400` | `E04` | The cursor is not valid. The description is one of: `cursorUpdatedAt and cursorId must be sent together`, `cursorUpdatedAt must be an RFC3339 timestamp`, `cursorId must be a positive integer`. |
+| `400` | `E04` | `next` is not `true` or `false`, or `next` has no cursor. |
+| `400` | `E04` | `status` is not valid. The description is `status must be one of DRAFT, SUBMITTED, APPROVED, REJECTED`. |
+| `400` | `E04` | `author` is not a valid address. |
+| `400` | `E04` | `q`, `tags`, `tagMatch`, `vouchers` or `voucherMatch` is not valid, or a tag or voucher does not exist. |
+
+### 15.26 `GET /api/v2/admin/reports/:id`
+
+**Access:** Superadmin.
+
+Return one complete post in any status.
+
+**Path parameters**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `perPage` | `number` | Page size, default/max 100 |
-| `cursor` | `number` | Event or envelope id bound |
-| `next` | `boolean` | `true` pages forward (lower ids), `false` pages back |
-| `type` | `string` | `transfer`, `swap`, `mint`, `burn`, `deposit`, `faucet` |
-| `voucher` | `string` | Token or pool `0x` address (`contract_address`) |
+| `id` | integer | Post ID. It must be above `0`. |
 
-**Response `200`:**
+**Response 200**
+
+The description is `Report`. The result has the key `report`. The route sends `Cache-Control: no-store`.
+
+The `report` object has the fields of a post summary (section 15.25) and these fields. A field is absent when it has no value.
+
+| Field | Type | Description |
+|---|---|---|
+| `body` | string | Text in Markdown. |
+| `hostName` | string | Host name from the field report form. |
+| `participants` | string | Participants from the form. |
+| `timeTaken` | string | Time taken from the form. |
+| `images` | array | Images. Each item has `url`, `width`, `height`, `maxWidth`, `maxHeight`, `byteSize` and `caption`. |
+| `attachments` | array | Other media. Each item has `kind` (`FILE` or `EMBED`), `url`, `filename` and `byteSize`. |
+
+**Errors**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `id` is not a positive integer. |
+| `404` | `E03` | The post does not exist. The description is `report not found`. |
+
+### 15.27 `GET /api/v2/admin/dashboard/stats`
+
+**Access:** Superadmin.
+
+Return the totals and the time series for the console dashboard.
+
+**Query parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `range` | string | `1d` | `5m`, `15m`, `30m`, `1h`, `6h`, `1d` or `custom`. The window ends now. |
+| `since` | string | none | Start of a custom window, in RFC 3339 format. |
+| `until` | string | none | End of a custom window, in RFC 3339 format. |
+
+- If you send `since` or `until`, or `range=custom`, the route uses a custom window. You must then send both values.
+- In a custom window, `until` must be after `since`. The window must be at least 1 minute and at most 90 days.
+- The server picks the bucket size of the series from the length of the window.
+
+| Window length | Bucket size |
+|---|---|
+| up to 5 minutes | 30 seconds |
+| up to 15 minutes | 1 minute |
+| up to 30 minutes | 2 minutes |
+| up to 1 hour | 5 minutes |
+| up to 6 hours | 15 minutes |
+| up to 24 hours | 1 hour |
+| up to 7 days | 6 hours |
+| more than 7 days | 24 hours |
+
+**Response 200**
+
+The description is `Admin dashboard totals`.
 
 ```json
 {
   "ok": true,
   "description": "Admin dashboard totals",
   "result": {
-    "range": { "preset": "1d", "since": "2026-08-12T00:00:00Z", "until": "2026-08-13T00:00:00Z", "bucket": "1h" },
+    "range": {
+      "preset": "1d",
+      "since": "2026-08-12T00:00:00Z",
+      "until": "2026-08-13T00:00:00Z",
+      "bucket": "1h"
+    },
     "pools": 42,
     "vouchers": 2192,
     "accounts": 310,
@@ -1728,1290 +6202,354 @@ Latest indexed envelopes from `chain_data_v2.tx`, classified from live event tab
 }
 ```
 
----
+| Field | Description |
+|---|---|
+| `range.preset` | The `range` value, or `custom`. |
+| `range.since`, `range.until` | Window limits in UTC, RFC 3339. |
+| `range.bucket` | Bucket size, for example `30s`, `5m`, `1h` or `1d`. |
+| `pools` | Number of all pools in the catalog. It does not depend on the window. |
+| `vouchers` | Number of all vouchers in the catalog. It does not depend on the window. |
+| `accounts` | Number of all accounts. It does not depend on the window. |
+| `reports` | Number of approved posts created in the window. |
+| `transactions` | Number of transactions in the window. It is the sum of `transactionSeries`. |
+| `catalogSeries` | One item for each bucket: `t`, and the numbers of `reports`, `vouchers` and `pools` created in the bucket. |
+| `transactionSeries` | One item for each bucket: `t` and `transactions`. The array is empty when federation is not available. |
 
-### 7.13 `GET /api/v2/admin/vouchers`
+`transactions` is `null` when federation is not configured or when its read fails.
+The federation read stops after 8 seconds.
+The route still returns `200` with the catalog data.
 
-The console's voucher catalog. Same `q`, `tags`, `tagMatch` and `owner`
-parameters as the public list in [section 9](#9-public-market-catalog-get-apiv2vouchers),
-and the same cursor pagination (`perPage` default/max 100, `cursor`, `next`).
+**Errors**
 
-It differs from the public list in exactly two ways, and both are the point:
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `range` is not one of the listed values. The description is `unknown range "<value>"; use 5m,15m,30m,1h,6h,1d,custom`. |
+| `400` | `E04` | A custom window has only one of `since` and `until`. The description is `custom range requires since and until (RFC3339)`. |
+| `400` | `E04` | `since` or `until` is not in RFC 3339 format. |
+| `400` | `E04` | `until` is not after `since`, the window is shorter than 1 minute, or the window is longer than 90 days. |
 
-- **No visibility gate.** The public list filters `active` vouchers with
-  complete coordinates. This one filters neither, so retired and ungeolocated
-  vouchers are reachable. Each row carries `active` so the console can render
-  status.
-- **No `bbox`.** The console lists rather than maps, and a viewport filter would
-  silently exclude the very rows this endpoint exists to reach.
+There is no route `GET /api/v2/admin/dashboard/transactions`. Use the routes in sections 15.28 and 15.29.
 
-| Parameter | Type | Default | Description |
+### 15.28 `GET /api/v2/admin/transactions/vouchers` and `GET /api/v2/admin/transactions/pools`
+
+**Access:** Superadmin.
+
+Return events from federation, with cursor pagination.
+`vouchers` returns the movements of vouchers. `pools` returns the operations of pools.
+
+**Query parameters**
+
+| Parameter | Type | Required | Description |
 |---|---|---|---|
-| `status` | `string` | `all` | `all`, `active`, or `retired` (case-insensitive). An unrecognised value is `400 E04`, never a silently widened page |
+| `type` | string | No | Event type. The case does not matter. For `vouchers`: `transfer`, `mint` or `burn`. For `pools`: `swap` or `deposit`. |
+| `voucher` | string | No | Voucher address. Only for `vouchers`. |
+| `pool` | string | No | Pool address. Only for `pools`. |
+| `q` | string | No | Search term. See section 15.1. The server searches the transaction hash and the addresses of the event. |
+| `perPage`, `cursor`, `next` | | No | See section 15.1. |
 
-Responses are `Cache-Control: no-store`. The public market responses are
-cacheable because they are identical for every caller; this one is scoped to a
-role and must never be served to anyone else.
+**Response 200**
 
-### 7.14 `GET /api/v2/admin/vouchers/:address`
+The description is `Voucher transactions` or `Pool transactions`.
+The result has the keys `transactions`, `first` and `last`.
+Rows are in chain order, newest first.
+The `id` of a row is a packed number of the transaction and the log index.
+Use it only as a cursor.
 
-One voucher whatever its visibility. The projection is
-[9.6](#96-voucher-detail-get-apiv2vouchersaddress)'s plus `active`, and there is
-no `active` predicate: `404` means the catalog does not hold the address, not
-that the voucher is retired.
+Fields of a voucher transaction:
 
-This route is why retiring is reversible at all. Without it, retiring a voucher
-would also remove the only screen an operator could restore it from.
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Cursor value. |
+| `txId` | integer | Transaction ID. |
+| `logIndex` | integer | Index of the event in the transaction. |
+| `txHash` | string | Transaction hash. |
+| `t` | string | Time of the block, RFC 3339. |
+| `success` | boolean | `true` if the transaction succeeded. |
+| `type` | string | `transfer`, `mint` or `burn`. |
+| `voucher` | string | Voucher address. |
+| `voucherName` | string | Name from the local catalog. An empty string if the catalog does not know the voucher. |
+| `voucherSymbol` | string | Symbol from the local catalog. An empty string if the catalog does not know the voucher. |
+| `voucherDecimals` | integer or null | Decimals from the catalog. `null` if the catalog has no value. |
+| `from` | string | Sender. For a mint, the minter. For a burn, the account that burns. |
+| `to` | string or null | Recipient. `null` for a burn. |
+| `amount` | string | Amount in the smallest unit, as a decimal string. |
 
-### 7.15 `PUT /api/v2/admin/vouchers/:address/restore`
+Fields of a pool transaction:
 
-Returns a retired voucher to the public catalog. `SUPERADMIN`-only and no
-request body. Success is `200 OK` with description `Voucher restored` and the
-restored row under `result.voucher`.
+| Field | Type | Description |
+|---|---|---|
+| `id`, `txId`, `logIndex`, `txHash`, `t`, `success` | | Same as for a voucher transaction. |
+| `type` | string | `swap` or `deposit`. |
+| `pool` | string | Pool address. |
+| `initiator` | string | Account that sent the transaction. |
+| `tokenIn` | string | Voucher that goes in. |
+| `tokenInSymbol` | string | Symbol from the catalog. An empty string if unknown. |
+| `tokenInDecimals` | integer or null | Decimals from the catalog. |
+| `amountIn` | string | Amount in. |
+| `tokenOut` | string or null | Voucher that comes out. `null` for a deposit. |
+| `tokenOutSymbol` | string | Symbol from the catalog. An empty string if unknown or for a deposit. |
+| `tokenOutDecimals` | integer or null | Decimals from the catalog. |
+| `amountOut` | string or null | Amount out. `null` for a deposit. |
+| `fee` | string or null | Fee, in `tokenOut`, without the protocol fee. `null` for a deposit. |
 
-Deliberately not the mirror image of
-[9.8](#98-retire-a-voucher-delete-apiv2vouchersaddress): an owner may take their
-own voucher out of circulation, but putting one back is an operator decision, so
-there is no owner-facing route and no toggle an owner can flip back and forth.
-
-Restoring an already-active voucher is idempotent in state and still `200`. It
-is not an error — the caller asked for a state the row is already in, and a
-`409` would make the console handle a case with no user-visible difference.
-
----
-
-## 8. SIWE Message Construction
-
-The following is a client-side example using the [`siwe`](https://www.npmjs.com/package/siwe) JavaScript library. This pattern applies to `/auth/signup`, `/auth/signin`, and `/auth/siwe/verify`.
-
-```/dev/null/siwe-example.js#L1-24
-import { SiweMessage } from 'siwe';
-
-// Step 1: Fetch a one-time nonce from the server
-const nonceRes = await fetch('/auth/nonce', { method: 'POST', credentials: 'include' });
-const { result: { nonce } } = await nonceRes.json();
-
-// Step 2: Build the EIP-4361 message
-const message = new SiweMessage({
-  domain:    window.location.host,
-  address:   walletAddress,   // must be checksummed (EIP-55)
-  statement: 'Sign in to CLC',
-  uri:       window.location.origin,
-  version:   '1',
-  chainId:   42220,           // Celo Mainnet
-  nonce,
-}).prepareMessage();
-
-// Step 3: Sign with the connected wallet
-const signature = await signer.signMessage(message);
-
-// Step 4: Submit to /auth/signin (or /auth/siwe/verify for unified auth)
-await fetch('/auth/signin', {
-  method:      'POST',
-  headers:     { 'Content-Type': 'application/json' },
-  body:        JSON.stringify({ message, signature }),
-  credentials: 'include',   // required so the browser stores the __clc_auth cookie
-});
-```
-
-> **Note on `credentials: 'include'`:** Calls to `/auth/*` and protected
-> `/api/v2/*` routes must include credentials so the browser sends and stores
-> the `__clc_auth` HttpOnly cookie cross-origin. The public market routes in
-> [section 9](#9-public-market-catalog-get-apiv2vouchers) do not use the cookie
-> and may explicitly send `credentials: 'omit'`.
-
-For a full Reown AppKit (formerly WalletConnect) integration example, including the `siweConfig` adapter and sign-up flow, see [`docs/AUTH.md`](./AUTH.md).
-
----
-
-## 9. Public Market Catalog (`GET /api/v2/vouchers`)
-
-These are the only public routes under `/api/v2`. They back the Market
-experience, which is browsable by signed-out visitors. Sending the
-`__clc_auth` cookie is harmless but changes nothing: a guest and a signed-in
-user receive byte-identical responses.
-
-The list route returns active, geolocated voucher summaries with a
-backend-derived marker kind. Per-voucher detail — contact details, images, and
-unit of account — lives in [section 9.6](#96-voucher-detail-get-apiv2vouchersaddress);
-its available offerings live in
-[section 9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
-
-### 9.1 Request
-
-```http
-GET /api/v2/vouchers?perPage=500
-GET /api/v2/vouchers?perPage=500&cursor=2212&next=true
-GET /api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1
-```
-
-| Parameter | Type | Default | Notes |
-|---|---|---|---|
-| `perPage` | integer | `500` | **Endpoint exception:** default *and* maximum are 500, not the 100 used by every other catalog route. `0` or any value above 500 resolves to 500. |
-| `cursor` | integer | – | A voucher `id` from a previous response's `first` / `last`. |
-| `next` | boolean | `false` | `true` pages forward (`id < cursor`); `false` with a cursor pages backward (`id > cursor`). |
-| `bbox` | string | – | Optional `minLng,minLat,maxLng,maxLat` viewport filter. |
-| `owner` | string | – | Only vouchers owned by this address. Compared case-insensitively; a malformed address is a `400`. |
-
-**Pagination** uses descending `id` keyset paging. Requests without a cursor
-return the newest IDs first. Responses always carry `first` and `last` as JSON
-numbers; an empty page returns `"vouchers": []`, `"first": 0`, `"last": 0` —
-never `null` and never omitted.
-
-**`bbox` validation.** All four values must be finite and comma-separated, with
-`-180 <= lng <= 180`, `-90 <= lat <= 90`, `minLng <= maxLng`, and
-`minLat <= maxLat`. A single box therefore **cannot cross the antimeridian**; a
-client whose viewport does must issue two requests (`[-180, east]` and
-`[west, 180]`) and merge them by `id`. Malformed, out-of-range, or inverted
-values return `400` with code `E04` (validation failed).
-
-`bbox` composes with the cursor, but a caller **must keep one bbox fixed while
-traversing its pages** — changing it mid-traversal produces an inconsistent set.
-
-### 9.2 Response
-
-```/dev/null/vouchers.json#L1-20
+```json
 {
   "ok": true,
-  "description": "Market vouchers",
+  "description": "Voucher transactions",
   "result": {
-    "vouchers": [
+    "transactions": [
       {
-        "id": 2710,
-        "chainId": 42220,
-        "address": "0x0000000000000000000000000000000000000000",
-        "name": "Priscilah Malii",
-        "symbol": "VOUCHER",
-        "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
-        "locationName": "C96, KEN",
-        "geoLat": -1.450979,
-        "geoLng": 38.235115,
-        "kind": "voucher",
-        "markerIcon": null,
-        "markerColor": null
+        "id": 905000003,
+        "txId": 905,
+        "logIndex": 3,
+        "txHash": "0x00000000000000000000000000000000000000000000000000000000000000a1",
+        "t": "2026-08-12T10:00:00Z",
+        "success": true,
+        "type": "transfer",
+        "voucher": "0x1111111111111111111111111111111111111111",
+        "voucherName": "Community Credit",
+        "voucherSymbol": "CCR",
+        "voucherDecimals": 6,
+        "from": "0x0000000000000000000000000000000000000001",
+        "to": "0x0000000000000000000000000000000000000002",
+        "amount": "1000000"
       }
     ],
-    "first": 2710,
-    "last": 2212
+    "first": 905000003,
+    "last": 905000003
   }
 }
 ```
 
-| Field | Type | Notes |
+**Errors**
+
+| Status | Code | Cause |
 |---|---|---|
-| `id` | integer | Database ID. Doubles as the pagination cursor and stable map feature identity. |
-| `chainId` | integer | Settlement chain, `42220` for Celo mainnet. |
-| `address` | string | Contract address, preserved in its stored EIP-55 checksummed form. Never lowercased by the API. |
-| `name` | string \| null | |
-| `symbol` | string \| null | |
-| `iconUrl` | string \| null | Profile image used by list rows. Clients must provide a fallback. |
-| `locationName` | string \| null | Free-text place label from the import. |
-| `geoLat` | number | Never null — rows without complete coordinates are excluded. |
-| `geoLng` | number | Never null. |
-| `kind` | string | Always `"voucher"`. |
-| `markerIcon` | string \| null | The issuer's map marker glyph, from the `voucher_marker_icon` lookup. `null` means automatic: draw it from `kind`. A client must treat a value it does not recognise as `null`. |
-| `markerColor` | string \| null | The issuer's map marker colour, from `voucher_marker_color`. Same rules as `markerIcon`, and independent of it. |
+| `400` | `E04` | `type` is not valid. The description is `unknown type; use ` followed by the list of values. |
+| `400` | `E04` | `voucher` or `pool` is not a valid address. The description is `voucher must be a valid hex address` or `pool must be a valid hex address`. |
+| `400` | `E04` | `q` is not valid. |
+| `503` | none | Federation is not configured. The description is `Federation is not configured`. The `code` field is empty. |
 
-**Included rows.** Only vouchers that are `active` **and** have complete
-coordinates. There is no `internal` predicate: `internal` is an import
-artifact, not a visibility or product-policy flag, and it is not exposed in
-this contract. See `MIGRATION.md` §4.7.
+### 15.29 `GET /api/v2/admin/transactions/otx`
 
-**`kind`.** Always `voucher`. Offerings no longer have a goods/services
-classification. A generic voucher may have available offerings; clients must
-read its offerings endpoint instead of treating the kind as an empty-state flag.
+**Access:** Superadmin.
 
-**No distance field.** Distance is relative to optional browser geolocation and
-is presentation state, not catalog state. It is never calculated server-side.
+Return the origin transactions that this service signed, with cursor pagination.
+The route reads only local data. It works when federation is not available.
+An origin transaction with the status `REVERTED` is not the same as a reverted transfer on the chain.
 
-`iconUrl` is included because the catalog backs the default list view. Larger
-profile fields remain on
-[voucher detail](#96-voucher-detail-get-apiv2vouchersaddress).
+**Query parameters**
 
-### 9.3 Caching
-
-```http
-Cache-Control: public, max-age=60, stale-while-revalidate=300
-Vary: Origin
-```
-
-Successful `200` representations never vary by authorization or cookie, so
-they are publicly cacheable. Validation and server errors do not carry this
-cache policy. `Origin` is **merged** into any existing `Vary` rather than
-replacing it; the global CORS policy sets `AllowCredentials: true`, which makes
-origin variance mandatory even though this client sends no credentials.
-
-### 9.4 Rate limiting
-
-Because the routes have no authentication to fall back on, they carry a
-per-client-IP token bucket shared by all three public routes: **60 requests per
-minute sustained, burst 40**. Exceeding it returns `429 Too Many Requests` with
-a `Retry-After` header in whole seconds, calculated from the next available
-token.
-
-The burst is sized from how the Market tab actually opens: five catalog pages,
-a bounded viewport bootstrap, then detail and offerings requests for selected
-vouchers. Voucher-only rows skip the offerings request, so 40 still leaves
-headroom for a run of selections immediately after load.
-
-```/dev/null/rate-limited.json#L1-5
-{
-  "ok": false,
-  "description": "rate limit exceeded, retry later",
-  "code": "E11"
-}
-```
-
-The client key is the **direct peer address**. `X-Forwarded-For` is honoured
-only when `api.trust_proxy` is enabled, which must be set only where the
-service is reachable exclusively through the Caddy proxy network; otherwise any
-caller could forge the header and spend another client's budget. When trusted,
-the **rightmost** entry is used, since that is the address the proxy actually
-observed.
-
-The limiter's client registry is bounded and idle entries are swept
-periodically, so forged source addresses cannot grow it without bound.
-
-> This limit assumes the current single API replica. If the service is scaled
-> horizontally, move the limit to a shared edge or distributed limiter rather
-> than multiplying the allowance per replica.
-
-### 9.5 Examples
-
-First page:
-
-```sh
-curl -s 'https://<host>/api/v2/vouchers?perPage=500'
-```
-
-Next page, using the previous response's `last`:
-
-```sh
-curl -s 'https://<host>/api/v2/vouchers?perPage=500&cursor=2212&next=true'
-```
-
-Bounded to a Nairobi-sized viewport:
-
-```sh
-curl -s 'https://<host>/api/v2/vouchers?perPage=500&bbox=36.6,-1.5,37.1,-1.1'
-```
-
-### 9.6 Voucher detail (`GET /api/v2/vouchers/:address`)
-
-Public for the same reason as the list: a shared voucher link must open for a
-signed-out visitor. It backs both the map's selection card and the voucher page.
-
-```http
-GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7
-```
-
-`:address` must be a valid hex address; anything else returns `400` with code
-`E04` before the database is touched. Lookup is **case-insensitive**, so a
-lowercased pasted link resolves, but the response echoes the stored EIP-55
-checksummed form.
-
-```/dev/null/voucher.json#L1-27
-{
-  "ok": true,
-  "description": "Market voucher",
-  "result": {
-    "voucher": {
-      "id": 2710,
-      "chainId": 42220,
-      "address": "0x0001423EC38205B125e7340aa37F4D19276e3aB7",
-      "name": "Priscilah Malii",
-      "symbol": "MALII",
-      "decimals": 6,
-      "ownerAddress": "0xDeF0000000000000000000000000000000000456",
-      "description": "Community voucher",
-      "voucherUoa": "KSH",
-      "voucherValue": "10",
-      "locationName": "C96, KEN",
-      "geoLat": -1.450979,
-      "geoLng": 38.235115,
-      "email": "issuer@example.org",
-      "website": "https://example.org",
-      "phone": "+254700000000",
-      "iconUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
-      "bannerUrl": "https://content.sarafu.network/voucher/<hash>.jpg",
-      "kind": "voucher",
-      "markerIcon": "basket",
-      "markerColor": "pink"
-    }
-  }
-}
-```
-
-| Field | Type | Notes |
-|---|---|---|
-| `id`, `chainId`, `address`, `name`, `symbol`, `locationName`, `kind`, `markerIcon`, `markerColor` | — | Identical semantics to the [list contract](#92-response). |
-| `decimals` | integer \| null | ERC-20 decimals. |
-| `ownerAddress` | string \| null | Issuer's wallet, stored casing preserved. |
-| `description` | string \| null | |
-| `voucherUoa` | string \| null | Canonical built-in or reusable custom Unit of Account. New writes trim and collapse whitespace, reuse existing values case-insensitively, and create genuinely new values in title case. Legacy values are retained by the vocabulary migration. |
-| `voucherValue` | string \| null | What one voucher is worth in `voucherUoa`, so `symbol` + `voucherValue` + `voucherUoa` reads "1 MALII = 10 KSH". Serialized as a **string**: the column is `NUMERIC` and a float would lose scale. |
-| `geoLat`, `geoLng` | number \| null | **Nullable here, unlike the list.** Coordinates are not required — a voucher without them still has a readable page, it simply renders no map. Absent coordinates are `null`, never `0`. |
-| `email`, `website`, `phone` | string \| null | Issuer contact, as imported. |
-| `iconUrl` | string \| null | Profile image. Absent for roughly two thirds of the imported catalog, so clients need a real fallback. |
-| `bannerUrl` | string \| null | Wide header image. Absent about as often as `iconUrl`. |
-
-**Changing the marker.** `PUT /api/v2/vouchers/:address/profile` (the owner or
-a superadmin) and `PUT /api/v2/admin/vouchers/:address/profile` accept
-`markerIcon` and `markerColor` with the values listed under
-[5.5](#55-post-apiv2contractstoken). Unlike the rest of that assign-all body,
-an omitted marker field keeps its stored value, so a client that predates the
-marker cannot reset it; `""` returns that half to automatic, and anything else
-outside the sets is a `400`.
-
-**Visibility.** Only `active` vouchers resolve. A deactivated voucher returns
-`404` with a body **byte-identical** to an address that never existed, so the
-response cannot be used to probe which addresses are in the database. Unlike the
-list, coordinates are not required.
-
-Caching and rate limiting are exactly as in [9.3](#93-caching) and
-[9.4](#94-rate-limiting); all three routes share one per-IP bucket.
-
-> **Swagger drift.** `docs/swagger.yaml` predates the catalog surface and does
-> not describe these routes. Reconciling it is tracked as separate follow-up
-> work.
-
-### 9.8 Retire a voucher (`DELETE /api/v2/vouchers/:address`)
-
-Requires a user JWT. The caller must be either the voucher's current
-`ownerAddress` or a `SUPERADMIN`; the catalog row is locked and checked in the
-same transaction as the write, so authorization cannot race a concurrent
-ownership change. Another signed-in user receives `403 E10`, a service
-credential `403`, and no session `401`. No request body is required.
-
-```http
-DELETE /api/v2/vouchers/0x1B4a4f08D796C72efB377f629130a15eb0B78942
-Cookie: __clc_auth=<owner-or-admin-jwt>
-```
-
-Success is `200 OK` with description `Voucher retired` and **no `result`**. The
-other catalog writes return the saved row so a client can seed its cache, but
-the row this one writes is no longer visible to
-[9.6](#96-voucher-detail-get-apiv2vouchersaddress) — reading it back would
-answer `404`. A client's correct next move is to drop the voucher from its cache,
-not to re-read it.
-
-**Soft, not destructive.** The endpoint flips `vouchers.active`, the same
-visibility gate every market, search and offering statement already filters on.
-Nothing is deleted: the reports and offerings that reference the voucher keep
-their foreign keys, and a restore returns it intact. Deleting instead was
-measured and rejected — 65% of report→voucher links ride on rows a delete would
-take with them.
-
-**Visibility afterwards.** The voucher stops resolving from
-[9](#9-public-market-catalog-get-apiv2vouchers), [9.6](#96-voucher-detail-get-apiv2vouchersaddress)
-and [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings), and its 404
-body is byte-identical to an address that never existed. It remains visible to
-the console reads in [7.13](#713-get-apiv2adminvouchers) and
-[7.14](#714-get-apiv2adminvouchersaddress), and to the surfaces that deliberately
-ignore `active`: pool composition, symbol occupancy, report linking and
-federation balance metadata. A retired voucher's symbol stays taken, so a new
-deploy cannot collide with it.
-
-| State | Repeat `DELETE` |
-|---|---|
-| Active | `200`, retired |
-| Already retired | `409` `voucher is already retired` |
-| Unknown address | `404`, body identical to a retired-voucher read |
-
-Activity is checked before ownership on purpose: answering `409` to the owner
-and `403` to everyone else would leak that the address exists.
-
-There is no owner-facing restore. Putting a voucher back is an operator
-decision — see [7.15](#715-put-apiv2adminvouchersaddressrestore).
-
-### 9.7 Voucher offerings (`GET /api/v2/vouchers/:address/offerings`)
-
-Offering records have no `commodityType` field. Create and update requests use
-`commodityName`, `description`, `unit`, `price`, and `imageUrl`; no classification
-or classification default is required.
-
-Returns the available offerings for one active voucher. It is public so a
-signed-out visitor can open the default Offerings tab on a shared voucher page.
-The address lookup is case-insensitive and rejects malformed hex addresses with
-`400` and code `E04`.
-
-```http
-GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7/offerings?perPage=20
-GET /api/v2/vouchers/0x0001423EC38205B125e7340aa37F4D19276e3aB7/offerings?perPage=20&cursor=42&next=true
-```
-
-The route uses the standard descending-`id` keyset pagination contract:
-`perPage` defaults to 100 and is capped at 100, `next=true` selects IDs below
-the cursor, and a cursor without `next=true` selects IDs above it. Every
-response contains numeric `first` and `last` values. An empty result is
-`"offerings": []`, `"first": 0`, `"last": 0`, never `null`.
-
-Only rows satisfying both `offering.available = true` and
-`voucher.active = true` are returned. A voucher's generic `kind` does not indicate
-whether offerings exist.
-The imported catalog observed on 2026-07-27 contains at most 19 offerings for a
-single voucher, so the client page size of 20 normally completes in one request.
-
-Caching and rate limiting are exactly as in [9.3](#93-caching) and
-[9.4](#94-rate-limiting).
-
----
-
-## 10. Pool offerings (`GET /api/v2/pools/:address/offerings`)
-
-Returns every available offering published against a voucher the pool allows.
-The pool detail screen lists these in its default Offerings tab, instead of
-walking the pool's vouchers one request at a time.
-
-**Auth:** none required — see [5.9](#59-get-apiv2pools). Unlike
-the voucher-scoped route in [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings),
-it carries no public cache policy.
-
-```http
-GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20
-GET /api/v2/pools/0x3d11B609689FefDD887045933AED75e2B014a0cc/offerings?perPage=20&cursor=1354&next=true
-```
-
-The address lookup is case-insensitive and rejects malformed hex addresses with
-`400` and code `E04`. Pagination is the standard descending-`id` keyset
-contract: `perPage` defaults to 100 and is capped at 100, `next=true` selects
-IDs below the cursor, and a cursor without `next=true` selects IDs above it.
-Every response contains numeric `first` and `last`. An empty result is
-`"offerings": []`, `"first": 0`, `"last": 0`, never `null`.
-
-Rows are filtered on three predicates:
-
-| Predicate               | Why                                                              |
-| ----------------------- | ---------------------------------------------------------------- |
-| `pool_tokens.is_allowed` | Matches `GET /api/v2/pools/:address/vouchers`, so the two tabs agree |
-| `offering.available`     | Matches [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
-| `voucher.active`         | Matches [9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings) |
-
-The last two are deliberately identical to the voucher-scoped route: an offering
-must read the same whether the user reached it through its voucher or through a
-pool that accepts it.
-
-Each row carries `voucherName`, `voucherSymbol`, and `voucherAddress`, because a
-pool's offerings come from many vouchers and the UI has to say which voucher each
-one belongs to. The response body is otherwise byte-identical in shape to
-[9.7](#97-voucher-offerings-get-apiv2vouchersaddressofferings).
-
----
-
-## 11. Reports / Posts (`/api/v2/reports`)
-
-The Posts feed. **Authentication required** — Posts is a private home tab, so
-these routes sit on the authenticated API group.
-
-| Operation | User JWT | Service JWT | `SUPERADMIN` user JWT |
+| Parameter | Type | Required | Description |
 |---|---|---|---|
-| List and detail | Yes | Yes | Yes |
-| Create | Yes, as `APPROVED` | No | Yes, as `APPROVED` |
-| Update | Original author only, stays `APPROVED` | No | Any post, status preserved |
-| Approve | No | No | Any post |
-| Delete | No | No | Any post |
-| Own posts in any status | Yes, own only | No | Yes, own only |
-| Any post in any status | No | No | Yes |
+| `type` | string | No | Transaction type. The server converts the value to upper case. See the list below. |
+| `status` | string | No | Dispatch status. The server converts the value to upper case. See the list below. |
+| `q` | string | No | Search term. See section 15.1. The server searches the tracking ID and the transaction hash. |
+| `perPage`, `cursor`, `next` | | No | See section 15.1. |
 
-Only `APPROVED` reports are returned by the two read routes under
-`/api/v2/reports`. `DRAFT`, `SUBMITTED`, and `REJECTED` are invisible there, and
-an unapproved id is a `404` rather than a `403`: whether a draft exists is not
-public information.
+Values of `type`: `TOKEN_PROXY_DEPLOY`, `POOL_DEPLOY_STEP`, `POOL_PROXY_DEPLOY`, `POOL_TOKEN_INDEX_DEPLOY`, `POOL_LIMITER_DEPLOY`, `POOL_FEE_POLICY_DEPLOY`, `POOL_ORACLE_QUOTER_DEPLOY`, `POOL_RELATIVE_QUOTER_DEPLOY`, `PROXY_UPGRADE`, `RELAY_DELEGATE`, `RELAY_EXEC`, `RELAY_DELEGATE_EXEC`, `ACCOUNT_REGISTER`.
 
-Those two routes are **not** widened for privileged callers. Every status is
-reachable through the separate management reads in [§11.8](#118-an-authors-own-posts)
-and [§11.9](#119-global-moderation-reads) instead, so one URL never returns
-different rows to different callers.
+Values of `status`: `PENDING`, `IN_NETWORK`, `SUCCESS`, `REVERTED`, `LOW_NONCE`, `NO_GAS`, `LOW_GAS_PRICE`, `NETWORK_ERROR`, `REPLACEMENT_UNDERPRICED`, `UNKNOWN_RPC_ERROR`.
 
-### 11.1 Feed (`GET /api/v2/reports`)
+**Response 200**
 
-```http
-GET /api/v2/reports?perPage=20
-GET /api/v2/reports?perPage=20&cursorUpdatedAt=2026-07-19T08:14:02.311Z&cursorId=3182
-```
-
-`perPage` defaults to 20 and is capped at 100.
-
-The feed also accepts the catalog filter parameters below:
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `q` | `string` | — | Report title/description search; normalized length must be `2`–`64` characters |
-| `tags` | `string` or repeated | — | Comma-separated report tags; at most `12` distinct values |
-| `tagMatch` | `any` \| `all` | `any` | Whether a report must carry any or all selected tags |
-| `vouchers` | `string` or repeated | — | Comma-separated stable voucher references (`chainId:0xAddress`); at most `12` |
-| `voucherMatch` | `any` \| `all` | `any` | Whether a report must be linked to any or all selected vouchers |
-| `facets` | `bool` | `false` | With `true` on the first page, include tag and voucher facet counts |
-
-Voucher references are case-insensitive addresses scoped by chain ID. Invalid
-or unknown references reject the whole request with `400`. `tagFacets` and
-`voucherFacets` use the same disjunctive counting contract as the pool catalog
-and are absent from cursor pages.
-
-**This route does not use the numeric `cursor`/`next` keyset the catalog routes
-use.** The feed is ordered by `updated_at DESC, id DESC`, and on the imported
-catalog that order is unrelated to id order — measured on 3,730 approved rows,
-the two agree on 4 of them and drift by up to 2,606 positions. An id cursor
-would therefore skip and repeat rows. The cursor is the `(updatedAt, id)` pair
-instead:
-
-- `cursorUpdatedAt` is RFC3339 with nanoseconds; `cursorId` is a positive
-  integer. Sending one without the other is a `400`, because accepting one alone
-  would silently return the first page again.
-- The response carries `next` — the pair to send for the following page — or
-  `null` on the last page. A short page ends the feed, so `next` is `null`
-  rather than the client having to guess from emptiness.
-- `(updated_at, id)` row comparison is index-backed by
-  `reports_status_updated_idx` (migration 009). Measured: index-only scan,
-  0 heap fetches, ~0.03 ms for a cursor page.
-
-Each row is a summary: `id`, `title`, `description`, `imageUrl`, `geoLat`,
-`geoLng`, `periodFrom`, `periodTo`, `authorAddress`, `createdAt`, `updatedAt`,
-`tags`, and `vouchers` (each `{id, chainId, address, name, symbol}`).
-
-`body` is not returned on the feed — a row is a summary and `description`
-already carries what it renders. It is available on the detail route.
-
-`locationName` was removed in migration 010: the column was `NULL` on all 4,632
-imported rows, because the source stored geography as a `"lat, lng"` string and
-never a place name. Use `geoLat` / `geoLng`.
-
-### 11.2 Detail (`GET /api/v2/reports/:id`)
-
-```http
-GET /api/v2/reports/3182
-```
-
-Returns one report under `result.report` with every feed field plus `status`
-(`APPROVED` on this read route), `body`, `images`, `attachments`, `hostName`,
-`participants`, and `timeTaken`.
-
-Since migration 010 **none of this is parsed at request time.** The editor
-document used to live in `reports.body` as JSONB and this route re-derived the
-image list and the form from it on every call, with two independent
-`jsonb_array_elements` passes. That work now happens once, at write time:
-
-| Field                                     | Storage                        |
-| ----------------------------------------- | ------------------------------ |
-| `body`                                    | `reports.body`, markdown TEXT  |
-| `images`                                  | `report_images`, by `ordinal`  |
-| `attachments`                             | `report_attachments`           |
-| `hostName`, `participants`, `timeTaken`   | columns on `reports`           |
-
-`body` is **markdown**, not the editor's JSON and not plain text: heading
-levels, lists, tables, emphasis and links are preserved, and 41 hyperlinks
-across 8 reports have their URL only in the document (the visible text is a bare
-commit hash), so plain-text flattening would have lost them. Only 310 of 4,632
-imported reports have any prose at all — the rest keep their content in
-`description` — and the whole corpus is 129 KB, down from 17 MB of JSONB.
-
-`hostName`, `participants`, and `timeTaken` are issuer free text and are never
-normalized — `timeTaken` alone contains `2`, `1 hour`, `2 hours`, `2hrs`, and
-`1 hr`. Seven imported reports carry two form nodes and on two of them the
-second differs, so the stored value is the first form in document order that has
-any value at all; the previous unordered `LIMIT 1` picked arbitrarily.
-
-`images` entries are
-`{url, width, height, maxWidth, maxHeight, byteSize, caption}`. `width` and
-`height` are the editor's display box; `maxWidth` and `maxHeight` are the
-intrinsic size, and the two are **not** a scaled pair (a 267×1000 display box
-against a 747×1600 intrinsic occurs). Any of them may be `null`. `caption` is
-new — it was previously discarded. Reports carry 0 to 37 images; 73% have
-exactly one and 381 have none.
-
-`attachments` entries are `{kind, url, filename, byteSize}`, where `kind` is
-`FILE` for an uploaded document or video and `EMBED` for an external player URL.
-`filename` is set only for uploads. These were previously not served at all.
-
-**Only `http(s)` URLs are stored** in either table — a CHECK constraint enforces
-it, so the exclusion is a storage invariant rather than a filter each request
-re-applies. Legacy `img` nodes embed base64 `data:` URIs up to ~900 KB and 48
-`cloud_image` nodes hold unresolved `#nanoid` upload placeholders; none of them
-reach a response.
-
-One gap remains at the column level: six approved reports store a base64
-`data:` URI directly in `reports.image_url`, up to 876 KB. Both routes return
-`null` for those rather than the URI. They are not nulled in storage because
-four of the six have no other image, so the fix is a CDN re-upload, not a
-delete.
-
-### 11.3 Write contract
-
-`POST` and `PUT` use the same JSON document. `title` is the only required
-content field; every other scalar is optional. Collections may be omitted or
-sent as empty arrays.
-
-```json
-{
-  "title": "August community harvest",
-  "body": "## Harvest\n\nTwenty members took part.",
-  "description": "A summary shown in the Posts feed.",
-  "imageUrl": "https://content.example/posts/harvest-cover.jpg",
-  "geoLat": -1.2864,
-  "geoLng": 36.8172,
-  "periodFrom": "2026-08-01T08:00:00Z",
-  "periodTo": "2026-08-01T12:00:00Z",
-  "hostName": "Wendo Group",
-  "participants": "20",
-  "timeTaken": "4 hours",
-  "tags": ["Agriculture", "Youth"],
-  "vouchers": [
-    {
-      "chainId": 42220,
-      "address": "0x0000000000000000000000000000000000000001"
-    }
-  ],
-  "images": [
-    {
-      "url": "https://content.example/posts/harvest-1.jpg",
-      "width": 720,
-      "height": 1080,
-      "maxWidth": 1440,
-      "maxHeight": 2160,
-      "byteSize": 245761,
-      "caption": "Sorting the harvest"
-    }
-  ],
-  "attachments": [
-    {
-      "kind": "FILE",
-      "url": "https://content.example/posts/harvest-notes.pdf",
-      "filename": "harvest-notes.pdf",
-      "byteSize": 81920
-    }
-  ]
-}
-```
-
-| Field | Validation and storage rule |
-|---|---|
-| `title` | Required, non-blank, maximum 200 characters; surrounding whitespace is removed |
-| `body` | Markdown text, maximum 500,000 characters; never editor JSON |
-| `description` | Feed summary, maximum 10,000 characters |
-| `imageUrl` | Optional `http(s)` URL; `null` or omission clears it on `PUT` |
-| `geoLat`, `geoLng` | Must be sent together; latitude `-90..90`, longitude `-180..180` |
-| `periodFrom`, `periodTo` | RFC3339 timestamps; if both are set, `periodFrom <= periodTo` |
-| `hostName` | Optional issuer free text, maximum 200 characters |
-| `participants`, `timeTaken` | Optional issuer free text, maximum 100 characters each |
-| `tags` | At most 12 values; a value the vocabulary does not have yet is created with the post (see [section 12](#12-shared-vocabulary-token_tag-offering_unit)) |
-| `vouchers` | At most 12 stable `{chainId,address}` references; every referenced voucher must exist |
-| `images` | At most 50, in document order; URLs use `http(s)` |
-| `attachments` | At most 20, in document order; `kind` is `FILE` or `EMBED`, and URLs use `http(s)` |
-
-**All four collections reject duplicates with `400 E04`** after trimming and
-canonicalisation — a repeated tag value, a repeated voucher `(chainId, lowercase
-address)` identity, a repeated image URL, or a repeated attachment
-`(kind, URL)` pair. Tags and vouchers previously deduplicated silently while
-images failed and attachments were unchecked, so the same client mistake got
-three different answers. An attachment URL may appear twice if the two entries
-have different `kind` values: a `FILE` download and an `EMBED` player reference
-are two rows.
-
-`PUT` is **assign-all**, not patch semantics. It replaces every editable scalar
-and all four relation sets (`tags`, `vouchers`, `images`, `attachments`) in one
-transaction. Omitting an optional scalar clears it; omitting a collection
-replaces that collection with an empty set. A validation or database failure
-leaves the existing post unchanged.
-
-The client cannot send `authorAddress`, `modifierAddress`, `status`, `sourceId`,
-or timestamps. The server derives the immutable original author from the user
-JWT, and derives the resulting status from the caller's role. An edit records
-the caller as the modifier but never transfers authorship.
-
-### 11.4 Create (`POST /api/v2/reports`)
-
-Requires a user JWT; service JWTs receive `403 E10`. Posts are auto-approved:
-every new post is stored as `APPROVED` and appears in the feed and detail
-routes at once, whoever created it.
-
-`vouchers` is restricted by role. A `SUPERADMIN` may link any catalog voucher;
-any other caller may only link vouchers whose `owner_address` is their own
-address, and a write naming someone else's voucher is a `403 E10`. A voucher
-with no recorded owner is owned by nobody for this purpose.
-
-```http
-POST /api/v2/reports
-Content-Type: application/json
-Cookie: __clc_auth=<user-jwt>
-```
-
-Success is `201 Created` and returns the complete created report:
+The description is `Origin transactions`. The result has the keys `otx`, `first` and `last`. The `first` and `last` values are origin transaction IDs.
 
 ```json
 {
   "ok": true,
-  "description": "Report created",
+  "description": "Origin transactions",
   "result": {
-    "report": {
-      "id": 4633,
-      "title": "August community harvest",
-      "authorAddress": "0x0000000000000000000000000000000000000011",
-      "status": "APPROVED",
-      "tags": ["Agriculture", "Youth"],
-      "vouchers": [],
-      "images": [],
-      "attachments": [],
-      "createdAt": "2026-08-20T10:00:00Z",
-      "updatedAt": "2026-08-20T10:00:00Z"
-    }
-  }
-}
-```
-
-### 11.5 Update (`PUT /api/v2/reports/:id`)
-
-Requires a user JWT. The caller must be either the report's immutable original
-author or a `SUPERADMIN`. The ownership row is locked and checked in the same
-transaction as the update, so authorization cannot race a concurrent delete or
-edit. Another user receives `403 E10`.
-
-```http
-PUT /api/v2/reports/4633
-Content-Type: application/json
-Cookie: __clc_auth=<author-or-admin-jwt>
-```
-
-The request body is the complete [write document](#113-write-contract).
-Success is `200 OK` with description `Report updated` and the complete report
-under `result.report`.
-
-The resulting workflow status depends on who edited:
-
-| Caller | Status after the edit |
-|---|---|
-| Original author, any status | `APPROVED` |
-| `SUPERADMIN` | Unchanged; a rejected post stays rejected |
-
-Posts are auto-approved, so an author's edit publishes the result the same way
-their create did. That also lifts a legacy `SUBMITTED` post out of a queue that
-is no longer worked. A superadmin edit preserves status so that a moderator's
-correction of a rejected post does not republish it by accident; rejecting and
-deleting are the moderation levers, and approval
-([§11.6](#116-approve-put-apiv2reportsidapprove)) remains for legacy rows.
-
-The mutation response includes `status` and returns the row to its authorized
-caller even when the normal detail route hides it. An author whose post is no
-longer approved reads it back through
-[§11.8](#118-an-authors-own-posts).
-
-### 11.6 Approve (`PUT /api/v2/reports/:id/approve`)
-
-Approval is `SUPERADMIN`-only. Normal users and service credentials receive
-`403 E10`. No request body is required.
-
-```http
-PUT /api/v2/reports/4633/approve
-Cookie: __clc_auth=<superadmin-jwt>
-```
-
-The endpoint changes only `status` to `APPROVED` and records the superadmin as
-the latest modifier. It does not rewrite the post body or any relation. Calling
-it for an already-approved post is idempotent in state and returns `200 OK` with
-description `Report approved` and the complete report under `result.report`.
-
-Once approved, the post appears in the feed and detail routes. Both an admin
-edit and an author edit keep it `APPROVED`
-([§11.5](#115-update-put-apiv2reportsid)); with auto-approval this endpoint is
-needed only for rows that predate it.
-
-There is no unapprove transition. A console must therefore confirm before
-calling this.
-
-### 11.7 Delete (`DELETE /api/v2/reports/:id`)
-
-Deletion is `SUPERADMIN`-only. Original authors cannot delete their own posts;
-normal user and service credentials receive `403 E10`. Deleting the report also
-deletes its tags, voucher links, images, attachments, and verifiers through the
-existing foreign-key cascades.
-
-```http
-DELETE /api/v2/reports/4633
-Cookie: __clc_auth=<superadmin-jwt>
-```
-
-Success is `200 OK`:
-
-```json
-{
-  "ok": true,
-  "description": "Report deleted",
-  "result": { "id": 4633 }
-}
-```
-
-The mutation routes return `400 E02` for malformed JSON, `400 E04` for
-invalid fields or unknown tag/voucher references, `401 E06` without valid
-authentication, `403 E10` when the credential lacks permission or a non-superadmin
-links a voucher they do not own, and `404 E03` when `:id` does not exist.
-
-### 11.8 An author's own posts
-
-```http
-GET /api/v2/users/me/reports?perPage=20&status=SUBMITTED
-GET /api/v2/users/me/reports/4633
-```
-
-Requires a user JWT; service credentials receive `403 E10`. Both routes return
-every status **authored by the caller**, whose address comes from the JWT and is
-not a parameter. `GET /users/me/reports/:id` naming another author's post is a
-`404`, not a `403` — a `403` would confirm the id exists.
-
-The list accepts the same `q`, `tags`, `tagMatch`, `vouchers`, and `voucherMatch`
-filters as the feed, plus:
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `perPage` | `uint` | `20` | Capped at `100`, as on the feed |
-| `status` | `DRAFT` \| `SUBMITTED` \| `APPROVED` \| `REJECTED` | — | Case-insensitive; an unknown value is a `400`, never a silently broadened queue |
-| `cursorUpdatedAt`, `cursorId` | keyset pair | — | Both or neither; one alone is a `400` |
-| `next` | `bool` | `true` with a cursor | Direction. Sending it without a cursor is a `400` |
-
-Rows are the feed's summary plus a required `status`; `body` stays off list rows
-as it does on the feed. Ordering is `updated_at DESC, id DESC`, so an approved
-post whose author has just edited it sorts to the top rather than back at its
-original creation position.
-
-The response carries **both** edge cursors rather than the feed's single `next`,
-because this list pages in both directions:
-
-```json
-{
-  "ok": true,
-  "description": "Reports",
-  "result": {
-    "reports": [{ "id": 4633, "status": "SUBMITTED", "...": "..." }],
-    "first": { "updatedAt": "2026-08-20T10:00:00Z", "id": 4633 },
-    "last":  { "updatedAt": "2026-08-02T09:12:41Z", "id": 4102 }
-  }
-}
-```
-
-Send `last` with `next=true` for the following page and `first` with
-`next=false` for the preceding one. Both are `null` on an empty page. The
-comparison is on the `(updatedAt, id)` pair, so paging stays duplicate-free
-across the tied timestamps the import produced in bulk.
-
-`Cache-Control: no-store` on both routes.
-
-### 11.9 Global moderation reads
-
-```http
-GET /api/v2/admin/reports?status=SUBMITTED&perPage=20
-GET /api/v2/admin/reports/4633
-```
-
-`SUPERADMIN`-only; every other credential receives `403 E10`. Same parameters,
-same page and cursor shape, and the same `no-store` as §11.8, over every author
-rather than one. One extra parameter:
-
-| Parameter | Type | Description |
-|---|---|---|
-| `author` | address | Exact, case-insensitive `author_address`; unknown or malformed is a `400` |
-
-`author` is what lets a console's per-account panel and its global queue read one
-endpoint. `GET /admin/reports/:id` returns the complete post in any status,
-including `images`, `attachments`, and the field-report fields, which is what an
-assign-all editor needs to resubmit a legacy post without erasing anything.
-
-`status` is the moderation queue: a console defaults to `SUBMITTED` and offers
-the rest. There is no `ALL` value on the wire — omit the parameter.
-
----
-
-## 12. Shared vocabulary (`token_tag`, `offering_unit`, `unit_of_account`)
-
-Three global lookup tables back every tag picker, offering quantity unit, and
-Unit-of-Account field. All three are open: a value the catalog does not have yet is **created by the write
-that names it**, not by a separate call. There is no "create a tag" endpoint,
-while the admin API may explicitly create a reusable custom Unit of Account.
-
-### 12.1 Reads
-
-```http
-GET /api/v2/token-tags
-GET /api/v2/offering-units
-GET /api/v2/units-of-account
-```
-
-All are authenticated (`/api/v2/*`) and return built-in and custom values in one
-list. Tags and offering units are string arrays. Units of Account expose their
-kind so clients can distinguish protected defaults from custom labels.
-
-```json
-{ "ok": true, "description": "Available offering units", "result": { "units": ["bag", "kg", "Produce Crate"] } }
-```
-
-```json
-{ "ok": true, "description": "Available units of account", "result": { "unitsOfAccount": [{ "value": "KES", "isCustom": false }, { "value": "Community Credits", "isCustom": true }] } }
-```
-
-### 12.2 Creation is a side effect of the owning write
-
-| Write | Creates |
-|---|---|
-| `POST /api/v2/vouchers/:address/offerings`, `PUT .../offerings/:id` | the offering's `unit` |
-| `PUT /api/v2/vouchers/:address/profile`, `PUT /api/v2/admin/vouchers/:address/profile` | each `tags` value and `voucherUoa` |
-| `PUT /api/v2/pools/:address/profile`, `PUT /api/v2/admin/pools/:address/profile` | each `tags` value and `unitOfAccount` |
-| `PUT /auth/profile`, `PUT /api/v2/admin/users/:address/profile` | `preferredCurrency` |
-| `POST /api/v2/reports`, `PUT /api/v2/reports/:id` | each `tags` value |
-| `POST /api/v2/contracts/token`, `POST /api/v2/contracts/pool` | each `tags` value and the voucher/pool Unit of Account |
-
-The value is created inside the same transaction as the write that named it, so
-a request that fails validation, authorization or the quota check leaves nothing
-behind. A cancelled form creates nothing because it never sends a request.
-
-**An existing spelling always wins.** The lookup is case-insensitive
-(`lower(value)`, uniquely indexed), so `KG` resolves to the built-in `kg` rather
-than creating a second row. Only a value nothing matches is created, and it is
-created in Title Case after whitespace is trimmed and collapsed:
-`"  urban   FARMING "` becomes `Urban Farming`. The response echoes the
-canonical spelling, which is what the client stores.
-
-Validation, applied before anything is created:
-
-| Rule | Tags | Offering units | Units of Account |
-|---|---|---|---|
-| Blank after trimming | `400 E04` | `400 E04` | `400 E04` |
-| Maximum length | 100 characters | 32 characters | 32 Unicode characters |
-| Contains a comma | `400 E04` | allowed | allowed |
-| Duplicate within one request | `400 E04`, compared case-insensitively | n/a | n/a |
-
-Commas are refused in tags because the tag filter on every catalog read is a
-comma-separated list; a tag containing one could never be selected back.
-
-Concurrency is settled by the unique index rather than by the handler: two
-requests submitting the same new value at the same time produce one row, and
-both writes succeed.
-
-### 12.3 Tag filters are still closed
-
-Creation applies to **writes only**. The `tags` filter on the catalog reads
-(`GET /api/v2/vouchers`, `/api/v2/pools`, `/api/v2/reports`,
-`/api/v2/admin/reports`) still rejects a value outside the vocabulary with
-`400 E04`. A filter naming a tag nothing carries is a client bug, and answering
-it with an empty page hides that.
-
-### 12.4 `GET /api/v2/admin/vocabulary`
-
-`SUPERADMIN`-only. Lists **every value**, built-in and custom, each flagged by
-`isCustom`. Only custom values can be deleted (§12.5); built-in tags can be
-renamed (§12.6), so the console lists them too. Unit-of-Account usage is counted
-across profiles, current voucher/pool metadata, and voucher/pool deployment rows.
-
-```json
-{
-  "ok": true,
-  "description": "Vocabulary",
-  "result": {
-    "tags": [
+    "otx": [
       {
-        "value": "Urban Farming", "isCustom": true,
-        "deployedTokens": 0, "deployedPools": 0,
-        "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0
+        "id": 351,
+        "trackingId": "00000000-0000-0000-0000-000000000001",
+        "otxType": "POOL_PROXY_DEPLOY",
+        "signer": "0x0000000000000000000000000000000000000009",
+        "txHash": "0x00000000000000000000000000000000000000000000000000000000000000b2",
+        "nonce": 17,
+        "replaced": false,
+        "status": "SUCCESS",
+        "createdAt": "2026-08-12T10:00:00Z",
+        "updatedAt": "2026-08-12T10:01:00Z"
       }
     ],
-    "units": [{ "value": "Produce Crate", "isCustom": true, "offerings": 4 }],
-    "unitsOfAccount": [{
-      "value": "Community Credits", "isCustom": true,
-      "profiles": 1, "vouchers": 2, "pools": 1,
-      "voucherDeployments": 2, "poolDeployments": 1, "total": 7
-    }]
+    "first": 351,
+    "last": 351
   }
 }
 ```
 
-The per-resource counts exist so the console can describe what a deletion or a
-rename will reach before the operator commits to it.
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Origin transaction ID. |
+| `trackingId` | string | Tracking ID. |
+| `otxType` | string | Transaction type. |
+| `signer` | string | Service signer account that sent the transaction. |
+| `txHash` | string | Transaction hash. |
+| `nonce` | integer | Nonce. |
+| `replaced` | boolean | `true` if another transaction replaced this one. |
+| `status` | string | Dispatch status. |
+| `createdAt`, `updatedAt` | string | RFC 3339 times. |
 
-### 12.5 Delete vocabulary values
+The row does not include the raw signed transaction.
 
-`SUPERADMIN`-only. The value travels in a JSON body, not the path, because a
-tag may contain spaces and any character but a comma:
+**Errors**
 
-```http
-DELETE /api/v2/admin/vocabulary/tags
-{ "value": "Urban Farming" }
-```
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `E04` | `type` is not valid. The description is `unknown type; use one of ` followed by the list. |
+| `400` | `E04` | `status` is not valid. The description is `unknown status; use one of ` followed by the list. |
+| `400` | `E04` | `q` is not valid. |
 
-The equivalent routes are `/api/v2/admin/vocabulary/units` and
-`/api/v2/admin/vocabulary/units-of-account`.
+---
 
-The row is located case-insensitively and locked `FOR UPDATE`, then:
+## 16. Route index
 
-| Response | When |
-|---|---|
-| `404 E03` | no such value |
-| `409 E16` | the value is a built-in |
-| `200` | deleted, with the counts of what it removed |
+This table lists every route. The "Access" column shows the access level.
+Routes marked with * exist only when the related feature is configured: `/api/v2/pretium/*` needs Pretium, and `/api/v2/accounts/*` and `/api/v2/federation/*` need federation.
 
-```json
-{
-  "ok": true,
-  "description": "Custom vocabulary value deleted",
-  "result": {
-    "value": "Urban Farming",
-    "usage": { "deployedTokens": 0, "deployedPools": 0, "vouchers": 2, "pools": 0, "posts": 1, "offerings": 0 },
-    "total": 3
-  }
-}
-```
-
-The two deletions differ in what they do to the content that referenced the
-value, and the difference is deliberate:
-
-- **A tag** is removed from every relation that carried it — `voucher_tags`,
-  `pool_tags`, `report_tags`, `offering_tags`, `deployed_token_tags`,
-  `deployed_pool_tags` — and the vouchers, pools, posts and offerings
-  themselves are untouched.
-- **A unit** is cleared to `NULL` on every offering that used it. The offerings
-  survive; an operator tidying a vocabulary must not delete a seller's listing.
-- **A Unit of Account** is deleted only when all five usage counts are zero. A
-  referenced value returns `409 E16`; current metadata is never cleared merely
-  to satisfy deletion. Built-in Units of Account are always protected.
-
-Both run in one transaction with the delete, so a value never disappears while
-a row still points at it.
-
-Deletion does not blacklist: the next catalog write that names the value creates
-it again.
-
-### 12.6 Put vocabulary values
-
-`SUPERADMIN`-only. Renames a value everywhere it is used:
-
-```http
-PUT /api/v2/admin/vocabulary/tags
-{ "value": "Urban Farming", "replacement": "Community Gardens" }
-```
-
-The equivalent routes are `/api/v2/admin/vocabulary/units` and
-`/api/v2/admin/vocabulary/units-of-account`. Custom Units of Account are renamed
-with `ON UPDATE CASCADE` through profiles, vouchers, pools, and deployment
-metadata. Historical transfer valuation snapshots deliberately do not follow a
-rename.
-
-`value` is located case-insensitively and locked `FOR UPDATE`. `replacement` is
-trimmed and its inner whitespace collapsed, but its casing is kept as sent, so a
-rename can fix casing (`kwh` → `kWh`). It follows the creation rules otherwise:
-at most 100 characters and no commas for a tag, at most 32 for a unit.
-
-| Response | When |
-|---|---|
-| `400 E02` / `E04` | malformed body, blank value, or an invalid replacement |
-| `404 E03` | no such value |
-| `409 E16` | the replacement already exists (case-insensitively) |
-| `409 E16` | the value is a built-in unit |
-| `409 E16` | a queued or running voucher or pool deployment names the tag |
-| `200` | renamed; `result.value` is the stored spelling |
-
-Every reference follows in the same transaction: the tag and unit foreign keys
-are `ON UPDATE CASCADE` (migration 040), so vouchers, pools, posts, offerings and
-deployments keep their association under the new name.
-
-- **Built-in tags** can be renamed and stay built-in, so they remain undeletable.
-  This is how a deployment makes the shipped defaults its own.
-- **Built-in units** cannot: the apps translate them by their stored spelling,
-  and a rename would strip every locale's label from that unit.
-- **A deployment job** saves tags and Units of Account as names in the job's
-  arguments, outside any foreign key, and writes them when it runs. Renaming or
-  deleting a value named by a job that can still run is refused until the job
-  finishes; `completed`, `cancelled` and `discarded` jobs never run again and do
-  not block.
-
-Like deletion, a rename does not blacklist the old spelling: the next catalog
-write that names it creates it as a new custom value.
-
-## Username text (migration 050)
-
-Usernames accept 1–80 Unicode code points after trimming and NFC normalization.
-Case, internal spaces, punctuation, digits, and all scripts are preserved for
-presentation. Empty/whitespace-only explicit names are rejected; omitting a
-username retains existing automatic assignment behavior. Suggestions preserve
-name text, adding numeric suffixes on collision and truncating by code point to
-keep the final candidate within 80 characters.
-
-Usernames and pool names still share recipient uniqueness. Comparison uses NFC,
-collapsed whitespace, and PostgreSQL's locale-dependent `lower()`; a C-locale
-server does not case-fold all non-ASCII capitals. Migration 050 updates the
-shared identity normalization function (including symbol claims) and rebuilds
-recipient indexes. Existing canonical collisions abort the transaction without
-renaming or deleting an identity. Apply the migration before deploying callers.
-
-Exact resolution accepts `GET /api/v2/recipients/resolve?name=…` so punctuation,
-including slashes, stays in a query parameter. The existing path form remains.
-
-## Recipient search
-
-Authenticated `GET /api/v2/recipients?q=…` returns up to 20 recipient identities
-in `result.recipients`. Text searches current usernames and effective pool names.
-Phone-shaped input also searches approved users with usernames by their stored phone
-prefix, after at least three digits. An optional leading `+`, spaces, parentheses
-and hyphens are ignored when comparing; every digit, including leading zeros
-and `00`, is preserved. `071` is not converted to an international number.
-Exact name matches rank first, then phone matches (exact phone first), then other
-name matches. The existing
-optional `kind=user|pool` parameter still applies; pool contact phones are excluded.
-Phone numbers are not included in the response.
-
-Sending to a complete wallet address uses direct address entry, with optional
-`GET /api/v2/recipients/reverse/:address` for its current identity label. Unknown
-addresses remain valid destinations. Other nonempty input, including one-character
-and 0x-prefixed usernames, triggers debounced name discovery.
-
-## 13. User-created catalogs (`/api/v2/catalogs`)
-
-All routes below are under `/api/v2`. Successful replies use the existing
-`{ok: true, result: ...}` envelope. Errors use the existing API error envelope.
-
-| Method and route | Result / access |
-| --- | --- |
-| `GET /catalogs` | `{catalogs, nextCursor}`; public ID-descending list |
-| `GET /catalogs?nearby=true` | Same shape, session required; nearest first within 1,000 km of the saved profile |
-| `GET /catalogs/:id` | `{catalog}`; public, independent of nearby radius |
-| `GET /catalogs/:id/pools` or `/vouchers` | `{items, nextCursor}`; public member summaries, ID ascending |
-| `GET /users/me/catalogs` | `{catalogs, nextCursor: null}`; session owner, no radius filter |
-| `POST /catalogs` | `{catalog}`; session-derived owner, second creation returns 409 |
-| `PUT /catalogs/:id` | `{catalog}`; owner only |
-| `PUT/DELETE /catalogs/:id/pools/:poolId` or `/vouchers/:voucherId` | `{added: boolean}`; owner only, idempotent final state |
-| `GET /catalogs/:id/membership?kind=pool&resourceId=123` | `{added: boolean}`; owner only; kind also accepts `voucher` |
-
-Create and update send the complete editable state:
-
-```json
-{
-  "name": "Čaršija",
-  "locationName": "Sarajevo",
-  "geoLat": 43.8563,
-  "geoLng": 18.4131,
-  "imageUrl": "https://storage.example/catalog.png"
-}
-```
-
-Name is trimmed and limited to 1–120 Unicode characters. Location name is trimmed
-and limited to 1–200 characters. Both coordinates are required and range-checked.
-Omitted/null/empty image URL clears the image; other values must be absolute
-HTTP(S) URLs. The owner cannot be changed by the payload. A superadmin does not
-receive an implicit owner-write exception for this resource.
-
-Catalog rows include `id`, `name`, `imageUrl`, `locationName`, `geoLat`, `geoLng`,
-`ownerAddress`, `poolCount`, `voucherCount`, `distanceMeters`, `createdAt`, and
-`updatedAt`. IDs/counts are JSON numbers. Image and distance are nullable.
-`distanceMeters` is populated only for nearby list results. Member summaries
-include `id`, `chainId`, `address`, `name`, and nullable `imageUrl`. Empty lists
-are always arrays.
-
-### Membership and pagination
-
-Catalog owners may add any existing publicly visible pool or active voucher.
-Vouchers without coordinates can be added because their direct public detail
-is visible. Counts and member lists use the same visibility rule. Retiring a
-voucher hides it from both without deleting the relationship; the owner can
-still remove that relationship. Adding/removing a pool never adds/removes its
-voucher contents or separately curated vouchers.
-
-Metadata and membership writes lock the catalog and authorize its owner inside
-the same transaction. Adds lock the referenced resource to keep its visibility
-stable until commit. Foreign keys and composite primary keys enforce referential
-integrity and duplicate prevention.
-
-Paged reads accept `perPage` (1–100, default 20) and an opaque `cursor`. Nearby
-eligibility and distance ordering happen in PostgreSQL before pagination. The
-cursor includes the distance/ID ordering tuple plus a fingerprint of the viewer
-ID and saved coordinates. A changed profile location, different viewer, or
-public/nearby list mismatch returns 400 and requires fresh pagination. Member
-cursors are scoped to catalog and resource kind. ID tie-breaking handles catalogs
-at identical coordinates. There is no distance filtering on My catalog or a
-shared detail link.
-
-### Status codes, caching and rate limits
-
-| Status / code | Cause |
-| --- | --- |
-| `200` | Successful read, creation, replacement or membership operation; follows existing write conventions. |
-| `400 E02` | Malformed JSON write body. |
-| `400 E04` | Invalid ID, name, location, image URL, page size, kind or cursor; nearby profile has no valid coordinates. |
-| `401 E06` | Missing, invalid or expired user session on a protected request. |
-| `403 E10` | Service credentials on user-only operations, or a user other than the catalog owner. |
-| `404 E07` | Catalog missing, or resource missing/ineligible for addition. |
-| `409 E16` | Owner already has a catalog, including concurrent creation. |
-| `429 E11` | Public read bucket exhausted; honor `Retry-After` in seconds. |
-| `500 E01` | Internal failure. |
-
-Public list, detail and member reads share the Market per-IP bucket: 60 requests
-per minute, burst 60. Nearby list requests spend from that bucket too. Protected
-catalog routes use the existing user-auth middleware; no separate catalog write
-rate limiter is introduced. Successful catalog replies set `Cache-Control:
-no-store`. Nearby auth middleware also sets `private, no-store` before checking
-the session. Do not infer owner privileges from a connected wallet or accept a
-client-supplied owner; Core derives ownership from the authenticated user.
-
-### Examples
-
-An owner without a catalog receives:
-
-```json
-{"ok":true,"result":{"catalogs":[],"nextCursor":null}}
-```
-
-An empty saved catalog is represented as:
-
-```json
-{"ok":true,"result":{"catalog":{"id":123,"name":"Čaršija","imageUrl":null,"locationName":"Sarajevo","geoLat":43.8563,"geoLng":18.4131,"ownerAddress":"0x0000000000000000000000000000000000000001","poolCount":0,"voucherCount":0,"distanceMeters":null,"createdAt":"2026-10-10T12:00:00Z","updatedAt":"2026-10-10T12:00:00Z"}}}
-```
-
-An empty member page receives `{"ok":true,"result":{"items":[],"nextCursor":null}}`.
-Adding an existing pool with database ID 456 uses
-`PUT /api/v2/catalogs/123/pools/456` without a body and returns
-`{"ok":true,"result":{"added":true}}`. Repeating the request returns the same
-state. `DELETE` returns `added:false`, including when already absent. The route
-IDs are database identities that resolve chain-aware records, not chain addresses.
-
-A second create returns:
-
-```json
-{"ok":false,"description":"you already have a catalog","code":"E16"}
-```
-
-See [CATALOGS.md](CATALOGS.md) for database design and verification details.
-
-### Catalog status on account token balances
-
-Account token balance responses (`/api/v2/accounts/:address/tokens` and
-`/api/v2/accounts/:address/tokens/latest`) include optional `catalogActive` on
-individual tokens. `false` means the local voucher is retired; `true` means it
-is active; absence means there is no local catalog entry. Wallet lists hide
-explicitly retired vouchers. Retirement does not burn balances, remove the
-on-chain contract, or delete transaction history. The paginated `/tokens` response retains raw rows and cursors. The `/tokens/latest`
-summary skips retired vouchers and continues through older pages until it has
-five visible balances or reaches the end. Tokens outside the local catalog remain
-visible.
-
-### Retirement, pool composition and restoration
-
-`GET /api/v2/pools/:address/vouchers` includes only active, allowed vouchers,
-with filtering before pagination. Public pool voucher counts and voucher facets
-also exclude retired members. Superadmins can inspect retained allowed members
-through `GET /api/v2/admin/pools/:address/vouchers`, with the same pagination
-shape and `Cache-Control: no-store`. Ordinary users and guests cannot use that
-admin route. Retirement does not remove chain membership.
-
-`PUT /api/v2/admin/vouchers/:address/restore` checks affected deployment creators'
-voucher allowances and offer sellers' offer allowances. A restoration that
-increases usage beyond an allowance returns HTTP 429 with the existing
-resource-limit error payload (`resource`, `used`, `limit`) and leaves the
-voucher retired. Here `used` is the projected usage if restoration succeeded.
-Admins can adjust allowances and retry. Restoring at exact capacity or restoring
-an already-active voucher succeeds. Records remain in the database in both cases.
-
-
-Token holdings pagination keeps every balance with the boundary transaction ID
-on the same page (`FETCH FIRST ... WITH TIES`). `perPage` is therefore a target
-size, and a page can contain more rows when a transaction touched several tokens.
-Use the returned `first`/`last` cursors and continue while a page contains at
-least `perPage` rows. This applies in both directions. The latest summary still
-returns at most five visible balances.
-
-The admin pool-composition response includes `result.total`: the full count of
-allowed members, including retired vouchers, independent of page size or cursor.
-The console uses this total for its composition metrics; public pool counts
-continue to include only active members.
+| Method | Path | Access |
+|---|---|---|
+| POST | `/auth/nonce` | Public |
+| POST | `/auth/signup` | Public |
+| POST | `/auth/signin` | Public |
+| POST | `/auth/logout` | Public |
+| POST | `/auth/webauthn/verify` | Public |
+| GET | `/auth/session` | Public (the route checks the session cookie) |
+| GET | `/auth/webauthn/credentials` | Public (the route checks the session cookie) |
+| POST | `/auth/siwe/nonce` | Public |
+| POST | `/auth/siwe/verify` | Public |
+| GET | `/auth/profile` | User session |
+| POST | `/auth/profile` | User session |
+| POST | `/auth/storage-token` | User session |
+| GET | `/api/v2/vouchers` | Public (user session if nearby=true) |
+| GET | `/api/v2/vouchers/:address` | Public |
+| GET | `/api/v2/vouchers/:address/offerings` | Public |
+| GET | `/api/v2/vouchers/:address/offerings/:id` | Public |
+| GET | `/api/v2/vouchers/:address/reviews` | Public |
+| GET | `/api/v2/offerings` | Public (user session if nearby=true) |
+| GET | `/api/v2/marketplace` | Public (user session if nearby=true) |
+| GET | `/api/v2/catalogs` | Public (user session if nearby=true) |
+| GET | `/api/v2/catalogs/:id` | Public |
+| GET | `/api/v2/catalogs/:id/pools` | Public |
+| GET | `/api/v2/catalogs/:id/vouchers` | Public |
+| GET | `/api/v2/pools` | Public (user session if nearby=true) |
+| GET | `/api/v2/pools/:address` | Public |
+| GET | `/api/v2/pools/:address/vouchers` | Public |
+| GET | `/api/v2/pools/:address/offerings` | Public |
+| GET | `/api/v2/vouchers/:address/reviews/me` | User session |
+| PUT | `/api/v2/vouchers/:address/reviews/me` | User session |
+| PUT | `/api/v2/vouchers/:address/reviews/:id/reply` | User session |
+| POST | `/api/v2/vouchers/:address/reviews/:id/flag` | User session |
+| POST | `/api/v2/catalogs` | User session |
+| PUT | `/api/v2/catalogs/:id` | User session |
+| GET | `/api/v2/catalogs/:id/membership` | User session |
+| PUT | `/api/v2/catalogs/:id/pools/:poolId` | User session |
+| DELETE | `/api/v2/catalogs/:id/pools/:poolId` | User session |
+| PUT | `/api/v2/catalogs/:id/vouchers/:voucherId` | User session |
+| DELETE | `/api/v2/catalogs/:id/vouchers/:voucherId` | User session |
+| POST | `/api/v2/contracts/token` | User or service token |
+| POST | `/api/v2/contracts/pool` | User or service token |
+| POST | `/api/v2/contracts/version` | Service token |
+| POST | `/api/v2/contracts/upgrade/token` | Service token |
+| POST | `/api/v2/contracts/upgrade/pool` | Service token |
+| GET | `/api/v2/token-tags` | User or service token |
+| GET | `/api/v2/offering-units` | User or service token |
+| GET | `/api/v2/units-of-account` | User session |
+| GET | `/api/v2/symbols` | User or service token |
+| GET | `/api/v2/names` | User or service token |
+| GET | `/api/v2/recipients` | User or service token |
+| GET | `/api/v2/recipients/suggest` | Public |
+| GET | `/api/v2/recipients/resolve` | User or service token |
+| GET | `/api/v2/recipients/resolve/:name` | User or service token |
+| GET | `/api/v2/recipients/reverse/:address` | User or service token |
+| GET | `/api/v2/oracle-feeds` | User or service token |
+| GET | `/api/v2/system` | User or service token |
+| GET | `/api/v2/otx/track/:trackingId` | User or service token |
+| GET | `/api/v2/otx/track/:trackingId/contract` | User or service token |
+| GET | `/api/v2/account/otx/:address` | User or service token |
+| GET | `/api/v2/account/status/:address` | User or service token |
+| GET | `/api/v2/reports` | Public (user session if nearby=true) |
+| GET | `/api/v2/reports/:id` | Public |
+| POST | `/api/v2/reports` | User session |
+| PUT | `/api/v2/reports/:id` | User session |
+| PUT | `/api/v2/reports/:id/approve` | Superadmin |
+| DELETE | `/api/v2/reports/:id` | Superadmin |
+| POST | `/api/v2/vouchers/:address/offerings` | User session |
+| PUT | `/api/v2/vouchers/:address/offerings/:id` | User session |
+| DELETE | `/api/v2/vouchers/:address/offerings/:id` | User session |
+| PUT | `/api/v2/pools/:address/profile` | User session |
+| PUT | `/api/v2/vouchers/:address/display-name` | User session |
+| PUT | `/api/v2/vouchers/:address/profile` | User session |
+| DELETE | `/api/v2/vouchers/:address` | User session |
+| POST | `/api/v2/pretium/trigger-onramp`* | User or service token |
+| POST | `/api/v2/pretium/link`* | User or service token |
+| GET | `/api/v2/pretium/link/:phoneNumber`* | Service token or superadmin |
+| GET | `/api/v2/pretium/link-by-address/:address`* | User or service token |
+| GET | `/api/v2/pretium/transactions/:phoneNumber`* | Service token or superadmin |
+| GET | `/api/v2/pretium/transactions-by-address/:address`* | User or service token |
+| GET | `/api/v2/pretium/transactions-recent`* | Service token or superadmin |
+| GET | `/api/v2/pretium/rates`* | User or service token |
+| GET | `/api/v2/accounts/:address/tokens/latest`* | User or service token |
+| GET | `/api/v2/accounts/:address/tokens/issued`* | User or service token |
+| GET | `/api/v2/accounts/:address/tokens`* | User or service token |
+| GET | `/api/v2/accounts/:address/transfers`* | User or service token |
+| GET | `/api/v2/accounts/:address/activity`* | User or service token |
+| GET | `/api/v2/users/me` | User session |
+| GET | `/api/v2/users/me/resource-usage` | User session |
+| GET | `/api/v2/users/me/catalogs` | User session |
+| GET | `/api/v2/users/me/vouchers` | User session |
+| GET | `/api/v2/users/me/tokens` | User session |
+| GET | `/api/v2/users/me/tokens/:address` | User session |
+| GET | `/api/v2/users/me/pools` | User session |
+| GET | `/api/v2/users/me/pools/:address` | User session |
+| GET | `/api/v2/users/me/deployments` | User session |
+| GET | `/api/v2/users/me/shares/eligibility/:address` | User session |
+| POST | `/api/v2/users/me/shares/:txHash` | User session |
+| GET | `/api/v2/users/me/shares/:txHash` | User session |
+| GET | `/api/v2/users/me/reports` | User session |
+| GET | `/api/v2/users/me/reports/:id` | User session |
+| GET | `/api/v2/admin/users` | Superadmin |
+| PUT | `/api/v2/admin/users/:address/approve` | Superadmin |
+| PUT | `/api/v2/admin/users/:address/reject` | Superadmin |
+| PUT | `/api/v2/admin/users/:address/limits` | Superadmin |
+| PUT | `/api/v2/admin/users/:address/profile` | Superadmin |
+| GET | `/api/v2/admin/users/:address/pools` | Superadmin |
+| GET | `/api/v2/admin/users/:address/stats` | Superadmin |
+| GET | `/api/v2/admin/tokens` | Superadmin |
+| GET | `/api/v2/admin/pools` | Superadmin |
+| GET | `/api/v2/admin/pools/:address/vouchers` | Superadmin |
+| PUT | `/api/v2/admin/pools/:address/profile` | Superadmin |
+| PUT | `/api/v2/admin/vouchers/:address/profile` | Superadmin |
+| GET | `/api/v2/admin/vouchers` | Superadmin |
+| GET | `/api/v2/admin/vouchers/:address` | Superadmin |
+| PUT | `/api/v2/admin/vouchers/:address/restore` | Superadmin |
+| GET | `/api/v2/admin/deployments` | Superadmin |
+| GET | `/api/v2/admin/vocabulary` | Superadmin |
+| PUT | `/api/v2/admin/vocabulary/tags` | Superadmin |
+| PUT | `/api/v2/admin/vocabulary/units` | Superadmin |
+| POST | `/api/v2/admin/vocabulary/units-of-account` | Superadmin |
+| PUT | `/api/v2/admin/vocabulary/units-of-account` | Superadmin |
+| DELETE | `/api/v2/admin/vocabulary/tags` | Superadmin |
+| DELETE | `/api/v2/admin/vocabulary/units` | Superadmin |
+| DELETE | `/api/v2/admin/vocabulary/units-of-account` | Superadmin |
+| GET | `/api/v2/admin/review-notifications` | Superadmin |
+| PUT | `/api/v2/admin/review-notifications/:id` | Superadmin |
+| GET | `/api/v2/admin/reports` | Superadmin |
+| GET | `/api/v2/admin/reports/:id` | Superadmin |
+| GET | `/api/v2/admin/dashboard/stats` | Superadmin |
+| GET | `/api/v2/admin/transactions/vouchers` | Superadmin |
+| GET | `/api/v2/admin/transactions/pools` | Superadmin |
+| GET | `/api/v2/admin/transactions/otx` | Superadmin |
+| GET | `/api/v2/federation/system`* | User or service token |
+| GET | `/api/v2/relayer/health` | Public |
+| GET | `/api/v2/relayer/nonce/:address` | Public |
+| GET | `/api/v2/relayer/calibur-nonce/:address` | Public |
+| GET | `/api/v2/relayer/calibur-nonce/:address/:keyHash` | Public |
+| GET | `/api/v2/relayer/track/:trackingId` | Public |
+| POST | `/api/v2/relayer/delegate` | Public |
+| POST | `/api/v2/relayer/relay` | Public |
+| POST | `/api/v2/relayer/relay/preview` | Public |
+| GET | `/api/v2/relayer/webauthn/challenge` | Public |
+| POST | `/api/v2/relayer/webauthn/recover` | Public |

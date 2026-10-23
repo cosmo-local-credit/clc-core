@@ -171,6 +171,10 @@ func (a *API) accountOTXHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
+	if !callerMayActOnAddress(c, req.Address) {
+		return handleForbiddenError(c, "address does not belong to the caller")
+	}
+
 	p := normalizePagination(apiresp.CursorPaginationRequest{
 		PerPage: req.PerPage,
 		Next:    req.Next,

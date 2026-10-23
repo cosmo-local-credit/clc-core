@@ -11,7 +11,7 @@ import (
 )
 
 // These tests exercise the confirm-path promotion that moves a confirmed deploy
-// into the network catalog (MIGRATION.md §2.4 / §3.5). They run against a live
+// into the network catalog. They run against a live
 // database and are skipped unless CORE_TEST_DSN points at one, so
 // `go test ./...` stays hermetic on machines without Postgres.
 //

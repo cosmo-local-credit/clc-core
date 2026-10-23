@@ -19,7 +19,7 @@ import (
 // operator scanning it could not compare a column against itself.
 //
 // Token metadata is not joined here. It comes from the local vouchers catalog,
-// which MIGRATION.md §2 makes the single home for living voucher attributes —
+// which is the single home for living voucher attributes —
 // the same split FederationTransfer uses.
 type (
 	// AdminVoucherTransaction is one movement of one voucher: a peer-to-peer

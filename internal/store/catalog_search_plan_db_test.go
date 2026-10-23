@@ -12,8 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Generic-plan gates for catalog search (PG_SEARCH_PLAN.md "Performance
-// Verification").
+// Generic-plan gates for catalog search.
 //
 // EXPLAIN (GENERIC_PLAN) rather than EXPLAIN ANALYZE with literals: pgx runs
 // these statements under QueryExecModeCacheStatement, so PostgreSQL may execute
@@ -360,8 +359,8 @@ func TestTagOnlyFilterIsPlannedWithoutRequiringAJunctionIndex(t *testing.T) {
 
 // Pool search must keep its own trigram indexes driving, in every direction, at a
 // representative pool count. The local catalog holds two pools, which cannot
-// produce a meaningful plan, so this seeds 5,000 first — PG_SEARCH_PLAN.md is
-// explicit that pool plans mean nothing until representative data is loaded.
+// produce a meaningful plan, so this seeds 5,000 first: pool plans mean nothing
+// until representative data is loaded.
 //
 // The junction lookups in the projection are deliberately not asserted. pool_tags
 // and pool_tokens hold 6 and 16 rows here, and a sequential scan of a table that

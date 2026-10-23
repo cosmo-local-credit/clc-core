@@ -19,6 +19,10 @@ func (a *API) pretiumTriggerOnrampHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
+	if !callerMayActOnAddress(c, req.Address) {
+		return handleForbiddenError(c, "address does not belong to the caller")
+	}
+
 	resp, statusCode, err := a.pretium.TriggerOnramp(c.Request().Context(), req)
 	if err != nil {
 		return handlePretiumError(c, err)
@@ -34,6 +38,10 @@ func (a *API) pretiumLinkHandler(c *echo.Context) error {
 	}
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
+	}
+
+	if !callerMayActOnAddress(c, req.PublicKey) {
+		return handleForbiddenError(c, "publicKey does not belong to the caller")
 	}
 
 	resp, statusCode, err := a.pretium.CreateLink(c.Request().Context(), req)
@@ -70,6 +78,10 @@ func (a *API) pretiumLinkByAddressHandler(c *echo.Context) error {
 		return a.handleValidateError(c, err)
 	}
 
+	if !callerMayActOnAddress(c, req.Address) {
+		return handleForbiddenError(c, "address does not belong to the caller")
+	}
+
 	resp, statusCode, err := a.pretium.GetLinkByAddress(c.Request().Context(), url.PathEscape(req.Address))
 	if err != nil {
 		return handlePretiumError(c, err)
@@ -102,6 +114,10 @@ func (a *API) pretiumTransactionsByAddressHandler(c *echo.Context) error {
 	}
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
+	}
+
+	if !callerMayActOnAddress(c, req.Address) {
+		return handleForbiddenError(c, "address does not belong to the caller")
 	}
 
 	resp, statusCode, err := a.pretium.GetTransactionsByAddress(c.Request().Context(), url.PathEscape(req.Address))

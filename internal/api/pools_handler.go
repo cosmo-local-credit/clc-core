@@ -11,11 +11,11 @@ import (
 
 // poolsListHandler returns the network pool catalog (imported + clc-core
 // deploys), cursor-paginated. Directory reads come from the pools catalog,
-// not the deploy pipeline (MIGRATION.md §3.5); deploy-status APIs keep
+// not the deploy pipeline; deploy-status APIs keep
 // reading deployed_pools.
 //
 // Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, `owner`, and `facets`
-// narrow the page (PG_SEARCH_PLAN.md Slice 2). Pool tags are the pool's own curated
+// narrow the page. Pool tags are the pool's own curated
 // `pool_tags` — the same values each row already returns — not member-voucher
 // or member-offering tags, so a filtered row always carries the tag that
 // matched it. Every page direction applies every active predicate.

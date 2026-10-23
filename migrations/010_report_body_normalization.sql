@@ -1,4 +1,4 @@
--- Reports: normalize the editor body out of JSONB (MIGRATION.md §4.8).
+-- Reports: normalize the editor body out of JSONB.
 --
 -- Before this migration `reports.body` held the raw Plate/ProseMirror document
 -- and GET /api/v2/reports/:id re-derived three separate facts from it on every
@@ -406,7 +406,7 @@ CREATE TABLE IF NOT EXISTS report_attachments (
 );
 
 -- The field-report form is a single-valued attribute of the report, so it
--- belongs on `reports` (MIGRATION.md §2.1 V6: sparse facts are nullable
+-- belongs on `reports` (sparse facts are nullable
 -- columns, not a second table). All three are issuer free text and are never
 -- normalized — `time_taken` alone holds "2", "1 hour", "2hrs" and "1 hr".
 ALTER TABLE reports

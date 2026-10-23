@@ -754,7 +754,7 @@ func TestNetworkCatalogMigration(t *testing.T) {
 	require.NoError(t, err)
 
 	s := string(content)
-	// Catalog + content tables (MIGRATION.md §1–§5).
+	// Catalog + content tables.
 	for _, tbl := range []string{
 		"voucher_type", "vouchers", "voucher_tags",
 		"pools", "pool_tags", "pool_tokens",
@@ -1141,7 +1141,7 @@ func TestDeployCatalogPromotionMigration(t *testing.T) {
 	assert.Contains(t, s, "CASE WHEN vouchers.geo_lat IS NULL THEN EXCLUDED.geo_lng ELSE vouchers.geo_lng END")
 	assert.Contains(t, s, "CASE WHEN pools.geo_lat IS NULL THEN EXCLUDED.geo_lng ELSE pools.geo_lng END")
 
-	// Never invent pipeline facts for catalog rows (MIGRATION.md §2.6).
+	// Never invent pipeline facts for catalog rows.
 	assert.NotContains(t, s, "INSERT INTO otx")
 	assert.NotContains(t, s, "INSERT INTO platform_contracts")
 	assert.NotContains(t, s, "INSERT INTO deployed_tokens")
