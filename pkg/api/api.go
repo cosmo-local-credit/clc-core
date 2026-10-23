@@ -97,7 +97,7 @@ type (
 
 	RegisterVersionRequest struct {
 		Version               string `json:"version" validate:"required"`
-		ContractType          string `json:"contractType" validate:"required,oneof=token pool"`
+		ContractType          string `json:"contractType" validate:"required,oneof=ERC20 ERC20_DEMURRAGE SWAPPOOL TOKEN_UNIQUE_SYMBOL_INDEX LIMITER FEE_POLICY ORACLE_QUOTER RELATIVE_QUOTER"`
 		ImplementationAddress string `json:"implementationAddress" validate:"required,eth_addr_checksum"`
 	}
 
