@@ -944,8 +944,6 @@ base_url = "https://pretium.example.com/api/v1"
 - Upstream `5xx` responses are surfaced as `502 Bad Gateway`.
 - Local validation failures still use this API's standard error envelope.
 
-See [PRETIUM.md](./PRETIUM.md) for request bodies and integration notes.
-
 ---
 
 ### 5.9 `GET /api/v2/pools`
@@ -1820,8 +1818,6 @@ await fetch('/auth/signin', {
 > [section 9](#9-public-market-catalog-get-apiv2vouchers) do not use the cookie
 > and may explicitly send `credentials: 'omit'`.
 
-For a full Reown AppKit (formerly WalletConnect) integration example, including the `siweConfig` adapter and sign-up flow, see [`docs/AUTH.md`](./AUTH.md).
-
 ---
 
 ## 9. Public Market Catalog (`GET /api/v2/vouchers`)
@@ -1915,7 +1911,7 @@ traversing its pages** — changing it mid-traversal produces an inconsistent se
 **Included rows.** Only vouchers that are `active` **and** have complete
 coordinates. There is no `internal` predicate: `internal` is an import
 artifact, not a visibility or product-policy flag, and it is not exposed in
-this contract. See `MIGRATION.md` §4.7.
+this contract.
 
 **`kind`.** Always `voucher`. Offerings no longer have a goods/services
 classification. A generic voucher may have available offerings; clients must
@@ -2971,8 +2967,6 @@ A second create returns:
 ```json
 {"ok":false,"description":"you already have a catalog","code":"E16"}
 ```
-
-See [CATALOGS.md](CATALOGS.md) for database design and verification details.
 
 ### Catalog status on account token balances
 

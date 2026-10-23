@@ -11,7 +11,7 @@
 --
 -- These queries return CHAIN FACTS ONLY. Token metadata (symbol, name,
 -- decimals, icon) is enriched from the LOCAL vouchers catalog by the API
--- layer (per MIGRATION.md §2 the catalog is the single home for living
+-- layer (the catalog is the single home for living
 -- voucher attributes) — the former joins to tokens and
 -- sarafu_network.vouchers are gone. A side effect is that holdings and
 -- transfers are no longer silently dropped for tokens the federation

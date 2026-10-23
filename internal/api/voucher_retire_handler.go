@@ -14,8 +14,8 @@ import (
 // Soft, not destructive: it flips `vouchers.active`, which every market, search
 // and offering statement already filters on, so the voucher stops resolving
 // everywhere the public reads while the reports and offerings that reference it
-// keep their foreign keys (42.md 3.1 measured what deleting instead would cost —
-// 65% of report→voucher links ride on rows a delete would take with them).
+// keep their foreign keys (deleting instead would take with it the rows that
+// 65% of report→voucher links ride on).
 //
 // One route for both callers, like the profile and display-name writes beside
 // it: a superadmin satisfies canManageVoucher through the role branch, so

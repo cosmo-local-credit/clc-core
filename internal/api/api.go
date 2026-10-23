@@ -195,7 +195,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/catalogs/:id/vouchers", a.curatedMembersHandler, a.marketRateLimitMiddleware())
 
 	// Network pool catalog (imported + clc-core deploys; reads the pools
-	// table, MIGRATION.md §3.5). Distinct from /users/me/pools which is
+	// table). Distinct from /users/me/pools which is
 	// membership/ownership for the authenticated user only. Public for the same
 	// reason as the market catalog — the map's voucher card lists the pools that
 	// hold a voucher — but a signed-in caller is not throttled; see

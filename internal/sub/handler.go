@@ -96,7 +96,7 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 
 // confirmToken finalizes a token deploy and promotes it into the voucher
 // catalog. Both steps share the caller's transaction, so the deploy cannot
-// become CONFIRMED without a catalog row (MIGRATION.md §2.4).
+// become CONFIRMED without a catalog row.
 //
 // Confirmation is guarded on status = 'PENDING', so a redelivered event finds no
 // row and promotion is skipped rather than repeated.
@@ -120,7 +120,7 @@ func (s *Sub) confirmToken(ctx context.Context, tx pgx.Tx, otxID uint64, contrac
 	return nil
 }
 
-// confirmPool is confirmToken's counterpart for pools (MIGRATION.md §3.5).
+// confirmPool is confirmToken's counterpart for pools.
 func (s *Sub) confirmPool(ctx context.Context, tx pgx.Tx, otxID uint64, contractAddress string) error {
 	deployedPoolID, err := s.store.ConfirmDeployedPool(ctx, tx, otxID, contractAddress)
 	if err != nil {

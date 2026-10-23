@@ -15,8 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// Request parsing for catalog search and tag filtering (PG_SEARCH_PLAN.md
-// Slices 1 and 2).
+// Request parsing for catalog search and tag filtering.
 //
 // Everything here turns public strings into the store's typed filter. No parsed
 // value ever reaches SQL as text: the term and the tag array cross as bound

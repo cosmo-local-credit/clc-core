@@ -7,8 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Filtered pool catalog pages and the pool tag facet (PG_SEARCH_PLAN.md
-// Slice 2). Pools carry no visibility flag and no coordinate requirement, so a
+// Filtered pool catalog pages and the pool tag facet. Pools carry no visibility flag and no coordinate requirement, so a
 // filtered pool page differs from the unfiltered one only by the predicates the
 // caller asked for.
 //

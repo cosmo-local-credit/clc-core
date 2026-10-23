@@ -193,7 +193,7 @@ type (
 		ListAdminVouchers(context.Context, pgx.Tx, CatalogFilter, AdminVoucherStatus, CatalogPage, uint64, uint64) ([]AdminVoucher, error)
 		GetAdminVoucherByAddress(context.Context, pgx.Tx, string) (AdminVoucherDetail, error)
 
-		// Catalog search and tag filtering (PG_SEARCH_PLAN.md Slices 1 and 2).
+		// Catalog search and tag filtering.
 		ListMarketVouchersFiltered(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter, CatalogPage, uint64, uint64) ([]MarketVoucher, error)
 		ListMarketVoucherTagFacets(context.Context, pgx.Tx, *MarketVoucherBounds, CatalogFilter) ([]TagFacet, error)
 		ListOfferingsFiltered(context.Context, pgx.Tx, CatalogFilter, OfferingCursor, uint64) ([]Offering, error)

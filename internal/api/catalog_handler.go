@@ -270,8 +270,7 @@ func catalogAddressListHandler[T any](
 // voucher summaries with a backend-derived marker kind. The public market
 // routes carry a shared cache policy and per-IP rate limit.
 //
-// Optional `q`, `tags`, `tagMatch`, and `facets` narrow the page
-// (PG_SEARCH_PLAN.md Slice 1). The response shape is unchanged when they are
+// Optional `q`, `tags`, `tagMatch`, and `facets` narrow the page. The response shape is unchanged when they are
 // absent, and gains only the additive `tagFacets` key when `facets=true` is
 // asked for on a first page, so the map client's bulk import is unaffected.
 // Every page direction — first, next, and previous — applies every active

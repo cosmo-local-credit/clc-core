@@ -2,7 +2,7 @@
 -- Reuses the location_name + geo_lat/geo_lng pattern already on
 -- deployed_tokens, deployed_pools, vouchers, and pools. No index: nothing
 -- queries users by proximity yet. Reverses locked decision I4 narrowly
--- (geo only, not demographics generally) — see MIGRATION.md.
+-- (geo only, not demographics generally).
 
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS location_name TEXT,

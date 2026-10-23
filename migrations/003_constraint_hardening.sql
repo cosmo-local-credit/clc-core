@@ -1,5 +1,4 @@
 -- Constraint hardening: enforce invariants the application already relies on.
--- See QUICK_SCHEMA_FIX.md for the full plan and pre-flight data audit.
 --
 -- Every ADD CONSTRAINT is guarded so re-runs are no-ops and so the same
 -- constraints can live inline in the 001 baseline for fresh databases.

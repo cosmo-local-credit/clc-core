@@ -84,7 +84,7 @@ UPDATE deployed_tokens
 SET status = 'FAILED'
 WHERE otx_id = $1 AND status = 'PENDING';
 
--- Confirm-path promotion (MIGRATION.md §2.4): a confirmed deploy becomes a row
+-- Confirm-path promotion: a confirmed deploy becomes a row
 -- in the network voucher catalog, and the pipeline row links to it. Runs in the
 -- confirming transaction so a deploy is never CONFIRMED without its catalog row.
 --
@@ -493,7 +493,7 @@ UPDATE deployed_pools
 SET status = 'FAILED'
 WHERE otx_id = $1 AND status = 'PENDING';
 
--- Confirm-path promotion for pools (MIGRATION.md §3.5). Same contract as
+-- Confirm-path promotion for pools. Same contract as
 -- upsert-voucher-from-deploy: derive chain_id from the real factory, match the
 -- catalog on lower(address), let the fresh deploy win field by field, and link
 -- the pipeline row — all inside the confirming transaction.
@@ -1250,13 +1250,13 @@ WHERE keystore_id = (SELECT id FROM keystore WHERE public_key = $1)
 -- Voucher catalog metadata for a set of token addresses (case-insensitive).
 -- Serves the token metadata previously joined from federation tables
 -- (chain_data_v2.tokens / sarafu_network.vouchers) — the local catalog is the
--- single home for living voucher attributes (MIGRATION.md §2 V2).
+-- single home for living voucher attributes.
 --name: list-voucher-metadata-by-addresses
 SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url, active
 FROM vouchers
 WHERE lower(address) = ANY($1);
 
--- Pool catalog directory (MIGRATION.md §3.5) — reads come from the pools
+-- Pool catalog directory — reads come from the pools
 -- catalog, not the deploy pipeline. Cursor-paginated newest-first by id,
 -- tags aggregated from pool_tags.
 --name: list-pools
@@ -1440,7 +1440,7 @@ WHERE id = $1;
 -- catalog's visibility gate — every market, search and offering statement
 -- filters on it — so flipping it here removes a voucher from the public
 -- catalog without touching the report and offering rows that reference it
--- (42.md 3.1: deactivate, do not delete).
+-- (deactivate, do not delete).
 --name: set-voucher-active
 UPDATE vouchers
 SET active = $2,
@@ -1538,7 +1538,7 @@ WHERE pt.pool_id = p.id
   AND lower(p.quoter_address) = lower($1)
   AND lower(v.address) = lower($2);
 
--- Pool voucher composition (MIGRATION.md §3.4). Oracle feeds replace legacy
+-- Pool voucher composition. Oracle feeds replace legacy
 -- fixed exchange rates; offering counts are local catalog facts.
 --name: list-pool-vouchers
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.decimals, v.owner_address,

@@ -12,7 +12,5 @@ config.toml
 brand.html
 **/node_modules
 static
-e2e
 /seed/*.sql
 /seed/*.sh
-.pi/*
