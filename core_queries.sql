@@ -269,7 +269,8 @@ SELECT
     (SELECT count(*) FROM pool_tags pt WHERE pt.tag_value = tt.value) AS pools,
     (SELECT count(*) FROM report_tags rt WHERE rt.tag_value = tt.value) AS posts,
     (SELECT count(*) FROM offering_tags ot WHERE ot.tag_value = tt.value) AS offerings,
-    (SELECT count(*) FROM catalog_tags ct WHERE ct.tag_value = tt.value) AS catalogs
+    (SELECT count(*) FROM catalog_tags ct WHERE ct.tag_value = tt.value) AS catalogs,
+    (SELECT count(*) FROM want_tags wt WHERE wt.tag_value = tt.value) AS wants
 FROM token_tag tt
 ORDER BY tt.value;
 
@@ -380,6 +381,9 @@ deleted_offerings AS (
 deleted_catalogs AS (
     DELETE FROM catalog_tags WHERE tag_value = $1 RETURNING 1
 ),
+deleted_wants AS (
+    DELETE FROM want_tags WHERE tag_value = $1 RETURNING 1
+),
 deleted_value AS (
     DELETE FROM token_tag
     WHERE value = $1
@@ -392,6 +396,7 @@ deleted_value AS (
         + (SELECT count(*) FROM deleted_posts)
         + (SELECT count(*) FROM deleted_offerings)
         + (SELECT count(*) FROM deleted_catalogs)
+        + (SELECT count(*) FROM deleted_wants)
       ) >= 0
     RETURNING value
 )
@@ -403,6 +408,7 @@ SELECT
     (SELECT count(*) FROM deleted_posts) AS posts,
     (SELECT count(*) FROM deleted_offerings) AS offerings,
     (SELECT count(*) FROM deleted_catalogs) AS catalogs,
+    (SELECT count(*) FROM deleted_wants) AS wants,
     EXISTS (SELECT 1 FROM deleted_value) AS deleted;
 
 --name: delete-custom-offering-unit
@@ -744,21 +750,21 @@ SELECT active FROM keystore WHERE public_key = $1;
 --name: insert-user
 INSERT INTO users (blockchain_address, name, email, role, status)
 VALUES ($1, $2, NULLIF($3, ''), $4::user_role, $5::user_status)
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
 
 --name: get-user-by-address
-SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at
 FROM users
 WHERE LOWER(blockchain_address) = LOWER($1)
 LIMIT 1;
 
 --name: get-user-by-id
-SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at
 FROM users
 WHERE id = $1;
 
 --name: get-user-by-email
-SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at
+SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at
 FROM users
 WHERE email = $1;
 
@@ -766,20 +772,21 @@ WHERE email = $1;
 UPDATE users
 SET status = $2::user_status
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
 
 --name: approve-pending-user-by-address
 UPDATE users
 SET status = 'APPROVED'::user_status
 WHERE blockchain_address = $1 AND status = 'PENDING'::user_status
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
 
 --name: update-user-limits
 UPDATE users
 SET max_pools = COALESCE($2, max_pools), max_tokens = COALESCE($3, max_tokens),
-    max_catalogs = COALESCE($4, max_catalogs), max_offers = COALESCE($5, max_offers)
+    max_catalogs = COALESCE($4, max_catalogs), max_offers = COALESCE($5, max_offers),
+    max_wants = COALESCE($6, max_wants)
 WHERE lower(blockchain_address) = lower($1)
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
 
 --name: update-user-profile
 -- Every onboarding preference preserves on omission so older clients cannot
@@ -800,7 +807,7 @@ SET name = $2,
     avatar_url = CASE WHEN $13 THEN NULL ELSE COALESCE($14, avatar_url) END,
     username = COALESCE($15, username)
 WHERE blockchain_address = $1
-RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, created_at, updated_at;
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
 
 -- User shares
 --name: insert-user-share
@@ -2992,6 +2999,212 @@ SELECT id FROM pools WHERE id=$1 FOR SHARE;
 --name: visible-curated-voucher
 SELECT id FROM vouchers WHERE id=$1 AND active FOR SHARE;
 
+-- Wants use one stable projection across public, pool and owner reads.  Lists
+-- deliberately project no contact PII; the detail statement below resolves
+-- only fields the owner explicitly made public.
+--name: list-wants
+WITH eligible AS (
+    SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,
+        w.starts_at,w.expires_at,w.status,
+        CASE WHEN w.status='CLOSED' THEN 'closed'
+             WHEN w.starts_at>CURRENT_TIMESTAMP THEN 'scheduled'
+             WHEN w.expires_at IS NOT NULL AND w.expires_at<=CURRENT_TIMESTAMP THEN 'expired'
+             ELSE 'active' END AS state,
+        w.image_url,COALESCE(w.image_url,u.avatar_url) AS effective_image_url,
+        0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,
+        w.marker_icon,w.marker_color,
+        COALESCE(wt.tags,ARRAY[]::TEXT[]) AS tags,u.name AS owner_name,u.username AS owner_username,
+        CASE WHEN $13::BOOLEAN THEN 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
+            power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
+            power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
+        )))) END AS distance_meters,w.created_at,w.updated_at
+    FROM wants w JOIN users u ON u.id=w.owner_user_id
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id
+    ) wt ON true
+    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+      AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND ($1='' OR CASE WHEN $2::BOOLEAN
+          THEN lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\'
+          ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
+      AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR CASE WHEN $4::BOOLEAN THEN
+          (SELECT count(DISTINCT tag) FROM unnest(COALESCE(wt.tags,ARRAY[]::TEXT[])) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[])
+          ELSE COALESCE(wt.tags,ARRAY[]::TEXT[]) && $3::TEXT[] END)
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+          SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed
+          WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($5::BIGINT[])
+      ))
+      AND (NOT $6::BOOLEAN OR (w.geo_lng BETWEEN $7 AND $9 AND w.geo_lat BETWEEN $8 AND $10))
+      AND (NOT $13::BOOLEAN OR 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
+          power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
+          power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
+      )))) <= 1000000)
+      AND $11::BIGINT=0
+)
+SELECT * FROM eligible ORDER BY id DESC LIMIT $12;
+
+--name: list-wants-next
+WITH page AS (
+    SELECT * FROM (
+        SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,
+            w.starts_at,w.expires_at,w.status,
+            CASE WHEN w.status='CLOSED' THEN 'closed' WHEN w.starts_at>CURRENT_TIMESTAMP THEN 'scheduled'
+                 WHEN w.expires_at IS NOT NULL AND w.expires_at<=CURRENT_TIMESTAMP THEN 'expired' ELSE 'active' END AS state,
+            w.image_url,COALESCE(w.image_url,u.avatar_url) AS effective_image_url,
+            0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,
+            w.marker_icon,w.marker_color,COALESCE(wt.tags,ARRAY[]::TEXT[]) AS tags,
+            u.name AS owner_name,u.username AS owner_username,
+            CASE WHEN $13::BOOLEAN THEN 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
+                power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
+                power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
+            )))) END AS distance_meters,w.created_at,w.updated_at
+        FROM wants w JOIN users u ON u.id=w.owner_user_id
+        LEFT JOIN LATERAL (SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id) wt ON true
+        WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+          AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
+          AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR CASE WHEN $4::BOOLEAN THEN (SELECT count(DISTINCT tag) FROM unnest(COALESCE(wt.tags,ARRAY[]::TEXT[])) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[]) ELSE COALESCE(wt.tags,ARRAY[]::TEXT[]) && $3::TEXT[] END)
+          AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($5::BIGINT[])))
+          AND (NOT $6::BOOLEAN OR (w.geo_lng BETWEEN $7 AND $9 AND w.geo_lat BETWEEN $8 AND $10))
+          AND (NOT $13::BOOLEAN OR 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
+              power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
+              power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
+          )))) <= 1000000)
+          AND w.id<$11 ORDER BY w.id DESC LIMIT $12
+    ) selected
+)
+SELECT * FROM page ORDER BY id DESC;
+
+--name: list-wants-prev
+WITH page AS (
+    SELECT * FROM (
+        SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,
+            w.starts_at,w.expires_at,w.status,
+            CASE WHEN w.status='CLOSED' THEN 'closed' WHEN w.starts_at>CURRENT_TIMESTAMP THEN 'scheduled'
+                 WHEN w.expires_at IS NOT NULL AND w.expires_at<=CURRENT_TIMESTAMP THEN 'expired' ELSE 'active' END AS state,
+            w.image_url,COALESCE(w.image_url,u.avatar_url) AS effective_image_url,
+            0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,
+            w.marker_icon,w.marker_color,COALESCE(wt.tags,ARRAY[]::TEXT[]) AS tags,
+            u.name AS owner_name,u.username AS owner_username,
+            CASE WHEN $13::BOOLEAN THEN 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
+                power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
+                power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
+            )))) END AS distance_meters,w.created_at,w.updated_at
+        FROM wants w JOIN users u ON u.id=w.owner_user_id
+        LEFT JOIN LATERAL (SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id) wt ON true
+        WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+          AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
+          AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR CASE WHEN $4::BOOLEAN THEN (SELECT count(DISTINCT tag) FROM unnest(COALESCE(wt.tags,ARRAY[]::TEXT[])) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[]) ELSE COALESCE(wt.tags,ARRAY[]::TEXT[]) && $3::TEXT[] END)
+          AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($5::BIGINT[])))
+          AND (NOT $6::BOOLEAN OR (w.geo_lng BETWEEN $7 AND $9 AND w.geo_lat BETWEEN $8 AND $10))
+          AND (NOT $13::BOOLEAN OR 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
+              power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
+              power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
+          )))) <= 1000000)
+          AND w.id>$11 ORDER BY w.id ASC LIMIT $12
+    ) selected
+)
+SELECT * FROM page ORDER BY id DESC;
+
+--name: list-want-tag-facets
+WITH eligible AS (
+    SELECT w.id FROM wants w JOIN users u ON u.id=w.owner_user_id
+    LEFT JOIN LATERAL (SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id) wt ON true
+    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
+      AND (COALESCE(cardinality($3::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($3::BIGINT[])))
+      AND (NOT $4::BOOLEAN OR (w.geo_lng BETWEEN $5 AND $7 AND w.geo_lat BETWEEN $6 AND $8))
+      AND (NOT $9::BOOLEAN OR 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
+          power(sin(radians(w.geo_lat-$10::FLOAT8)/2),2)+cos(radians($10::FLOAT8))*cos(radians(w.geo_lat))*
+          power(sin(radians(w.geo_lng-$11::FLOAT8)/2),2)
+      )))) <= 1000000)
+)
+SELECT tt.value AS tag_value,count(wt.want_id)::BIGINT AS match_count
+FROM token_tag tt LEFT JOIN want_tags wt ON wt.tag_value=tt.value AND wt.want_id IN (SELECT id FROM eligible)
+GROUP BY tt.value ORDER BY tt.value;
+
+--name: list-pool-wants
+SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+    'active'::TEXT AS state,w.image_url,COALESCE(w.image_url,u.avatar_url) AS effective_image_url,
+    0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,w.marker_icon,w.marker_color,
+    COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+    u.name AS owner_name,u.username AS owner_username,NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+FROM wants w JOIN users u ON u.id=w.owner_user_id
+WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+  AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
+  AND $2::BIGINT=0
+ORDER BY w.id DESC LIMIT $3;
+
+--name: list-pool-wants-next
+SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+    'active'::TEXT AS state,w.image_url,COALESCE(w.image_url,u.avatar_url) AS effective_image_url,
+    0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,
+    w.marker_icon,w.marker_color,
+    COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+    u.name AS owner_name,u.username AS owner_username,NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+FROM wants w JOIN users u ON u.id=w.owner_user_id
+WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+  AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
+  AND w.id<$2 ORDER BY w.id DESC LIMIT $3;
+
+--name: list-pool-wants-prev
+SELECT * FROM (
+    SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+        'active'::TEXT AS state,w.image_url,COALESCE(w.image_url,u.avatar_url) AS effective_image_url,
+        0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,
+        w.marker_icon,w.marker_color,COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+        u.name AS owner_name,u.username AS owner_username,NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+    FROM wants w JOIN users u ON u.id=w.owner_user_id
+    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
+      AND w.id>$2 ORDER BY w.id ASC LIMIT $3
+) page ORDER BY id DESC;
+
+--name: list-owned-wants
+SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+    CASE WHEN w.status='CLOSED' THEN 'closed' WHEN w.starts_at>CURRENT_TIMESTAMP THEN 'scheduled' WHEN w.expires_at IS NOT NULL AND w.expires_at<=CURRENT_TIMESTAMP THEN 'expired' ELSE 'active' END AS state,
+    w.image_url,COALESCE(w.image_url,u.avatar_url) AS effective_image_url,w.contact_permission,w.contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,
+    w.marker_icon,w.marker_color,COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+    u.name AS owner_name,u.username AS owner_username,NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+FROM wants w JOIN users u ON u.id=w.owner_user_id
+WHERE w.owner_user_id=$1 AND ($2::BIGINT=0 OR w.id<$2) ORDER BY w.id DESC LIMIT $3;
+
+--name: get-want
+SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+    CASE WHEN w.status='CLOSED' THEN 'closed' WHEN w.starts_at>CURRENT_TIMESTAMP THEN 'scheduled' WHEN w.expires_at IS NOT NULL AND w.expires_at<=CURRENT_TIMESTAMP THEN 'expired' ELSE 'active' END AS state,
+    w.image_url,COALESCE(w.image_url,u.avatar_url) AS effective_image_url,
+    CASE WHEN $2::BIGINT IS NOT NULL THEN w.contact_permission ELSE 0 END AS contact_permission,w.contact_text,
+    CASE WHEN (w.contact_permission & 1)=1 AND u.email IS NOT NULL AND lower(u.email) NOT LIKE '%@clc.local' THEN u.email END AS email,
+    CASE WHEN (w.contact_permission & 2)=2 AND NULLIF(BTRIM(u.phone),'') IS NOT NULL THEN u.phone END AS phone,
+    w.marker_icon,w.marker_color,COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+    u.name AS owner_name,u.username AS owner_username,NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+FROM wants w JOIN users u ON u.id=w.owner_user_id
+WHERE w.id=$1 AND (($2::BIGINT IS NOT NULL AND w.owner_user_id=$2) OR
+    ($2::BIGINT IS NULL AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)));
+
+--name: lock-want-owner
+SELECT owner_user_id FROM wants WHERE id=$1 FOR UPDATE;
+
+--name: create-want
+INSERT INTO wants(owner_user_id,name,description,location_name,geo_lat,geo_lng,starts_at,expires_at,image_url,contact_permission,contact_text,marker_icon,marker_color)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id;
+
+--name: update-want
+UPDATE wants SET name=$2,description=$3,location_name=$4,geo_lat=$5,geo_lng=$6,starts_at=$7,expires_at=$8,
+    image_url=$9,contact_permission=$10,contact_text=$11,marker_icon=$12,marker_color=$13,
+    status=CASE WHEN $14::BOOLEAN THEN 'OPEN' ELSE status END WHERE id=$1;
+
+--name: set-want-status
+UPDATE wants SET status=$2 WHERE id=$1;
+
+--name: delete-want
+DELETE FROM wants WHERE id=$1;
+
+--name: delete-want-tags
+DELETE FROM want_tags WHERE want_id=$1;
+
+--name: insert-want-tag
+INSERT INTO want_tags(want_id,tag_value) VALUES($1,$2);
+
 --name: list-curated-pools
 SELECT p.id,p.chain_id,p.address,COALESCE(p.display_name,p.name,p.address) AS name,p.image_url
 FROM catalog_pools cp JOIN pools p ON p.id=cp.pool_id WHERE cp.catalog_id=$1 AND p.id>$2 ORDER BY p.id LIMIT $3;
@@ -3088,6 +3301,29 @@ WITH raw AS MATERIALIZED (
     ) related ON true
     WHERE p.geo_lat IS NOT NULL AND p.geo_lng IS NOT NULL
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR p.id=ANY($5::BIGINT[]))
+
+    UNION ALL
+    SELECT 'want',w.id::BIGINT,NULL::BIGINT,NULL::TEXT,w.name,w.description,NULL::TEXT,
+        COALESCE(w.image_url,u.avatar_url),w.marker_icon,w.marker_color,NULL::TEXT,
+        w.location_name,w.geo_lat::FLOAT8,w.geo_lng::FLOAT8,
+        COALESCE(wtags.tags,ARRAY[]::TEXT[]),
+        NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,NULL::BIGINT,
+        w.created_at,w.updated_at,lower(w.name),
+        lower(concat_ws(' ',w.name,w.description,w.location_name,u.name,u.username,
+            array_to_string(wtags.tags,' ')))
+    FROM wants w
+    JOIN users u ON u.id=w.owner_user_id
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id
+    ) wtags ON true
+    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+      AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+          SELECT 1 FROM vouchers v
+          JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed
+          WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address)
+            AND pt.pool_id=ANY($5::BIGINT[])
+      ))
 
     UNION ALL
     SELECT 'catalog',c.id::BIGINT,NULL::BIGINT,NULL::TEXT,c.name,c.description,NULL::TEXT,c.image_url,
@@ -3200,6 +3436,7 @@ SELECT
     u.max_pools,
     u.max_catalogs,
     u.max_offers,
+    u.max_wants,
     (
         SELECT count(*)
         FROM user_deployments deployment
@@ -3249,7 +3486,14 @@ SELECT
         JOIN vouchers voucher ON voucher.id = offer.voucher_id AND voucher.active
         WHERE lower(offer.seller_address) = lower(u.blockchain_address)
           AND offer.available
-    ) AS offers_used
+    ) AS offers_used,
+    (
+        SELECT count(*)
+        FROM wants want
+        WHERE want.owner_user_id = u.id
+          AND want.status = 'OPEN'
+          AND (want.expires_at IS NULL OR want.expires_at > CURRENT_TIMESTAMP)
+    ) AS wants_used
 FROM users u
 WHERE u.id = $1;
 

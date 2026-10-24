@@ -171,6 +171,7 @@ type (
 		MaxTokens   *int `json:"maxTokens" validate:"omitempty,gte=0,lte=2147483647"`
 		MaxCatalogs *int `json:"maxCatalogs" validate:"omitempty,gte=0,lte=2147483647"`
 		MaxOffers   *int `json:"maxOffers" validate:"omitempty,gte=0,lte=2147483647"`
+		MaxWants    *int `json:"maxWants" validate:"omitempty,gte=0,lte=2147483647"`
 	}
 
 	// EthAddressParam is a path-parameter type for Ethereum addresses.

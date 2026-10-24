@@ -157,7 +157,7 @@ func (a *API) adminUpdateUserLimitsHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	user, err := a.store.UpdateUserLimits(ctx, tx, address, store.UserLimitsUpdate{MaxPools: req.MaxPools, MaxTokens: req.MaxTokens, MaxCatalogs: req.MaxCatalogs, MaxOffers: req.MaxOffers})
+	user, err := a.store.UpdateUserLimits(ctx, tx, address, store.UserLimitsUpdate{MaxPools: req.MaxPools, MaxTokens: req.MaxTokens, MaxCatalogs: req.MaxCatalogs, MaxOffers: req.MaxOffers, MaxWants: req.MaxWants})
 	if err != nil {
 		return handlePostgresError(c, err)
 	}

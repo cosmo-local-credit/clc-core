@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	marketplaceKinds = []string{"catalog", "offering", "pool", "voucher"}
+	marketplaceKinds = []string{"catalog", "offering", "pool", "voucher", "want"}
 )
 
 func parseMarketplaceKinds(c *echo.Context) ([]string, error) {
@@ -29,7 +29,7 @@ func parseMarketplaceKinds(c *echo.Context) ([]string, error) {
 				continue
 			}
 			if !slices.Contains(marketplaceKinds, kind) {
-				return nil, fmt.Errorf("kinds must contain only catalog, offering, pool, or voucher")
+				return nil, fmt.Errorf("kinds must contain only catalog, offering, pool, voucher, or want")
 			}
 			seen[kind] = struct{}{}
 		}

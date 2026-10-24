@@ -23,9 +23,9 @@ func TestResourceLimitsConcurrentLastSlotDB(t *testing.T) {
 		_, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, id)
 		require.NoError(t, err)
 	}()
-	for _, resource := range []string{"vouchers", "pools", "catalogs"} {
+	for _, resource := range []string{"vouchers", "pools", "catalogs", "wants"} {
 		t.Run(resource, func(t *testing.T) {
-			_, err := pool.Exec(ctx, `UPDATE users SET max_pools=1 WHERE id=$1`, id)
+			_, err := pool.Exec(ctx, `UPDATE users SET max_pools=1,max_wants=1 WHERE id=$1`, id)
 			require.NoError(t, err)
 			start := make(chan struct{})
 			results := make(chan error, 2)
@@ -43,10 +43,14 @@ func TestResourceLimitsConcurrentLastSlotDB(t *testing.T) {
 						results <- err
 						return
 					}
-					if resource == "catalogs" {
+					switch resource {
+					case "catalogs":
 						zero := 0.0
 						_, err = pg.CreateCuratedCatalog(ctx, tx, id, CuratedCatalogWrite{Name: "Quota", LocationName: "Test", GeoLat: &zero, GeoLng: &zero})
-					} else {
+					case "wants":
+						_, err = tx.Exec(ctx, `INSERT INTO wants(owner_user_id,name,description,location_name,geo_lat,geo_lng,contact_text)
+							VALUES($1,'Quota Want','Quota test','Test',0,0,'Contact')`, id)
+					default:
 						kind := "TOKEN"
 						if resource == "pools" {
 							kind = "POOL"
@@ -92,13 +96,15 @@ func TestResourceLimitsDefaultsRollbackAndAdminUpdateDB(t *testing.T) {
 	require.Equal(t, 1, user.MaxCatalogs)
 	require.Equal(t, 3, user.MaxOffers)
 	require.Equal(t, 10, user.MaxPools)
+	require.Equal(t, 3, user.MaxWants)
 	zero, two := 0, 2
-	updated, err := pg.UpdateUserLimits(ctx, tx, user.EthereumAddress, UserLimitsUpdate{MaxCatalogs: &two, MaxOffers: &zero})
+	updated, err := pg.UpdateUserLimits(ctx, tx, user.EthereumAddress, UserLimitsUpdate{MaxCatalogs: &two, MaxOffers: &zero, MaxWants: &two})
 	require.NoError(t, err)
 	require.Equal(t, 1, updated.MaxTokens)
 	require.Equal(t, 10, updated.MaxPools)
 	require.Equal(t, 2, updated.MaxCatalogs)
 	require.Zero(t, updated.MaxOffers)
+	require.Equal(t, 2, updated.MaxWants)
 	var limit *ResourceLimitError
 	require.ErrorAs(t, pg.CheckUserResourceLimit(ctx, tx, user.ID, "offers"), &limit)
 	nested, err := tx.Begin(ctx)

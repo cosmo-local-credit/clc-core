@@ -32,6 +32,7 @@ type (
 		MaxTokens         int       `db:"max_tokens"       json:"maxTokens"`
 		MaxCatalogs       int       `db:"max_catalogs" json:"maxCatalogs"`
 		MaxOffers         int       `db:"max_offers" json:"maxOffers"`
+		MaxWants          int       `db:"max_wants" json:"maxWants"`
 		CreatedAt         time.Time `db:"created_at"       json:"createdAt"`
 		UpdatedAt         time.Time `db:"updated_at"       json:"updatedAt"`
 	}
@@ -163,7 +164,7 @@ func (pg *Pg) ApprovePendingUserByAddress(ctx context.Context, tx pgx.Tx, addres
 func (pg *Pg) UpdateUserLimits(ctx context.Context, tx pgx.Tx, address string, limits UserLimitsUpdate) (User, error) {
 	var u User
 
-	row, err := tx.Query(ctx, pg.queries.UpdateUserLimits, address, limits.MaxPools, limits.MaxTokens, limits.MaxCatalogs, limits.MaxOffers)
+	row, err := tx.Query(ctx, pg.queries.UpdateUserLimits, address, limits.MaxPools, limits.MaxTokens, limits.MaxCatalogs, limits.MaxOffers, limits.MaxWants)
 	if err != nil {
 		return u, err
 	}

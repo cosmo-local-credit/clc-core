@@ -13,6 +13,7 @@ type (
 		MaxTokens   *int
 		MaxCatalogs *int
 		MaxOffers   *int
+		MaxWants    *int
 	}
 
 	ResourceQuota struct {
@@ -27,6 +28,7 @@ type (
 		Pools    ResourceQuota `json:"pools"`
 		Catalogs ResourceQuota `json:"catalogs"`
 		Offers   ResourceQuota `json:"offers"`
+		Wants    ResourceQuota `json:"wants"`
 	}
 
 	ResourceLimitError struct {
@@ -47,13 +49,13 @@ func (pg *Pg) GetUserResourceUsage(ctx context.Context, tx pgx.Tx, userID uint64
 	var usage UserResourceUsage
 	var role string
 	err := tx.QueryRow(ctx, pg.queries.GetUserResourceUsage, userID).Scan(
-		&role, &usage.Vouchers.Limit, &usage.Pools.Limit, &usage.Catalogs.Limit, &usage.Offers.Limit,
-		&usage.Vouchers.Used, &usage.Pools.Used, &usage.Catalogs.Used, &usage.Offers.Used,
+		&role, &usage.Vouchers.Limit, &usage.Pools.Limit, &usage.Catalogs.Limit, &usage.Offers.Limit, &usage.Wants.Limit,
+		&usage.Vouchers.Used, &usage.Pools.Used, &usage.Catalogs.Used, &usage.Offers.Used, &usage.Wants.Used,
 	)
 	if err != nil {
 		return usage, err
 	}
-	for _, quota := range []*ResourceQuota{&usage.Vouchers, &usage.Pools, &usage.Catalogs, &usage.Offers} {
+	for _, quota := range []*ResourceQuota{&usage.Vouchers, &usage.Pools, &usage.Catalogs, &usage.Offers, &usage.Wants} {
 		quota.Unlimited = role == "SUPERADMIN"
 		quota.CanCreate = quota.Unlimited || quota.Used < quota.Limit
 	}
@@ -83,6 +85,8 @@ func (pg *Pg) CheckUserResourceLimit(ctx context.Context, tx pgx.Tx, userID uint
 		quota = usage.Catalogs
 	case "offers":
 		quota = usage.Offers
+	case "wants":
+		quota = usage.Wants
 	default:
 		return fmt.Errorf("unknown quota resource %q", resource)
 	}
