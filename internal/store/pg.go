@@ -253,6 +253,22 @@ type (
 		ListOfferingTagCountsGlobal string `query:"list-offering-tag-counts-global"`
 		ListOfferingTagCountsNearby string `query:"list-offering-tag-counts-nearby"`
 		ListMarketplace             string `query:"list-marketplace"`
+		ListWants                   string `query:"list-wants"`
+		ListWantsNext               string `query:"list-wants-next"`
+		ListWantsPrev               string `query:"list-wants-prev"`
+		ListWantTagFacets           string `query:"list-want-tag-facets"`
+		ListPoolWants               string `query:"list-pool-wants"`
+		ListPoolWantsNext           string `query:"list-pool-wants-next"`
+		ListPoolWantsPrev           string `query:"list-pool-wants-prev"`
+		ListOwnedWants              string `query:"list-owned-wants"`
+		GetWant                     string `query:"get-want"`
+		LockWantOwner               string `query:"lock-want-owner"`
+		CreateWant                  string `query:"create-want"`
+		UpdateWant                  string `query:"update-want"`
+		SetWantStatus               string `query:"set-want-status"`
+		DeleteWant                  string `query:"delete-want"`
+		DeleteWantTags              string `query:"delete-want-tags"`
+		InsertWantTag               string `query:"insert-want-tag"`
 
 		DashboardCatalogSnapshot string `query:"dashboard-catalog-snapshot"`
 		DashboardCatalogSeries   string `query:"dashboard-catalog-series"`

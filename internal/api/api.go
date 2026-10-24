@@ -186,6 +186,8 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/offerings", a.offeringsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/wants", a.wantsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/wants/:id", a.wantDetailHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/marketplace", a.marketplaceListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	// User-curated catalogs are public to browse; nearby discovery uses the
 	// viewer's saved profile location and therefore requires a user session.
@@ -205,6 +207,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/pools/:address", a.poolsByAddressHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/vouchers", a.poolVouchersListHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/offerings", a.poolOfferingsListHandler, a.poolCatalogMiddleware())
+	router.GET(apiVersion+"/pools/:address/wants", a.poolWantsListHandler, a.poolCatalogMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
@@ -299,6 +302,12 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/resource-usage", a.userResourceUsageHandler)
 	userGroup.GET("/me/catalogs", a.myCuratedCatalogsHandler)
 	userGroup.GET("/me/vouchers", a.userOwnedVouchersHandler)
+	userGroup.GET("/me/wants", a.ownedWantsListHandler)
+	userGroup.POST("/me/wants", a.wantCreateHandler)
+	userGroup.PUT("/me/wants/:id", a.wantUpdateHandler)
+	userGroup.POST("/me/wants/:id/close", a.wantCloseHandler)
+	userGroup.POST("/me/wants/:id/reopen", a.wantReopenHandler)
+	userGroup.DELETE("/me/wants/:id", a.wantDeleteHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)
