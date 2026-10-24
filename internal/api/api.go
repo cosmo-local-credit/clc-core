@@ -188,6 +188,8 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/offerings", a.offeringsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/wants", a.wantsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/wants/:id", a.wantDetailHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/wants/:id/vouchers", a.wantCreatorVouchersListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/wants/:id/pools", a.wantCreatorPoolsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/marketplace", a.marketplaceListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	// User-curated catalogs are public to browse; nearby discovery uses the
 	// viewer's saved profile location and therefore requires a user session.

@@ -142,6 +142,44 @@ func (pg *Pg) ListPoolWants(ctx context.Context, tx pgx.Tx, address string, page
 	return rows, err
 }
 
+func (pg *Pg) ListWantCreatorVouchers(
+	ctx context.Context,
+	tx pgx.Tx,
+	wantID uint64,
+	page CatalogPage,
+	cursor, limit uint64,
+) ([]OwnedVoucher, error) {
+	query := pg.queries.ListWantCreatorVouchers
+	switch page {
+	case CatalogNextPage:
+		query = pg.queries.ListWantCreatorVouchersNext
+	case CatalogPrevPage:
+		query = pg.queries.ListWantCreatorVouchersPrev
+	}
+	rows := []OwnedVoucher{}
+	err := pgxscan.Select(ctx, tx, &rows, query, wantID, cursor, limit)
+	return rows, err
+}
+
+func (pg *Pg) ListWantCreatorPools(
+	ctx context.Context,
+	tx pgx.Tx,
+	wantID uint64,
+	page CatalogPage,
+	cursor, limit uint64,
+) ([]Pool, error) {
+	query := pg.queries.ListWantCreatorPools
+	switch page {
+	case CatalogNextPage:
+		query = pg.queries.ListWantCreatorPoolsNext
+	case CatalogPrevPage:
+		query = pg.queries.ListWantCreatorPoolsPrev
+	}
+	rows := []Pool{}
+	err := pgxscan.Select(ctx, tx, &rows, query, wantID, cursor, limit)
+	return rows, err
+}
+
 func (pg *Pg) ListOwnedWants(ctx context.Context, tx pgx.Tx, ownerID, cursor, limit uint64) ([]Want, error) {
 	rows := []Want{}
 	err := pgxscan.Select(ctx, tx, &rows, pg.queries.ListOwnedWants, ownerID, cursor, limit)

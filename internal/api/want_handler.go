@@ -196,6 +196,61 @@ func (a *API) wantDetailHandler(c *echo.Context) error {
 	return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "Want", Result: map[string]any{"want": want}})
 }
 
+func activeWantListValidation(c *echo.Context, a *API, id uint64) func(pgx.Tx) (bool, error) {
+	return func(tx pgx.Tx) (bool, error) {
+		want, err := a.store.GetWant(c.Request().Context(), tx, id, nil)
+		if err != nil {
+			return false, handlePostgresError(c, err)
+		}
+		if want == nil {
+			return true, wantNotFound(c)
+		}
+		return false, nil
+	}
+}
+
+func (a *API) wantCreatorVouchersListHandler(c *echo.Context) error {
+	return wantCreatorResourceListHandler(c, a, "vouchers", "Want creator vouchers",
+		func(v store.OwnedVoucher) uint64 { return v.ID }, a.store.ListWantCreatorVouchers)
+}
+
+func (a *API) wantCreatorPoolsListHandler(c *echo.Context) error {
+	return wantCreatorResourceListHandler(c, a, "pools", "Want creator creditable pools",
+		func(p store.Pool) uint64 { return p.ID }, a.store.ListWantCreatorPools)
+}
+
+func wantCreatorResourceListHandler[T any](
+	c *echo.Context,
+	a *API,
+	resource, description string,
+	idOf func(T) uint64,
+	list func(context.Context, pgx.Tx, uint64, store.CatalogPage, uint64, uint64) ([]T, error),
+) error {
+	id, err := wantIDParam(c)
+	if err != nil {
+		return err
+	}
+	var req apiresp.CursorPaginationRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	pagination := normalizePagination(req)
+	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[T]{
+		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]T, error) {
+			return list(ctx, tx, id, store.CatalogFirstPage, 0, limit)
+		},
+		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]T, error) {
+			return list(ctx, tx, id, store.CatalogNextPage, cursor, limit)
+		},
+		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]T, error) {
+			return list(ctx, tx, id, store.CatalogPrevPage, cursor, limit)
+		},
+	}, pagination, resource, description, idOf, catalogListHooks{
+		validate:  activeWantListValidation(c, a, id),
+		onSuccess: setMarketCacheHeaders,
+	})
+}
+
 func (a *API) poolWantsListHandler(c *echo.Context) error {
 	return catalogAddressListHandler(c, a, "wants", "Wants in pool %s",
 		func(w store.Want) uint64 { return w.ID },

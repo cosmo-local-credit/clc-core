@@ -120,6 +120,8 @@ type (
 		LockQuotaUser                 string `query:"lock-quota-user"`
 		LockVoucherRestoreUsers       string `query:"lock-voucher-restore-users"`
 		GetUserResourceUsage          string `query:"get-user-resource-usage"`
+		GetVoucherOfferingQuota       string `query:"get-voucher-offering-quota"`
+		GetVoucherOfferingQuotaByID   string `query:"get-voucher-offering-quota-by-id"`
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
 		GetUserByEmail                string `query:"get-user-by-email"`
@@ -260,6 +262,12 @@ type (
 		ListPoolWants               string `query:"list-pool-wants"`
 		ListPoolWantsNext           string `query:"list-pool-wants-next"`
 		ListPoolWantsPrev           string `query:"list-pool-wants-prev"`
+		ListWantCreatorVouchers     string `query:"list-want-creator-vouchers"`
+		ListWantCreatorVouchersNext string `query:"list-want-creator-vouchers-next"`
+		ListWantCreatorVouchersPrev string `query:"list-want-creator-vouchers-prev"`
+		ListWantCreatorPools        string `query:"list-want-creator-pools"`
+		ListWantCreatorPoolsNext    string `query:"list-want-creator-pools-next"`
+		ListWantCreatorPoolsPrev    string `query:"list-want-creator-pools-prev"`
 		ListOwnedWants              string `query:"list-owned-wants"`
 		GetWant                     string `query:"get-want"`
 		LockWantOwner               string `query:"lock-want-owner"`

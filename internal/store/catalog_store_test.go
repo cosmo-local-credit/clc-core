@@ -48,6 +48,14 @@ func TestLoadCatalogQueries(t *testing.T) {
 		"create-offering":                  queries.CreateOffering,
 		"update-offering":                  queries.UpdateOffering,
 		"delete-offering":                  queries.DeleteOffering,
+		"get-voucher-offering-quota":       queries.GetVoucherOfferingQuota,
+		"get-voucher-offering-quota-by-id": queries.GetVoucherOfferingQuotaByID,
+		"list-want-creator-vouchers":       queries.ListWantCreatorVouchers,
+		"list-want-creator-vouchers-next":  queries.ListWantCreatorVouchersNext,
+		"list-want-creator-vouchers-prev":  queries.ListWantCreatorVouchersPrev,
+		"list-want-creator-pools":          queries.ListWantCreatorPools,
+		"list-want-creator-pools-next":     queries.ListWantCreatorPoolsNext,
+		"list-want-creator-pools-prev":     queries.ListWantCreatorPoolsPrev,
 	} {
 		if query == "" {
 			t.Errorf("expected %s query to be loaded", name)
@@ -136,6 +144,21 @@ func TestLoadCatalogQueries(t *testing.T) {
 	}
 	if !strings.Contains(queries.GetMarketVoucherByAddress, "AND v.active") {
 		t.Fatal("get-market-voucher-by-address must keep hiding retired vouchers from the public")
+	}
+
+	for name, query := range map[string]string{
+		"first": queries.ListWantCreatorPools,
+		"next":  queries.ListWantCreatorPoolsNext,
+		"prev":  queries.ListWantCreatorPoolsPrev,
+	} {
+		if !strings.Contains(query, "allowed.is_allowed") ||
+			!strings.Contains(query, "voucher.active") ||
+			!strings.Contains(query, "lower(voucher.owner_address)=lower(creator.blockchain_address)") {
+			t.Errorf("Want creator %s pool page must use current allowed active creator-owned vouchers", name)
+		}
+		if strings.Contains(query, "p.owner_address") && strings.Contains(query, "WHERE lower(p.owner_address)") {
+			t.Errorf("Want creator %s pool page must not require the creator to own the pool", name)
+		}
 	}
 }
 
