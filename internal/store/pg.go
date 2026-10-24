@@ -215,6 +215,8 @@ type (
 		InsertReportTag              string `query:"insert-report-tag"`
 		DeleteReportVouchers         string `query:"delete-report-vouchers"`
 		InsertReportVoucher          string `query:"insert-report-voucher"`
+		DeleteReportPools            string `query:"delete-report-pools"`
+		InsertReportPool             string `query:"insert-report-pool"`
 		DeleteReportImages           string `query:"delete-report-images"`
 		InsertReportImage            string `query:"insert-report-image"`
 		DeleteReportAttachments      string `query:"delete-report-attachments"`
@@ -243,6 +245,7 @@ type (
 		ResolveVoucherRefs         string `query:"resolve-voucher-refs"`
 		ResolvePoolRefs            string `query:"resolve-pool-refs"`
 		CountVouchersOwnedBy       string `query:"count-vouchers-owned-by"`
+		CountPoolsOwnedBy          string `query:"count-pools-owned-by"`
 
 		// Facet vocabularies are parameterless and request-independent; the
 		// named count statements vary with discovery scope and search filters.

@@ -1273,6 +1273,53 @@ func TestVoucherRelationshipFiltersForReportsAndPools(t *testing.T) {
 	firstPool := seedPool(marker + " First Pool")
 	bothPool := seedPool(marker + " Both Pool")
 	disallowedPool := seedPool(marker + " Disallowed Pool")
+	for _, relation := range [][2]uint64{
+		{firstReport, firstPool},
+		{bothReport, firstPool},
+		{bothReport, bothPool},
+		{secondReport, bothPool},
+	} {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO report_pools (report_id, pool_id) VALUES ($1, $2)`,
+			relation[0], relation[1]); err != nil {
+			t.Fatalf("seed report pool: %v", err)
+		}
+	}
+	listReportsByPools := func(ids []uint64, match TagMatch) []uint64 {
+		t.Helper()
+		filter, filterErr := base.WithPoolIDsMatch(ids, match)
+		if filterErr != nil {
+			t.Fatalf("report pool filter: %v", filterErr)
+		}
+		reports, listErr := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 100)
+		if listErr != nil {
+			t.Fatalf("list reports by pools: %v", listErr)
+		}
+		got := make([]uint64, 0, len(reports))
+		for _, report := range reports {
+			got = append(got, report.ID)
+		}
+		slices.Sort(got)
+		return got
+	}
+	if got, want := listReportsByPools([]uint64{firstPool, bothPool}, TagMatchAny),
+		[]uint64{firstReport, bothReport, secondReport}; !slices.Equal(got, want) {
+		t.Errorf("report pool-any IDs = %v, want %v", got, want)
+	}
+	if got := listReportsByPools([]uint64{firstPool, bothPool}, TagMatchAll); !slices.Equal(got, []uint64{bothReport}) {
+		t.Errorf("report pool-all IDs = %v, want [%d]", got, bothReport)
+	}
+	reportPoolFacets, err := pg.ListReportPoolFacets(ctx, tx, base)
+	if err != nil {
+		t.Fatalf("report pool facets: %v", err)
+	}
+	reportPoolCounts := make(map[uint64]uint64, len(reportPoolFacets))
+	for _, facet := range reportPoolFacets {
+		reportPoolCounts[facet.ID] = facet.Count
+	}
+	if reportPoolCounts[firstPool] != 2 || reportPoolCounts[bothPool] != 2 {
+		t.Errorf("report pool counts = %v, want both pools at 2", reportPoolCounts)
+	}
 	for _, relation := range []struct {
 		poolID, voucherID uint64
 		allowed           bool

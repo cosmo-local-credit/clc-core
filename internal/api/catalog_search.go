@@ -31,6 +31,8 @@ var (
 		"pools must contain chainId:address values with a positive chain ID and a valid hex address")
 	errUnknownPoolRef = errors.New(
 		"pools contains a pool that does not exist in the catalog")
+	errReportTooManyPools = errors.New("pools must contain at most 12 values")
+	errUnknownPoolMatch   = errors.New(`poolMatch must be "any" or "all"`)
 	// The vocabulary is named as `facets=true` rather than as /api/v2/token-tags
 	// because this endpoint is public and that one is not: a signed-out caller
 	// can filter but cannot read the tag list from there. The facet response is
@@ -56,12 +58,18 @@ type (
 		voucherRefs  []store.VoucherRef
 		voucherMatch store.TagMatch
 		poolRefs     []store.PoolRef
+		poolMatch    store.TagMatch
 		// facets asks for the tag facet alongside the page. It is honoured on
 		// the first page only: a facet describes the whole filtered set rather
 		// than the page, so recomputing it per cursor page would return the
 		// same answer at the same cost.
 		facets bool
 		nearby bool
+	}
+
+	catalogRelationshipRef struct {
+		chainID int64
+		address string
 	}
 )
 
@@ -170,58 +178,108 @@ func parseCatalogRelationshipSearch(c *echo.Context) (catalogSearchRequest, erro
 		return catalogSearchRequest{}, err
 	}
 
-	query := c.Request().URL.Query()
+	refs, err := parseCatalogRelationshipRefs(
+		c, "vouchers", store.CatalogMaxVouchers, errInvalidVoucherRef, store.ErrCatalogTooManyVouchers,
+	)
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
+	for _, ref := range refs {
+		search.voucherRefs = append(search.voucherRefs, store.VoucherRef{
+			ChainID: ref.chainID,
+			Address: ref.address,
+		})
+	}
+	search.voucherMatch, err = relationshipMatch(
+		c.Request().URL.Query().Get("voucherMatch"), store.ErrCatalogUnknownVoucherMatch,
+	)
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
+
+	return search, nil
+}
+
+// parseReportRelationshipSearch adds direct report-pool relationships without
+// changing the meaning of pools on voucher discovery.
+func parseReportRelationshipSearch(c *echo.Context) (catalogSearchRequest, error) {
+	search, err := parseCatalogRelationshipSearch(c)
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
+
+	refs, err := parseCatalogRelationshipRefs(
+		c, "pools", store.CatalogMaxVouchers, errInvalidPoolRef, errReportTooManyPools,
+	)
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
+	for _, ref := range refs {
+		search.poolRefs = append(search.poolRefs, store.PoolRef{
+			ChainID: ref.chainID,
+			Address: ref.address,
+		})
+	}
+	search.poolMatch, err = relationshipMatch(c.Request().URL.Query().Get("poolMatch"), errUnknownPoolMatch)
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
+	return search, nil
+}
+
+func parseCatalogRelationshipRefs(
+	c *echo.Context,
+	parameter string,
+	limit int,
+	invalid, tooMany error,
+) ([]catalogRelationshipRef, error) {
 	seen := make(map[string]struct{})
-	for _, raw := range query["vouchers"] {
+	refs := make([]catalogRelationshipRef, 0)
+	for _, raw := range c.Request().URL.Query()[parameter] {
 		for value := range strings.SplitSeq(raw, ",") {
 			value = strings.TrimSpace(value)
 			if value == "" {
 				continue
 			}
-
 			chain, address, ok := strings.Cut(value, ":")
 			chainID, parseErr := strconv.ParseInt(strings.TrimSpace(chain), 10, 64)
 			address = strings.TrimSpace(address)
 			if !ok || parseErr != nil || chainID <= 0 || !common.IsHexAddress(address) {
-				return catalogSearchRequest{}, errInvalidVoucherRef
+				return nil, invalid
 			}
-
 			canonical := common.HexToAddress(address).Hex()
 			key := strconv.FormatInt(chainID, 10) + ":" + strings.ToLower(canonical)
 			if _, duplicate := seen[key]; duplicate {
 				continue
 			}
 			seen[key] = struct{}{}
-			search.voucherRefs = append(search.voucherRefs, store.VoucherRef{
-				ChainID: chainID,
-				Address: canonical,
-			})
+			refs = append(refs, catalogRelationshipRef{chainID: chainID, address: canonical})
 		}
 	}
-
-	if len(search.voucherRefs) > store.CatalogMaxVouchers {
-		return catalogSearchRequest{}, store.ErrCatalogTooManyVouchers
+	if len(refs) > limit {
+		return nil, tooMany
 	}
-	slices.SortFunc(search.voucherRefs, func(left, right store.VoucherRef) int {
-		if left.ChainID < right.ChainID {
+	slices.SortFunc(refs, func(left, right catalogRelationshipRef) int {
+		if left.chainID < right.chainID {
 			return -1
 		}
-		if left.ChainID > right.ChainID {
+		if left.chainID > right.chainID {
 			return 1
 		}
-		return strings.Compare(strings.ToLower(left.Address), strings.ToLower(right.Address))
+		return strings.Compare(strings.ToLower(left.address), strings.ToLower(right.address))
 	})
+	return refs, nil
+}
 
-	switch strings.ToLower(strings.TrimSpace(query.Get("voucherMatch"))) {
+func relationshipMatch(raw string, unknown error) (store.TagMatch, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "any":
-		search.voucherMatch = store.TagMatchAny
+		return store.TagMatchAny, nil
 	case "all":
-		search.voucherMatch = store.TagMatchAll
+		return store.TagMatchAll, nil
 	default:
-		return catalogSearchRequest{}, store.ErrCatalogUnknownVoucherMatch
+		return store.TagMatchAny, unknown
 	}
-
-	return search, nil
 }
 
 // respondCatalogSearchError maps a filter validation failure to 400. The
@@ -336,7 +394,7 @@ func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearc
 	if len(ids) != len(search.poolRefs) {
 		return true, respondCatalogSearchError(c, errUnknownPoolRef)
 	}
-	search.filter, err = search.filter.WithPoolIDs(ids)
+	search.filter, err = search.filter.WithPoolIDsMatch(ids, search.poolMatch)
 	if err != nil {
 		return true, respondCatalogSearchError(c, err)
 	}

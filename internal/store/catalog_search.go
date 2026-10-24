@@ -70,7 +70,8 @@ type (
 		VoucherMatch TagMatch
 		// PoolIDs are resolved from stable chain/address references. A voucher
 		// matches when an allowed pool_tokens row links it to any selected pool.
-		PoolIDs []uint64
+		PoolIDs   []uint64
+		PoolMatch TagMatch
 		// Owner restricts the page to rows belonging to one address: a voucher's
 		// owner_address, a report's author_address. Empty means no restriction.
 		Owner string
@@ -90,6 +91,16 @@ type (
 	PoolRef struct {
 		ChainID int64
 		Address string
+	}
+
+	// PoolFacet is one report-pool relationship option.
+	PoolFacet struct {
+		ID      uint64 `db:"id"          json:"id"`
+		ChainID int64  `db:"chain_id"    json:"chainId"`
+		Address string `db:"address"     json:"address"`
+		Name    string `db:"name"        json:"name"`
+		Symbol  string `db:"symbol"      json:"symbol"`
+		Count   uint64 `db:"match_count" json:"count"`
 	}
 
 	// TagFacet is one row of a tag facet: a vocabulary value and how many
@@ -242,13 +253,23 @@ func (f CatalogFilter) WithVoucherIDs(raw []uint64, match TagMatch) (CatalogFilt
 // the resolved pools. Pool discovery is intentionally any-match: credit access
 // through one verified pool is sufficient.
 func (f CatalogFilter) WithPoolIDs(raw []uint64) (CatalogFilter, error) {
+	return f.WithPoolIDsMatch(raw, TagMatchAny)
+}
+
+// WithPoolIDsMatch narrows report relationships with explicit any/all
+// semantics. Other catalog callers keep their established any-match behavior.
+func (f CatalogFilter) WithPoolIDsMatch(raw []uint64, match TagMatch) (CatalogFilter, error) {
 	ids := slices.Clone(raw)
 	slices.Sort(ids)
 	ids = slices.Compact(ids)
 	if len(ids) > CatalogMaxPools {
 		return CatalogFilter{}, ErrCatalogTooManyPools
 	}
+	if match != TagMatchAny && match != TagMatchAll {
+		return CatalogFilter{}, ErrCatalogUnknownVoucherMatch
+	}
 	f.PoolIDs = ids
+	f.PoolMatch = match
 	return f, nil
 }
 
@@ -517,6 +538,17 @@ func (pg *Pg) CountVouchersOwnedBy(ctx context.Context, tx pgx.Tx, ids []uint64,
 	}
 	var count int
 	if err := tx.QueryRow(ctx, pg.queries.CountVouchersOwnedBy, ids, owner).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (pg *Pg) CountPoolsOwnedBy(ctx context.Context, tx pgx.Tx, ids []uint64, owner string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	var count int
+	if err := tx.QueryRow(ctx, pg.queries.CountPoolsOwnedBy, ids, owner).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil
