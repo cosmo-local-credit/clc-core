@@ -16,11 +16,13 @@ import (
 
 type (
 	wantTestResult struct {
-		Want      store.Want       `json:"want"`
-		Wants     []store.Want     `json:"wants"`
-		First     uint64           `json:"first"`
-		Last      uint64           `json:"last"`
-		TagFacets []store.TagFacet `json:"tagFacets"`
+		Want      store.Want           `json:"want"`
+		Wants     []store.Want         `json:"wants"`
+		Vouchers  []store.OwnedVoucher `json:"vouchers"`
+		Pools     []store.Pool         `json:"pools"`
+		First     uint64               `json:"first"`
+		Last      uint64               `json:"last"`
+		TagFacets []store.TagFacet     `json:"tagFacets"`
 	}
 )
 
@@ -123,7 +125,7 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 		wantBody(t, "Bicycle repair", now.Add(-time.Hour), nil, "Meet by the market", true, false)), http.StatusOK).Want
 	require.Equal(t, store.WantStatusOpen, reopened.Status)
 
-	var voucherID, poolID uint64
+	var voucherID, secondVoucherID, poolID, unrelatedPoolID uint64
 	var poolAddress string
 	require.NoError(t, a.store.Pool().QueryRow(ctx, `INSERT INTO vouchers(chain_id,address,name,symbol,active,owner_address)
 		VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),'Want owner voucher '||gen_random_uuid()::text,'WNT'||substr(md5(random()::text),1,5),true,$1) RETURNING id`, address).Scan(&voucherID))
@@ -131,10 +133,16 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 		VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),'Want pool '||gen_random_uuid()::text) RETURNING id,address`).Scan(&poolID, &poolAddress))
 	_, err = a.store.Pool().Exec(ctx, `INSERT INTO pool_tokens(pool_id,voucher_id,is_allowed) VALUES($1,$2,true)`, poolID, voucherID)
 	require.NoError(t, err)
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `INSERT INTO vouchers(chain_id,address,name,symbol,active,owner_address)
+		VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),'Second Want owner voucher '||gen_random_uuid()::text,'WN2'||substr(md5(random()::text),1,5),true,$1) RETURNING id`, address).Scan(&secondVoucherID))
+	_, err = a.store.Pool().Exec(ctx, `INSERT INTO pool_tokens(pool_id,voucher_id,is_allowed) VALUES($1,$2,true)`, poolID, secondVoucherID)
+	require.NoError(t, err)
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `INSERT INTO pools(chain_id,address,name,owner_address)
+		VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),'Unrelated owned pool '||gen_random_uuid()::text,$1) RETURNING id`, address).Scan(&unrelatedPoolID))
 	t.Cleanup(func() {
-		_, cleanupErr := a.store.Pool().Exec(context.Background(), `DELETE FROM pools WHERE id=$1`, poolID)
+		_, cleanupErr := a.store.Pool().Exec(context.Background(), `DELETE FROM pools WHERE id=ANY($1::BIGINT[])`, []uint64{poolID, unrelatedPoolID})
 		require.NoError(t, cleanupErr)
-		_, cleanupErr = a.store.Pool().Exec(context.Background(), `DELETE FROM vouchers WHERE id=$1`, voucherID)
+		_, cleanupErr = a.store.Pool().Exec(context.Background(), `DELETE FROM vouchers WHERE id=ANY($1::BIGINT[])`, []uint64{voucherID, secondVoucherID})
 		require.NoError(t, cleanupErr)
 	})
 
@@ -146,19 +154,32 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 
 	poolWants := wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/pools/%s/wants", poolAddress), "", ""), http.StatusOK)
 	require.NotEmpty(t, poolWants.Wants)
+	relatedVouchers := wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/vouchers?perPage=10", active.ID), "", ""), http.StatusOK)
+	require.Len(t, relatedVouchers.Vouchers, 2)
+	require.Nil(t, relatedVouchers.Vouchers[0].IconURL)
+	relatedPools := wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/pools?perPage=10", active.ID), "", ""), http.StatusOK)
+	require.Len(t, relatedPools.Pools, 1)
+	require.Equal(t, poolID, relatedPools.Pools[0].ID)
+	require.Nil(t, relatedPools.Pools[0].OwnerAddress)
 	creditURL := "/api/v2/wants?pools=" + url.QueryEscape("100:"+poolAddress)
 	creditWants := wantResult(t, curatedRequest(a, http.MethodGet, creditURL, "", ""), http.StatusOK)
 	require.NotEmpty(t, creditWants.Wants)
 	_, err = a.store.Pool().Exec(ctx, `UPDATE pool_tokens SET is_allowed=false WHERE pool_id=$1 AND voucher_id=$2`, poolID, voucherID)
 	require.NoError(t, err)
+	_, err = a.store.Pool().Exec(ctx, `UPDATE pool_tokens SET is_allowed=false WHERE pool_id=$1 AND voucher_id=$2`, poolID, secondVoucherID)
+	require.NoError(t, err)
 	poolWants = wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/pools/%s/wants", poolAddress), "", ""), http.StatusOK)
 	require.Empty(t, poolWants.Wants)
+	relatedPools = wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/pools", active.ID), "", ""), http.StatusOK)
+	require.Empty(t, relatedPools.Pools)
 	_, err = a.store.Pool().Exec(ctx, `UPDATE pool_tokens SET is_allowed=true WHERE pool_id=$1 AND voucher_id=$2`, poolID, voucherID)
 	require.NoError(t, err)
 	_, err = a.store.Pool().Exec(ctx, `UPDATE vouchers SET owner_address='0x0000000000000000000000000000000000000001' WHERE id=$1`, voucherID)
 	require.NoError(t, err)
 	poolWants = wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/pools/%s/wants", poolAddress), "", ""), http.StatusOK)
 	require.Empty(t, poolWants.Wants)
+	relatedVouchers = wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/vouchers", active.ID), "", ""), http.StatusOK)
+	require.Len(t, relatedVouchers.Vouchers, 1)
 	_, err = a.store.Pool().Exec(ctx, `UPDATE vouchers SET owner_address=$1 WHERE id=$2`, address, voucherID)
 	require.NoError(t, err)
 	_, err = a.store.Pool().Exec(ctx, `UPDATE vouchers SET active=false WHERE id=$1`, voucherID)
@@ -179,4 +200,6 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	}
 	wantResult(t, curatedRequest(a, http.MethodDelete, fmt.Sprintf("/api/v2/users/me/wants/%d", active.ID), token, ""), http.StatusOK)
 	wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d", active.ID), "", ""), http.StatusNotFound)
+	wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/vouchers", active.ID), "", ""), http.StatusNotFound)
+	wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/pools", active.ID), "", ""), http.StatusNotFound)
 }

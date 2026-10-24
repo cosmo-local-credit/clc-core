@@ -9989,19 +9989,19 @@
                             },
                             "maxPools": {
                               "type": "number",
-                              "description": "Limits for pools, vouchers, catalogs and offerings."
+                              "description": "Pool limit."
                             },
                             "maxTokens": {
                               "type": "number",
-                              "description": "Limits for pools, vouchers, catalogs and offerings."
+                              "description": "Voucher limit."
                             },
                             "maxCatalogs": {
                               "type": "number",
-                              "description": "Limits for pools, vouchers, catalogs and offerings."
+                              "description": "Catalog limit."
                             },
                             "maxOffers": {
                               "type": "number",
-                              "description": "Limits for pools, vouchers, catalogs and offerings."
+                              "description": "Offering limit per voucher."
                             },
                             "createdAt": {
                               "type": "string",
@@ -10082,8 +10082,19 @@
           "Current user"
         ],
         "summary": "Return how much of each limit the caller used",
-        "description": "Returns how much of each limit the caller used. The response has the header 'Cache-Control: no-store'. Access: User session.",
+        "description": "Returns how much of each limit the caller used. With voucher, offers is scoped to that owned voucher; without it, offers retains the legacy account-wide aggregate. The response has the header 'Cache-Control: no-store'. Access: User session.",
         "operationId": "getUsersMeResourceUsage",
+        "parameters": [
+          {
+            "name": "voucher",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Voucher address. Scopes offers usage to this voucher. The caller must own it unless the caller is a superadmin."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
@@ -10114,6 +10125,9 @@
                               "$ref": "#/components/schemas/ResourceLimit"
                             },
                             "offers": {
+                              "$ref": "#/components/schemas/ResourceLimit"
+                            },
+                            "wants": {
                               "$ref": "#/components/schemas/ResourceLimit"
                             }
                           }
@@ -10150,10 +10164,16 @@
                         "canCreate": true
                       },
                       "offers": {
-                        "used": 3,
+                        "used": 2,
                         "limit": 3,
                         "unlimited": false,
-                        "canCreate": false
+                        "canCreate": true
+                      },
+                      "wants": {
+                        "used": 1,
+                        "limit": 3,
+                        "unlimited": false,
+                        "canCreate": true
                       }
                     }
                   }
@@ -11983,7 +12003,7 @@
                   },
                   "maxOffers": {
                     "type": "integer",
-                    "description": "Offering limit. The value must be from '0' to '2147483647'."
+                    "description": "Offering limit per voucher. The value must be from '0' to '2147483647'."
                   }
                 }
               },
@@ -18247,7 +18267,7 @@
           },
           "maxOffers": {
             "type": "integer",
-            "description": "Offering limit."
+            "description": "Offering limit per voucher."
           },
           "createdAt": {
             "type": "string",

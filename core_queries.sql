@@ -3159,6 +3159,125 @@ SELECT * FROM (
       AND w.id>$2 ORDER BY w.id ASC LIMIT $3
 ) page ORDER BY id DESC;
 
+-- Resources related to a Want are keyed from its current creator, not copied
+-- into the Want. Requiring the Want to be publicly active makes these routes
+-- disappear at exactly the same lifecycle boundary as its public detail.
+-- Coordinates are deliberately not required for creator vouchers.
+--name: list-want-creator-vouchers
+SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS name,
+    COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol,
+    v.decimals,v.icon_url,v.owner_address,v.active
+FROM wants w
+JOIN users creator ON creator.id=w.owner_user_id
+JOIN vouchers v ON lower(v.owner_address)=lower(creator.blockchain_address) AND v.active
+WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+  AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+  AND $2::BIGINT=0
+ORDER BY v.id DESC LIMIT $3;
+
+--name: list-want-creator-vouchers-next
+SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS name,
+    COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol,
+    v.decimals,v.icon_url,v.owner_address,v.active
+FROM wants w
+JOIN users creator ON creator.id=w.owner_user_id
+JOIN vouchers v ON lower(v.owner_address)=lower(creator.blockchain_address) AND v.active
+WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+  AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+  AND v.id<$2
+ORDER BY v.id DESC LIMIT $3;
+
+--name: list-want-creator-vouchers-prev
+SELECT * FROM (
+    SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS name,
+        COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol,
+        v.decimals,v.icon_url,v.owner_address,v.active
+    FROM wants w
+    JOIN users creator ON creator.id=w.owner_user_id
+    JOIN vouchers v ON lower(v.owner_address)=lower(creator.blockchain_address) AND v.active
+    WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+      AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND v.id>$2
+    ORDER BY v.id ASC LIMIT $3
+) page ORDER BY id DESC;
+
+-- A creditable pool may belong to anyone. It qualifies when at least one of
+-- its currently allowed active vouchers is currently owned by the Want creator.
+-- EXISTS prevents a pool from being repeated when several vouchers qualify.
+--name: list-want-creator-pools
+SELECT p.id,p.chain_id,p.address,COALESCE(p.display_name,p.name) AS name,
+    p.name AS contract_name,p.symbol,p.owner_address,p.fee_ppm,p.fee_address,
+    p.token_registry_address,p.limiter_address,p.quoter_address,p.quoter_type,
+    p.fee_policy_address,p.protocol_fee_controller_address,p.fees_decoupled,
+    p.decimals,p.description,p.unit_of_account,p.location_name,p.geo_lat,p.geo_lng,
+    p.email,p.website,p.phone,p.image_url,p.banner_url,p.terms,p.default_voucher_id,
+    p.platform_contract_id,p.created_at,p.updated_at,
+    (SELECT count(*) FROM pool_tokens member JOIN vouchers voucher ON voucher.id=member.voucher_id AND voucher.active WHERE member.pool_id=p.id AND member.is_allowed) AS voucher_count,
+    COALESCE((SELECT array_agg(tag.tag_value ORDER BY tag.tag_value) FROM pool_tags tag WHERE tag.pool_id=p.id),ARRAY[]::TEXT[]) AS tags
+FROM wants w
+JOIN users creator ON creator.id=w.owner_user_id
+JOIN pools p ON true
+WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+  AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+  AND EXISTS (
+      SELECT 1 FROM pool_tokens allowed
+      JOIN vouchers voucher ON voucher.id=allowed.voucher_id AND voucher.active
+      WHERE allowed.pool_id=p.id AND allowed.is_allowed
+        AND lower(voucher.owner_address)=lower(creator.blockchain_address)
+  )
+  AND $2::BIGINT=0
+ORDER BY p.id DESC LIMIT $3;
+
+--name: list-want-creator-pools-next
+SELECT p.id,p.chain_id,p.address,COALESCE(p.display_name,p.name) AS name,
+    p.name AS contract_name,p.symbol,p.owner_address,p.fee_ppm,p.fee_address,
+    p.token_registry_address,p.limiter_address,p.quoter_address,p.quoter_type,
+    p.fee_policy_address,p.protocol_fee_controller_address,p.fees_decoupled,
+    p.decimals,p.description,p.unit_of_account,p.location_name,p.geo_lat,p.geo_lng,
+    p.email,p.website,p.phone,p.image_url,p.banner_url,p.terms,p.default_voucher_id,
+    p.platform_contract_id,p.created_at,p.updated_at,
+    (SELECT count(*) FROM pool_tokens member JOIN vouchers voucher ON voucher.id=member.voucher_id AND voucher.active WHERE member.pool_id=p.id AND member.is_allowed) AS voucher_count,
+    COALESCE((SELECT array_agg(tag.tag_value ORDER BY tag.tag_value) FROM pool_tags tag WHERE tag.pool_id=p.id),ARRAY[]::TEXT[]) AS tags
+FROM wants w
+JOIN users creator ON creator.id=w.owner_user_id
+JOIN pools p ON true
+WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+  AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+  AND EXISTS (
+      SELECT 1 FROM pool_tokens allowed
+      JOIN vouchers voucher ON voucher.id=allowed.voucher_id AND voucher.active
+      WHERE allowed.pool_id=p.id AND allowed.is_allowed
+        AND lower(voucher.owner_address)=lower(creator.blockchain_address)
+  )
+  AND p.id<$2
+ORDER BY p.id DESC LIMIT $3;
+
+--name: list-want-creator-pools-prev
+SELECT * FROM (
+    SELECT p.id,p.chain_id,p.address,COALESCE(p.display_name,p.name) AS name,
+        p.name AS contract_name,p.symbol,p.owner_address,p.fee_ppm,p.fee_address,
+        p.token_registry_address,p.limiter_address,p.quoter_address,p.quoter_type,
+        p.fee_policy_address,p.protocol_fee_controller_address,p.fees_decoupled,
+        p.decimals,p.description,p.unit_of_account,p.location_name,p.geo_lat,p.geo_lng,
+        p.email,p.website,p.phone,p.image_url,p.banner_url,p.terms,p.default_voucher_id,
+        p.platform_contract_id,p.created_at,p.updated_at,
+        (SELECT count(*) FROM pool_tokens member JOIN vouchers voucher ON voucher.id=member.voucher_id AND voucher.active WHERE member.pool_id=p.id AND member.is_allowed) AS voucher_count,
+        COALESCE((SELECT array_agg(tag.tag_value ORDER BY tag.tag_value) FROM pool_tags tag WHERE tag.pool_id=p.id),ARRAY[]::TEXT[]) AS tags
+    FROM wants w
+    JOIN users creator ON creator.id=w.owner_user_id
+    JOIN pools p ON true
+    WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+      AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND EXISTS (
+          SELECT 1 FROM pool_tokens allowed
+          JOIN vouchers voucher ON voucher.id=allowed.voucher_id AND voucher.active
+          WHERE allowed.pool_id=p.id AND allowed.is_allowed
+            AND lower(voucher.owner_address)=lower(creator.blockchain_address)
+      )
+      AND p.id>$2
+    ORDER BY p.id ASC LIMIT $3
+) page ORDER BY id DESC;
+
 --name: list-owned-wants
 SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
     CASE WHEN w.status='CLOSED' THEN 'closed' WHEN w.starts_at>CURRENT_TIMESTAMP THEN 'scheduled' WHEN w.expires_at IS NOT NULL AND w.expires_at<=CURRENT_TIMESTAMP THEN 'expired' ELSE 'active' END AS state,
@@ -3413,7 +3532,7 @@ ORDER BY rank ASC,CASE WHEN $7::BOOLEAN THEN distance_meters END ASC NULLS LAST,
 SELECT id FROM users WHERE id = $1 FOR UPDATE;
 
 -- Lock quota owners before the voucher, in the same order as resource creation.
--- Deployment ownership and offer sellers can differ from the current owner.
+-- Deployment ownership and the current catalog owner can differ.
 --name: lock-voucher-restore-users
 SELECT u.id FROM users u
 WHERE u.id IN (
@@ -3423,9 +3542,9 @@ WHERE u.id IN (
     JOIN deployed_tokens token ON token.otx_id = chain_tx.id
     WHERE token.voucher_id = $1 AND deployment.resource_type = 'TOKEN'
     UNION
-    SELECT seller.id FROM offerings offer
-    JOIN users seller ON lower(seller.blockchain_address) = lower(offer.seller_address)
-    WHERE offer.voucher_id = $1 AND offer.available
+    SELECT owner.id FROM vouchers voucher
+    JOIN users owner ON lower(owner.blockchain_address) = lower(voucher.owner_address)
+    WHERE voucher.id = $1
 )
 ORDER BY u.id FOR UPDATE OF u;
 
@@ -3496,6 +3615,31 @@ SELECT
     ) AS wants_used
 FROM users u
 WHERE u.id = $1;
+
+-- Scoped offering usage is authorization-sensitive: an owner sees their own
+-- voucher and a superadmin may inspect any voucher they can manage. The count
+-- belongs to the voucher, not to historical seller rows, so ownership transfer
+-- immediately applies the new owner's per-voucher allowance.
+--name: get-voucher-offering-quota
+SELECT u.role,u.max_offers,count(offer.id)::BIGINT AS offers_used
+FROM users u
+JOIN vouchers voucher ON lower(voucher.address)=lower($2)
+LEFT JOIN offerings offer ON offer.voucher_id=voucher.id AND offer.available
+WHERE u.id=$1
+  AND (u.role='SUPERADMIN' OR lower(voucher.owner_address)=lower(u.blockchain_address))
+GROUP BY u.id,voucher.id;
+
+-- Creation has already locked and authorized the voucher. Keeping the count in
+-- one named statement makes the per-voucher rule identical to the scoped usage
+-- response while avoiding address parsing inside the transaction.
+--name: get-voucher-offering-quota-by-id
+SELECT u.role,u.max_offers,count(offer.id)::BIGINT AS offers_used
+FROM users u
+JOIN vouchers voucher ON voucher.id=$2
+LEFT JOIN offerings offer ON offer.voucher_id=voucher.id AND offer.available
+WHERE u.id=$1
+  AND (u.role='SUPERADMIN' OR lower(voucher.owner_address)=lower(u.blockchain_address))
+GROUP BY u.id,voucher.id;
 
 --name: count-admin-pool-vouchers
 SELECT count(*) FROM pool_tokens pt

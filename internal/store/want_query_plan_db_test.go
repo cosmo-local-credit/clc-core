@@ -35,4 +35,14 @@ func TestWantDiscoveryGenericPlanDB(t *testing.T) {
 	if !strings.Contains(plan, "wants_public_page_idx") {
 		t.Fatalf("Want discovery must retain its lifecycle index at representative scale.\nplan:\n%s", plan)
 	}
+
+	for name, query := range map[string]string{
+		"creator vouchers": pg.queries.ListWantCreatorVouchers,
+		"creator pools":    pg.queries.ListWantCreatorPools,
+	} {
+		plan = explainGenericPlan(t, tx, query)
+		if !strings.Contains(plan, "wants_public_page_idx") && !strings.Contains(plan, "wants_pkey") {
+			t.Fatalf("Want %s must resolve the active source Want through an indexed id lookup.\nplan:\n%s", name, plan)
+		}
+	}
 }

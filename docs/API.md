@@ -4295,7 +4295,8 @@ Returns the profile of the caller.
 | `preferredCurrency`, `bio`, `website`, `locationName`, `geoLat`, `geoLng`, `avatarUrl` | mixed | Profile fields. Not present if not set. |
 | `role` | string | `USER` or `SUPERADMIN`. |
 | `status` | string | `PENDING`, `APPROVED` or `REJECTED`. |
-| `maxPools`, `maxTokens`, `maxCatalogs`, `maxOffers` | number | Limits for pools, vouchers, catalogs and offerings. |
+| `maxPools`, `maxTokens`, `maxCatalogs` | number | Limits for pools, vouchers and catalogs. |
+| `maxOffers` | number | Maximum available offerings on each voucher the user owns. |
 | `createdAt`, `updatedAt` | string | RFC 3339 times. |
 
 **Errors:** `404` with code `E07` if the user record does not exist.
@@ -4306,6 +4307,12 @@ Returns the profile of the caller.
 
 Returns how much of each limit the caller used.
 The response has the header `Cache-Control: no-store`.
+
+Optional query parameter:
+
+| Parameter | Type | Meaning |
+|---|---|---|
+| `voucher` | address | Return `offers` usage for this voucher. The caller must own the voucher, unless the caller is a superadmin. Other resource counts remain the caller's normal aggregate counts. Without this parameter, `offers` retains the legacy account-wide aggregate for older clients. |
 
 **Response `200`:**
 
@@ -4318,7 +4325,8 @@ The response has the header `Cache-Control: no-store`.
       "vouchers": { "used": 1, "limit": 1, "unlimited": false, "canCreate": false },
       "pools": { "used": 2, "limit": 10, "unlimited": false, "canCreate": true },
       "catalogs": { "used": 0, "limit": 1, "unlimited": false, "canCreate": true },
-      "offers": { "used": 3, "limit": 3, "unlimited": false, "canCreate": false }
+      "offers": { "used": 2, "limit": 3, "unlimited": false, "canCreate": true },
+      "wants": { "used": 1, "limit": 3, "unlimited": false, "canCreate": true }
     }
   }
 }
@@ -4332,7 +4340,9 @@ The response has the header `Cache-Control: no-store`.
 | `canCreate` | boolean | `true` if the user is unlimited or `used` is below `limit`. |
 
 A voucher deploy counts until the deploy fails on chain or the voucher is retired.
-An offering counts while it is available and its voucher is active.
+When `voucher` is supplied, an offering counts while it is available on that voucher. Each voucher receives the user's full `maxOffers` allowance independently. Unavailable offerings release their slot. Existing offerings remain visible and editable after an ownership transfer even when their count exceeds the new owner's allowance; only additional creation is blocked.
+
+**Errors:** `400` with code `E04` for a malformed voucher address, `403` with code `E10` when a non-superadmin does not own the voucher, and `404` with code `E07` when the voucher is unknown.
 
 ### 14.3 `GET /api/v2/users/me/vouchers`
 
@@ -4877,7 +4887,7 @@ The description is `Users list`. The result has the keys `users`, `first` and `l
 | `maxPools` | integer | Pool limit. |
 | `maxTokens` | integer | Voucher limit. |
 | `maxCatalogs` | integer | Catalog limit. |
-| `maxOffers` | integer | Offering limit. |
+| `maxOffers` | integer | Offering limit per voucher. |
 | `createdAt` | string | RFC 3339 time. |
 | `updatedAt` | string | RFC 3339 time. |
 
@@ -4940,7 +4950,7 @@ Change the creation limits of an account. The server changes only the fields tha
 | `maxPools` | integer | No | Pool limit. The value must be from `0` to `2147483647`. |
 | `maxTokens` | integer | No | Voucher limit. The value must be from `0` to `2147483647`. |
 | `maxCatalogs` | integer | No | Catalog limit. The value must be from `0` to `2147483647`. |
-| `maxOffers` | integer | No | Offering limit. The value must be from `0` to `2147483647`. |
+| `maxOffers` | integer | No | Offering limit per voucher. The value must be from `0` to `2147483647`. |
 
 A field that is absent or `null` keeps its old value. A body with no fields changes nothing and still returns `200`.
 

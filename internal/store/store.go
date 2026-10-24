@@ -118,6 +118,9 @@ type (
 		InsertUserDeployment(context.Context, pgx.Tx, UserDeployment) error
 		CheckUserResourceLimit(context.Context, pgx.Tx, uint64, string) error
 		GetUserResourceUsage(context.Context, pgx.Tx, uint64) (UserResourceUsage, error)
+		LockQuotaUser(context.Context, pgx.Tx, uint64) error
+		GetUserResourceUsageForVoucher(context.Context, pgx.Tx, uint64, string) (UserResourceUsage, error)
+		CheckVoucherOfferingLimit(context.Context, pgx.Tx, uint64, uint64) error
 		CountUserTokens(context.Context, pgx.Tx, uint64) (int, error)
 		CountUserPools(context.Context, pgx.Tx, uint64) (int, error)
 		ListUserDeployments(context.Context, pgx.Tx, uint64) ([]UserDeployment, error)
@@ -211,6 +214,8 @@ type (
 		ListWants(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds, CatalogPage, uint64, uint64) ([]Want, error)
 		ListWantTagFacets(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds) ([]TagFacet, error)
 		ListPoolWants(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Want, error)
+		ListWantCreatorVouchers(context.Context, pgx.Tx, uint64, CatalogPage, uint64, uint64) ([]OwnedVoucher, error)
+		ListWantCreatorPools(context.Context, pgx.Tx, uint64, CatalogPage, uint64, uint64) ([]Pool, error)
 		ListOwnedWants(context.Context, pgx.Tx, uint64, uint64, uint64) ([]Want, error)
 		GetWant(context.Context, pgx.Tx, uint64, *uint64) (*Want, error)
 		LockWantOwner(context.Context, pgx.Tx, uint64) (uint64, error)
