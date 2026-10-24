@@ -20,7 +20,7 @@ const (
 type (
 	Want struct {
 		ID                uint64     `db:"id"                 json:"id"`
-		OwnerUserID       uint64     `db:"owner_user_id"      json:"ownerUserId"`
+		OwnerUserID       uint64     `db:"owner_user_id"      json:"-"`
 		Name              string     `db:"name"               json:"name"`
 		Description       string     `db:"description"        json:"description"`
 		LocationName      string     `db:"location_name"      json:"locationName"`
@@ -31,7 +31,6 @@ type (
 		Status            string     `db:"status"             json:"status"`
 		State             string     `db:"state"              json:"state"`
 		ImageURL          *string    `db:"image_url"          json:"imageUrl"`
-		EffectiveImageURL *string    `db:"effective_image_url" json:"effectiveImageUrl"`
 		ContactPermission int        `db:"contact_permission" json:"contactPermission,omitempty"`
 		ContactText       *string    `db:"contact_text"       json:"contactText,omitempty"`
 		Email             *string    `db:"email"              json:"email,omitempty"`
@@ -39,11 +38,38 @@ type (
 		MarkerIcon        string     `db:"marker_icon"        json:"markerIcon"`
 		MarkerColor       string     `db:"marker_color"       json:"markerColor"`
 		Tags              []string   `db:"tags"               json:"tags"`
-		OwnerName         string     `db:"owner_name"         json:"ownerName"`
-		OwnerUsername     *string    `db:"owner_username"     json:"ownerUsername"`
 		DistanceMeters    *float64   `db:"distance_meters"    json:"distanceMeters,omitempty"`
 		CreatedAt         time.Time  `db:"created_at"         json:"createdAt"`
 		UpdatedAt         time.Time  `db:"updated_at"         json:"updatedAt"`
+	}
+
+	// WantCreatorVoucher is the deliberately small public projection used by a
+	// Want's related-voucher list. Ownership remains a server-side relationship;
+	// the public row does not repeat the creator's address.
+	WantCreatorVoucher struct {
+		ID       uint64  `db:"id"       json:"id"`
+		ChainID  int64   `db:"chain_id" json:"chainId"`
+		Address  string  `db:"address"  json:"address"`
+		Name     string  `db:"name"     json:"name"`
+		Symbol   string  `db:"symbol"   json:"symbol"`
+		Decimals *int    `db:"decimals" json:"decimals"`
+		IconURL  *string `db:"icon_url" json:"iconUrl"`
+		Active   bool    `db:"active"   json:"active"`
+	}
+
+	// WantCreatorPool contains only what the related-pool row renders. Pool
+	// ownership, contacts, contract configuration and exact coordinates remain
+	// available from the canonical pool detail instead of being over-fetched here.
+	WantCreatorPool struct {
+		ID           uint64   `db:"id"            json:"id"`
+		ChainID      int64    `db:"chain_id"      json:"chainId"`
+		Address      string   `db:"address"       json:"address"`
+		Name         string   `db:"name"          json:"name"`
+		Symbol       *string  `db:"symbol"        json:"symbol"`
+		LocationName *string  `db:"location_name" json:"locationName"`
+		ImageURL     *string  `db:"image_url"     json:"imageUrl"`
+		VoucherCount uint64   `db:"voucher_count" json:"voucherCount"`
+		Tags         []string `db:"tags"          json:"tags"`
 	}
 
 	WantWrite struct {
@@ -148,7 +174,7 @@ func (pg *Pg) ListWantCreatorVouchers(
 	wantID uint64,
 	page CatalogPage,
 	cursor, limit uint64,
-) ([]OwnedVoucher, error) {
+) ([]WantCreatorVoucher, error) {
 	query := pg.queries.ListWantCreatorVouchers
 	switch page {
 	case CatalogNextPage:
@@ -156,7 +182,7 @@ func (pg *Pg) ListWantCreatorVouchers(
 	case CatalogPrevPage:
 		query = pg.queries.ListWantCreatorVouchersPrev
 	}
-	rows := []OwnedVoucher{}
+	rows := []WantCreatorVoucher{}
 	err := pgxscan.Select(ctx, tx, &rows, query, wantID, cursor, limit)
 	return rows, err
 }
@@ -167,7 +193,7 @@ func (pg *Pg) ListWantCreatorPools(
 	wantID uint64,
 	page CatalogPage,
 	cursor, limit uint64,
-) ([]Pool, error) {
+) ([]WantCreatorPool, error) {
 	query := pg.queries.ListWantCreatorPools
 	switch page {
 	case CatalogNextPage:
@@ -175,7 +201,7 @@ func (pg *Pg) ListWantCreatorPools(
 	case CatalogPrevPage:
 		query = pg.queries.ListWantCreatorPoolsPrev
 	}
-	rows := []Pool{}
+	rows := []WantCreatorPool{}
 	err := pgxscan.Select(ctx, tx, &rows, query, wantID, cursor, limit)
 	return rows, err
 }
