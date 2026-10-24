@@ -49,6 +49,8 @@ type (
 		Count   uint64 `json:"count"`
 	}
 
+	reportPoolFacetPayload = reportVoucherFacetPayload
+
 	reportPagePayload struct {
 		Reports []struct {
 			ID          uint64   `json:"id"`
@@ -60,6 +62,11 @@ type (
 				ChainID int64  `json:"chainId"`
 				Address string `json:"address"`
 			} `json:"vouchers"`
+			Pools []struct {
+				ID      uint64 `json:"id"`
+				ChainID int64  `json:"chainId"`
+				Address string `json:"address"`
+			} `json:"pools"`
 		} `json:"reports"`
 		Next *struct {
 			UpdatedAt string `json:"updatedAt"`
@@ -69,6 +76,7 @@ type (
 		TagFacets *[]reportTagFacetPayload `json:"tagFacets"`
 		// Voucher facets share the same first-page-only contract.
 		VoucherFacets *[]reportVoucherFacetPayload `json:"voucherFacets"`
+		PoolFacets    *[]reportPoolFacetPayload    `json:"poolFacets"`
 	}
 )
 
@@ -171,6 +179,31 @@ func linkReportVoucher(t *testing.T, a *API, reportID, voucherID uint64) {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit report-voucher link: %v", err)
+	}
+}
+
+func seedReportPool(t *testing.T, a *API, name, symbol string) (uint64, string, func()) {
+	t.Helper()
+	ctx := context.Background()
+	var id uint64
+	var address string
+	if err := a.store.Pool().QueryRow(ctx, `
+		INSERT INTO pools (chain_id, address, name, symbol, decimals)
+		VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'), $1, $2, 6)
+		RETURNING id, address`, name, symbol).Scan(&id, &address); err != nil {
+		t.Fatalf("seed report pool: %v", err)
+	}
+	return id, address, func() {
+		_, _ = a.store.Pool().Exec(context.Background(), `DELETE FROM pools WHERE id = $1`, id)
+	}
+}
+
+func linkReportPool(t *testing.T, a *API, reportID, poolID uint64) {
+	t.Helper()
+	if _, err := a.store.Pool().Exec(context.Background(),
+		`INSERT INTO report_pools (report_id, pool_id) VALUES ($1, $2)`,
+		reportID, poolID); err != nil {
+		t.Fatalf("link report pool: %v", err)
 	}
 }
 
@@ -406,6 +439,78 @@ func TestReportsEndpointFiltersAndFacetsByVoucher(t *testing.T) {
 	}
 }
 
+func TestReportsEndpointFiltersAndFacetsByPool(t *testing.T) {
+	a, token := newReportSearchAPI(t)
+	marker := reportSearchToken + "Pools"
+
+	firstPool, firstAddress, cleanFirstPool := seedReportPool(t, a, marker+" First", "RFP1")
+	defer cleanFirstPool()
+	secondPool, secondAddress, cleanSecondPool := seedReportPool(t, a, marker+" Second", "RFP2")
+	defer cleanSecondPool()
+
+	firstReport, cleanFirstReport := seedApprovedReport(t, a, marker+" First", "x")
+	defer cleanFirstReport()
+	bothReport, cleanBothReport := seedApprovedReport(t, a, marker+" Both", "x")
+	defer cleanBothReport()
+	secondReport, cleanSecondReport := seedApprovedReport(t, a, marker+" Second", "x")
+	defer cleanSecondReport()
+	linkReportPool(t, a, firstReport, firstPool)
+	linkReportPool(t, a, bothReport, firstPool)
+	linkReportPool(t, a, bothReport, secondPool)
+	linkReportPool(t, a, secondReport, secondPool)
+
+	ref := func(address string) string { return "42220:" + address }
+	request := func(match string, facets bool) (reportPagePayload, []uint64) {
+		t.Helper()
+		params := map[string][]string{
+			"perPage": {"100"},
+			"q":       {marker},
+			"pools":   {ref(firstAddress) + "," + ref(secondAddress)},
+		}
+		if match != "" {
+			params["poolMatch"] = []string{match}
+		}
+		if facets {
+			params["facets"] = []string{"true"}
+		}
+		res, page := getReportPage(t, a, token, params)
+		if res.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+		}
+		ids := make([]uint64, 0, len(page.Reports))
+		for _, report := range page.Reports {
+			ids = append(ids, report.ID)
+		}
+		slices.Sort(ids)
+		return page, ids
+	}
+
+	_, anyIDs := request("", false)
+	wantAny := []uint64{firstReport, bothReport, secondReport}
+	slices.Sort(wantAny)
+	if !slices.Equal(anyIDs, wantAny) {
+		t.Errorf("any pool IDs = %v, want %v", anyIDs, wantAny)
+	}
+	page, allIDs := request("all", true)
+	if !slices.Equal(allIDs, []uint64{bothReport}) {
+		t.Errorf("all pool IDs = %v, want [%d]", allIDs, bothReport)
+	}
+	if len(page.Reports) != 1 || len(page.Reports[0].Pools) != 2 ||
+		page.Reports[0].Pools[0].ChainID != 42220 {
+		t.Errorf("filtered report did not retain pool identities: %+v", page.Reports)
+	}
+	if page.PoolFacets == nil {
+		t.Fatal("facets=true on the first page must return poolFacets")
+	}
+	counts := make(map[uint64]uint64, len(*page.PoolFacets))
+	for _, facet := range *page.PoolFacets {
+		counts[facet.ID] = facet.Count
+	}
+	if counts[firstPool] != 2 || counts[secondPool] != 2 {
+		t.Errorf("pool facet counts = %v, want both at 2", counts)
+	}
+}
+
 func TestReportsEndpointReturnsTagFacetsOnTheFirstPageOnly(t *testing.T) {
 	a, token := newReportSearchAPI(t)
 	marker := reportSearchToken + "Facets"
@@ -477,6 +582,7 @@ func TestReportsEndpointRejectsInvalidFilters(t *testing.T) {
 	a, token := newReportSearchAPI(t)
 
 	for name, params := range map[string]map[string][]string{
+		"public author":    {"author": {reportAuthorAddress}},
 		"unknown tag":      {"tags": {"NotARealTag"}},
 		"one-char term":    {"q": {"a"}},
 		"bad tagMatch":     {"tagMatch": {"sideways"}},
@@ -484,6 +590,9 @@ func TestReportsEndpointRejectsInvalidFilters(t *testing.T) {
 		"bad voucher":      {"vouchers": {"42220:not-an-address"}},
 		"bad voucherMatch": {"voucherMatch": {"sideways"}},
 		"unknown voucher":  {"vouchers": {"42220:0x9999999999999999999999999999999999999999"}},
+		"bad pool":         {"pools": {"42220:not-an-address"}},
+		"bad poolMatch":    {"poolMatch": {"sideways"}},
+		"unknown pool":     {"pools": {"42220:0x9999999999999999999999999999999999999999"}},
 		"too many tags":    {"tags": {"a,b,c,d,e,f,g,h,i,j,k,l,m"}},
 	} {
 		t.Run(name, func(t *testing.T) {

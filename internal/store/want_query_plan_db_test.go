@@ -41,7 +41,9 @@ func TestWantDiscoveryGenericPlanDB(t *testing.T) {
 		"creator pools":    pg.queries.ListWantCreatorPools,
 	} {
 		plan = explainGenericPlan(t, tx, query)
-		if !strings.Contains(plan, "wants_public_page_idx") && !strings.Contains(plan, "wants_pkey") {
+		if !strings.Contains(plan, "wants_public_page_idx") &&
+			!strings.Contains(plan, "wants_pkey") &&
+			!strings.Contains(plan, "wants_owner_page_idx") {
 			t.Fatalf("Want %s must resolve the active source Want through an indexed id lookup.\nplan:\n%s", name, plan)
 		}
 	}

@@ -304,16 +304,16 @@ func TestAdminAccountEndpoints(t *testing.T) {
 
 	t.Run("reports by author", func(t *testing.T) {
 		res, result := getJSON(t, a, token,
-			"/api/v2/reports?perPage=100&author="+accountAddress)
+			"/api/v2/admin/reports?perPage=100&author="+accountAddress)
 		if res.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200: %s", res.Code, res.Body.String())
 		}
 
 		got := names(t, result, "reports")
 		assertContains(t, got, accountMarker+" Report")
-		// The feed has always shown approved reports only; the author filter does
-		// not change that.
-		assertExcludes(t, got, accountMarker+" Draft")
+		// Author correlation is available only to the authenticated admin view,
+		// which intentionally includes every moderation state.
+		assertContains(t, got, accountMarker+" Draft")
 		assertExcludes(t, got, accountMarker+" Other Report")
 	})
 

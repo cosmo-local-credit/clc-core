@@ -6070,7 +6070,7 @@
           "Lookups and shared vocabulary"
         ],
         "summary": "Search recipients",
-        "description": "Searches recipients. Access: User or service token.",
+        "description": "Searches approved users by exact case-insensitive username or exact normalized full phone number. User prefixes return no result and user responses expose the username, never the profile name. Public pool names retain partial matching. This route has an independent caller/IP throttle of one request per second with a burst of 30. Access: User or service token.",
         "operationId": "getRecipients",
         "parameters": [
           {
@@ -6134,7 +6134,7 @@
                     "recipients": [
                       {
                         "kind": "user",
-                        "name": "Amina",
+                        "name": "amina",
                         "alias": "amina",
                         "address": "0x0000000000000000000000000000000000000001",
                         "chainId": 42220
@@ -7167,13 +7167,27 @@
             "description": "A post must link any of the vouchers, or all of the vouchers."
           },
           {
-            "name": "author",
+            "name": "pools",
             "in": "query",
             "required": false,
             "schema": {
               "type": "string"
             },
-            "description": "A hex account address. Shows only the posts of this author."
+            "description": "Repeat the parameter or use a comma-separated list of 'chainId:address' values. At most 12 distinct values. Every pool must exist."
+          },
+          {
+            "name": "poolMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            },
+            "description": "A post must link any of the pools, or all of the pools."
           },
           {
             "name": "nearby",
@@ -7193,7 +7207,7 @@
               "type": "boolean",
               "default": false
             },
-            "description": "With 'true' and no cursor, add 'tagFacets' and 'voucherFacets'."
+            "description": "With 'true' and no cursor, add 'tagFacets', 'voucherFacets', and 'poolFacets'."
           }
         ],
         "responses": {
@@ -7242,9 +7256,6 @@
                               "periodTo": {
                                 "description": "The value can be null."
                               },
-                              "authorAddress": {
-                                "type": "string"
-                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time"
@@ -7260,6 +7271,10 @@
                                 }
                               },
                               "vouchers": {
+                                "type": "array",
+                                "items": {}
+                              },
+                              "pools": {
                                 "type": "array",
                                 "items": {}
                               }
@@ -7304,13 +7319,21 @@
                         "geoLng": 36.8172,
                         "periodFrom": null,
                         "periodTo": null,
-                        "authorAddress": "0x0000000000000000000000000000000000000001",
                         "createdAt": "2026-08-01T08:00:00Z",
                         "updatedAt": "2026-08-02T08:00:00Z",
                         "tags": [
                           "Agriculture"
                         ],
-                        "vouchers": []
+                        "vouchers": [
+                          {
+                            "id": 21,
+                            "chainId": 100,
+                            "address": "0x1111111111111111111111111111111111111111",
+                            "name": "Harvest",
+                            "symbol": "HRV"
+                          }
+                        ],
+                        "pools": []
                       }
                     ],
                     "next": {
@@ -7421,6 +7444,10 @@
                     "type": "array",
                     "description": "At most 12 items: '{\"chainId\": 42220, \"address\": \"0x...\"}'. 'chainId' must be positive. 'address' must be a hex address. No duplicates. Every voucher must exist."
                   },
+                  "pools": {
+                    "type": "array",
+                    "description": "At most 12 items: '{\"chainId\": 100, \"address\": \"0x...\"}'. 'chainId' must be positive. 'address' must be a hex address. No duplicates. Every pool must exist. At least one voucher or pool is required."
+                  },
                   "images": {
                     "type": "array",
                     "description": "At most 50 items. No duplicate URLs."
@@ -7456,6 +7483,7 @@
                     "address": "0x1111111111111111111111111111111111111111"
                   }
                 ],
+                "pools": [],
                 "images": [
                   {
                     "url": "https://example.com/posts/1.jpg",
@@ -7509,7 +7537,7 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest",
-            "description": "E02: The body is not valid JSON. E04: Also for a voucher that does not exist, and for a tag error."
+            "description": "E02: The body is not valid JSON. E04: Also when neither a voucher nor pool is linked, for a resource that does not exist, and for a tag error."
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized",
@@ -7517,7 +7545,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller uses a service token. Or the caller links a voucher that the caller does not own. E10:."
+            "description": "E10: The caller uses a service token. Or a regular caller links a voucher or pool that the caller does not own. E10:."
           }
         },
         "security": [
@@ -7597,7 +7625,7 @@
           "Posts"
         ],
         "summary": "Replace a post",
-        "description": "Replaces all editable fields and all four collections of a post. An omitted optional field is cleared. An omitted collection becomes empty. A failed request changes nothing. After an edit by the original author the status is APPROVED. After an edit by a superadmin the status does not change. Access: User session. The caller must be the original author or a superadmin.",
+        "description": "Replaces all editable fields and all five collections of a post. An omitted optional field is cleared. An omitted collection becomes empty. At least one voucher or pool is required. A failed request changes nothing. After an edit by the original author the status is APPROVED. After an edit by a superadmin the status does not change. Access: User session. The caller must be the original author or a superadmin.",
         "operationId": "putReportsById",
         "parameters": [
           {
@@ -7682,6 +7710,10 @@
                     "type": "array",
                     "description": "At most 12 items: '{\"chainId\": 42220, \"address\": \"0x...\"}'. 'chainId' must be positive. 'address' must be a hex address. No duplicates. Every voucher must exist."
                   },
+                  "pools": {
+                    "type": "array",
+                    "description": "At most 12 items: '{\"chainId\": 100, \"address\": \"0x...\"}'. 'chainId' must be positive. 'address' must be a hex address. No duplicates. Every pool must exist. At least one voucher or pool is required."
+                  },
                   "images": {
                     "type": "array",
                     "description": "At most 50 items. No duplicate URLs."
@@ -7717,6 +7749,7 @@
                     "address": "0x1111111111111111111111111111111111111111"
                   }
                 ],
+                "pools": [],
                 "images": [
                   {
                     "url": "https://example.com/posts/1.jpg",
@@ -7778,7 +7811,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not the author and not a superadmin. Or a service token. Or a voucher that the caller does not own. E10:."
+            "description": "E10: The caller is not the author and not a superadmin. Or a service token. Or a regular caller links a voucher or pool that the caller does not own. E10:."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -7796,7 +7829,7 @@
           "Posts"
         ],
         "summary": "Delete a post",
-        "description": "Deletes the post with its tags, voucher links, images, and attachments. An author cannot delete the own post. Status '200'. 'description' is 'Report deleted'. 'result' is '{\"id\": 4633}'. Access: Superadmin.",
+        "description": "Deletes the post with its tags, voucher links, pool links, images, and attachments. An author cannot delete the own post. Status '200'. 'description' is 'Report deleted'. 'result' is '{\"id\": 4633}'. Access: Superadmin.",
         "operationId": "deleteReportsById",
         "parameters": [
           {
@@ -11459,6 +11492,29 @@
               "default": "any"
             },
             "description": "A post must link any of the vouchers, or all of the vouchers."
+          },
+          {
+            "name": "pools",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Repeat the parameter or use a comma-separated list of 'chainId:address' values. At most 12 distinct values. Every pool must exist."
+          },
+          {
+            "name": "poolMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            },
+            "description": "A post must link any of the pools, or all of the pools."
           }
         ],
         "responses": {
@@ -14921,6 +14977,29 @@
               "default": "any"
             },
             "description": "'any' or 'all'."
+          },
+          {
+            "name": "pools",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Pool filter. A list of 'chainId:address' values, with commas or repeated parameters. Maximum 12 values. Each pool must exist in the catalog."
+          },
+          {
+            "name": "poolMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            },
+            "description": "'any' or 'all'."
           }
         ],
         "responses": {
@@ -14992,6 +15071,10 @@
                               "vouchers": {
                                 "type": "array",
                                 "items": {}
+                              },
+                              "pools": {
+                                "type": "array",
+                                "items": {}
                               }
                             }
                           },
@@ -15058,7 +15141,8 @@
                         "tags": [
                           "Food"
                         ],
-                        "vouchers": []
+                        "vouchers": [],
+                        "pools": []
                       }
                     ],
                     "first": {
@@ -15076,7 +15160,7 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest",
-            "description": "E04: perPage is not a non-negative integer. E04: The cursor is not valid. The description is one of: cursorUpdatedAt and cursorId must be sent together, cursorUpdatedAt must be an RFC3339 timestamp, cursorId must be a positive integer. E04: next is not true or false, or next has no cursor. E04: status is not valid. The description is status must be one of DRAFT, SUBMITTED, APPROVED, REJECTED. E04: author is not a valid address. E04: q, tags, tagMatch, vouchers or voucherMatch is not valid, or a tag or voucher does not exist."
+            "description": "E04: perPage is not a non-negative integer. E04: The cursor is not valid. The description is one of: cursorUpdatedAt and cursorId must be sent together, cursorUpdatedAt must be an RFC3339 timestamp, cursorId must be a positive integer. E04: next is not true or false, or next has no cursor. E04: status is not valid. The description is status must be one of DRAFT, SUBMITTED, APPROVED, REJECTED. E04: author is not a valid address. E04: q, tags, tagMatch, vouchers, voucherMatch, pools or poolMatch is not valid, or a tag or resource does not exist."
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized",
@@ -17904,7 +17988,7 @@
           },
           "authorAddress": {
             "type": "string",
-            "description": "The account of the original author. It never changes."
+            "description": "The account of the original author. It never changes and appears only in managed user and admin responses, never public responses."
           },
           "status": {
             "type": "string",
@@ -17914,7 +17998,7 @@
               "APPROVED",
               "REJECTED"
             ],
-            "description": "'DRAFT', 'SUBMITTED', 'APPROVED', or 'REJECTED'."
+            "description": "'DRAFT', 'SUBMITTED', 'APPROVED', or 'REJECTED'. Present only in managed user and admin responses."
           },
           "createdAt": {
             "type": "string",
@@ -17960,6 +18044,30 @@
               }
             },
             "description": "Linked vouchers."
+          },
+          "pools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "chainId": {
+                  "type": "integer"
+                },
+                "address": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Linked pools."
           },
           "body": {
             "type": "string",
@@ -18065,7 +18173,7 @@
           },
           "name": {
             "type": "string",
-            "description": "The name of the user, or the username when the user has no name. For a pool: the display name or the name."
+            "description": "For a user, the username. Profile names are never returned. For a pool: the display name or the name."
           },
           "alias": {
             "type": "string",

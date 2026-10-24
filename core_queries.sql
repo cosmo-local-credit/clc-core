@@ -2336,7 +2336,16 @@ SELECT r.id, r.title, r.description,
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
         WHERE rv.report_id = r.id
-    ), '[]'::JSONB) AS vouchers
+    ), '[]'::JSONB) AS vouchers,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'id', p.id, 'chainId', p.chain_id, 'address', p.address,
+            'name', COALESCE(p.display_name, p.name), 'symbol', p.symbol
+        ) ORDER BY p.id)
+        FROM report_pools rp
+        INNER JOIN pools p ON p.id = rp.pool_id
+        WHERE rp.report_id = r.id
+    ), '[]'::JSONB) AS pools
 FROM reports r
 WHERE r.status = 'APPROVED'
 ORDER BY r.updated_at DESC, r.id DESC
@@ -2360,7 +2369,16 @@ SELECT r.id, r.title, r.description,
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
         WHERE rv.report_id = r.id
-    ), '[]'::JSONB) AS vouchers
+    ), '[]'::JSONB) AS vouchers,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'id', p.id, 'chainId', p.chain_id, 'address', p.address,
+            'name', COALESCE(p.display_name, p.name), 'symbol', p.symbol
+        ) ORDER BY p.id)
+        FROM report_pools rp
+        INNER JOIN pools p ON p.id = rp.pool_id
+        WHERE rp.report_id = r.id
+    ), '[]'::JSONB) AS pools
 FROM reports r
 WHERE r.status = 'APPROVED'
     AND (r.updated_at, r.id) < ($1, $2)
@@ -2418,7 +2436,16 @@ SELECT r.id, r.title, r.body, r.description,
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
         WHERE rv.report_id = r.id
-    ), '[]'::JSONB) AS vouchers
+    ), '[]'::JSONB) AS vouchers,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'id', p.id, 'chainId', p.chain_id, 'address', p.address,
+            'name', COALESCE(p.display_name, p.name), 'symbol', p.symbol
+        ) ORDER BY p.id)
+        FROM report_pools rp
+        INNER JOIN pools p ON p.id = rp.pool_id
+        WHERE rp.report_id = r.id
+    ), '[]'::JSONB) AS pools
 FROM reports r
 WHERE r.id = $1 AND ($2 OR r.status = 'APPROVED');
 
@@ -2474,7 +2501,16 @@ SELECT r.id, r.title, r.body, r.description,
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
         WHERE rv.report_id = r.id
-    ), '[]'::JSONB) AS vouchers
+    ), '[]'::JSONB) AS vouchers,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'id', p.id, 'chainId', p.chain_id, 'address', p.address,
+            'name', COALESCE(p.display_name, p.name), 'symbol', p.symbol
+        ) ORDER BY p.id)
+        FROM report_pools rp
+        INNER JOIN pools p ON p.id = rp.pool_id
+        WHERE rp.report_id = r.id
+    ), '[]'::JSONB) AS pools
 FROM reports r
 WHERE r.id = $1
     AND ($2::TEXT IS NULL OR lower(r.author_address) = lower($2::TEXT));
@@ -2556,6 +2592,12 @@ DELETE FROM report_vouchers WHERE report_id = $1;
 --name: insert-report-voucher
 INSERT INTO report_vouchers (report_id, voucher_id) VALUES ($1, $2);
 
+--name: delete-report-pools
+DELETE FROM report_pools WHERE report_id = $1;
+
+--name: insert-report-pool
+INSERT INTO report_pools (report_id, pool_id) VALUES ($1, $2);
+
 --name: delete-report-images
 DELETE FROM report_images WHERE report_id = $1;
 
@@ -2628,6 +2670,13 @@ SELECT count(*)
 FROM vouchers v
 WHERE v.id = ANY($1::BIGINT[])
     AND lower(v.owner_address) = lower($2);
+
+-- How many resolved pools currently belong to the caller.
+--name: count-pools-owned-by
+SELECT count(*)
+FROM pools p
+WHERE p.id = ANY($1::BIGINT[])
+    AND lower(p.owner_address) = lower($2);
 
 -- The voucher tag facet vocabulary: every tag that appears on an available
 -- offering of a visible voucher. Deliberately independent of the caller's

@@ -205,10 +205,12 @@ type (
 		ListPoolTagFacets(context.Context, pgx.Tx, CatalogFilter) ([]TagFacet, error)
 		ListPoolVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
 		ListReportVoucherFacets(context.Context, pgx.Tx, CatalogFilter) ([]VoucherFacet, error)
+		ListReportPoolFacets(context.Context, pgx.Tx, CatalogFilter) ([]PoolFacet, error)
 		UnknownTokenTags(context.Context, pgx.Tx, []string) ([]string, error)
 		ResolveVoucherRefs(context.Context, pgx.Tx, []VoucherRef) ([]uint64, error)
 		ResolvePoolRefs(context.Context, pgx.Tx, []PoolRef) ([]uint64, error)
 		CountVouchersOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
+		CountPoolsOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 		ListMarketplace(context.Context, pgx.Tx, CatalogFilter, []string, *CatalogLocation, MarketplaceCursor, uint64, bool) ([]MarketplaceResult, error)
 		ListWants(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds, CatalogPage, uint64, uint64) ([]Want, error)

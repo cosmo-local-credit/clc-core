@@ -747,6 +747,22 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 			}
 		})
 
+		t.Run("report-pools/"+name, func(t *testing.T) {
+			filter := CatalogFilter{PoolIDs: []uint64{7, 11}, PoolMatch: TagMatchAny}
+			if tc.wantAll {
+				filter.PoolMatch = TagMatchAll
+			}
+			query := composeReportPage(filter, ReportCursor{}, false, 20)
+			assertPlaceholdersMatchArgs(t, "report pools", query)
+			if !strings.Contains(query.sql, "FROM report_pools rp") ||
+				!strings.Contains(query.sql, "rp.pool_id = ANY(") {
+				t.Errorf("report page must filter through report_pools:\n%s", query.sql)
+			}
+			if gotAll := strings.Contains(query.sql, ") = cardinality("); gotAll != tc.wantAll {
+				t.Errorf("all-match fragment = %v, want %v:\n%s", gotAll, tc.wantAll, query.sql)
+			}
+		})
+
 		t.Run("pools/"+name, func(t *testing.T) {
 			query := composePoolPage(tc.filter, CatalogFirstPage, 0, 20)
 			assertPlaceholdersMatchArgs(t, "pool vouchers", query)
@@ -766,6 +782,8 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 		TagMatch:     TagMatchAny,
 		VoucherIDs:   []uint64{7},
 		VoucherMatch: TagMatchAny,
+		PoolIDs:      []uint64{11},
+		PoolMatch:    TagMatchAny,
 	}
 	for name, query := range map[string]composed{
 		"report tags": composeReportTagCounts(filter),
@@ -786,6 +804,15 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 		if !strings.Contains(query.sql, "tag_value = ANY(") {
 			t.Errorf("%s must retain the tag filter:\n%s", name, query.sql)
 		}
+	}
+	poolCounts := composeReportPoolCounts(filter)
+	assertPlaceholdersMatchArgs(t, "report pools", poolCounts)
+	if strings.Contains(poolCounts.sql, "pool_id = ANY(") {
+		t.Errorf("report pool facets must omit their own selection:\n%s", poolCounts.sql)
+	}
+	if !strings.Contains(poolCounts.sql, "voucher_id = ANY(") ||
+		!strings.Contains(poolCounts.sql, "tag_value = ANY(") {
+		t.Errorf("report pool facets must retain tag and voucher filters:\n%s", poolCounts.sql)
 	}
 }
 
