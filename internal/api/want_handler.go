@@ -211,12 +211,12 @@ func activeWantListValidation(c *echo.Context, a *API, id uint64) func(pgx.Tx) (
 
 func (a *API) wantCreatorVouchersListHandler(c *echo.Context) error {
 	return wantCreatorResourceListHandler(c, a, "vouchers", "Want creator vouchers",
-		func(v store.OwnedVoucher) uint64 { return v.ID }, a.store.ListWantCreatorVouchers)
+		func(v store.WantCreatorVoucher) uint64 { return v.ID }, a.store.ListWantCreatorVouchers)
 }
 
 func (a *API) wantCreatorPoolsListHandler(c *echo.Context) error {
 	return wantCreatorResourceListHandler(c, a, "pools", "Want creator creditable pools",
-		func(p store.Pool) uint64 { return p.ID }, a.store.ListWantCreatorPools)
+		func(p store.WantCreatorPool) uint64 { return p.ID }, a.store.ListWantCreatorPools)
 }
 
 func wantCreatorResourceListHandler[T any](
