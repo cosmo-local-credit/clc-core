@@ -201,6 +201,33 @@ func TestParseCatalogSearchWithoutParametersIsInactive(t *testing.T) {
 	}
 }
 
+func TestParseCatalogSearchNormalizesRepeatedBounds(t *testing.T) {
+	got, err := parseSearchQuery(t,
+		"bbox=179,-2,180,2&bbox=-180,-2,-179,2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.filter.Bounds) != 2 || got.filter.Bounds[0].MinLng != -180 || got.filter.Bounds[1].MinLng != 179 {
+		t.Fatalf("bounds = %#v", got.filter.Bounds)
+	}
+	if !got.filter.Active() {
+		t.Fatal("bounded discovery must select the filtered query path")
+	}
+}
+
+func TestParseCatalogSearchRejectsBoundsConflictsAndMalformedValues(t *testing.T) {
+	for name, query := range map[string]string{
+		"nearby conflict": "nearby=true&bbox=36,-2,37,-1",
+		"too many":        "bbox=0,0,1,1&bbox=1,0,2,1&bbox=2,0,3,1",
+		"crossing":        "bbox=179,-2,-179,2",
+		"malformed":       "bbox=west,south,east,north",
+	} {
+		if _, err := parseSearchQuery(t, query); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
 func TestParseCatalogRelationshipSearchNormalizesVouchers(t *testing.T) {
 	const (
 		first  = "0x1111111111111111111111111111111111111111"

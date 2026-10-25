@@ -790,7 +790,7 @@ paths:
         required: false
         schema:
           type: string
-        description: '''minLng,minLat,maxLng,maxLat''. Four finite numbers. Longitude from -180 to 180, latitude from -90 to 90, and each minimum not above its maximum. A box cannot cross the antimeridian. Split the viewport into two requests in that case. An invalid value returns ''400'' ''E04''.'
+        description: '''minLng,minLat,maxLng,maxLat''. Repeat once with the two halves of an antimeridian-crossing viewport. At most two boxes. Coordinates must be finite, longitude must be within -180 to 180, latitude within -90 to 90, and each minimum must not exceed its maximum. Cannot be combined with ''nearby=true''.'
       - name: owner
         in: query
         required: false
@@ -1568,6 +1568,12 @@ paths:
         schema:
           type: string
         description: Pool references in the form 'chainId:address'. Repeat the parameter or use commas. At most 100 distinct references. The chain ID must be a positive integer. A voucher matches when at least one selected pool allows it.
+      - name: bbox
+        in: query
+        required: false
+        schema:
+          type: string
+        description: '''minLng,minLat,maxLng,maxLat''. Repeat once for an antimeridian split. Bounds use the offering location, falling back to its voucher location. Cannot be combined with ''nearby=true''.'
       - name: nearby
         in: query
         required: false
@@ -1628,8 +1634,8 @@ paths:
     get:
       tags:
       - Vouchers and offerings
-      summary: List offerings, vouchers, pools and catalogs together
-      description: 'Returns one mixed list of offerings, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has ''Cache-Control: no-store''. Access: Public. A user session is needed when ''nearby=true''.'
+      summary: List offerings, Wants, vouchers, pools and catalogs together
+      description: 'Returns one mixed list of offerings, Wants, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has ''Cache-Control: no-store''. Access: Public. A user session is needed when ''nearby=true''.'
       operationId: getMarketplace
       parameters:
       - name: perPage
@@ -1652,7 +1658,7 @@ paths:
         required: false
         schema:
           type: string
-        description: Values 'catalog', 'offering', 'pool' and 'voucher'. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns '400' 'E04'.
+        description: Values 'catalog', 'offering', 'pool', 'voucher' and 'want'. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns '400' 'E04'.
       - name: q
         in: query
         required: false
@@ -1688,6 +1694,12 @@ paths:
         schema:
           type: string
         description: Pool references in the form 'chainId:address'. Repeat the parameter or use commas. At most 100 distinct references. The chain ID must be a positive integer. A voucher matches when at least one selected pool allows it.
+      - name: bbox
+        in: query
+        required: false
+        schema:
+          type: string
+        description: '''minLng,minLat,maxLng,maxLat''. Repeat once for an antimeridian split. Cannot be combined with ''nearby=true''.'
       - name: nearby
         in: query
         required: false
@@ -1904,6 +1916,12 @@ paths:
         required: false
         schema:
           type: string
+      - name: bbox
+        in: query
+        required: false
+        schema:
+          type: string
+        description: '''minLng,minLat,maxLng,maxLat''. Repeat once for an antimeridian split. Cannot be combined with ''nearby=true''.'
       - name: nearby
         in: query
         required: false
@@ -2476,6 +2494,12 @@ paths:
           type: boolean
           default: false
         description: With 'true' on the first page, the response has 'tagFacets' and 'voucherFacets'.
+      - name: bbox
+        in: query
+        required: false
+        schema:
+          type: string
+        description: '''minLng,minLat,maxLng,maxLat''. Repeat once for an antimeridian split. Cannot be combined with ''nearby=true''.'
       - name: nearby
         in: query
         required: false
@@ -4830,6 +4854,12 @@ paths:
           - all
           default: any
         description: A post must link any of the pools, or all of the pools.
+      - name: bbox
+        in: query
+        required: false
+        schema:
+          type: string
+        description: '''minLng,minLat,maxLng,maxLat''. Repeat once for an antimeridian split. Cannot be combined with ''nearby=true''.'
       - name: nearby
         in: query
         required: false

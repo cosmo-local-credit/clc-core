@@ -60,6 +60,9 @@ func (a *API) adminVouchersListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	if len(search.filter.Bounds) > 0 {
+		return respondCatalogSearchError(c, errors.New("bbox is not supported on admin voucher lists"))
+	}
 	if search.filter.Owner, err = addressFilterParam(c, "owner"); err != nil {
 		return respondCatalogSearchError(c, err)
 	}

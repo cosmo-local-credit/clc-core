@@ -31,7 +31,12 @@ func offeringSearchArgs(filter CatalogFilter) (string, []string, bool, []uint64)
 func offeringPageQuery(queries *Queries, filter CatalogFilter, cursor OfferingCursor, limit uint64) (string, []any) {
 	term, tags, allTags, pools := offeringSearchArgs(filter)
 	query := queries.ListOfferingsFilteredGlobal
-	args := []any{term, filter.prefixOnly(), tags, allTags, pools, cursor.ID, limit}
+	hasBounds, minLng, minLat, maxLng, maxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(filter.Bounds)
+	args := []any{
+		term, filter.prefixOnly(), tags, allTags, pools, cursor.ID, limit,
+		hasBounds, minLng, minLat, maxLng, maxLat,
+		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+	}
 	if filter.Nearby != nil {
 		query = queries.ListOfferingsFilteredNearby
 		bounds := filter.Nearby.bounds()
@@ -48,7 +53,12 @@ func offeringPageQuery(queries *Queries, filter CatalogFilter, cursor OfferingCu
 func offeringFacetQuery(queries *Queries, filter CatalogFilter) (string, []any) {
 	term, _, _, pools := offeringSearchArgs(filter)
 	query := queries.ListOfferingTagCountsGlobal
-	args := []any{term, filter.prefixOnly(), pools}
+	hasBounds, minLng, minLat, maxLng, maxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(filter.Bounds)
+	args := []any{
+		term, filter.prefixOnly(), pools,
+		hasBounds, minLng, minLat, maxLng, maxLat,
+		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+	}
 	if filter.Nearby != nil {
 		query = queries.ListOfferingTagCountsNearby
 		bounds := filter.Nearby.bounds()

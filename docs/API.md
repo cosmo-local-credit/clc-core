@@ -1814,6 +1814,7 @@ These query parameters are common to the list routes. A route can accept a subse
 | `tagMatch` | string | `any` | `any` or `all`. Other values return `400` `E04`. |
 | `facets` | boolean | `false` | Value for Go `ParseBool`, for example `true` or `false`. The server computes tag facets on the first page only. |
 | `pools` | string | none | Pool references in the form `chainId:address`. Repeat the parameter or use commas. At most 100 distinct references. The chain ID must be a positive integer. A voucher matches when at least one selected pool allows it. |
+| `bbox` | string | none | A public viewport in the form `minLng,minLat,maxLng,maxLat`. Repeat once with two non-overlapping boxes for a viewport split at the antimeridian. Each box uses finite coordinates in longitude `[-180,180]` and latitude `[-90,90]`, with each minimum not above its maximum. At most two values are accepted. |
 | `nearby` | string | none | `true` or `false`. Other values return `400` `E04`. |
 
 Validation rules for these parameters:
@@ -1821,6 +1822,7 @@ Validation rules for these parameters:
 - A value outside the rules returns `400` with code `E04`. The description names the parameter.
 - A `tags` value outside the tag vocabulary returns `400` `E04`. To read the valid values, retry without `tags` and with `facets=true`.
 - A `pools` reference that does not exist returns `400` `E04`. The server never drops it.
+- `bbox` and `nearby=true` cannot be combined. A bounded request excludes rows without an effective location; an unbounded request preserves the Global catalog behavior.
 
 #### Nearby search
 
@@ -1940,7 +1942,7 @@ Returns active vouchers that have complete coordinates. The route supports a map
 | `perPage` | integer | `500` | Maximum is `500`. `0` or a larger value becomes `500`. |
 | `next` | boolean | `false` | See pagination in section 7.1. |
 | `cursor` | integer | none | A voucher `id`. |
-| `bbox` | string | none | `minLng,minLat,maxLng,maxLat`. Four finite numbers. Longitude from -180 to 180, latitude from -90 to 90, and each minimum not above its maximum. A box cannot cross the antimeridian. Split the viewport into two requests in that case. An invalid value returns `400` `E04`. |
+| `bbox` | string | none | See section 7.1. Repeat the parameter with the two halves of an antimeridian-crossing viewport. |
 | `owner` | string | none | A hex address. The server compares it with the voucher owner and ignores case. An invalid address returns `400` `E04`. |
 | `q`, `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. `q` matches the voucher name and the symbol. The name is the display name when one is set. |
 
@@ -2136,7 +2138,7 @@ Returns available offerings of active vouchers. An offering must have a location
 | `perPage` | integer | `20` | From 1 to 100. |
 | `cursor` | string | none | The `nextCursor` of the previous response. |
 | `q` | string | none | Matches the offering name, the offering description, the voucher name, the voucher symbol and the offering tags. |
-| `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. The tags are the offering tags. |
+| `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby` | | | See section 7.1. The tags are the offering tags. Bounds use the offering location, falling back to its voucher location. |
 
 Status `200`, description `Offerings`. The `result` has these fields:
 
@@ -2158,15 +2160,15 @@ Status `200`, description `Offerings`. The `result` has these fields:
 
 **Access:** Public. A user session is needed when `nearby=true`. See section 7.1 for the rate limit.
 
-Returns one mixed list of offerings, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has `Cache-Control: no-store`.
+Returns one mixed list of offerings, Wants, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has `Cache-Control: no-store`.
 
 | Parameter | Type | Default | Rules |
 |---|---|---|---|
 | `perPage` | integer | `20` | From 1 to 100. |
 | `cursor` | string | none | The `nextCursor` of the previous response. |
-| `kinds` | string | all kinds | Values `catalog`, `offering`, `pool` and `voucher`. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns `400` `E04`. |
+| `kinds` | string | all kinds | Values `catalog`, `offering`, `pool`, `voucher` and `want`. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns `400` `E04`. |
 | `q` | string | none | Matches the name, symbol, description, tags and related names of a row. |
-| `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. The tags are the tags of each row. |
+| `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby` | | | See section 7.1. The tags are the tags of each row. |
 
 The server includes only rows that have coordinates. Offerings and vouchers must be available and active. The order is:
 
@@ -2589,6 +2591,7 @@ Returns the pool catalog, newest first.
 | `voucherMatch` | string | `any` | `any` or `all`. Other values return `400` `E04`. |
 | `owner` | string | none | A hex address. The server compares it with the pool owner and ignores case. |
 | `facets` | boolean | `false` | With `true` on the first page, the response has `tagFacets` and `voucherFacets`. |
+| `bbox` | string | none | See section 7.1. Only pools whose coordinates fall inside either supplied box are returned. |
 | `nearby` | string | none | `true` or `false`. Limits the result to pools within 1000 kilometers (see section 7.1). The pool rows have no distance field. |
 
 Status `200`, description `Pools`. The `result` has these fields:
@@ -2899,6 +2902,7 @@ A request with `nearby=true` and no valid session returns `401 E06`. A request w
 |---|---|---|---|
 | `perPage` | integer | `20` | See section 9.1. |
 | `cursor` | string | none | See section 9.1. |
+| `bbox` | string | none | See section 7.1. Only located catalogs inside either supplied box are returned. |
 | `nearby` | `true` or `false` | `false` | Use the saved profile location of the caller. Only catalogs within 1000 km are returned. The response is not cached. |
 | `q` | string | none | Search text. Whitespace is trimmed and repeated spaces become one space. The length must be 2 to 64 characters. The search is not case-sensitive. It matches `name`, `locationName`, and `description`. A term of 2 characters matches the start of the text. A longer term matches any part of the text. |
 | `tags` | string | none | Tag filter. Repeat the parameter or use a comma-separated list. At most 12 distinct values. Each value must exist in the tag vocabulary. The comparison is exact. |
@@ -3183,6 +3187,7 @@ The response has no `Cache-Control` header, except for `nearby=true`, which sets
 | `voucherMatch` | `any` or `all` | `any` | A post must link any of the vouchers, or all of the vouchers. |
 | `pools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every pool must exist. |
 | `poolMatch` | `any` or `all` | `any` | A post must link any of the pools, or all of the pools. |
+| `bbox` | string | none | See section 7.1. Only posts with coordinates inside either supplied box are returned. |
 | `nearby` | `true` or `false` | `false` | Show only posts with coordinates within 1000 km of the saved profile location of the caller. The order does not change. A caller without a saved location gets `400 E04`. |
 | `facets` | `true` or `false` | `false` | With `true` and no cursor, add `tagFacets`, `voucherFacets`, and `poolFacets`. |
 

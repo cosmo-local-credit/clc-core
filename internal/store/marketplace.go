@@ -67,12 +67,15 @@ func (pg *Pg) ListMarketplace(
 		bounds := nearby.bounds()
 		minLng, minLat, maxLng, maxLat = bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat
 	}
+	hasBounds, boundMinLng, boundMinLat, boundMaxLng, boundMaxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(filter.Bounds)
 	rows := []MarketplaceResult{}
 	err := pgxscan.Select(ctx, tx, &rows, pg.queries.ListMarketplace,
 		filter.likeTerm(), filter.prefixOnly(), filter.Tags, filter.TagMatch == TagMatchAll,
 		filter.PoolIDs, kinds, isNearby, lat, lng, minLng, minLat, maxLng, maxLat,
 		cursor.Rank, cursor.Distance, cursor.UpdatedAt, cursor.Kind, cursor.ID, limit,
 		includeFacets,
+		hasBounds, boundMinLng, boundMinLat, boundMaxLng, boundMaxLat,
+		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
 	)
 	return rows, err
 }

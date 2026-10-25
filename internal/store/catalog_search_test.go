@@ -724,6 +724,27 @@ func TestComposePoolPageEveryComposition(t *testing.T) {
 	}
 }
 
+func TestViewportBoundsApplyToPoolsReportsAndTheirFacets(t *testing.T) {
+	filter := CatalogFilter{Bounds: []CatalogBounds{
+		{MinLng: -180, MinLat: -5, MaxLng: -179, MaxLat: 5},
+		{MinLng: 179, MinLat: -5, MaxLng: 180, MaxLat: 5},
+	}}
+	queries := map[string]composed{
+		"pool page":     composePoolPage(filter, CatalogFirstPage, 0, 20),
+		"pool facets":   composePoolTagCounts(filter),
+		"report page":   composeReportPage(filter, ReportCursor{}, false, 20),
+		"report facets": composeReportTagCounts(filter),
+	}
+	for name, query := range queries {
+		assertPlaceholdersMatchArgs(t, name, query)
+		if !strings.Contains(query.sql, "point(") ||
+			!strings.Contains(query.sql, ") <@ box(point(") ||
+			!strings.Contains(query.sql, " OR ") {
+			t.Errorf("%s does not apply both antimeridian viewport boxes:\n%s", name, query.sql)
+		}
+	}
+}
+
 func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 	for name, tc := range map[string]struct {
 		filter  CatalogFilter

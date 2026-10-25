@@ -135,10 +135,6 @@ func (a *API) wantsListHandler(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return handleBindError(c, err)
 	}
-	bounds, err := parseMarketBounds(c.QueryParam("bbox"))
-	if err != nil {
-		return respondCatalogSearchError(c, err)
-	}
 	search, err := parseMarketDiscoverySearch(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
@@ -146,13 +142,13 @@ func (a *API) wantsListHandler(c *echo.Context) error {
 	pagination := normalizePaginationWithMax(req, marketMaxPerPage)
 	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.Want]{
 		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.Want, error) {
-			return a.store.ListWants(ctx, tx, search.filter, bounds, store.CatalogFirstPage, 0, limit)
+			return a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogFirstPage, 0, limit)
 		},
 		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.Want, error) {
-			return a.store.ListWants(ctx, tx, search.filter, bounds, store.CatalogNextPage, cursor, limit)
+			return a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogNextPage, cursor, limit)
 		},
 		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.Want, error) {
-			return a.store.ListWants(ctx, tx, search.filter, bounds, store.CatalogPrevPage, cursor, limit)
+			return a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogPrevPage, cursor, limit)
 		},
 	}, pagination, "wants", "Wants", func(w store.Want) uint64 { return w.ID }, catalogListHooks{
 		validate: func(tx pgx.Tx) (bool, error) {
@@ -165,7 +161,7 @@ func (a *API) wantsListHandler(c *echo.Context) error {
 			return a.rejectUnknownTags(c, tx, search.filter.Tags)
 		},
 		extras: catalogTagFacetExtras(search, pagination, func(tx pgx.Tx) ([]store.TagFacet, error) {
-			return a.store.ListWantTagFacets(c.Request().Context(), tx, search.filter, bounds)
+			return a.store.ListWantTagFacets(c.Request().Context(), tx, search.filter, nil)
 		}),
 		onSuccess: setMarketCacheHeaders,
 	})

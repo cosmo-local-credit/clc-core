@@ -1944,6 +1944,9 @@ WITH candidates AS MATERIALIZED (
             SELECT 1 FROM pool_tokens pt
             WHERE pt.voucher_id = v.id AND pt.is_allowed
               AND pt.pool_id = ANY($5::BIGINT[])))
+      AND (NOT $8::BOOLEAN OR
+          point(COALESCE(o.geo_lng,v.geo_lng),COALESCE(o.geo_lat,v.geo_lat)) <@ box(point($9,$10),point($11,$12)) OR
+          ($13::BOOLEAN AND point(COALESCE(o.geo_lng,v.geo_lng),COALESCE(o.geo_lat,v.geo_lat)) <@ box(point($14,$15),point($16,$17))))
 ), page AS MATERIALIZED (
     SELECT id, distance_meters FROM candidates
     WHERE $6::BIGINT = 0 OR id < $6
@@ -2075,6 +2078,9 @@ WITH candidates AS MATERIALIZED (
         ) END)
       AND (cardinality($3::BIGINT[]) = 0 OR EXISTS (
             SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id=v.id AND pt.is_allowed AND pt.pool_id=ANY($3::BIGINT[])))
+      AND (NOT $4::BOOLEAN OR
+          point(COALESCE(o.geo_lng,v.geo_lng),COALESCE(o.geo_lat,v.geo_lat)) <@ box(point($5,$6),point($7,$8)) OR
+          ($9::BOOLEAN AND point(COALESCE(o.geo_lng,v.geo_lng),COALESCE(o.geo_lat,v.geo_lat)) <@ box(point($10,$11),point($12,$13))))
 )
 SELECT ot.tag_value, COUNT(*) AS match_count FROM candidates c
 INNER JOIN offering_tags ot ON ot.offering_id=c.id GROUP BY ot.tag_value;
@@ -2896,6 +2902,9 @@ WITH candidates AS MATERIALIZED (
           JOIN pool_tokens pt ON pt.voucher_id=cv.voucher_id AND pt.is_allowed
           WHERE cv.catalog_id=c.id AND pt.pool_id=ANY($6::BIGINT[])
       ))
+      AND (NOT $9::BOOLEAN OR
+          point(c.geo_lng,c.geo_lat) <@ box(point($10,$11),point($12,$13)) OR
+          ($14::BOOLEAN AND point(c.geo_lng,c.geo_lat) <@ box(point($15,$16),point($17,$18))))
 ), page AS MATERIALIZED (
     SELECT id,distance_meters FROM candidates
     WHERE $7::BIGINT=0 OR id<$7 ORDER BY id DESC LIMIT $8
@@ -2988,6 +2997,9 @@ WITH eligible AS (
           SELECT 1 FROM catalog_vouchers cv JOIN pool_tokens pt ON pt.voucher_id=cv.voucher_id AND pt.is_allowed
           WHERE cv.catalog_id=c.id AND pt.pool_id=ANY($4::BIGINT[])
       ))
+      AND (NOT $5::BOOLEAN OR
+          point(c.geo_lng,c.geo_lat) <@ box(point($6,$7),point($8,$9)) OR
+          ($10::BOOLEAN AND point(c.geo_lng,c.geo_lat) <@ box(point($11,$12),point($13,$14))))
 )
 SELECT tt.value AS tag_value,count(ct.catalog_id)::BIGINT AS match_count
 FROM token_tag tt LEFT JOIN catalog_tags ct ON ct.tag_value=tt.value AND ct.catalog_id IN (SELECT id FROM eligible)
@@ -3083,7 +3095,9 @@ WITH eligible AS (
           SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed
           WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($5::BIGINT[])
       ))
-      AND (NOT $6::BOOLEAN OR (w.geo_lng BETWEEN $7 AND $9 AND w.geo_lat BETWEEN $8 AND $10))
+      AND (NOT $6::BOOLEAN OR
+          point(w.geo_lng,w.geo_lat) <@ box(point($7,$8),point($9,$10)) OR
+          ($16::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($17,$18),point($19,$20))))
       AND (NOT $13::BOOLEAN OR 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
           power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
           power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
@@ -3112,7 +3126,9 @@ WITH page AS (
           AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
           AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR CASE WHEN $4::BOOLEAN THEN (SELECT count(DISTINCT tag) FROM unnest(COALESCE(wt.tags,ARRAY[]::TEXT[])) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[]) ELSE COALESCE(wt.tags,ARRAY[]::TEXT[]) && $3::TEXT[] END)
           AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($5::BIGINT[])))
-          AND (NOT $6::BOOLEAN OR (w.geo_lng BETWEEN $7 AND $9 AND w.geo_lat BETWEEN $8 AND $10))
+          AND (NOT $6::BOOLEAN OR
+              point(w.geo_lng,w.geo_lat) <@ box(point($7,$8),point($9,$10)) OR
+              ($16::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($17,$18),point($19,$20))))
           AND (NOT $13::BOOLEAN OR 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
               power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
               power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
@@ -3142,7 +3158,9 @@ WITH page AS (
           AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
           AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR CASE WHEN $4::BOOLEAN THEN (SELECT count(DISTINCT tag) FROM unnest(COALESCE(wt.tags,ARRAY[]::TEXT[])) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[]) ELSE COALESCE(wt.tags,ARRAY[]::TEXT[]) && $3::TEXT[] END)
           AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($5::BIGINT[])))
-          AND (NOT $6::BOOLEAN OR (w.geo_lng BETWEEN $7 AND $9 AND w.geo_lat BETWEEN $8 AND $10))
+          AND (NOT $6::BOOLEAN OR
+              point(w.geo_lng,w.geo_lat) <@ box(point($7,$8),point($9,$10)) OR
+              ($16::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($17,$18),point($19,$20))))
           AND (NOT $13::BOOLEAN OR 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
               power(sin(radians(w.geo_lat-$14::FLOAT8)/2),2)+cos(radians($14::FLOAT8))*cos(radians(w.geo_lat))*
               power(sin(radians(w.geo_lng-$15::FLOAT8)/2),2)
@@ -3159,7 +3177,9 @@ WITH eligible AS (
     WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
       AND (COALESCE(cardinality($3::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($3::BIGINT[])))
-      AND (NOT $4::BOOLEAN OR (w.geo_lng BETWEEN $5 AND $7 AND w.geo_lat BETWEEN $6 AND $8))
+      AND (NOT $4::BOOLEAN OR
+          point(w.geo_lng,w.geo_lat) <@ box(point($5,$6),point($7,$8)) OR
+          ($12::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($13,$14),point($15,$16))))
       AND (NOT $9::BOOLEAN OR 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
           power(sin(radians(w.geo_lat-$10::FLOAT8)/2),2)+cos(radians($10::FLOAT8))*cos(radians(w.geo_lat))*
           power(sin(radians(w.geo_lng-$11::FLOAT8)/2),2)
@@ -3527,6 +3547,9 @@ WITH raw AS MATERIALIZED (
               power(sin(radians(geo_lng-$9::FLOAT8)/2),2)
           )))) <= 1000000
       ))
+      AND (NOT $21::BOOLEAN OR
+          point(geo_lng,geo_lat) <@ box(point($22,$23),point($24,$25)) OR
+          ($26::BOOLEAN AND point(geo_lng,geo_lat) <@ box(point($27,$28),point($29,$30))))
 ), facet_counts AS (
     SELECT tag,count(DISTINCT kind||':'||id::TEXT)::BIGINT AS count
     FROM scored CROSS JOIN LATERAL unnest(tags) tag

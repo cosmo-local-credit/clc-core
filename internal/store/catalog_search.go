@@ -77,6 +77,9 @@ type (
 		Owner string
 		// Nearby is resolved from the viewer profile, independently of optional search filters.
 		Nearby *CatalogLocation
+		// Bounds is the public map viewport. One rectangle is ordinary; two
+		// rectangles represent a viewport crossing the antimeridian.
+		Bounds []CatalogBounds
 	}
 
 	// VoucherRef is the stable public identity of a voucher. Numeric database
@@ -311,7 +314,7 @@ func normalizeCatalogTags(raw []string) []string {
 // Active reports whether the filter narrows anything. When it does not, callers
 // use the existing static statements unchanged.
 func (f CatalogFilter) Active() bool {
-	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || len(f.PoolIDs) > 0 || f.Owner != "" || f.Nearby != nil
+	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || len(f.PoolIDs) > 0 || f.Owner != "" || f.Nearby != nil || len(f.Bounds) > 0
 }
 
 // prefixOnly reports whether the term is short enough that it matches as a

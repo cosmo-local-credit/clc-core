@@ -104,25 +104,25 @@ func (pg *Pg) ListWants(
 	case CatalogPrevPage:
 		query = pg.queries.ListWantsPrev
 	}
-	hasBounds := bounds != nil
-	minLng, minLat, maxLng, maxLat := 0.0, 0.0, 0.0, 0.0
-	if bounds != nil {
-		minLng, minLat, maxLng, maxLat = bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat
+	viewport := filter.Bounds
+	if len(viewport) == 0 && bounds != nil {
+		viewport = []CatalogBounds{*bounds}
 	}
 	nearby, originLat, originLng := false, 0.0, 0.0
 	if filter.Nearby != nil {
 		nearby, originLat, originLng = true, filter.Nearby.Lat, filter.Nearby.Lng
-		if bounds == nil {
+		if len(viewport) == 0 {
 			box := filter.Nearby.bounds()
-			hasBounds = true
-			minLng, minLat, maxLng, maxLat = box.MinLng, box.MinLat, box.MaxLng, box.MaxLat
+			viewport = []CatalogBounds{box}
 		}
 	}
+	hasBounds, minLng, minLat, maxLng, maxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(viewport)
 	rows := []Want{}
 	err := pgxscan.Select(ctx, tx, &rows, query,
 		filter.likeTerm(), filter.prefixOnly(), filter.Tags, filter.TagMatch == TagMatchAll,
 		filter.PoolIDs, hasBounds, minLng, minLat, maxLng, maxLat, cursor, limit,
 		nearby, originLat, originLng,
+		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
 	)
 	return rows, err
 }
@@ -133,24 +133,24 @@ func (pg *Pg) ListWantTagFacets(
 	filter CatalogFilter,
 	bounds *MarketVoucherBounds,
 ) ([]TagFacet, error) {
-	hasBounds := bounds != nil
-	minLng, minLat, maxLng, maxLat := 0.0, 0.0, 0.0, 0.0
-	if bounds != nil {
-		minLng, minLat, maxLng, maxLat = bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat
+	viewport := filter.Bounds
+	if len(viewport) == 0 && bounds != nil {
+		viewport = []CatalogBounds{*bounds}
 	}
 	nearby, originLat, originLng := false, 0.0, 0.0
 	if filter.Nearby != nil {
 		nearby, originLat, originLng = true, filter.Nearby.Lat, filter.Nearby.Lng
-		if bounds == nil {
+		if len(viewport) == 0 {
 			box := filter.Nearby.bounds()
-			hasBounds = true
-			minLng, minLat, maxLng, maxLat = box.MinLng, box.MinLat, box.MaxLng, box.MaxLat
+			viewport = []CatalogBounds{box}
 		}
 	}
+	hasBounds, minLng, minLat, maxLng, maxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(viewport)
 	rows := []TagFacet{}
 	err := pgxscan.Select(ctx, tx, &rows, pg.queries.ListWantTagFacets,
 		filter.likeTerm(), filter.prefixOnly(), filter.PoolIDs,
 		hasBounds, minLng, minLat, maxLng, maxLat, nearby, originLat, originLng,
+		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
 	)
 	return rows, err
 }

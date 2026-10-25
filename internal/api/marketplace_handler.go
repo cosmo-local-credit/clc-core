@@ -47,8 +47,8 @@ func marketplaceOrigin(caller uint64, filter store.CatalogFilter, kinds []string
 	if filter.Nearby != nil {
 		lat, lng = filter.Nearby.Lat, filter.Nearby.Lng
 	}
-	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%t:%.17g:%.17g:%s:%v:%d:%v:%v",
-		caller, filter.Nearby != nil, lat, lng, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, kinds))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%t:%.17g:%.17g:%s:%v:%d:%v:%v:%v",
+		caller, filter.Nearby != nil, lat, lng, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, kinds, filter.Bounds))
 	return hex.EncodeToString(sum[:])
 }
 

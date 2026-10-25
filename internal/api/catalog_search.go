@@ -73,7 +73,9 @@ type (
 	}
 )
 
-// parseCatalogSearch reads `q`, `tags`, `tagMatch`, `facets`, and `nearby`.
+// parseCatalogSearch reads `q`, `tags`, `tagMatch`, `facets`, `bbox`, and
+// `nearby`. A viewport may contain one ordinary box or two boxes split at the
+// antimeridian. Bounds and legacy nearby discovery are mutually exclusive.
 //
 // `tags` accepts repetition (`tags=Art&tags=Culture`) and comma-separated
 // values (`tags=Art,Culture`) interchangeably; no token_tag value contains a
@@ -114,10 +116,17 @@ func parseCatalogSearch(c *echo.Context) (catalogSearchRequest, error) {
 	if err != nil {
 		return catalogSearchRequest{}, err
 	}
+	filter.Bounds, err = parseMarketBoundsValues(query["bbox"])
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
 
 	nearby := query.Get("nearby")
 	if nearby != "" && nearby != "true" && nearby != "false" {
 		return catalogSearchRequest{}, errors.New("nearby must be true or false")
+	}
+	if nearby == "true" && len(filter.Bounds) > 0 {
+		return catalogSearchRequest{}, errors.New("nearby and bbox cannot be combined")
 	}
 	return catalogSearchRequest{filter: filter, facets: facets, nearby: nearby == "true"}, nil
 }

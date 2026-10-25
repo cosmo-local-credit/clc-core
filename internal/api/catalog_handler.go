@@ -168,7 +168,8 @@ func offeringCursorScope(c *echo.Context, filter store.CatalogFilter) string {
 		TagMatch store.TagMatch
 		Pools    []uint64
 		Nearby   *store.CatalogLocation
-	}{caller, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, filter.Nearby})
+		Bounds   []store.CatalogBounds
+	}{caller, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, filter.Nearby, filter.Bounds})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }
@@ -281,17 +282,6 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 		return handleBindError(c, err)
 	}
 
-	// Parsed once here; the box only ever selects the bounded prepared
-	// statement and supplies its parameters. No SQL is built from user input.
-	bounds, err := parseMarketBounds(c.Request().URL.Query().Get("bbox"))
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: err.Error(),
-		})
-	}
-
 	search, err := parseMarketDiscoverySearch(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
@@ -304,13 +294,13 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 
 	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.MarketVoucher]{
 		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.MarketVoucher, error) {
-			return a.store.ListMarketVouchersFiltered(ctx, tx, bounds, search.filter, store.CatalogFirstPage, 0, limit)
+			return a.store.ListMarketVouchersFiltered(ctx, tx, nil, search.filter, store.CatalogFirstPage, 0, limit)
 		},
 		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.MarketVoucher, error) {
-			return a.store.ListMarketVouchersFiltered(ctx, tx, bounds, search.filter, store.CatalogNextPage, cursor, limit)
+			return a.store.ListMarketVouchersFiltered(ctx, tx, nil, search.filter, store.CatalogNextPage, cursor, limit)
 		},
 		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.MarketVoucher, error) {
-			return a.store.ListMarketVouchersFiltered(ctx, tx, bounds, search.filter, store.CatalogPrevPage, cursor, limit)
+			return a.store.ListMarketVouchersFiltered(ctx, tx, nil, search.filter, store.CatalogPrevPage, cursor, limit)
 		},
 	}, pagination, "vouchers", "Market vouchers", func(v store.MarketVoucher) uint64 {
 		return v.ID
@@ -325,7 +315,7 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 			return a.rejectUnknownTags(c, tx, search.filter.Tags)
 		},
 		extras: catalogTagFacetExtras(search, pagination, func(tx pgx.Tx) ([]store.TagFacet, error) {
-			return a.marketVoucherTagFacets(c, tx, bounds, search.filter)
+			return a.marketVoucherTagFacets(c, tx, nil, search.filter)
 		}),
 		onSuccess: setMarketCacheHeaders,
 	})
