@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
@@ -40,6 +41,9 @@ type (
 		ChainID         int64
 		Relayer         *relayer.Relayer
 		Pretium         *pretium.PretiumClient
+		// SafeMultiSend lists the pinned MultiSendCallOnly deployments. Empty
+		// disables Safe execution through the relay.
+		SafeMultiSend []string
 	}
 
 	API struct {
@@ -64,6 +68,7 @@ type (
 		poolLimiter      *marketRateLimiter
 		recipientLimiter *marketRateLimiter
 		marketFacets     *marketFacetCache
+		safePolicy       *safe.Policy
 	}
 )
 
@@ -97,6 +102,7 @@ func New(o APIOpts) *API {
 		recipientLimiter: newMarketRateLimiter(recipientRateLimit, recipientRateBurst, time.Now),
 		marketFacets:     newMarketFacetCache(time.Now),
 	}
+	a.safePolicy = a.newSafePolicy(o.SafeMultiSend)
 	a.marketLimiter.startSweeper()
 	a.poolLimiter.startSweeper()
 	a.recipientLimiter.startSweeper()

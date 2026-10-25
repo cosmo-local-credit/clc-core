@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -97,6 +98,7 @@ func (r *Relayer) BuildAndSignRelay(
 	}
 
 	gasLimit := r.relayGasLimit(len(gocaliburBatch.BatchedCall.Calls), isDelegated, signatureType == "webauthn")
+	gasLimit = r.addSafeBudget(gasLimit, gocaliburBatch.BatchedCall.Calls)
 
 	if isDelegated {
 		tx := types.NewTx(&types.DynamicFeeTx{
@@ -166,6 +168,27 @@ func (r *Relayer) BuildAndSignRelay(
 		OTXType:     "RELAY_DELEGATE_EXEC",
 		IsDelegated: false,
 	}, nil
+}
+
+// addSafeBudget raises the limit for a batch whose single call is a Safe
+// execTransaction. relayGasLimit counts one outer call however many subcalls
+// and signature checks the Safe performs inside it, so without this a wrapped
+// MultiSend runs out of gas.
+func (r *Relayer) addSafeBudget(limit uint64, calls []gocalibur.Call) uint64 {
+	policyCalls := make([]safe.Call, len(calls))
+	for i, c := range calls {
+		policyCalls[i] = safe.Call{To: c.To, Value: c.Value, Data: c.Data}
+	}
+	extra, ok := safe.Budget(policyCalls)
+	if !ok {
+		return limit
+	}
+	extra += extra / 10
+	limit += extra
+	if r.maxRelayGas > 0 && limit > r.maxRelayGas {
+		return r.maxRelayGas
+	}
+	return limit
 }
 
 func convertSignedBatch(in apiresp.CaliburSignedBatch) (gocalibur.SignedBatchedCall, error) {

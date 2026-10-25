@@ -152,7 +152,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "056_unit_of_account_vocabulary.sql" ||
 				name == "057_wants.sql" ||
 				name == "058_report_pools.sql" ||
-				name == "059_viewport_spatial_indexes.sql",
+				name == "059_viewport_spatial_indexes.sql" ||
+				name == "060_safe_signers.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -221,6 +222,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"057_wants.sql",
 		"058_report_pools.sql",
 		"059_viewport_spatial_indexes.sql",
+		"060_safe_signers.sql",
 	}, files)
 }
 

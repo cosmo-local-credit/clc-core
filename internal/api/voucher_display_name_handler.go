@@ -56,7 +56,7 @@ func (a *API) updateVoucherDisplayNameHandler(c *echo.Context) error {
 	if !voucher.Active {
 		return handleConflictError(c, "voucher is retired and its display name cannot be changed")
 	}
-	if !canManageVoucher(callerAddress, callerRole, voucher.OwnerAddress) {
+	if !a.callerMayManageRecord(ctx, tx, callerAddress, callerRole, voucher.OwnerAddress) {
 		return handleForbiddenError(c, "only the voucher owner or a superadmin may change this voucher's display name")
 	}
 

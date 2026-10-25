@@ -280,5 +280,6 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		QueueClient:     workerContainer.Client(),
 		Relayer:         relayerInst,
 		Pretium:         pretiumClient,
+		SafeMultiSend:   ko.Strings("safe.multisend_call_only"),
 	})
 }
