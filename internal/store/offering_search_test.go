@@ -43,12 +43,27 @@ func TestOfferingDiscoverySelectsGlobalAndNearbyKeysets(t *testing.T) {
 		t.Fatal(err)
 	}
 	global, globalArgs := offeringPageQuery(queries, CatalogFilter{}, OfferingCursor{ID: 9}, 20)
-	if global != queries.ListOfferingsFilteredGlobal || len(globalArgs) != 7 || !strings.Contains(global, "id < $6") {
+	if global != queries.ListOfferingsFilteredGlobal || len(globalArgs) != 17 || !strings.Contains(global, "id < $6") {
 		t.Fatalf("global query selection or keyset is invalid")
 	}
 	nearby, nearbyArgs := offeringPageQuery(queries, CatalogFilter{Nearby: &CatalogLocation{Lat: 0, Lng: 0}}, OfferingCursor{ID: 9, Distance: 12}, 20)
 	if nearby != queries.ListOfferingsFilteredNearby || len(nearbyArgs) != 14 || !strings.Contains(nearby, "(distance_meters, id) >") {
 		t.Fatalf("nearby query selection or keyset is invalid")
+	}
+}
+
+func TestOfferingViewportUsesEffectiveLocation(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := CatalogFilter{Bounds: []CatalogBounds{{MinLng: 36, MinLat: -2, MaxLng: 37, MaxLat: -1}}}
+	query, args := offeringPageQuery(queries, filter, OfferingCursor{}, 20)
+	if len(args) != 17 || args[7] != true || args[12] != false {
+		t.Fatalf("unexpected bbox args: %#v", args)
+	}
+	if !strings.Contains(query, "point(COALESCE(o.geo_lng,v.geo_lng),COALESCE(o.geo_lat,v.geo_lat))") {
+		t.Fatal("offering viewport must use the offering location with voucher fallback")
 	}
 }
 

@@ -30,18 +30,14 @@ INNER JOIN vouchers v ON v.id = page.id
 ORDER BY v.id DESC;`
 )
 
-// boundsPredicate returns the viewport predicate. It is a driving predicate --
-// the GiST point index is what makes a bounded page cheap — so it is emitted
-// as literal SQL when a viewport is present and omitted entirely when it is
-// not, never hidden behind a nullable `$1::box IS NULL OR ...` switch that
-// would stop the planner from choosing the index.
-func boundsPredicate(args *sqlArgs, bounds *MarketVoucherBounds) string {
-	if bounds == nil {
-		return ""
+func effectiveVoucherBounds(bounds *MarketVoucherBounds, filter CatalogFilter) []CatalogBounds {
+	if len(filter.Bounds) > 0 {
+		return filter.Bounds
 	}
-	return "point(v.geo_lng, v.geo_lat) <@ box(point(" +
-		args.bind(bounds.MinLng) + ", " + args.bind(bounds.MinLat) + "), point(" +
-		args.bind(bounds.MaxLng) + ", " + args.bind(bounds.MaxLat) + "))"
+	if bounds != nil {
+		return []CatalogBounds{*bounds}
+	}
+	return nil
 }
 
 // composeMarketVoucherPage builds one filtered voucher page.
@@ -71,6 +67,7 @@ func composeMarketVoucherPage(
 	cursor, limit uint64,
 ) composed {
 	args := &sqlArgs{}
+	viewport := effectiveVoucherBounds(bounds, filter)
 
 	if filter.Term == "" {
 		// Reducer-only shape: page the vouchers table directly.
@@ -80,7 +77,7 @@ func composeMarketVoucherPage(
 			whereClause(
 				"v.active",
 				"v.geo_lat IS NOT NULL",
-				boundsPredicate(args, bounds),
+				catalogBoundsPredicate(args, viewport, "v.geo_lat", "v.geo_lng"),
 				ownerPredicate(args, "v.owner_address", filter),
 				nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
 				voucherPoolPredicate(args, filter, "v.id"),
@@ -100,7 +97,7 @@ func composeMarketVoucherPage(
 		whereClause(
 			"v.active",
 			"v.geo_lat IS NOT NULL",
-			boundsPredicate(args, bounds),
+			catalogBoundsPredicate(args, viewport, "v.geo_lat", "v.geo_lng"),
 			ownerPredicate(args, "v.owner_address", filter),
 			nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
 			voucherPoolPredicate(args, filter, "v.id"),
@@ -147,6 +144,7 @@ func composeMarketVoucherPage(
 // and COUNT(DISTINCT) over UNION ALL forced a sort of the whole junction.
 func composeMarketVoucherTagCounts(bounds *MarketVoucherBounds, filter CatalogFilter) composed {
 	args := &sqlArgs{}
+	viewport := effectiveVoucherBounds(bounds, filter)
 
 	sql := `WITH candidates AS MATERIALIZED (
     SELECT v.id
@@ -154,7 +152,7 @@ func composeMarketVoucherTagCounts(bounds *MarketVoucherBounds, filter CatalogFi
 		whereClause(
 			"v.active",
 			"v.geo_lat IS NOT NULL",
-			boundsPredicate(args, bounds),
+			catalogBoundsPredicate(args, viewport, "v.geo_lat", "v.geo_lng"),
 			ownerPredicate(args, "v.owner_address", filter),
 			nearbyPredicate(args, filter.Nearby, "v.geo_lat", "v.geo_lng"),
 			voucherPoolPredicate(args, filter, "v.id"),
@@ -229,7 +227,7 @@ func (pg *Pg) ListMarketVoucherTagFacets(
 	return pg.listTagFacets(ctx, tx,
 		composeMarketVoucherTagCounts(bounds, filter),
 		pg.queries.ListVoucherTagVocabulary,
-		bounds != nil || filter.Active(),
+		bounds != nil || len(filter.Bounds) > 0 || filter.Active(),
 		filter.Tags,
 	)
 }

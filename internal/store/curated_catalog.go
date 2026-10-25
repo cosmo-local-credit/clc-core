@@ -89,7 +89,13 @@ func nullableDescription(value string) *string {
 
 func curatedCatalogPageQuery(queries *Queries, ownerID uint64, filter CatalogFilter, origin *CatalogLocation, cursor CuratedCatalogCursor, limit uint64) (string, []any) {
 	query := queries.ListCuratedCatalogsGlobal
-	args := []any{ownerID, filter.likeTerm(), filter.prefixOnly(), filter.Tags, filter.TagMatch == TagMatchAll, filter.PoolIDs, cursor.ID, limit}
+	hasBounds, minLng, minLat, maxLng, maxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(filter.Bounds)
+	args := []any{
+		ownerID, filter.likeTerm(), filter.prefixOnly(), filter.Tags,
+		filter.TagMatch == TagMatchAll, filter.PoolIDs, cursor.ID, limit,
+		hasBounds, minLng, minLat, maxLng, maxLat,
+		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+	}
 	if origin != nil {
 		query = queries.ListCuratedCatalogsNearby
 		bounds := origin.bounds()
@@ -115,7 +121,12 @@ func (pg *Pg) ListCuratedCatalogs(ctx context.Context, tx pgx.Tx, ownerID uint64
 
 func (pg *Pg) ListCuratedCatalogTagFacets(ctx context.Context, tx pgx.Tx, ownerID uint64, filter CatalogFilter, origin *CatalogLocation) ([]TagFacet, error) {
 	query := pg.queries.ListCuratedCatalogTagFacetsGlobal
-	args := []any{ownerID, filter.likeTerm(), filter.prefixOnly(), filter.PoolIDs}
+	hasBounds, minLng, minLat, maxLng, maxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(filter.Bounds)
+	args := []any{
+		ownerID, filter.likeTerm(), filter.prefixOnly(), filter.PoolIDs,
+		hasBounds, minLng, minLat, maxLng, maxLat,
+		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+	}
 	if origin != nil {
 		query = pg.queries.ListCuratedCatalogTagFacetsNearby
 		bounds := origin.bounds()

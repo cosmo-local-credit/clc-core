@@ -16,3 +16,19 @@ func TestMarketplaceCursorScopeIncludesDiscoveryModeAndKinds(t *testing.T) {
 	require.NotEqual(t, global, nearby)
 	require.NotEqual(t, nearby, differentKinds)
 }
+
+func TestMarketplaceCursorScopeIncludesCanonicalBounds(t *testing.T) {
+	left := store.CatalogBounds{MinLng: -180, MinLat: -5, MaxLng: -179, MaxLat: 5}
+	right := store.CatalogBounds{MinLng: 179, MinLat: -5, MaxLng: 180, MaxLat: 5}
+	global := marketplaceOrigin(7, store.CatalogFilter{}, nil)
+	bounded := marketplaceOrigin(7, store.CatalogFilter{Bounds: []store.CatalogBounds{left, right}}, nil)
+	reordered := marketplaceOrigin(7, store.CatalogFilter{Bounds: []store.CatalogBounds{right, left}}, nil)
+
+	require.NotEqual(t, global, bounded)
+	// Request parsing canonicalizes before the cursor scope is computed. Prove
+	// that canonical order itself is stable as a guard against cursor churn.
+	normalized, err := store.NormalizeCatalogBounds([]store.CatalogBounds{right, left})
+	require.NoError(t, err)
+	require.Equal(t, bounded, marketplaceOrigin(7, store.CatalogFilter{Bounds: normalized}, nil))
+	require.NotEqual(t, bounded, reordered)
+}

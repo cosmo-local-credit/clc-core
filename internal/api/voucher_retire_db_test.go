@@ -293,6 +293,11 @@ func TestAdminVoucherStatusRejectsUnknownValues(t *testing.T) {
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("status=hidden = %d, want 400 body=%s", res.Code, res.Body.String())
 	}
+
+	res, _ = offeringRequest(t, a, http.MethodGet, "/api/v2/admin/vouchers?bbox=36,-2,37,-1", operator, nil)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("bbox on admin list = %d, want 400 body=%s", res.Code, res.Body.String())
+	}
 }
 
 // publicCatalogHolds reports whether the public market list carries an address.
