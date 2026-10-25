@@ -267,6 +267,40 @@ func TestParseCatalogRelationshipSearchRejectsInvalidVouchers(t *testing.T) {
 	}
 }
 
+func TestParseReportRelationshipSearchNormalizesCreditablePools(t *testing.T) {
+	const (
+		first  = "0x1111111111111111111111111111111111111111"
+		second = "0x2222222222222222222222222222222222222222"
+	)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v2/reports?creditablePools=100:"+second+",100:"+first+
+			"&creditablePools=100:"+first, nil)
+	c := echo.New().NewContext(req, httptest.NewRecorder())
+
+	got, err := parseReportRelationshipSearch(c)
+	if err != nil {
+		t.Fatalf("parseReportRelationshipSearch() error = %v", err)
+	}
+	if len(got.creditablePoolRefs) != 2 || got.creditablePoolRefs[0].Address != first ||
+		got.creditablePoolRefs[1].Address != second {
+		t.Fatalf("creditablePoolRefs = %#v, want sorted unique refs", got.creditablePoolRefs)
+	}
+}
+
+func TestParseReportRelationshipSearchRejectsInvalidCreditablePools(t *testing.T) {
+	for name, query := range map[string]string{
+		"missing chain":   "creditablePools=0x1111111111111111111111111111111111111111",
+		"zero chain":      "creditablePools=0:0x1111111111111111111111111111111111111111",
+		"invalid address": "creditablePools=100:not-an-address",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/reports?"+query, nil)
+		c := echo.New().NewContext(req, httptest.NewRecorder())
+		if _, err := parseReportRelationshipSearch(c); !errors.Is(err, errInvalidPoolRef) {
+			t.Errorf("%s: error = %v, want errInvalidPoolRef", name, err)
+		}
+	}
+}
+
 func TestParseMarketDiscoverySearchNormalizesPools(t *testing.T) {
 	const (
 		first  = "0x1111111111111111111111111111111111111111"

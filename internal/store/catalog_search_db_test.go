@@ -1373,6 +1373,67 @@ func TestVoucherRelationshipFiltersForReportsAndPools(t *testing.T) {
 	}
 }
 
+func TestReportCreditablePoolFilterMatchesDirectPoolsAndAcceptedVouchers(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	voucherID := seedSearchVoucher(t, tx, searchToken+" Credit Voucher", "CRV")
+	directReport := seedSearchReport(t, tx, searchToken+" Direct Credit", "x")
+	voucherReport := seedSearchReport(t, tx, searchToken+" Voucher Credit", "x")
+	seedSearchReport(t, tx, searchToken+" Unrelated Credit", "x")
+
+	var poolID uint64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO pools (chain_id, address, name, symbol, decimals)
+		VALUES (42220, '0x000000000000000000000000000000000000c001', $1, 'CRP', 6)
+		RETURNING id`, searchToken+" Credit Pool").Scan(&poolID); err != nil {
+		t.Fatalf("seed creditable pool: %v", err)
+	}
+	for _, statement := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO report_pools (report_id, pool_id) VALUES ($1, $2)`, []any{directReport, poolID}},
+		{`INSERT INTO report_vouchers (report_id, voucher_id) VALUES ($1, $2)`, []any{voucherReport, voucherID}},
+		{`INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed) VALUES ($1, $2, true)`, []any{poolID, voucherID}},
+	} {
+		if _, err := tx.Exec(ctx, statement.sql, statement.args...); err != nil {
+			t.Fatalf("seed creditable relationship: %v", err)
+		}
+	}
+
+	filter, err := (CatalogFilter{}).WithCreditablePoolIDs([]uint64{poolID})
+	if err != nil {
+		t.Fatalf("creditable filter: %v", err)
+	}
+	list := func() []uint64 {
+		t.Helper()
+		reports, listErr := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 100)
+		if listErr != nil {
+			t.Fatalf("list creditable reports: %v", listErr)
+		}
+		ids := make([]uint64, 0, len(reports))
+		for _, report := range reports {
+			ids = append(ids, report.ID)
+		}
+		slices.Sort(ids)
+		return ids
+	}
+	want := []uint64{directReport, voucherReport}
+	slices.Sort(want)
+	if got := list(); !slices.Equal(got, want) {
+		t.Fatalf("creditable reports = %v, want %v", got, want)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE vouchers SET active = false WHERE id = $1`, voucherID); err != nil {
+		t.Fatalf("retire voucher: %v", err)
+	}
+	if got := list(); !slices.Equal(got, []uint64{directReport}) {
+		t.Fatalf("after retirement = %v, want direct report only", got)
+	}
+}
+
 // Report search matches title and description, and nothing else. The body is deliberately not
 // searched: it is normalized into a separate structure and needs a different index shape.
 func TestReportSearchMatchesTitleAndDescription(t *testing.T) {

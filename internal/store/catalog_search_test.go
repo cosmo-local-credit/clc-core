@@ -837,6 +837,42 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 	}
 }
 
+func TestReportCreditablePoolsApplyToPageAndEveryFacet(t *testing.T) {
+	filter := CatalogFilter{CreditablePoolIDs: []uint64{7, 11}}
+	for name, query := range map[string]composed{
+		"page":           composeReportPage(filter, ReportCursor{}, false, 20),
+		"tag facets":     composeReportTagCounts(filter),
+		"voucher facets": composeReportVoucherCounts(filter),
+		"pool facets":    composeReportPoolCounts(filter),
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertPlaceholdersMatchArgs(t, name, query)
+			for _, fragment := range []string{
+				"FROM report_pools credit_rp",
+				"FROM report_vouchers credit_rv",
+				"credit_v.active",
+				"credit_pt.is_allowed",
+			} {
+				if !strings.Contains(query.sql, fragment) {
+					t.Errorf("creditable Post filter is missing %q:\n%s", fragment, query.sql)
+				}
+			}
+			var boundPools [][]int64
+			for _, arg := range query.args {
+				if value, ok := arg.([]int64); ok {
+					boundPools = append(boundPools, value)
+				}
+			}
+			if len(boundPools) != 1 {
+				t.Fatalf("creditable pool IDs bound %d times, want once", len(boundPools))
+			}
+			if !slices.Equal(boundPools[0], []int64{7, 11}) {
+				t.Fatalf("creditable pool IDs = %#v", boundPools[0])
+			}
+		})
+	}
+}
+
 func TestLoadCatalogSearchQueries(t *testing.T) {
 	queries, err := loadQueries("../../core_queries.sql")
 	if err != nil {
