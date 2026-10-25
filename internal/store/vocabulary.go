@@ -21,6 +21,7 @@ type (
 		Posts          int64 `db:"posts" json:"posts"`
 		Offerings      int64 `db:"offerings" json:"offerings"`
 		Catalogs       int64 `db:"catalogs" json:"catalogs"`
+		Wants          int64 `db:"wants" json:"wants"`
 		Deleted        bool  `db:"deleted" json:"-"`
 	}
 
@@ -70,7 +71,7 @@ type (
 )
 
 func (u TagVocabularyUsage) Total() int64 {
-	return u.DeployedTokens + u.DeployedPools + u.Vouchers + u.Pools + u.Posts + u.Offerings + u.Catalogs
+	return u.DeployedTokens + u.DeployedPools + u.Vouchers + u.Pools + u.Posts + u.Offerings + u.Catalogs + u.Wants
 }
 
 func (u UnitOfAccountVocabularyUsage) Total() int64 {

@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
-	"math"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgx/v5"
@@ -72,35 +70,10 @@ type (
 		MarkerColor *string  `db:"marker_color" json:"markerColor"`
 	}
 
-	// MarketVoucherBounds is an optional viewport filter. A single box may never
-	// cross the antimeridian; a caller whose viewport does must split it into two
-	// requests and merge the results.
-	MarketVoucherBounds struct {
-		MinLng float64
-		MinLat float64
-		MaxLng float64
-		MaxLat float64
-	}
+	// MarketVoucherBounds is retained as a source-compatible name for the
+	// original voucher-only viewport API. New discovery code uses CatalogBounds.
+	MarketVoucherBounds = CatalogBounds
 )
-
-var (
-	errInvalidBounds = errors.New("bbox must be minLng,minLat,maxLng,maxLat within [-180,180] and [-90,90] with min <= max")
-)
-
-func (b MarketVoucherBounds) Validate() error {
-	for _, v := range [4]float64{b.MinLng, b.MinLat, b.MaxLng, b.MaxLat} {
-		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return errInvalidBounds
-		}
-	}
-	if b.MinLng < -180 || b.MaxLng > 180 || b.MinLat < -90 || b.MaxLat > 90 {
-		return errInvalidBounds
-	}
-	if b.MinLng > b.MaxLng || b.MinLat > b.MaxLat {
-		return errInvalidBounds
-	}
-	return nil
-}
 
 // GetMarketVoucherByAddress resolves one active voucher case-insensitively, so
 // a shared link works with either checksummed or lowercased casing. Returns

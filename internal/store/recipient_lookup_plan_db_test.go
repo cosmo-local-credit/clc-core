@@ -31,7 +31,7 @@ func TestRecipientLookupIndexes(t *testing.T) {
 	require.NoError(t, err)
 	// Flush bulk-insert pending lists before checking settled GIN plans.
 	// No scan paths are disabled in this test.
-	for _, statement := range []string{"SELECT gin_clean_pending_list('users_recipient_name_trgm_idx')", "SELECT gin_clean_pending_list('pools_recipient_name_trgm_idx')", "ANALYZE users", "ANALYZE pools", "ANALYZE identity_claims", "SET LOCAL plan_cache_mode = force_generic_plan"} {
+	for _, statement := range []string{"SELECT gin_clean_pending_list('pools_recipient_name_trgm_idx')", "ANALYZE users", "ANALYZE pools", "ANALYZE identity_claims", "SET LOCAL plan_cache_mode = force_generic_plan"} {
 		_, err = tx.Exec(ctx, statement)
 		require.NoError(t, err)
 	}
@@ -42,7 +42,7 @@ func TestRecipientLookupIndexes(t *testing.T) {
 		name, query, args string
 		indexes           []string
 	}{
-		{"search", recipientSearchQuery, "'pool10000',100,'','pool10000'", []string{"users_recipient_name_trgm_idx", "pools_recipient_name_trgm_idx"}},
+		{"search", recipientSearchQuery, "'pool10000',100,'','pool10000'", []string{"users_recipient_username_exact_idx", "pools_recipient_name_trgm_idx"}},
 		{"forward", recipientForwardLookup + " LIMIT 2", "'" + marker + "-pool10000',100", []string{"identity_claims_name_key", "users_blockchain_address_lower_key", "pools_chain_address_lower_key"}},
 		{"cleanup", recipientDeploymentOwnersQuery, "", []string{"identity_claims_deployment_owner_idx"}},
 	} {

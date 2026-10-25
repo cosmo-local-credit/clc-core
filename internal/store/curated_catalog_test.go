@@ -12,13 +12,34 @@ func TestCuratedCatalogNamedSearchCoversNameLocationAndDescription(t *testing.T)
 		t.Fatal(err)
 	}
 	query, args := curatedCatalogPageQuery(queries, 0, CatalogFilter{Term: "repair"}, nil, CuratedCatalogCursor{}, 20)
-	if query != queries.ListCuratedCatalogsGlobal || len(args) != 8 {
+	if query != queries.ListCuratedCatalogsGlobal || len(args) != 18 {
 		t.Fatal("global catalog query selection is invalid")
 	}
 	for _, fragment := range []string{"lower(c.name)", "lower(c.location_name)", "COALESCE(c.description,'')"} {
 		if !strings.Contains(query, fragment) {
 			t.Errorf("catalog search missing %q", fragment)
 		}
+	}
+}
+
+func TestCuratedCatalogGlobalSearchIncludesViewportBounds(t *testing.T) {
+	queries, err := loadQueries("../../core_queries.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := CatalogFilter{Bounds: []CatalogBounds{
+		{MinLng: -180, MinLat: -5, MaxLng: -179, MaxLat: 5},
+		{MinLng: 179, MinLat: -5, MaxLng: 180, MaxLat: 5},
+	}}
+	query, args := curatedCatalogPageQuery(queries, 0, filter, nil, CuratedCatalogCursor{}, 20)
+	if query != queries.ListCuratedCatalogsGlobal || len(args) != 18 {
+		t.Fatal("bounded catalog query selection is invalid")
+	}
+	if args[8] != true || args[13] != true {
+		t.Fatalf("bbox flags = (%v, %v), want both true", args[8], args[13])
+	}
+	if !strings.Contains(query, "point(c.geo_lng,c.geo_lat)") {
+		t.Fatal("catalog query is missing its indexable viewport predicate")
 	}
 }
 

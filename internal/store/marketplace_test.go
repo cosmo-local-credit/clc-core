@@ -51,6 +51,9 @@ func TestMarketplaceQueryKeepsCursorAndFacetScopeInPostgres(t *testing.T) {
 		"kind>$17::TEXT",
 		"LIMIT $19",
 		"CASE WHEN $20::BOOLEAN",
+		"NOT $21::BOOLEAN",
+		"point(geo_lng,geo_lat) <@ box(point($22,$23),point($24,$25))",
+		"$26::BOOLEAN AND point(geo_lng,geo_lat) <@ box(point($27,$28),point($29,$30))",
 	} {
 		if !strings.Contains(queries.ListMarketplace, fragment) {
 			t.Errorf("marketplace keyset/facet query missing %q", fragment)

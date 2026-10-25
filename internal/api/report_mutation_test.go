@@ -48,6 +48,23 @@ func TestCanUpdateReport(t *testing.T) {
 	}
 }
 
+func TestPublicReportNeverSerializesAuthorship(t *testing.T) {
+	report := store.Report{
+		ID:         7,
+		Title:      "Public Post",
+		AuthorAddr: reportAuthorAddress,
+	}
+	body, err := json.Marshal(publicReport(report))
+	if err != nil {
+		t.Fatalf("marshal public report: %v", err)
+	}
+	text := string(body)
+	if strings.Contains(text, "authorAddress") ||
+		strings.Contains(strings.ToLower(text), strings.ToLower(reportAuthorAddress)) {
+		t.Fatalf("public report leaked author metadata: %s", text)
+	}
+}
+
 func TestNormalizeReportWriteCanonicalisesRelations(t *testing.T) {
 	blank := "  "
 	caption := "  First image  "
@@ -67,6 +84,9 @@ func TestNormalizeReportWriteCanonicalisesRelations(t *testing.T) {
 		Vouchers: []apiresp.ReportVoucherRefRequest{
 			{ChainID: 42220, Address: reportOtherAddress},
 		},
+		Pools: []apiresp.ReportPoolRefRequest{
+			{ChainID: 100, Address: reportAdminAddress},
+		},
 		Images: []apiresp.ReportImageRequest{
 			{URL: " https://content.example/one.jpg ", Caption: &caption},
 		},
@@ -81,14 +101,20 @@ func TestNormalizeReportWriteCanonicalisesRelations(t *testing.T) {
 	if report.Title != "Community harvest" {
 		t.Fatalf("title = %q", report.Title)
 	}
+	if report.MarkerIcon != "post" || report.MarkerColor != "pink" {
+		t.Fatalf("legacy marker = %s/%s, want post/pink", report.MarkerIcon, report.MarkerColor)
+	}
 	if report.HostName != nil {
 		t.Fatalf("blank hostName = %q, want nil", *report.HostName)
 	}
 	if got, want := report.Tags, []string{"Agriculture", "Youth"}; !slices.Equal(got, want) {
 		t.Fatalf("tags = %v, want %v", got, want)
 	}
-	if len(refs) != 1 || refs[0].Address != reportOtherAddress {
+	if len(refs.vouchers) != 1 || refs.vouchers[0].Address != reportOtherAddress {
 		t.Fatalf("voucher refs = %+v", refs)
+	}
+	if len(refs.pools) != 1 || refs.pools[0].Address != reportAdminAddress {
+		t.Fatalf("pool refs = %+v", refs)
 	}
 	if len(report.Images) != 1 || report.Images[0].URL != "https://content.example/one.jpg" ||
 		report.Images[0].Caption == nil || *report.Images[0].Caption != "First image" {
@@ -97,6 +123,60 @@ func TestNormalizeReportWriteCanonicalisesRelations(t *testing.T) {
 	if len(report.Attachments) != 1 || report.Attachments[0].Filename == nil ||
 		*report.Attachments[0].Filename != "report.pdf" {
 		t.Fatalf("attachments = %+v", report.Attachments)
+	}
+}
+
+func TestNormalizeReportWritePreservesMarkerStyle(t *testing.T) {
+	report, _, err := normalizeReportWrite(apiresp.ReportWriteRequest{
+		Title:       "Market event",
+		MarkerIcon:  "event",
+		MarkerColor: "cyan",
+		Vouchers: []apiresp.ReportVoucherRefRequest{{
+			ChainID: 100,
+			Address: reportOtherAddress,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("normalizeReportWrite() error = %v", err)
+	}
+	if report.MarkerIcon != "event" || report.MarkerColor != "cyan" {
+		t.Fatalf("marker = %s/%s, want event/cyan", report.MarkerIcon, report.MarkerColor)
+	}
+}
+
+func TestNormalizeReportWriteAcceptsEitherRelatedResourceKind(t *testing.T) {
+	tests := []struct {
+		name string
+		req  apiresp.ReportWriteRequest
+	}{
+		{
+			name: "voucher only",
+			req: apiresp.ReportWriteRequest{
+				Title: "Voucher update",
+				Vouchers: []apiresp.ReportVoucherRefRequest{{
+					ChainID: 100,
+					Address: reportOtherAddress,
+				}},
+			},
+		},
+		{
+			name: "pool only",
+			req: apiresp.ReportWriteRequest{
+				Title: "Pool update",
+				Pools: []apiresp.ReportPoolRefRequest{{
+					ChainID: 100,
+					Address: reportAdminAddress,
+				}},
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, _, err := normalizeReportWrite(testCase.req); err != nil {
+				t.Fatalf("normalizeReportWrite() error = %v", err)
+			}
+		})
 	}
 }
 
@@ -110,10 +190,12 @@ func TestNormalizeReportWriteRejectsCrossFieldViolations(t *testing.T) {
 		req  apiresp.ReportWriteRequest
 	}{
 		{name: "blank title", req: apiresp.ReportWriteRequest{Title: "  "}},
+		{name: "missing related resource", req: apiresp.ReportWriteRequest{Title: "Post"}},
 		{name: "half coordinate", req: apiresp.ReportWriteRequest{Title: "Post", GeoLat: &lat}},
 		{name: "reversed period", req: apiresp.ReportWriteRequest{Title: "Post", PeriodFrom: &from, PeriodTo: &to}},
 		{name: "non-http cover", req: apiresp.ReportWriteRequest{Title: "Post", ImageURL: new("data:image/png;base64,abc")}},
 		{name: "bad voucher", req: apiresp.ReportWriteRequest{Title: "Post", Vouchers: []apiresp.ReportVoucherRefRequest{{ChainID: 42220, Address: "nope"}}}},
+		{name: "bad pool", req: apiresp.ReportWriteRequest{Title: "Post", Pools: []apiresp.ReportPoolRefRequest{{ChainID: 100, Address: "nope"}}}},
 		{name: "duplicate image", req: apiresp.ReportWriteRequest{Title: "Post", Images: []apiresp.ReportImageRequest{{URL: "https://example.org/a.jpg"}, {URL: " https://example.org/a.jpg "}}}},
 		{name: "non-http attachment", req: apiresp.ReportWriteRequest{Title: "Post", Attachments: []apiresp.ReportAttachmentRequest{{Kind: "FILE", URL: "ftp://example.org/a.pdf"}}}},
 		// All four collections answer a duplicate the same way. They used to
@@ -124,12 +206,23 @@ func TestNormalizeReportWriteRejectsCrossFieldViolations(t *testing.T) {
 			{ChainID: 42220, Address: reportOtherAddress},
 			{ChainID: 42220, Address: strings.ToUpper(reportOtherAddress)},
 		}}},
+		{name: "duplicate pool", req: apiresp.ReportWriteRequest{Title: "Post", Pools: []apiresp.ReportPoolRefRequest{
+			{ChainID: 100, Address: reportOtherAddress},
+			{ChainID: 100, Address: strings.ToUpper(reportOtherAddress)},
+		}}},
 		{name: "duplicate attachment", req: apiresp.ReportWriteRequest{Title: "Post", Attachments: []apiresp.ReportAttachmentRequest{
 			{Kind: "FILE", URL: "https://example.org/a.pdf"},
 			{Kind: "FILE", URL: " https://example.org/a.pdf "},
 		}}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
+			if len(testCase.req.Vouchers) == 0 && len(testCase.req.Pools) == 0 &&
+				testCase.name != "missing related resource" {
+				testCase.req.Vouchers = []apiresp.ReportVoucherRefRequest{{
+					ChainID: 100,
+					Address: reportOtherAddress,
+				}}
+			}
 			if _, _, err := normalizeReportWrite(testCase.req); err == nil {
 				t.Fatal("normalizeReportWrite() error = nil")
 			}
@@ -139,7 +232,8 @@ func TestNormalizeReportWriteRejectsCrossFieldViolations(t *testing.T) {
 
 func TestNormalizeReportWriteKeepsAttachmentKindsApart(t *testing.T) {
 	report, _, err := normalizeReportWrite(apiresp.ReportWriteRequest{
-		Title: "Post",
+		Title:    "Post",
+		Vouchers: []apiresp.ReportVoucherRefRequest{{ChainID: 100, Address: reportOtherAddress}},
 		Attachments: []apiresp.ReportAttachmentRequest{
 			{Kind: "FILE", URL: "https://example.org/clip.mp4"},
 			{Kind: "EMBED", URL: "https://example.org/clip.mp4"},
@@ -263,9 +357,20 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 	otherToken := mintReportToken(t, private, reportOtherAddress, "USER")
 	adminToken := mintReportToken(t, private, reportAdminAddress, "SUPERADMIN")
 	marker := "Zqreportmutation" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	var voucherID uint64
+	var voucherAddress string
+	if err := pgStore.Pool().QueryRow(context.Background(), `
+		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, active, owner_address)
+		VALUES (100, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
+			$1, $2, 6, true, $3)
+		RETURNING id, address`, marker+" Voucher", "ZQR", reportAuthorAddress).
+		Scan(&voucherID, &voucherAddress); err != nil {
+		t.Fatalf("seed voucher: %v", err)
+	}
 
 	defer func() {
 		_, _ = pgStore.Pool().Exec(context.Background(), `DELETE FROM reports WHERE title LIKE $1`, marker+"%")
+		_, _ = pgStore.Pool().Exec(context.Background(), `DELETE FROM vouchers WHERE id = $1`, voucherID)
 	}()
 
 	call := func(method, path, token, title string) *httptest.ResponseRecorder {
@@ -275,6 +380,10 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 				Title:       title,
 				Body:        "## Body",
 				Description: "Description",
+				Vouchers: []apiresp.ReportVoucherRefRequest{{
+					ChainID: 100,
+					Address: voucherAddress,
+				}},
 			})
 			if err != nil {
 				t.Fatalf("marshal request: %v", err)
@@ -457,10 +566,10 @@ func mintReportToken(t *testing.T, private ed25519.PrivateKey, address, role str
 	return token
 }
 
-// A post may only link vouchers its author owns unless the author is a
+// A post may only link vouchers and pools its author owns unless the author is a
 // superadmin. Live because ownership is a column on the vouchers table, and the
 // rule is only as good as the query that reads it. Skipped without CORE_TEST_DSN.
-func TestReportVoucherLinksRequireOwnershipThroughRoutes(t *testing.T) {
+func TestReportResourceLinksRequireOwnershipThroughRoutes(t *testing.T) {
 	dsn := os.Getenv("CORE_TEST_DSN")
 	if dsn == "" {
 		t.Skip("CORE_TEST_DSN not set; skipping live report voucher ownership tests")
@@ -504,20 +613,36 @@ func TestReportVoucherLinksRequireOwnershipThroughRoutes(t *testing.T) {
 		Scan(&voucherID, &voucherAddress); err != nil {
 		t.Fatalf("seed voucher: %v", err)
 	}
+	var poolID uint64
+	var poolAddress string
+	if err := pgStore.Pool().QueryRow(ctx, `
+		INSERT INTO pools (chain_id, address, name, symbol, decimals, owner_address)
+		VALUES (100, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
+			$1, 'ZQP', 6, $2)
+		RETURNING id, address`, marker+" Pool", reportAuthorAddress).
+		Scan(&poolID, &poolAddress); err != nil {
+		t.Fatalf("seed pool: %v", err)
+	}
 	defer func() {
 		_, _ = pgStore.Pool().Exec(ctx, `DELETE FROM reports WHERE title LIKE $1`, marker+"%")
 		_, _ = pgStore.Pool().Exec(ctx, `DELETE FROM vouchers WHERE id = $1`, voucherID)
+		_, _ = pgStore.Pool().Exec(ctx, `DELETE FROM pools WHERE id = $1`, poolID)
 	}()
 
-	create := func(token, title string) *httptest.ResponseRecorder {
+	write := func(method, path, token, title string, includePool bool) *httptest.ResponseRecorder {
+		pools := []apiresp.ReportPoolRefRequest(nil)
+		if includePool {
+			pools = []apiresp.ReportPoolRefRequest{{ChainID: 100, Address: poolAddress}}
+		}
 		body, err := json.Marshal(apiresp.ReportWriteRequest{
 			Title:    title,
 			Vouchers: []apiresp.ReportVoucherRefRequest{{ChainID: 42220, Address: voucherAddress}},
+			Pools:    pools,
 		})
 		if err != nil {
 			t.Fatalf("marshal request: %v", err)
 		}
-		req := httptest.NewRequest(http.MethodPost, "/api/v2/reports", bytes.NewReader(body))
+		req := httptest.NewRequest(method, path, bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 		res := httptest.NewRecorder()
@@ -525,15 +650,42 @@ func TestReportVoucherLinksRequireOwnershipThroughRoutes(t *testing.T) {
 		return res
 	}
 
-	if res := create(authorToken, marker+" owner"); res.Code != http.StatusCreated {
+	ownerCreate := write(http.MethodPost, "/api/v2/reports", authorToken, marker+" owner", true)
+	if ownerCreate.Code != http.StatusCreated {
+		res := ownerCreate
 		t.Fatalf("owner create status = %d, body = %s", res.Code, res.Body.String())
-	} else if status := reportStatus(t, res); status != "APPROVED" {
+	} else if status := reportStatus(t, ownerCreate); status != "APPROVED" {
 		t.Fatalf("owner create status field = %q, want APPROVED", status)
 	}
-	if res := create(otherToken, marker+" other"); res.Code != http.StatusForbidden {
+	var ownerEnvelope struct {
+		Result struct {
+			Report struct {
+				ID uint64 `json:"id"`
+			} `json:"report"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(ownerCreate.Body.Bytes(), &ownerEnvelope); err != nil {
+		t.Fatalf("decode owner create: %v", err)
+	}
+	ownerPath := "/api/v2/reports/" + strconv.FormatUint(ownerEnvelope.Result.Report.ID, 10)
+	if res := write(http.MethodPost, "/api/v2/reports", otherToken, marker+" other", true); res.Code != http.StatusForbidden {
 		t.Fatalf("non-owner create status = %d, want 403; body = %s", res.Code, res.Body.String())
 	}
-	if res := create(adminToken, marker+" admin"); res.Code != http.StatusCreated {
+	if res := write(http.MethodPost, "/api/v2/reports", adminToken, marker+" admin", true); res.Code != http.StatusCreated {
 		t.Fatalf("superadmin create status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	if _, err := pgStore.Pool().Exec(ctx,
+		`UPDATE pools SET owner_address = $2 WHERE id = $1`, poolID, reportOtherAddress); err != nil {
+		t.Fatalf("transfer pool ownership: %v", err)
+	}
+	if res := write(http.MethodPut, ownerPath, authorToken, marker+" stale link", true); res.Code != http.StatusForbidden {
+		t.Fatalf("author retained transferred pool status = %d, want 403; body = %s", res.Code, res.Body.String())
+	}
+	if res := write(http.MethodPut, ownerPath, authorToken, marker+" link removed", false); res.Code != http.StatusOK {
+		t.Fatalf("author removing transferred pool status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if res := write(http.MethodPut, ownerPath, adminToken, marker+" admin retained", true); res.Code != http.StatusOK {
+		t.Fatalf("superadmin retaining transferred pool status = %d, body = %s", res.Code, res.Body.String())
 	}
 }

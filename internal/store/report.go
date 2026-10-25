@@ -52,6 +52,14 @@ type (
 		Symbol  *string `json:"symbol"`
 	}
 
+	ReportPool struct {
+		ID      uint64 `json:"id"`
+		ChainID int64  `json:"chainId"`
+		Address string `json:"address"`
+		Name    string `json:"name"`
+		Symbol  string `json:"symbol"`
+	}
+
 	// ReportImage is one http(s) image belonging to a report, in document
 	// order. Width and Height are the editor's display box and are advisory:
 	// they let a client reserve space before the bytes arrive. MaxWidth and
@@ -91,12 +99,15 @@ type (
 		GeoLng      *float64        `db:"geo_lng"        json:"geoLng"`
 		PeriodFrom  *time.Time      `db:"period_from"    json:"periodFrom"`
 		PeriodTo    *time.Time      `db:"period_to"      json:"periodTo"`
+		MarkerIcon  string          `db:"marker_icon"    json:"markerIcon"`
+		MarkerColor string          `db:"marker_color"   json:"markerColor"`
 		AuthorAddr  string          `db:"author_address" json:"authorAddress"`
 		Status      string          `db:"status"         json:"status,omitempty"`
 		CreatedAt   time.Time       `db:"created_at"     json:"createdAt"`
 		UpdatedAt   time.Time       `db:"updated_at"     json:"updatedAt"`
 		Tags        []string        `db:"tags"           json:"tags"`
 		Vouchers    []ReportVoucher `db:"vouchers"       json:"vouchers"`
+		Pools       []ReportPool    `db:"pools"          json:"pools"`
 
 		// Detail-only. Body is the prose as markdown and is empty on all but
 		// 310 of the imported reports, whose content lives in Description. The
@@ -133,8 +144,11 @@ type (
 		HostName     *string
 		Participants *string
 		TimeTaken    *string
+		MarkerIcon   string
+		MarkerColor  string
 		Tags         []string
 		VoucherIDs   []uint64
+		PoolIDs      []uint64
 		Images       []ReportImage
 		Attachments  []ReportAttachment
 	}
@@ -217,6 +231,7 @@ func (pg *Pg) CreateReport(
 	authorAddress string,
 	status string,
 ) (uint64, error) {
+	markerIcon, markerColor := reportMarkerStyleOrDefault(report.MarkerIcon, report.MarkerColor)
 	var id uint64
 	err := tx.QueryRow(
 		ctx,
@@ -234,6 +249,8 @@ func (pg *Pg) CreateReport(
 		report.HostName,
 		report.Participants,
 		report.TimeTaken,
+		markerIcon,
+		markerColor,
 	).Scan(&id)
 	return id, err
 }
@@ -262,6 +279,7 @@ func (pg *Pg) UpdateReport(
 	modifierAddress string,
 	status *string,
 ) error {
+	markerIcon, markerColor := reportMarkerStyleOrDefault(report.MarkerIcon, report.MarkerColor)
 	_, err := tx.Exec(
 		ctx,
 		pg.queries.UpdateReport,
@@ -278,9 +296,21 @@ func (pg *Pg) UpdateReport(
 		report.HostName,
 		report.Participants,
 		report.TimeTaken,
+		markerIcon,
+		markerColor,
 		status,
 	)
 	return err
+}
+
+func reportMarkerStyleOrDefault(icon, color string) (string, string) {
+	if icon == "" {
+		icon = "post"
+	}
+	if color == "" {
+		color = "pink"
+	}
+	return icon, color
 }
 
 // ApproveReport changes workflow state without rewriting content. Keeping it
@@ -291,8 +321,8 @@ func (pg *Pg) ApproveReport(ctx context.Context, tx pgx.Tx, id uint64, modifierA
 	return tx.QueryRow(ctx, pg.queries.ApproveReport, id, modifierAddress).Scan(&approvedID)
 }
 
-// ReplaceReportRelations swaps all four ordered/set-valued parts of a report.
-// The sets are request-bounded (12 tags/vouchers, 50 images, 20 attachments),
+// ReplaceReportRelations swaps all five ordered/set-valued parts of a report.
+// The sets are request-bounded (12 tags/vouchers/pools, 50 images, 20 attachments),
 // so the simple explicit inserts keep the SQL and failure point obvious.
 func (pg *Pg) ReplaceReportRelations(
 	ctx context.Context,
@@ -303,6 +333,7 @@ func (pg *Pg) ReplaceReportRelations(
 	for _, query := range []string{
 		pg.queries.DeleteReportTags,
 		pg.queries.DeleteReportVouchers,
+		pg.queries.DeleteReportPools,
 		pg.queries.DeleteReportImages,
 		pg.queries.DeleteReportAttachments,
 	} {
@@ -318,6 +349,11 @@ func (pg *Pg) ReplaceReportRelations(
 	}
 	for _, voucherID := range report.VoucherIDs {
 		if _, err := tx.Exec(ctx, pg.queries.InsertReportVoucher, reportID, voucherID); err != nil {
+			return err
+		}
+	}
+	for _, poolID := range report.PoolIDs {
+		if _, err := tx.Exec(ctx, pg.queries.InsertReportPool, reportID, poolID); err != nil {
 			return err
 		}
 	}

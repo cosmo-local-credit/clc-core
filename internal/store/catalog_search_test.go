@@ -724,6 +724,27 @@ func TestComposePoolPageEveryComposition(t *testing.T) {
 	}
 }
 
+func TestViewportBoundsApplyToPoolsReportsAndTheirFacets(t *testing.T) {
+	filter := CatalogFilter{Bounds: []CatalogBounds{
+		{MinLng: -180, MinLat: -5, MaxLng: -179, MaxLat: 5},
+		{MinLng: 179, MinLat: -5, MaxLng: 180, MaxLat: 5},
+	}}
+	queries := map[string]composed{
+		"pool page":     composePoolPage(filter, CatalogFirstPage, 0, 20),
+		"pool facets":   composePoolTagCounts(filter),
+		"report page":   composeReportPage(filter, ReportCursor{}, false, 20),
+		"report facets": composeReportTagCounts(filter),
+	}
+	for name, query := range queries {
+		assertPlaceholdersMatchArgs(t, name, query)
+		if !strings.Contains(query.sql, "point(") ||
+			!strings.Contains(query.sql, ") <@ box(point(") ||
+			!strings.Contains(query.sql, " OR ") {
+			t.Errorf("%s does not apply both antimeridian viewport boxes:\n%s", name, query.sql)
+		}
+	}
+}
+
 func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 	for name, tc := range map[string]struct {
 		filter  CatalogFilter
@@ -747,6 +768,22 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 			}
 		})
 
+		t.Run("report-pools/"+name, func(t *testing.T) {
+			filter := CatalogFilter{PoolIDs: []uint64{7, 11}, PoolMatch: TagMatchAny}
+			if tc.wantAll {
+				filter.PoolMatch = TagMatchAll
+			}
+			query := composeReportPage(filter, ReportCursor{}, false, 20)
+			assertPlaceholdersMatchArgs(t, "report pools", query)
+			if !strings.Contains(query.sql, "FROM report_pools rp") ||
+				!strings.Contains(query.sql, "rp.pool_id = ANY(") {
+				t.Errorf("report page must filter through report_pools:\n%s", query.sql)
+			}
+			if gotAll := strings.Contains(query.sql, ") = cardinality("); gotAll != tc.wantAll {
+				t.Errorf("all-match fragment = %v, want %v:\n%s", gotAll, tc.wantAll, query.sql)
+			}
+		})
+
 		t.Run("pools/"+name, func(t *testing.T) {
 			query := composePoolPage(tc.filter, CatalogFirstPage, 0, 20)
 			assertPlaceholdersMatchArgs(t, "pool vouchers", query)
@@ -766,6 +803,8 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 		TagMatch:     TagMatchAny,
 		VoucherIDs:   []uint64{7},
 		VoucherMatch: TagMatchAny,
+		PoolIDs:      []uint64{11},
+		PoolMatch:    TagMatchAny,
 	}
 	for name, query := range map[string]composed{
 		"report tags": composeReportTagCounts(filter),
@@ -786,6 +825,51 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 		if !strings.Contains(query.sql, "tag_value = ANY(") {
 			t.Errorf("%s must retain the tag filter:\n%s", name, query.sql)
 		}
+	}
+	poolCounts := composeReportPoolCounts(filter)
+	assertPlaceholdersMatchArgs(t, "report pools", poolCounts)
+	if strings.Contains(poolCounts.sql, "pool_id = ANY(") {
+		t.Errorf("report pool facets must omit their own selection:\n%s", poolCounts.sql)
+	}
+	if !strings.Contains(poolCounts.sql, "voucher_id = ANY(") ||
+		!strings.Contains(poolCounts.sql, "tag_value = ANY(") {
+		t.Errorf("report pool facets must retain tag and voucher filters:\n%s", poolCounts.sql)
+	}
+}
+
+func TestReportCreditablePoolsApplyToPageAndEveryFacet(t *testing.T) {
+	filter := CatalogFilter{CreditablePoolIDs: []uint64{7, 11}}
+	for name, query := range map[string]composed{
+		"page":           composeReportPage(filter, ReportCursor{}, false, 20),
+		"tag facets":     composeReportTagCounts(filter),
+		"voucher facets": composeReportVoucherCounts(filter),
+		"pool facets":    composeReportPoolCounts(filter),
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertPlaceholdersMatchArgs(t, name, query)
+			for _, fragment := range []string{
+				"FROM report_pools credit_rp",
+				"FROM report_vouchers credit_rv",
+				"credit_v.active",
+				"credit_pt.is_allowed",
+			} {
+				if !strings.Contains(query.sql, fragment) {
+					t.Errorf("creditable Post filter is missing %q:\n%s", fragment, query.sql)
+				}
+			}
+			var boundPools [][]int64
+			for _, arg := range query.args {
+				if value, ok := arg.([]int64); ok {
+					boundPools = append(boundPools, value)
+				}
+			}
+			if len(boundPools) != 1 {
+				t.Fatalf("creditable pool IDs bound %d times, want once", len(boundPools))
+			}
+			if !slices.Equal(boundPools[0], []int64{7, 11}) {
+				t.Fatalf("creditable pool IDs = %#v", boundPools[0])
+			}
+		})
 	}
 }
 

@@ -201,6 +201,33 @@ func TestParseCatalogSearchWithoutParametersIsInactive(t *testing.T) {
 	}
 }
 
+func TestParseCatalogSearchNormalizesRepeatedBounds(t *testing.T) {
+	got, err := parseSearchQuery(t,
+		"bbox=179,-2,180,2&bbox=-180,-2,-179,2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.filter.Bounds) != 2 || got.filter.Bounds[0].MinLng != -180 || got.filter.Bounds[1].MinLng != 179 {
+		t.Fatalf("bounds = %#v", got.filter.Bounds)
+	}
+	if !got.filter.Active() {
+		t.Fatal("bounded discovery must select the filtered query path")
+	}
+}
+
+func TestParseCatalogSearchRejectsBoundsConflictsAndMalformedValues(t *testing.T) {
+	for name, query := range map[string]string{
+		"nearby conflict": "nearby=true&bbox=36,-2,37,-1",
+		"too many":        "bbox=0,0,1,1&bbox=1,0,2,1&bbox=2,0,3,1",
+		"crossing":        "bbox=179,-2,-179,2",
+		"malformed":       "bbox=west,south,east,north",
+	} {
+		if _, err := parseSearchQuery(t, query); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
 func TestParseCatalogRelationshipSearchNormalizesVouchers(t *testing.T) {
 	const (
 		first  = "0x1111111111111111111111111111111111111111"
@@ -236,6 +263,40 @@ func TestParseCatalogRelationshipSearchRejectsInvalidVouchers(t *testing.T) {
 		c := echo.New().NewContext(req, httptest.NewRecorder())
 		if _, err := parseCatalogRelationshipSearch(c); err == nil {
 			t.Errorf("%s: expected validation error", name)
+		}
+	}
+}
+
+func TestParseReportRelationshipSearchNormalizesCreditablePools(t *testing.T) {
+	const (
+		first  = "0x1111111111111111111111111111111111111111"
+		second = "0x2222222222222222222222222222222222222222"
+	)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v2/reports?creditablePools=100:"+second+",100:"+first+
+			"&creditablePools=100:"+first, nil)
+	c := echo.New().NewContext(req, httptest.NewRecorder())
+
+	got, err := parseReportRelationshipSearch(c)
+	if err != nil {
+		t.Fatalf("parseReportRelationshipSearch() error = %v", err)
+	}
+	if len(got.creditablePoolRefs) != 2 || got.creditablePoolRefs[0].Address != first ||
+		got.creditablePoolRefs[1].Address != second {
+		t.Fatalf("creditablePoolRefs = %#v, want sorted unique refs", got.creditablePoolRefs)
+	}
+}
+
+func TestParseReportRelationshipSearchRejectsInvalidCreditablePools(t *testing.T) {
+	for name, query := range map[string]string{
+		"missing chain":   "creditablePools=0x1111111111111111111111111111111111111111",
+		"zero chain":      "creditablePools=0:0x1111111111111111111111111111111111111111",
+		"invalid address": "creditablePools=100:not-an-address",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/reports?"+query, nil)
+		c := echo.New().NewContext(req, httptest.NewRecorder())
+		if _, err := parseReportRelationshipSearch(c); !errors.Is(err, errInvalidPoolRef) {
+			t.Errorf("%s: error = %v, want errInvalidPoolRef", name, err)
 		}
 	}
 }

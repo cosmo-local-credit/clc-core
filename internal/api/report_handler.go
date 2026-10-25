@@ -20,6 +20,35 @@ import (
 type (
 	// reportCursorError is a cursor validation failure, phrased for the client.
 	reportCursorError string
+
+	publicReportResponse struct {
+		ID           uint64                   `json:"id"`
+		Title        string                   `json:"title"`
+		Description  string                   `json:"description"`
+		ImageURL     *string                  `json:"imageUrl"`
+		GeoLat       *float64                 `json:"geoLat"`
+		GeoLng       *float64                 `json:"geoLng"`
+		PeriodFrom   *time.Time               `json:"periodFrom"`
+		PeriodTo     *time.Time               `json:"periodTo"`
+		MarkerIcon   string                   `json:"markerIcon"`
+		MarkerColor  string                   `json:"markerColor"`
+		CreatedAt    time.Time                `json:"createdAt"`
+		UpdatedAt    time.Time                `json:"updatedAt"`
+		Tags         []string                 `json:"tags"`
+		Vouchers     []store.ReportVoucher    `json:"vouchers"`
+		Pools        []store.ReportPool       `json:"pools"`
+		Body         *string                  `json:"body,omitempty"`
+		HostName     *string                  `json:"hostName,omitempty"`
+		Participants *string                  `json:"participants,omitempty"`
+		TimeTaken    *string                  `json:"timeTaken,omitempty"`
+		Images       []store.ReportImage      `json:"images,omitempty"`
+		Attachments  []store.ReportAttachment `json:"attachments,omitempty"`
+	}
+
+	reportWriteRelations struct {
+		vouchers []store.VoucherRef
+		pools    []store.PoolRef
+	}
 )
 
 const (
@@ -40,7 +69,8 @@ const (
 // repeat rows. The cursor is therefore the (updatedAt, id) pair the last row
 // carried, and it is echoed back as `next`.
 //
-// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, and `facets` narrow the feed
+// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, `pools`,
+// `poolMatch`, `creditablePools`, `bbox`, and `facets` narrow the feed
 // (SEARCH_FILTER_PLAN.md Slice 4). `q` matches title and description; report body
 // search stays parked. Report tags are the reports' own `report_tags`, which each
 // row already returns, so a filtered row carries the tag that matched it. The
@@ -60,11 +90,11 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 		return reportValidationError(c, err.Error())
 	}
 
-	search, err := parseCatalogRelationshipSearch(c)
-	if err != nil {
-		return respondCatalogSearchError(c, err)
+	if _, exists := query["author"]; exists {
+		return reportValidationError(c, "author is not available on public reports")
 	}
-	if search.filter.Owner, err = addressFilterParam(c, "author"); err != nil {
+	search, err := parseReportRelationshipSearch(c)
+	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
 
@@ -93,6 +123,12 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	if handled, vErr := a.resolveVoucherFilter(c, tx, &search); handled || vErr != nil {
 		return vErr
 	}
+	if handled, vErr := a.resolvePoolFilter(c, tx, &search); handled || vErr != nil {
+		return vErr
+	}
+	if handled, vErr := a.resolveCreditablePoolFilter(c, tx, &search); handled || vErr != nil {
+		return vErr
+	}
 
 	reports, err := a.store.ListReportsFiltered(ctx, tx, search.filter, cursor, hasCursor, perPage)
 	if err != nil {
@@ -106,12 +142,17 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	// first page only and the key is simply absent from cursor pages.
 	var facets []store.TagFacet
 	var voucherFacets []store.VoucherFacet
+	var poolFacets []store.PoolFacet
 	if search.facets && !hasCursor {
 		facets, err = a.store.ListReportTagFacets(ctx, tx, search.filter)
 		if err != nil {
 			return handlePostgresError(c, err)
 		}
 		voucherFacets, err = a.store.ListReportVoucherFacets(ctx, tx, search.filter)
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		poolFacets, err = a.store.ListReportPoolFacets(ctx, tx, search.filter)
 		if err != nil {
 			return handlePostgresError(c, err)
 		}
@@ -123,12 +164,19 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 
 	// A short page is the end of the feed, so no cursor is offered and the
 	// client has an unambiguous stop signal rather than an emptiness heuristic.
-	result := map[string]any{"reports": reports, "next": nil}
+	publicReports := make([]publicReportResponse, 0, len(reports))
+	for _, report := range reports {
+		publicReports = append(publicReports, publicReport(report))
+	}
+	result := map[string]any{"reports": publicReports, "next": nil}
 	if facets != nil {
 		result["tagFacets"] = facets
 	}
 	if voucherFacets != nil {
 		result["voucherFacets"] = voucherFacets
+	}
+	if poolFacets != nil {
+		result["poolFacets"] = poolFacets
 	}
 	if uint64(len(reports)) == perPage {
 		last := reports[len(reports)-1]
@@ -181,7 +229,7 @@ func (a *API) reportByIDHandler(c *echo.Context) error {
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: "Report",
-		Result:      map[string]any{"report": report},
+		Result:      map[string]any{"report": publicReport(*report)},
 	})
 }
 
@@ -191,7 +239,7 @@ func (a *API) reportByIDHandler(c *echo.Context) error {
 // later edits. Every post is published as it is created: there is no review
 // queue, and a superadmin's remaining levers are reject and delete.
 func (a *API) reportCreateHandler(c *echo.Context) error {
-	report, voucherRefs, handled, err := a.bindReportWrite(c)
+	report, relations, handled, err := a.bindReportWrite(c)
 	if handled || err != nil {
 		return err
 	}
@@ -204,7 +252,7 @@ func (a *API) reportCreateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs, callerAddress, callerRole); handled || err != nil {
+	if handled, err := a.resolveReportWriteRelations(c, tx, &report, relations, callerAddress, callerRole); handled || err != nil {
 		return err
 	}
 
@@ -290,7 +338,7 @@ func (a *API) reportUpdateHandler(c *echo.Context) error {
 		return err
 	}
 
-	report, voucherRefs, handled, err := a.bindReportWrite(c)
+	report, relations, handled, err := a.bindReportWrite(c)
 	if handled || err != nil {
 		return err
 	}
@@ -316,7 +364,7 @@ func (a *API) reportUpdateHandler(c *echo.Context) error {
 
 	// Database-backed relation validation follows authorization, so a caller
 	// who cannot edit this row cannot use it to probe tag or voucher existence.
-	if handled, err := a.resolveReportWriteRelations(c, tx, &report, voucherRefs, callerAddress, callerRole); handled || err != nil {
+	if handled, err := a.resolveReportWriteRelations(c, tx, &report, relations, callerAddress, callerRole); handled || err != nil {
 		return err
 	}
 	if err := a.store.UpdateReport(ctx, tx, id, report, callerAddress, reportUpdateStatus(callerRole)); err != nil {
@@ -415,45 +463,79 @@ func reportUpdateStatus(callerRole string) *string {
 	return &approved
 }
 
+func publicReport(report store.Report) publicReportResponse {
+	return publicReportResponse{
+		ID:           report.ID,
+		Title:        report.Title,
+		Description:  report.Description,
+		ImageURL:     report.ImageURL,
+		GeoLat:       report.GeoLat,
+		GeoLng:       report.GeoLng,
+		PeriodFrom:   report.PeriodFrom,
+		PeriodTo:     report.PeriodTo,
+		MarkerIcon:   report.MarkerIcon,
+		MarkerColor:  report.MarkerColor,
+		CreatedAt:    report.CreatedAt,
+		UpdatedAt:    report.UpdatedAt,
+		Tags:         report.Tags,
+		Vouchers:     report.Vouchers,
+		Pools:        report.Pools,
+		Body:         report.Body,
+		HostName:     report.HostName,
+		Participants: report.Participants,
+		TimeTaken:    report.TimeTaken,
+		Images:       report.Images,
+		Attachments:  report.Attachments,
+	}
+}
+
 // bindReportWrite performs request-shape validation first, then the cross-field
 // and normalisation rules validator tags cannot express. It reports handled=true
 // after writing a response, matching the catalog parsing helpers beside it.
 func (a *API) bindReportWrite(
 	c *echo.Context,
-) (store.ReportWrite, []store.VoucherRef, bool, error) {
+) (store.ReportWrite, reportWriteRelations, bool, error) {
 	var req apiresp.ReportWriteRequest
 	if err := c.Bind(&req); err != nil {
-		return store.ReportWrite{}, nil, true, handleBindError(c, err)
+		return store.ReportWrite{}, reportWriteRelations{}, true, handleBindError(c, err)
 	}
 	if err := c.Validate(req); err != nil {
-		return store.ReportWrite{}, nil, true, a.handleValidateError(c, err)
+		return store.ReportWrite{}, reportWriteRelations{}, true, a.handleValidateError(c, err)
 	}
 
-	report, voucherRefs, err := normalizeReportWrite(req)
+	report, relations, err := normalizeReportWrite(req)
 	if err != nil {
-		return store.ReportWrite{}, nil, true, reportValidationError(c, err.Error())
+		return store.ReportWrite{}, reportWriteRelations{}, true, reportValidationError(c, err.Error())
 	}
-	return report, voucherRefs, false, nil
+	return report, relations, false, nil
 }
 
-func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []store.VoucherRef, error) {
+func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, reportWriteRelations, error) {
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
-		return store.ReportWrite{}, nil, fmt.Errorf("title must not be blank")
+		return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf("title must not be blank")
 	}
 	if (req.GeoLat == nil) != (req.GeoLng == nil) {
-		return store.ReportWrite{}, nil, fmt.Errorf("geoLat and geoLng must be provided together")
+		return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf("geoLat and geoLng must be provided together")
 	}
 	if req.PeriodFrom != nil && req.PeriodTo != nil && req.PeriodFrom.After(*req.PeriodTo) {
-		return store.ReportWrite{}, nil, fmt.Errorf("periodFrom must be before or equal to periodTo")
+		return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf("periodFrom must be before or equal to periodTo")
 	}
 
 	imageURL, err := optionalHTTPURL(req.ImageURL, "imageUrl")
 	if err != nil {
-		return store.ReportWrite{}, nil, err
+		return store.ReportWrite{}, reportWriteRelations{}, err
+	}
+	markerIcon := strings.TrimSpace(req.MarkerIcon)
+	if markerIcon == "" {
+		markerIcon = "post"
+	}
+	markerColor := strings.TrimSpace(req.MarkerColor)
+	if markerColor == "" {
+		markerColor = "pink"
 	}
 
-	// All four collections reject duplicates after normalization. Tags and
+	// All five collections reject duplicates after normalization. Tags and
 	// vouchers used to dedupe quietly while images failed and attachments were
 	// unchecked — one wire contract with three answers, which no client
 	// validator could mirror.
@@ -462,10 +544,10 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 	for _, raw := range req.Tags {
 		tag := strings.TrimSpace(raw)
 		if tag == "" {
-			return store.ReportWrite{}, nil, fmt.Errorf("tags must not contain blank values")
+			return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf("tags must not contain blank values")
 		}
 		if _, duplicate := tagSet[tag]; duplicate {
-			return store.ReportWrite{}, nil, fmt.Errorf("tags must not contain duplicate values")
+			return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf("tags must not contain duplicate values")
 		}
 		tagSet[tag] = struct{}{}
 		tags = append(tags, tag)
@@ -476,13 +558,13 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 	voucherRefs := make([]store.VoucherRef, 0, len(req.Vouchers))
 	for _, requested := range req.Vouchers {
 		if requested.ChainID <= 0 || !common.IsHexAddress(requested.Address) {
-			return store.ReportWrite{}, nil, fmt.Errorf(
+			return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf(
 				"vouchers must contain positive chainId values and valid hex addresses")
 		}
 		address := common.HexToAddress(requested.Address).Hex()
 		key := strconv.FormatInt(requested.ChainID, 10) + ":" + strings.ToLower(address)
 		if _, duplicate := voucherSet[key]; duplicate {
-			return store.ReportWrite{}, nil, fmt.Errorf(
+			return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf(
 				"vouchers must not contain duplicate chainId and address pairs")
 		}
 		voucherSet[key] = struct{}{}
@@ -501,15 +583,46 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 		return strings.Compare(strings.ToLower(left.Address), strings.ToLower(right.Address))
 	})
 
+	poolSet := make(map[string]struct{}, len(req.Pools))
+	poolRefs := make([]store.PoolRef, 0, len(req.Pools))
+	for _, requested := range req.Pools {
+		if requested.ChainID <= 0 || !common.IsHexAddress(requested.Address) {
+			return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf(
+				"pools must contain positive chainId values and valid hex addresses")
+		}
+		address := common.HexToAddress(requested.Address).Hex()
+		key := strconv.FormatInt(requested.ChainID, 10) + ":" + strings.ToLower(address)
+		if _, duplicate := poolSet[key]; duplicate {
+			return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf(
+				"pools must not contain duplicate chainId and address pairs")
+		}
+		poolSet[key] = struct{}{}
+		poolRefs = append(poolRefs, store.PoolRef{ChainID: requested.ChainID, Address: address})
+	}
+	slices.SortFunc(poolRefs, func(left, right store.PoolRef) int {
+		if left.ChainID < right.ChainID {
+			return -1
+		}
+		if left.ChainID > right.ChainID {
+			return 1
+		}
+		return strings.Compare(strings.ToLower(left.Address), strings.ToLower(right.Address))
+	})
+
+	if len(voucherRefs) == 0 && len(poolRefs) == 0 {
+		return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf(
+			"at least one voucher or pool must be linked")
+	}
+
 	images := make([]store.ReportImage, 0, len(req.Images))
 	imageSet := make(map[string]struct{}, len(req.Images))
 	for index, requested := range req.Images {
 		mediaURL, err := requiredHTTPURL(requested.URL, fmt.Sprintf("images[%d].url", index))
 		if err != nil {
-			return store.ReportWrite{}, nil, err
+			return store.ReportWrite{}, reportWriteRelations{}, err
 		}
 		if _, duplicate := imageSet[mediaURL]; duplicate {
-			return store.ReportWrite{}, nil, fmt.Errorf("images must not contain duplicate URLs")
+			return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf("images must not contain duplicate URLs")
 		}
 		imageSet[mediaURL] = struct{}{}
 		images = append(images, store.ReportImage{
@@ -530,11 +643,11 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 	for index, requested := range req.Attachments {
 		mediaURL, err := requiredHTTPURL(requested.URL, fmt.Sprintf("attachments[%d].url", index))
 		if err != nil {
-			return store.ReportWrite{}, nil, err
+			return store.ReportWrite{}, reportWriteRelations{}, err
 		}
 		key := requested.Kind + "\x00" + mediaURL
 		if _, duplicate := attachmentSet[key]; duplicate {
-			return store.ReportWrite{}, nil, fmt.Errorf(
+			return store.ReportWrite{}, reportWriteRelations{}, fmt.Errorf(
 				"attachments must not contain duplicate kind and URL pairs")
 		}
 		attachmentSet[key] = struct{}{}
@@ -558,10 +671,12 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, []
 		HostName:     optionalText(req.HostName),
 		Participants: optionalText(req.Participants),
 		TimeTaken:    optionalText(req.TimeTaken),
+		MarkerIcon:   markerIcon,
+		MarkerColor:  markerColor,
 		Tags:         tags,
 		Images:       images,
 		Attachments:  attachments,
-	}, voucherRefs, nil
+	}, reportWriteRelations{vouchers: voucherRefs, pools: poolRefs}, nil
 }
 
 func optionalText(value *string) *string {
@@ -595,18 +710,17 @@ func requiredHTTPURL(value, field string) (string, error) {
 	return value, nil
 }
 
-// resolveReportWriteRelations validates vocabulary-backed fields and replaces
-// stable voucher references with internal IDs before anything is persisted.
-// resolveReportWriteRelations turns the write's tag and voucher references into
-// the rows they name. A superadmin may link any catalog voucher; anyone else may
-// only link vouchers they own, so a post cannot speak for a voucher its author
-// does not issue. That rule lives here rather than in the client because the
-// client's picker is a convenience, not a gate.
+// resolveReportWriteRelations validates vocabulary-backed fields and turns the
+// write's voucher and pool references into the rows they name. A superadmin may
+// link any catalog resource; anyone else may link only resources they currently
+// own, so a post cannot speak for a voucher or pool its author does not own.
+// That rule lives here rather than in the client because the pickers are a
+// convenience, not a gate.
 func (a *API) resolveReportWriteRelations(
 	c *echo.Context,
 	tx pgx.Tx,
 	report *store.ReportWrite,
-	voucherRefs []store.VoucherRef,
+	relations reportWriteRelations,
 	callerAddress, callerRole string,
 ) (bool, error) {
 	tags, handled, err := a.ensureTokenTags(c, tx, report.Tags)
@@ -614,15 +728,11 @@ func (a *API) resolveReportWriteRelations(
 		return handled, err
 	}
 	report.Tags = tags
-	if len(voucherRefs) == 0 {
-		return false, nil
-	}
-
-	ids, err := a.store.ResolveVoucherRefs(c.Request().Context(), tx, voucherRefs)
+	ids, err := a.store.ResolveVoucherRefs(c.Request().Context(), tx, relations.vouchers)
 	if err != nil {
 		return true, handlePostgresError(c, err)
 	}
-	if len(ids) != len(voucherRefs) {
+	if len(ids) != len(relations.vouchers) {
 		return true, respondCatalogSearchError(c, errUnknownVoucherRef)
 	}
 	if callerRole != "SUPERADMIN" {
@@ -635,6 +745,24 @@ func (a *API) resolveReportWriteRelations(
 		}
 	}
 	report.VoucherIDs = ids
+
+	poolIDs, err := a.store.ResolvePoolRefs(c.Request().Context(), tx, relations.pools)
+	if err != nil {
+		return true, handlePostgresError(c, err)
+	}
+	if len(poolIDs) != len(relations.pools) {
+		return true, respondCatalogSearchError(c, errUnknownPoolRef)
+	}
+	if callerRole != "SUPERADMIN" {
+		owned, err := a.store.CountPoolsOwnedBy(c.Request().Context(), tx, poolIDs, callerAddress)
+		if err != nil {
+			return true, handlePostgresError(c, err)
+		}
+		if owned != len(poolIDs) {
+			return true, handleForbiddenError(c, "only pools you own can be linked to a post")
+		}
+	}
+	report.PoolIDs = poolIDs
 	return false, nil
 }
 

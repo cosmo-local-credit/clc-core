@@ -171,6 +171,7 @@ type (
 		MaxTokens   *int `json:"maxTokens" validate:"omitempty,gte=0,lte=2147483647"`
 		MaxCatalogs *int `json:"maxCatalogs" validate:"omitempty,gte=0,lte=2147483647"`
 		MaxOffers   *int `json:"maxOffers" validate:"omitempty,gte=0,lte=2147483647"`
+		MaxWants    *int `json:"maxWants" validate:"omitempty,gte=0,lte=2147483647"`
 	}
 
 	// EthAddressParam is a path-parameter type for Ethereum addresses.
@@ -389,6 +390,11 @@ type (
 		Address string `json:"address" validate:"required"`
 	}
 
+	ReportPoolRefRequest struct {
+		ChainID int64  `json:"chainId" validate:"required,gt=0"`
+		Address string `json:"address" validate:"required"`
+	}
+
 	ReportImageRequest struct {
 		URL       string  `json:"url"                 validate:"required"`
 		Width     *int32  `json:"width,omitempty"     validate:"omitempty,gt=0"`
@@ -408,7 +414,9 @@ type (
 
 	// ReportWriteRequest is an assign-all post write. PUT replaces every
 	// editable scalar and every relation, so an omitted optional field clears it
-	// and an omitted collection becomes an empty set.
+	// and an omitted collection becomes an empty set. Vouchers and pools are
+	// independently optional, but at least one of those two collections must be
+	// non-empty.
 	ReportWriteRequest struct {
 		Title        string                    `json:"title"       validate:"required,max=200"`
 		Body         string                    `json:"body"        validate:"max=500000"`
@@ -421,8 +429,11 @@ type (
 		HostName     *string                   `json:"hostName,omitempty"     validate:"omitempty,max=200"`
 		Participants *string                   `json:"participants,omitempty" validate:"omitempty,max=100"`
 		TimeTaken    *string                   `json:"timeTaken,omitempty"    validate:"omitempty,max=100"`
+		MarkerIcon   string                    `json:"markerIcon,omitempty"   validate:"omitempty,oneof=post event announcement"`
+		MarkerColor  string                    `json:"markerColor,omitempty"  validate:"omitempty,oneof=blue purple orange pink cyan brown"`
 		Tags         []string                  `json:"tags"        validate:"max=12,dive,required,max=100"`
 		Vouchers     []ReportVoucherRefRequest `json:"vouchers"    validate:"max=12,dive"`
+		Pools        []ReportPoolRefRequest    `json:"pools"       validate:"max=12,dive"`
 		Images       []ReportImageRequest      `json:"images"      validate:"max=50,dive"`
 		Attachments  []ReportAttachmentRequest `json:"attachments" validate:"max=20,dive"`
 	}

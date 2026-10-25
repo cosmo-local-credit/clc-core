@@ -196,7 +196,7 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 			}
 			return nil, errCuratedHandled
 		}
-		origin := curatedOrigin(caller, location, fmt.Sprintf("%s:%v:%d:%v", search.filter.Term, search.filter.Tags, search.filter.TagMatch, search.filter.PoolIDs))
+		origin := curatedOrigin(caller, location, fmt.Sprintf("%s:%v:%d:%v:%v", search.filter.Term, search.filter.Tags, search.filter.TagMatch, search.filter.PoolIDs, search.filter.Bounds))
 		cursor, readErr := curatedCursor(c.QueryParam("cursor"), origin)
 		if readErr != nil {
 			return nil, readErr

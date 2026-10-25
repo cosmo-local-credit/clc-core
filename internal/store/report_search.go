@@ -33,7 +33,7 @@ import (
 const (
 	reportSummaryColumns = `r.id, r.title, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
-    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.marker_icon, r.marker_color, r.author_address,
     r.created_at, r.updated_at,
     COALESCE((
         SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
@@ -48,7 +48,16 @@ const (
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
         WHERE rv.report_id = r.id
-    ), '[]'::JSONB) AS vouchers`
+    ), '[]'::JSONB) AS vouchers,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'id', p.id, 'chainId', p.chain_id, 'address', p.address,
+            'name', COALESCE(p.display_name, p.name), 'symbol', p.symbol
+        ) ORDER BY p.id)
+        FROM report_pools rp
+        INNER JOIN pools p ON p.id = rp.pool_id
+        WHERE rp.report_id = r.id
+    ), '[]'::JSONB) AS pools`
 
 	reportProjection = "\nSELECT " + reportSummaryColumns + "\nFROM reports r"
 )
@@ -122,6 +131,55 @@ func reportVoucherPredicate(args *sqlArgs, filter CatalogFilter) string {
         )`
 }
 
+func reportPoolPredicate(args *sqlArgs, filter CatalogFilter) string {
+	if len(filter.PoolIDs) == 0 {
+		return ""
+	}
+	placeholder := args.bind(voucherIDsParam(filter.PoolIDs))
+	if filter.PoolMatch == TagMatchAll {
+		return `(
+            SELECT COUNT(*)
+            FROM report_pools rp
+            WHERE rp.report_id = r.id
+                AND rp.pool_id = ANY(` + placeholder + `::BIGINT[])
+        ) = cardinality(` + args.reuse() + `::BIGINT[])`
+	}
+	return `EXISTS (
+            SELECT 1
+            FROM report_pools rp
+            WHERE rp.report_id = r.id
+                AND rp.pool_id = ANY(` + placeholder + `::BIGINT[])
+        )`
+}
+
+// reportCreditablePoolPredicate connects a Post to the viewer's verified
+// creditable pools. A direct pool link qualifies, as does a linked active
+// voucher which that pool currently allows. EXISTS keeps one Post row even
+// when several vouchers or pools satisfy the relationship.
+func reportCreditablePoolPredicate(args *sqlArgs, filter CatalogFilter) string {
+	if len(filter.CreditablePoolIDs) == 0 {
+		return ""
+	}
+	placeholder := args.bind(voucherIDsParam(filter.CreditablePoolIDs))
+	return `(EXISTS (
+            SELECT 1
+            FROM report_pools credit_rp
+            WHERE credit_rp.report_id = r.id
+                AND credit_rp.pool_id = ANY(` + placeholder + `::BIGINT[])
+        ) OR EXISTS (
+            SELECT 1
+            FROM report_vouchers credit_rv
+            INNER JOIN vouchers credit_v
+                ON credit_v.id = credit_rv.voucher_id
+                AND credit_v.active
+            INNER JOIN pool_tokens credit_pt
+                ON credit_pt.voucher_id = credit_v.id
+                AND credit_pt.is_allowed
+            WHERE credit_rv.report_id = r.id
+                AND credit_pt.pool_id = ANY(` + args.reuse() + `::BIGINT[])
+        ))`
+}
+
 // reportCursorPredicate returns the feed's keyset comparison.
 //
 // A row comparison rather than a single column: `(updated_at, id) < ($1, $2)` is what makes
@@ -159,10 +217,13 @@ func composeReportPage(
 		body := reportProjection +
 			whereClause(
 				"r.status = 'APPROVED'",
+				catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 				ownerPredicate(args, "r.author_address", filter),
 				reportTagPredicate(args, filter),
 				reportVoucherPredicate(args, filter),
+				reportPoolPredicate(args, filter),
+				reportCreditablePoolPredicate(args, filter),
 				reportCursorPredicate(args, cursor, hasCursor),
 			) +
 			"\nORDER BY r.updated_at DESC, r.id DESC" +
@@ -176,11 +237,14 @@ func composeReportPage(
 		"    FROM reports r" +
 		whereClause(
 			"r.status = 'APPROVED'",
+			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			ownerPredicate(args, "r.author_address", filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
+			reportPoolPredicate(args, filter),
+			reportCreditablePoolPredicate(args, filter),
 		) +
 		"\n),\npage AS MATERIALIZED (\n" +
 		"    SELECT m.id\n" +
@@ -224,9 +288,12 @@ func composeReportTagCounts(filter CatalogFilter) composed {
     FROM reports r` +
 		whereClause(
 			"r.status = 'APPROVED'",
+			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			reportSearchPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
+			reportPoolPredicate(args, filter),
+			reportCreditablePoolPredicate(args, filter),
 		) + `
 )
 SELECT rt.tag_value AS tag_value,
@@ -249,10 +316,13 @@ func composeReportVoucherCounts(filter CatalogFilter) composed {
     FROM reports r` +
 		whereClause(
 			"r.status = 'APPROVED'",
+			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			ownerPredicate(args, "r.author_address", filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
+			reportPoolPredicate(args, filter),
+			reportCreditablePoolPredicate(args, filter),
 		) + `
 )
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol,
@@ -263,6 +333,31 @@ INNER JOIN vouchers v ON v.id = rv.voucher_id
 GROUP BY v.id, v.display_name, v.chain_id, v.address, v.name, v.symbol
 ORDER BY lower(COALESCE(v.display_name, v.name)), v.id;`
 
+	return composed{sql: sql, args: args.values}
+}
+
+func composeReportPoolCounts(filter CatalogFilter) composed {
+	args := &sqlArgs{}
+	sql := `WITH candidates AS MATERIALIZED (
+    SELECT r.id
+    FROM reports r` +
+		whereClause(
+			"r.status = 'APPROVED'",
+			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
+			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
+			reportSearchPredicate(args, filter),
+			reportTagPredicate(args, filter),
+			reportVoucherPredicate(args, filter),
+			reportCreditablePoolPredicate(args, filter),
+		) + `
+)
+SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name, p.symbol,
+    COUNT(*) AS match_count
+FROM candidates c
+INNER JOIN report_pools rp ON rp.report_id = c.id
+INNER JOIN pools p ON p.id = rp.pool_id
+GROUP BY p.id, p.display_name, p.chain_id, p.address, p.name, p.symbol
+ORDER BY lower(COALESCE(p.display_name, p.name)), p.id;`
 	return composed{sql: sql, args: args.values}
 }
 
@@ -320,6 +415,19 @@ func (pg *Pg) ListReportVoucherFacets(
 ) ([]VoucherFacet, error) {
 	query := composeReportVoucherCounts(filter)
 	var facets []VoucherFacet
+	if err := pgxscan.Select(ctx, tx, &facets, query.sql, query.args...); err != nil {
+		return nil, err
+	}
+	return facets, nil
+}
+
+func (pg *Pg) ListReportPoolFacets(
+	ctx context.Context,
+	tx pgx.Tx,
+	filter CatalogFilter,
+) ([]PoolFacet, error) {
+	query := composeReportPoolCounts(filter)
+	var facets []PoolFacet
 	if err := pgxscan.Select(ctx, tx, &facets, query.sql, query.args...); err != nil {
 		return nil, err
 	}

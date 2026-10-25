@@ -1273,6 +1273,53 @@ func TestVoucherRelationshipFiltersForReportsAndPools(t *testing.T) {
 	firstPool := seedPool(marker + " First Pool")
 	bothPool := seedPool(marker + " Both Pool")
 	disallowedPool := seedPool(marker + " Disallowed Pool")
+	for _, relation := range [][2]uint64{
+		{firstReport, firstPool},
+		{bothReport, firstPool},
+		{bothReport, bothPool},
+		{secondReport, bothPool},
+	} {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO report_pools (report_id, pool_id) VALUES ($1, $2)`,
+			relation[0], relation[1]); err != nil {
+			t.Fatalf("seed report pool: %v", err)
+		}
+	}
+	listReportsByPools := func(ids []uint64, match TagMatch) []uint64 {
+		t.Helper()
+		filter, filterErr := base.WithPoolIDsMatch(ids, match)
+		if filterErr != nil {
+			t.Fatalf("report pool filter: %v", filterErr)
+		}
+		reports, listErr := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 100)
+		if listErr != nil {
+			t.Fatalf("list reports by pools: %v", listErr)
+		}
+		got := make([]uint64, 0, len(reports))
+		for _, report := range reports {
+			got = append(got, report.ID)
+		}
+		slices.Sort(got)
+		return got
+	}
+	if got, want := listReportsByPools([]uint64{firstPool, bothPool}, TagMatchAny),
+		[]uint64{firstReport, bothReport, secondReport}; !slices.Equal(got, want) {
+		t.Errorf("report pool-any IDs = %v, want %v", got, want)
+	}
+	if got := listReportsByPools([]uint64{firstPool, bothPool}, TagMatchAll); !slices.Equal(got, []uint64{bothReport}) {
+		t.Errorf("report pool-all IDs = %v, want [%d]", got, bothReport)
+	}
+	reportPoolFacets, err := pg.ListReportPoolFacets(ctx, tx, base)
+	if err != nil {
+		t.Fatalf("report pool facets: %v", err)
+	}
+	reportPoolCounts := make(map[uint64]uint64, len(reportPoolFacets))
+	for _, facet := range reportPoolFacets {
+		reportPoolCounts[facet.ID] = facet.Count
+	}
+	if reportPoolCounts[firstPool] != 2 || reportPoolCounts[bothPool] != 2 {
+		t.Errorf("report pool counts = %v, want both pools at 2", reportPoolCounts)
+	}
 	for _, relation := range []struct {
 		poolID, voucherID uint64
 		allowed           bool
@@ -1323,6 +1370,67 @@ func TestVoucherRelationshipFiltersForReportsAndPools(t *testing.T) {
 	}
 	if poolCounts[firstVoucher] != 2 || poolCounts[secondVoucher] != 1 {
 		t.Errorf("pool voucher counts = %v, want first=2 second=1", poolCounts)
+	}
+}
+
+func TestReportCreditablePoolFilterMatchesDirectPoolsAndAcceptedVouchers(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	voucherID := seedSearchVoucher(t, tx, searchToken+" Credit Voucher", "CRV")
+	directReport := seedSearchReport(t, tx, searchToken+" Direct Credit", "x")
+	voucherReport := seedSearchReport(t, tx, searchToken+" Voucher Credit", "x")
+	seedSearchReport(t, tx, searchToken+" Unrelated Credit", "x")
+
+	var poolID uint64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO pools (chain_id, address, name, symbol, decimals)
+		VALUES (42220, '0x000000000000000000000000000000000000c001', $1, 'CRP', 6)
+		RETURNING id`, searchToken+" Credit Pool").Scan(&poolID); err != nil {
+		t.Fatalf("seed creditable pool: %v", err)
+	}
+	for _, statement := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO report_pools (report_id, pool_id) VALUES ($1, $2)`, []any{directReport, poolID}},
+		{`INSERT INTO report_vouchers (report_id, voucher_id) VALUES ($1, $2)`, []any{voucherReport, voucherID}},
+		{`INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed) VALUES ($1, $2, true)`, []any{poolID, voucherID}},
+	} {
+		if _, err := tx.Exec(ctx, statement.sql, statement.args...); err != nil {
+			t.Fatalf("seed creditable relationship: %v", err)
+		}
+	}
+
+	filter, err := (CatalogFilter{}).WithCreditablePoolIDs([]uint64{poolID})
+	if err != nil {
+		t.Fatalf("creditable filter: %v", err)
+	}
+	list := func() []uint64 {
+		t.Helper()
+		reports, listErr := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 100)
+		if listErr != nil {
+			t.Fatalf("list creditable reports: %v", listErr)
+		}
+		ids := make([]uint64, 0, len(reports))
+		for _, report := range reports {
+			ids = append(ids, report.ID)
+		}
+		slices.Sort(ids)
+		return ids
+	}
+	want := []uint64{directReport, voucherReport}
+	slices.Sort(want)
+	if got := list(); !slices.Equal(got, want) {
+		t.Fatalf("creditable reports = %v, want %v", got, want)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE vouchers SET active = false WHERE id = $1`, voucherID); err != nil {
+		t.Fatalf("retire voucher: %v", err)
+	}
+	if got := list(); !slices.Equal(got, []uint64{directReport}) {
+		t.Fatalf("after retirement = %v, want direct report only", got)
 	}
 }
 

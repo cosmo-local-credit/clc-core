@@ -43,4 +43,19 @@ func TestMarketplaceDiscoveryQueryExecutesDB(t *testing.T) {
 		false,
 	)
 	require.NoError(t, err)
+
+	_, err = pg.ListMarketplace(
+		ctx,
+		tx,
+		CatalogFilter{Bounds: []CatalogBounds{
+			{MinLng: -180, MinLat: -10, MaxLng: -170, MaxLat: 10},
+			{MinLng: 170, MinLat: -10, MaxLng: 180, MaxLat: 10},
+		}},
+		[]string{"offering", "pool", "voucher", "want", "catalog"},
+		nil,
+		MarketplaceCursor{},
+		2,
+		true,
+	)
+	require.NoError(t, err)
 }

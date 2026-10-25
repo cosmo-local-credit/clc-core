@@ -108,10 +108,12 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Lock the quota user before the voucher, consistently across creation paths.
+	// Lock the quota user before the voucher. Once ownership is authorized, the
+	// count is scoped to this locked voucher rather than to every offering the
+	// account has published.
 	if callerRole != "SUPERADMIN" {
-		if err := a.store.CheckUserResourceLimit(ctx, tx, callerID, "offers"); err != nil {
-			return handleResourceLimitError(c, err)
+		if err := a.store.LockQuotaUser(ctx, tx, callerID); err != nil {
+			return handlePostgresError(c, err)
 		}
 	}
 	voucher, err := a.store.LockVoucherForOfferingCreate(ctx, tx, address)
@@ -129,6 +131,11 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 	if !ok {
 		return handleForbiddenError(c,
 			"only the voucher owner or a superadmin may publish offerings for this voucher")
+	}
+	if callerRole != "SUPERADMIN" {
+		if err := a.store.CheckVoucherOfferingLimit(ctx, tx, callerID, voucher.ID); err != nil {
+			return handleResourceLimitError(c, err)
+		}
 	}
 	unit, handled, err := a.ensureOfferingUnit(c, tx, write.Unit)
 	if handled || err != nil {

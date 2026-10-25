@@ -32,7 +32,7 @@ func recipientTestStore(t *testing.T) *Pg {
 	return concrete
 }
 
-func TestRecipientPhoneSearchMatchesLiteralPrefixes(t *testing.T) {
+func TestRecipientPhoneSearchRequiresTheFullNormalizedNumber(t *testing.T) {
 	pg := recipientTestStore(t)
 	ctx := context.Background()
 	tx, err := pg.Pool().Begin(ctx)
@@ -61,20 +61,19 @@ func TestRecipientPhoneSearchMatchesLiteralPrefixes(t *testing.T) {
         VALUES(100,$1,$2,$3,'071777')`, randomAddress(t, tx), marker+"pool", marker+"symbol")
 	require.NoError(t, err)
 
-	for _, query := range []string{"071", " (071) ", "+071"} {
-		found, err := pg.SearchRecipients(ctx, tx, query, 100, "")
-		require.NoError(t, err)
-		require.Len(t, found, 2)
-		require.Equal(t, marker+"0", found[0].Alias, "exact phone first")
-		require.Equal(t, marker+"1", found[1].Alias)
-	}
-	for query, alias := range map[string]string{"+254 712": marker + "2", "007": marker + "3"} {
+	for query, alias := range map[string]string{
+		"071":              marker + "0",
+		"(071) 234-5678":   marker + "1",
+		"+254 712 345 678": marker + "2",
+		"00712345678":      marker + "3",
+	} {
 		found, err := pg.SearchRecipients(ctx, tx, query, 100, "user")
 		require.NoError(t, err)
 		require.Len(t, found, 1)
 		require.Equal(t, alias, found[0].Alias)
+		require.Equal(t, alias, found[0].Name, "profile names must never leave recipient lookup")
 	}
-	for _, query := range []string{"07", "+0(7)", "999999"} {
+	for _, query := range []string{"07", "+0(7)", "+254 712", "007", "999999"} {
 		found, err := pg.SearchRecipients(ctx, tx, query, 100, "")
 		require.NoError(t, err)
 		require.Empty(t, found)
@@ -83,21 +82,22 @@ func TestRecipientPhoneSearchMatchesLiteralPrefixes(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, found)
 
-	// Keep prefix results bounded, even when many profiles share the prefix.
+	// Keep an exact lookup indexed even when many profiles share a prefix.
 	_, err = tx.Exec(ctx, `INSERT INTO users(blockchain_address,name,email,username,phone,status)
         SELECT '0x' || md5($1 || i::TEXT) || '00000000', 'Phone User',
             $1 || i::TEXT || '@example.test', $1 || i::TEXT, '071555' || i::TEXT, 'APPROVED'
         FROM generate_series(1,10000) i`, marker+"limit")
 	require.NoError(t, err)
-	found, err = pg.SearchRecipients(ctx, tx, "071", 100, "")
+	found, err = pg.SearchRecipients(ctx, tx, "0715559999", 100, "")
 	require.NoError(t, err)
-	require.Len(t, found, 20)
-	require.Equal(t, marker+"0", found[0].Alias)
-	rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+recipientPhoneSearchQuery, "071", 100, "", "071")
+	require.Len(t, found, 1)
+	require.Equal(t, marker+"limit9999", found[0].Alias)
+	rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+recipientPhoneSearchQuery, "0715559999", 100, "")
 	require.NoError(t, err)
 	plan, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(t, err)
-	t.Log("Phone prefix plan on 10,000 matching profiles:\n" + strings.Join(plan, "\n"))
+	require.Contains(t, strings.Join(plan, "\n"), "users_recipient_phone_exact_idx")
+	t.Log("Exact-phone plan on 10,000 same-prefix profiles:\n" + strings.Join(plan, "\n"))
 
 	// Phone input does not change name discovery.
 	found, err = pg.SearchRecipients(ctx, tx, marker+"pool", 100, "")
@@ -534,6 +534,10 @@ func TestRecipientSearchIgnoresPoolSymbols(t *testing.T) {
 	require.Len(t, found, 1)
 	require.Equal(t, "user", found[0].Kind)
 	require.Equal(t, userAddress, found[0].Address)
+	require.Equal(t, "wllr", found[0].Name)
+	found, err = pg.SearchRecipients(ctx, tx, "wll", 100, "user")
+	require.NoError(t, err)
+	require.Empty(t, found, "partial usernames must not enumerate accounts")
 	found, err = pg.SearchRecipients(ctx, tx, "wllr", 100, "pool")
 	require.NoError(t, err)
 	require.Empty(t, found)
@@ -587,6 +591,14 @@ func TestRecipientUnicodeMigrationCollisionRollback(t *testing.T) {
 	tx, err := pg.Pool().Begin(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
+	privacyMigration, err := os.ReadFile("../../migrations/058_report_pools.sql")
+	require.NoError(t, err)
+	privacyParts := strings.Split(string(privacyMigration), "---- create above / drop below ----")
+	require.Len(t, privacyParts, 2)
+	// The Unicode migration predates 058. Restore its legacy index before
+	// exercising its own down/up rollback in isolation.
+	_, err = tx.Exec(ctx, privacyParts[1])
+	require.NoError(t, err)
 	migration, err := os.ReadFile("../../migrations/052_unicode_usernames.sql")
 	require.NoError(t, err)
 	parts := strings.Split(string(migration), "---- create above / drop below ----")

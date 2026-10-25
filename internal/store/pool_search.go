@@ -96,6 +96,7 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 			"    FROM pools p" +
 			whereClause(
 				ownerPredicate(args, "p.owner_address", filter),
+				catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 				poolTagPredicate(args, filter),
 				poolVoucherPredicate(args, filter),
@@ -110,12 +111,13 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 	textMatches := poolTextMatchesCTE(args, filter)
 	matchQuery := "    SELECT text_match.id\n" +
 		"    FROM pool_text_matches text_match"
-	if filter.Owner != "" || filter.Nearby != nil || len(filter.Tags) > 0 || len(filter.VoucherIDs) > 0 {
+	if filter.Owner != "" || filter.Nearby != nil || len(filter.Bounds) > 0 || len(filter.Tags) > 0 || len(filter.VoucherIDs) > 0 {
 		matchQuery = "    SELECT p.id\n" +
 			"    FROM pool_text_matches text_match\n" +
 			"    INNER JOIN pools p ON p.id = text_match.id" +
 			whereClause(
 				ownerPredicate(args, "p.owner_address", filter),
+				catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 				poolTagPredicate(args, filter),
 				poolVoucherPredicate(args, filter),
@@ -153,6 +155,7 @@ func composePoolTagCounts(filter CatalogFilter) composed {
 ` + from +
 		whereClause(
 			ownerPredicate(args, "p.owner_address", filter),
+			catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 			poolVoucherPredicate(args, filter),
 		) + `
@@ -213,6 +216,7 @@ func composePoolVoucherCounts(filter CatalogFilter) composed {
 ` + from +
 		whereClause(
 			ownerPredicate(args, "p.owner_address", filter),
+			catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 			poolTagPredicate(args, filter),
 		) + `
@@ -257,9 +261,8 @@ func (pg *Pg) ListPoolsFiltered(
 	return pools, nil
 }
 
-// ListPoolTagFacets returns the direct pool tag facet for the current search.
-//
-// Pools have no viewport, so the filter is the only narrowing dimension.
+// ListPoolTagFacets returns the direct pool tag facet for the current search
+// and optional viewport.
 func (pg *Pg) ListPoolTagFacets(ctx context.Context, tx pgx.Tx, filter CatalogFilter) ([]TagFacet, error) {
 	return pg.listTagFacets(ctx, tx,
 		composePoolTagCounts(filter),

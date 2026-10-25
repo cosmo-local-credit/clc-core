@@ -3,9 +3,12 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
 
@@ -21,14 +24,34 @@ func handleResourceLimitError(c *echo.Context, err error) error {
 }
 
 func (a *API) userResourceUsageHandler(c *echo.Context) error {
-	id, _, _ := getUserClaims(c)
+	id, callerAddress, callerRole := getUserClaims(c)
+	voucherAddress := strings.TrimSpace(c.QueryParam("voucher"))
+	if voucherAddress != "" && !common.IsHexAddress(voucherAddress) {
+		return respondCatalogSearchError(c, errors.New("voucher must be a valid address"))
+	}
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	usage, err := a.store.GetUserResourceUsage(ctx, tx, id)
+	var usage store.UserResourceUsage
+	if voucherAddress == "" {
+		usage, err = a.store.GetUserResourceUsage(ctx, tx, id)
+	} else {
+		voucher, readErr := a.store.GetAdminVoucherByAddress(ctx, tx, voucherAddress)
+		if errors.Is(readErr, pgx.ErrNoRows) {
+			return offeringVoucherNotFoundError(c)
+		}
+		if readErr != nil {
+			return handlePostgresError(c, readErr)
+		}
+		if callerRole != "SUPERADMIN" &&
+			(voucher.OwnerAddress == nil || !strings.EqualFold(*voucher.OwnerAddress, callerAddress)) {
+			return handleForbiddenError(c, "only the voucher owner or a superadmin may read its offering allowance")
+		}
+		usage, err = a.store.GetUserResourceUsageForVoucher(ctx, tx, id, voucherAddress)
+	}
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
