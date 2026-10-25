@@ -3146,6 +3146,8 @@ A post list item has the fields below. The detail response has more fields.
 | `geoLng` | number or null | Yes | Yes | Longitude. |
 | `periodFrom` | string or null | Yes | Yes | RFC 3339 time. |
 | `periodTo` | string or null | Yes | Yes | RFC 3339 time. |
+| `markerIcon` | string | Yes | Yes | `post`, `event`, or `announcement`. Legacy writes default to `post`. |
+| `markerColor` | string | Yes | Yes | One of the six marker colors. Legacy writes default to `pink`. |
 | `authorAddress` | string | Only in managed user/admin lists | Only in managed user/admin detail | The account of the original author. Public responses never include it. |
 | `status` | string | Only in managed user/admin lists | Only in managed user/admin detail | `DRAFT`, `SUBMITTED`, `APPROVED`, or `REJECTED`. Public responses never include it. |
 | `createdAt` | string | Yes | Yes | RFC 3339 time. |
@@ -3187,6 +3189,7 @@ The response has no `Cache-Control` header, except for `nearby=true`, which sets
 | `voucherMatch` | `any` or `all` | `any` | A post must link any of the vouchers, or all of the vouchers. |
 | `pools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every pool must exist. |
 | `poolMatch` | `any` or `all` | `any` | A post must link any of the pools, or all of the pools. |
+| `creditablePools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. A post matches when it directly links one selected pool or links an active voucher currently allowed by one. At most 100 distinct values. Every pool must exist. |
 | `bbox` | string | none | See section 7.1. Only posts with coordinates inside either supplied box are returned. |
 | `nearby` | `true` or `false` | `false` | Show only posts with coordinates within 1000 km of the saved profile location of the caller. The order does not change. A caller without a saved location gets `400 E04`. |
 | `facets` | `true` or `false` | `false` | With `true` and no cursor, add `tagFacets`, `voucherFacets`, and `poolFacets`. |
@@ -3218,6 +3221,8 @@ A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04
         "geoLng": 36.8172,
         "periodFrom": null,
         "periodTo": null,
+        "markerIcon": "event",
+        "markerColor": "pink",
         "createdAt": "2026-08-01T08:00:00Z",
         "updatedAt": "2026-08-02T08:00:00Z",
         "tags": ["Agriculture"],
@@ -3269,6 +3274,8 @@ The body cannot set `authorAddress`, `status`, or a time. The service takes the 
 | `geoLng` | number | No | From -180 to 180. Send with `geoLat`. |
 | `periodFrom` | string | No | RFC 3339 time. Must not be after `periodTo`. |
 | `periodTo` | string | No | RFC 3339 time. |
+| `markerIcon` | string | No | `post`, `event`, or `announcement`. Omitted writes default to `post` for older clients. |
+| `markerColor` | string | No | `blue`, `purple`, `orange`, `pink`, `cyan`, or `brown`. Omitted writes default to `pink` for older clients. |
 | `hostName` | string | No | Trimmed. At most 200 characters. A blank value is cleared. |
 | `participants` | string | No | Trimmed. At most 100 characters. A blank value is cleared. |
 | `timeTaken` | string | No | Trimmed. At most 100 characters. A blank value is cleared. |
@@ -3299,6 +3306,8 @@ A caller that is not a superadmin can link only vouchers and pools that the call
   "geoLng": 36.8172,
   "periodFrom": "2026-08-01T08:00:00Z",
   "periodTo": "2026-08-01T12:00:00Z",
+  "markerIcon": "event",
+  "markerColor": "pink",
   "hostName": "Example Group",
   "participants": "20",
   "timeTaken": "4 hours",

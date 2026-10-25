@@ -2327,7 +2327,7 @@ WHERE lower(v.address) = lower($1);
 --name: list-reports
 SELECT r.id, r.title, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
-    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.marker_icon, r.marker_color, r.author_address,
     r.created_at, r.updated_at,
     COALESCE((
         SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
@@ -2360,7 +2360,7 @@ LIMIT $1;
 --name: list-reports-next
 SELECT r.id, r.title, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
-    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.marker_icon, r.marker_color, r.author_address,
     r.created_at, r.updated_at,
     COALESCE((
         SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
@@ -2408,7 +2408,7 @@ LIMIT $3;
 --name: get-report
 SELECT r.id, r.title, r.body, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
-    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.marker_icon, r.marker_color, r.author_address,
     r.status, r.created_at, r.updated_at,
     r.host_name, r.participants, r.time_taken,
     COALESCE((
@@ -2473,7 +2473,7 @@ WHERE r.id = $1 AND ($2 OR r.status = 'APPROVED');
 --name: get-managed-report
 SELECT r.id, r.title, r.body, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
-    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.marker_icon, r.marker_color, r.author_address,
     r.status, r.created_at, r.updated_at,
     r.host_name, r.participants, r.time_taken,
     COALESCE((
@@ -2530,9 +2530,9 @@ WHERE r.id = $1
 INSERT INTO reports (
     title, body, description, image_url, geo_lat, geo_lng,
     period_from, period_to, author_address, status,
-    host_name, participants, time_taken
+    host_name, participants, time_taken, marker_icon, marker_color
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING id;
 
 -- The ownership decision and the write share one transaction. Locking the row
@@ -2547,7 +2547,7 @@ FOR UPDATE;
 -- Assign-all editing. source_id, author_address and created_at are deliberately
 -- absent: they are provenance, not post content.
 --
--- status is a conditional write. $14 is NULL for a superadmin edit, so COALESCE
+-- status is a conditional write. $16 is NULL for a superadmin edit, so COALESCE
 -- keeps the row's current state; an author's edit passes 'SUBMITTED' so
 -- replacement content goes back through review. Assigning it here keeps the
 -- authorization decision, the content write and the workflow write inside the
@@ -2566,7 +2566,9 @@ SET title = $2,
     host_name = $11,
     participants = $12,
     time_taken = $13,
-    status = COALESCE($14, status)
+    marker_icon = $14,
+    marker_color = $15,
+    status = COALESCE($16, status)
 WHERE id = $1;
 
 -- Approval is separate from content editing. Neither an author edit nor an

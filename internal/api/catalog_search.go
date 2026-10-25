@@ -55,10 +55,11 @@ type (
 		filter store.CatalogFilter
 		// voucherRefs remain stable public identities until the handler's read
 		// transaction resolves every one to a database ID.
-		voucherRefs  []store.VoucherRef
-		voucherMatch store.TagMatch
-		poolRefs     []store.PoolRef
-		poolMatch    store.TagMatch
+		voucherRefs        []store.VoucherRef
+		voucherMatch       store.TagMatch
+		poolRefs           []store.PoolRef
+		poolMatch          store.TagMatch
+		creditablePoolRefs []store.PoolRef
 		// facets asks for the tag facet alongside the page. It is honoured on
 		// the first page only: a facet describes the whole filtered set rather
 		// than the page, so recomputing it per cursor page would return the
@@ -233,6 +234,19 @@ func parseReportRelationshipSearch(c *echo.Context) (catalogSearchRequest, error
 	if err != nil {
 		return catalogSearchRequest{}, err
 	}
+
+	refs, err = parseCatalogRelationshipRefs(
+		c, "creditablePools", store.CatalogMaxPools, errInvalidPoolRef, store.ErrCatalogTooManyPools,
+	)
+	if err != nil {
+		return catalogSearchRequest{}, err
+	}
+	for _, ref := range refs {
+		search.creditablePoolRefs = append(search.creditablePoolRefs, store.PoolRef{
+			ChainID: ref.chainID,
+			Address: ref.address,
+		})
+	}
 	return search, nil
 }
 
@@ -404,6 +418,28 @@ func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearc
 		return true, respondCatalogSearchError(c, errUnknownPoolRef)
 	}
 	search.filter, err = search.filter.WithPoolIDsMatch(ids, search.poolMatch)
+	if err != nil {
+		return true, respondCatalogSearchError(c, err)
+	}
+	return false, nil
+}
+
+func (a *API) resolveCreditablePoolFilter(
+	c *echo.Context,
+	tx pgx.Tx,
+	search *catalogSearchRequest,
+) (bool, error) {
+	if len(search.creditablePoolRefs) == 0 {
+		return false, nil
+	}
+	ids, err := a.store.ResolvePoolRefs(c.Request().Context(), tx, search.creditablePoolRefs)
+	if err != nil {
+		return true, handlePostgresError(c, err)
+	}
+	if len(ids) != len(search.creditablePoolRefs) {
+		return true, respondCatalogSearchError(c, errUnknownPoolRef)
+	}
+	search.filter, err = search.filter.WithCreditablePoolIDs(ids)
 	if err != nil {
 		return true, respondCatalogSearchError(c, err)
 	}

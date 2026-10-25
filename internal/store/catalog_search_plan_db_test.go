@@ -688,6 +688,13 @@ func TestReportSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 			filter:    CatalogFilter{Term: "harvest", Tags: []string{"Permaculture"}},
 			hasCursor: true,
 		},
+		{
+			name: "substring with creditable pools, cursor page",
+			filter: CatalogFilter{
+				Term: "harvest", CreditablePoolIDs: []uint64{7, 11},
+			},
+			hasCursor: true,
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			query := composeReportPage(testCase.filter, cursor, testCase.hasCursor, 20)

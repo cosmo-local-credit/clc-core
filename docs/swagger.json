@@ -7226,6 +7226,15 @@
             "description": "A post must link any of the pools, or all of the pools."
           },
           {
+            "name": "creditablePools",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Repeat the parameter or use a comma-separated list of 'chainId:address' values. A post matches when it directly links one selected pool or links an active voucher currently allowed by one. At most 100 distinct values. Every pool must exist."
+          },
+          {
             "name": "bbox",
             "in": "query",
             "required": false,
@@ -7301,6 +7310,25 @@
                               "periodTo": {
                                 "description": "The value can be null."
                               },
+                              "markerIcon": {
+                                "type": "string",
+                                "enum": [
+                                  "post",
+                                  "event",
+                                  "announcement"
+                                ]
+                              },
+                              "markerColor": {
+                                "type": "string",
+                                "enum": [
+                                  "blue",
+                                  "purple",
+                                  "orange",
+                                  "pink",
+                                  "cyan",
+                                  "brown"
+                                ]
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time"
@@ -7364,6 +7392,8 @@
                         "geoLng": 36.8172,
                         "periodFrom": null,
                         "periodTo": null,
+                    "markerIcon": "event",
+                    "markerColor": "pink",
                         "createdAt": "2026-08-01T08:00:00Z",
                         "updatedAt": "2026-08-02T08:00:00Z",
                         "tags": [
@@ -7478,6 +7508,27 @@
                     "maxLength": 100,
                     "description": "Trimmed. At most 100 characters. A blank value is cleared."
                   },
+                  "markerIcon": {
+                    "type": "string",
+                    "enum": [
+                      "post",
+                      "event",
+                      "announcement"
+                    ],
+                    "description": "Defaults to 'post' when omitted."
+                  },
+                  "markerColor": {
+                    "type": "string",
+                    "enum": [
+                      "blue",
+                      "purple",
+                      "orange",
+                      "pink",
+                      "cyan",
+                      "brown"
+                    ],
+                    "description": "Defaults to 'pink' when omitted."
+                  },
                   "tags": {
                     "type": "array",
                     "items": {
@@ -7518,6 +7569,8 @@
                 "hostName": "Example Group",
                 "participants": "20",
                 "timeTaken": "4 hours",
+                "markerIcon": "event",
+                "markerColor": "pink",
                 "tags": [
                   "Agriculture",
                   "Youth"
@@ -7744,6 +7797,27 @@
                     "maxLength": 100,
                     "description": "Trimmed. At most 100 characters. A blank value is cleared."
                   },
+                  "markerIcon": {
+                    "type": "string",
+                    "enum": [
+                      "post",
+                      "event",
+                      "announcement"
+                    ],
+                    "description": "Defaults to 'post' when omitted."
+                  },
+                  "markerColor": {
+                    "type": "string",
+                    "enum": [
+                      "blue",
+                      "purple",
+                      "orange",
+                      "pink",
+                      "cyan",
+                      "brown"
+                    ],
+                    "description": "Defaults to 'pink' when omitted."
+                  },
                   "tags": {
                     "type": "array",
                     "items": {
@@ -7784,6 +7858,8 @@
                 "hostName": "Example Group",
                 "participants": "20",
                 "timeTaken": "4 hours",
+                "markerIcon": "event",
+                "markerColor": "pink",
                 "tags": [
                   "Agriculture",
                   "Youth"
@@ -18030,6 +18106,27 @@
               "null"
             ],
             "description": "RFC 3339 time."
+          },
+          "markerIcon": {
+            "type": "string",
+            "enum": [
+              "post",
+              "event",
+              "announcement"
+            ],
+            "description": "Map marker icon."
+          },
+          "markerColor": {
+            "type": "string",
+            "enum": [
+              "blue",
+              "purple",
+              "orange",
+              "pink",
+              "cyan",
+              "brown"
+            ],
+            "description": "Map marker color."
           },
           "authorAddress": {
             "type": "string",

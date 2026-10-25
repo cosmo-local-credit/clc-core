@@ -101,6 +101,9 @@ func TestNormalizeReportWriteCanonicalisesRelations(t *testing.T) {
 	if report.Title != "Community harvest" {
 		t.Fatalf("title = %q", report.Title)
 	}
+	if report.MarkerIcon != "post" || report.MarkerColor != "pink" {
+		t.Fatalf("legacy marker = %s/%s, want post/pink", report.MarkerIcon, report.MarkerColor)
+	}
 	if report.HostName != nil {
 		t.Fatalf("blank hostName = %q, want nil", *report.HostName)
 	}
@@ -120,6 +123,24 @@ func TestNormalizeReportWriteCanonicalisesRelations(t *testing.T) {
 	if len(report.Attachments) != 1 || report.Attachments[0].Filename == nil ||
 		*report.Attachments[0].Filename != "report.pdf" {
 		t.Fatalf("attachments = %+v", report.Attachments)
+	}
+}
+
+func TestNormalizeReportWritePreservesMarkerStyle(t *testing.T) {
+	report, _, err := normalizeReportWrite(apiresp.ReportWriteRequest{
+		Title:       "Market event",
+		MarkerIcon:  "event",
+		MarkerColor: "cyan",
+		Vouchers: []apiresp.ReportVoucherRefRequest{{
+			ChainID: 100,
+			Address: reportOtherAddress,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("normalizeReportWrite() error = %v", err)
+	}
+	if report.MarkerIcon != "event" || report.MarkerColor != "cyan" {
+		t.Fatalf("marker = %s/%s, want event/cyan", report.MarkerIcon, report.MarkerColor)
 	}
 }
 
