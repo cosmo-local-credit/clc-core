@@ -211,7 +211,7 @@ func (a *API) voucherReviewOwnerWrite(c *echo.Context, flag bool) error {
 	if err != nil {
 		return reviewStoreError(c, err)
 	}
-	if voucher.OwnerAddress == nil || !strings.EqualFold(caller, *voucher.OwnerAddress) {
+	if voucher.OwnerAddress == nil || !strings.EqualFold(a.actingOwner(ctx, tx, caller, voucher.OwnerAddress), *voucher.OwnerAddress) {
 		return handleForbiddenError(c, "only the current voucher owner may reply or flag a review")
 	}
 	if flag {

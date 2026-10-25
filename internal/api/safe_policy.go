@@ -105,20 +105,27 @@ func (a *API) enforceSafePolicy(c *echo.Context, req apiresp.RelayRequest) (hand
 // Off-chain catalog edits never pass the Safe's threshold, so any single signer
 // of a multi-signer Safe can act alone here; see SAFE.md, open question 1.
 func (a *API) callerMayManageRecord(ctx context.Context, tx pgx.Tx, callerAddress, callerRole string, ownerAddress *string) bool {
-	if canManageCatalogRecord(callerAddress, callerRole, ownerAddress) {
-		return true
-	}
-	if callerAddress == "" || ownerAddress == nil || !common.IsHexAddress(*ownerAddress) {
-		return false
+	return canManageCatalogRecord(a.actingOwner(ctx, tx, callerAddress, ownerAddress), callerRole, ownerAddress)
+}
+
+// actingOwner is the address to judge a caller by for an owner-only catalog
+// write: the recorded owner when the caller is a fresh signer of the owner
+// Safe, otherwise the caller itself. It lets the pure owner rules
+// (offeringSeller, canWriteVoucherOfferings) serve a Safe's signers unchanged,
+// while anything recorded as the author still uses the real caller.
+func (a *API) actingOwner(ctx context.Context, tx pgx.Tx, callerAddress string, ownerAddress *string) string {
+	if callerAddress == "" || ownerAddress == nil || !common.IsHexAddress(*ownerAddress) ||
+		strings.EqualFold(callerAddress, *ownerAddress) {
+		return callerAddress
 	}
 	state, err := a.freshSafeState(ctx, tx, *ownerAddress)
 	if err != nil || state == nil {
-		return false
+		return callerAddress
 	}
 	for _, signer := range state.Signers {
 		if strings.EqualFold(signer, callerAddress) {
-			return true
+			return *ownerAddress
 		}
 	}
-	return false
+	return callerAddress
 }
