@@ -160,39 +160,46 @@ func (pg *Pg) CheckUserResourceLimit(ctx context.Context, tx pgx.Tx, userID uint
 // compare it after activation: unrelated, pre-existing excess must not block a
 // restoration that does not increase that quota.
 func (pg *Pg) RestoreVoucherWithinLimits(ctx context.Context, tx pgx.Tx, address string) error {
+	_, err := pg.RestoreVoucherWithinLimitsChanged(ctx, tx, address)
+	return err
+}
+
+// RestoreVoucherWithinLimitsChanged reports the state transition under the
+// voucher lock so an audit event cannot be lost to a concurrent retirement.
+func (pg *Pg) RestoreVoucherWithinLimitsChanged(ctx context.Context, tx pgx.Tx, address string) (bool, error) {
 	voucher, err := pg.GetAdminVoucherByAddress(ctx, tx, address)
 	if err != nil {
-		return err
+		return false, err
 	}
 	rows, err := tx.Query(ctx, pg.queries.LockVoucherRestoreUsers, voucher.ID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	userIDs, err := pgx.CollectRows(rows, pgx.RowTo[uint64])
 	if err != nil {
-		return err
+		return false, err
 	}
 	parent, err := pg.LockVoucherForOfferingCreate(ctx, tx, address)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if parent.Active {
-		return nil
+		return false, nil
 	}
 	before := make(map[uint64]UserResourceUsage, len(userIDs))
 	for _, id := range userIDs {
 		before[id], err = pg.GetUserResourceUsage(ctx, tx, id)
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 	if err := pg.SetVoucherActive(ctx, tx, voucher.ID, true); err != nil {
-		return err
+		return false, err
 	}
 	for _, id := range userIDs {
 		after, err := pg.GetUserResourceUsage(ctx, tx, id)
 		if err != nil {
-			return err
+			return false, err
 		}
 		for _, check := range []struct {
 			resource string
@@ -202,7 +209,7 @@ func (pg *Pg) RestoreVoucherWithinLimits(ctx context.Context, tx pgx.Tx, address
 			{"vouchers", before[id].Vouchers, after.Vouchers},
 		} {
 			if !check.after.Unlimited && check.after.Used > check.after.Limit && check.after.Used > check.before.Used {
-				return &ResourceLimitError{Resource: check.resource, Used: check.after.Used, Limit: check.after.Limit}
+				return false, &ResourceLimitError{Resource: check.resource, Used: check.after.Used, Limit: check.after.Limit}
 			}
 		}
 	}
@@ -212,19 +219,19 @@ func (pg *Pg) RestoreVoucherWithinLimits(ctx context.Context, tx pgx.Tx, address
 	if parent.OwnerAddress != nil {
 		owner, ownerErr := pg.GetUserByAddress(ctx, tx, *parent.OwnerAddress)
 		if ownerErr != nil && !errors.Is(ownerErr, pgx.ErrNoRows) {
-			return ownerErr
+			return false, ownerErr
 		}
 		if ownerErr == nil {
 			quota, quotaErr := voucherOfferingQuota(
 				tx.QueryRow(ctx, pg.queries.GetVoucherOfferingQuotaByID, owner.ID, voucher.ID),
 			)
 			if quotaErr != nil {
-				return quotaErr
+				return false, quotaErr
 			}
 			if !quota.Unlimited && quota.Used > quota.Limit {
-				return &ResourceLimitError{Resource: "offers", Used: quota.Used, Limit: quota.Limit}
+				return false, &ResourceLimitError{Resource: "offers", Used: quota.Used, Limit: quota.Limit}
 			}
 		}
 	}
-	return nil
+	return true, nil
 }

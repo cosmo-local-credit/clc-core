@@ -31,7 +31,7 @@ const (
     UNION ALL
     SELECT 'pool', COALESCE(display_name, name), COALESCE(display_name, name), address,
            chain_id
-    FROM pools WHERE ($2::BIGINT = 0 OR chain_id = $2) AND COALESCE(display_name, name) IS NOT NULL
+    FROM pools WHERE active AND ($2::BIGINT = 0 OR chain_id = $2) AND COALESCE(display_name, name) IS NOT NULL
 ) SELECT kind, name, alias, address, chain_id FROM recipients `
 
 	// recipientForwardLookup starts with the unique current claim, then uses
@@ -51,7 +51,7 @@ FROM identity_claims c JOIN pools p ON p.chain_id = CASE
     THEN split_part(c.owner_key, ':', 1)::BIGINT END
     AND lower(p.address) = split_part(c.owner_key, ':', 2)
 WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
-  AND c.owner_kind = 'pool' AND ($2::BIGINT = 0 OR p.chain_id = $2)`
+  AND c.owner_kind = 'pool' AND p.active AND ($2::BIGINT = 0 OR p.chain_id = $2)`
 
 	recipientSearchQuery = recipientProjection + `WHERE ($3 = '' OR kind = $3)
         AND ((kind = 'user' AND normalize_identity_name(alias) = normalize_identity_name($4))

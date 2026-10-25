@@ -10,6 +10,7 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -50,16 +51,29 @@ type (
 )
 
 func (a *API) poolVouchersListHandler(c *echo.Context) error {
-	return a.poolVouchersList(c, false)
+	return a.poolVouchersList(c, false, false)
 }
 
 func (a *API) adminPoolVouchersListHandler(c *echo.Context) error {
-	return a.poolVouchersList(c, true)
+	return a.poolVouchersList(c, true, false)
 }
 
-// includeRetired is selected only by the protected admin route, never a query parameter.
-func (a *API) poolVouchersList(c *echo.Context, includeRetired bool) error {
-	hooks := catalogListHooks{}
+// Retained composition is available only to an admin or the current pool owner.
+func (a *API) poolVouchersList(c *echo.Context, includeRetired, ownerOnly bool) error {
+	hooks := catalogListHooks{
+		validate: func(tx pgx.Tx) (bool, error) {
+			pool, err := a.store.GetPoolByAddress(c.Request().Context(), tx, c.Param("address"))
+			if err != nil {
+				return true, handlePostgresError(c, err)
+			}
+			_, owner, _ := getUserClaims(c)
+			if (!includeRetired && !pool.Active) || (ownerOnly && (pool.OwnerAddress == nil || !strings.EqualFold(*pool.OwnerAddress, owner))) {
+				return true, poolProfileNotFoundError(c)
+			}
+			return false, nil
+		},
+		onSuccess: func(c *echo.Context) { c.Response().Header().Set("Cache-Control", "no-store") },
+	}
 	if includeRetired {
 		hooks.extras = func(tx pgx.Tx) (map[string]any, error) {
 			total, err := a.store.CountAdminPoolVouchers(c.Request().Context(), tx, c.Param("address"))

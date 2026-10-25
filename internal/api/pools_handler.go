@@ -21,6 +21,7 @@ import (
 // matched it. Every page direction applies every active predicate.
 func (a *API) poolsListHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
+	c.Response().Header().Set("Cache-Control", "no-store")
 
 	req := apiresp.CursorPaginationRequest{}
 	if err := c.Bind(&req); err != nil {
@@ -133,11 +134,15 @@ func (a *API) poolsByAddressHandler(c *echo.Context) error {
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
+	if !pool.Active {
+		return poolProfileNotFoundError(c)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
 
+	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok:          true,
 		Description: fmt.Sprintf("Pool at address %s", address),

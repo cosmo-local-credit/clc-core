@@ -43,32 +43,33 @@ type (
 	}
 
 	API struct {
-		listenAddress         string
-		build                 string
-		prod                  bool
-		signingKey            crypto.PrivateKey
-		verifyingKey          crypto.PublicKey
-		siweNonces            *util.SIWENonceStore
-		store                 store.Store
-		federationStore       store.FederationStore
-		logg                  *slog.Logger
-		chainProvider         *ethutils.Provider
-		server                *http.Server
-		router                *echo.Echo
-		queueClient           *river.Client[pgx.Tx]
-		chainID               int64
-		relayer               *relayer.Relayer
-		pretium               *pretium.PretiumClient
-		trustProxy            bool
-		marketLimiter         *marketRateLimiter
-		marketMapUserLimiter  *marketRateLimiter
-		marketMapGuestLimiter *marketRateLimiter
-		poolLimiter           *marketRateLimiter
-		recipientLimiter      *marketRateLimiter
-		marketFacets          *marketFacetCache
-		marketMapCache        *marketMapCache
-		marketMapExecutor     *marketMapExecutor
-		marketMapLoads        singleflight.Group
+		listenAddress           string
+		build                   string
+		prod                    bool
+		signingKey              crypto.PrivateKey
+		verifyingKey            crypto.PublicKey
+		siweNonces              *util.SIWENonceStore
+		store                   store.Store
+		federationStore         store.FederationStore
+		logg                    *slog.Logger
+		chainProvider           *ethutils.Provider
+		server                  *http.Server
+		router                  *echo.Echo
+		queueClient             *river.Client[pgx.Tx]
+		chainID                 int64
+		relayer                 *relayer.Relayer
+		pretium                 *pretium.PretiumClient
+		trustProxy              bool
+		marketLimiter           *marketRateLimiter
+		marketMapUserLimiter    *marketRateLimiter
+		marketMapGuestLimiter   *marketRateLimiter
+		poolLimiter             *marketRateLimiter
+		recipientLimiter        *marketRateLimiter
+		marketFacets            *marketFacetCache
+		marketMapCache          *marketMapCache
+		marketMapExecutor       *marketMapExecutor
+		marketMapLoads          singleflight.Group
+		retirementPreviewReader func(context.Context, pgx.Tx, store.RetirementResource) (store.RetirementPreview, error)
 	}
 )
 
@@ -287,10 +288,16 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/pools/:address/profile", a.updatePoolProfileHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/profile", a.updateVoucherProfileHandler, a.requireUserAuth())
-	// Retiring is an owner capability for the same reason, and the same handler
-	// serves a superadmin through canManageVoucher. Restoring is not symmetric and
-	// lives under /api/v2/admin with the console's voucher reads.
+	// The old immediate-retirement route now returns an upgrade error. Owners
+	// request retirement; superadmins decide and restore through the console.
 	apiGroup.DELETE("/vouchers/:address", a.retireVoucherHandler, a.requireUserAuth())
+	apiGroup.GET("/vouchers/:address/retirement-preview", a.retirementPreviewHandler, a.requireUserAuth())
+	apiGroup.GET("/vouchers/:address/retirement-requests", a.retirementResourceHistoryHandler, a.requireUserAuth())
+	apiGroup.POST("/vouchers/:address/retirement-requests", a.createRetirementRequestHandler, a.requireUserAuth())
+	apiGroup.GET("/pools/:address/retirement-preview", a.retirementPreviewHandler, a.requireUserAuth())
+	apiGroup.GET("/pools/:address/retirement-requests", a.retirementResourceHistoryHandler, a.requireUserAuth())
+	apiGroup.POST("/pools/:address/retirement-requests", a.createRetirementRequestHandler, a.requireUserAuth())
+	apiGroup.PUT("/retirement-requests/:id/cancel", a.decideRetirementRequestHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")
@@ -330,6 +337,10 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)
 	userGroup.GET("/me/pools/:address", a.userPoolByAddressHandler)
+	userGroup.GET("/me/owned-pools", a.ownerPoolsListHandler)
+	userGroup.GET("/me/owned-pools/:address", a.ownerPoolByAddressHandler)
+	userGroup.GET("/me/owned-pools/:address/vouchers", a.ownerPoolVouchersListHandler)
+	userGroup.GET("/me/retirement-requests", a.ownRetirementRequestsHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
 	userGroup.GET("/me/shares/eligibility/:address", a.userShareEligibilityHandler)
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
@@ -352,6 +363,15 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/users/:address/stats", a.adminAccountStatsHandler)
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
+	adminGroup.GET("/pool-catalog", a.adminPoolCatalogHandler)
+	adminGroup.GET("/pools/:address", a.adminPoolByAddressHandler)
+	adminGroup.PUT("/pools/:address/restore", a.adminRestorePoolHandler)
+	adminGroup.GET("/pools/:address/retirement-history", a.retirementResourceHistoryHandler)
+	adminGroup.GET("/vouchers/:address/retirement-history", a.retirementResourceHistoryHandler)
+	adminGroup.GET("/retirement-requests", a.adminRetirementRequestsHandler)
+	adminGroup.GET("/retirement-requests/:id", a.adminRetirementRequestHandler)
+	adminGroup.PUT("/retirement-requests/:id/approve", a.decideRetirementRequestHandler)
+	adminGroup.PUT("/retirement-requests/:id/reject", a.decideRetirementRequestHandler)
 	adminGroup.GET("/pools/:address/vouchers", a.adminPoolVouchersListHandler)
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)
