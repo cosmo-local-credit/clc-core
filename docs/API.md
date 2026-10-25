@@ -1814,6 +1814,7 @@ These query parameters are common to the list routes. A route can accept a subse
 | `tagMatch` | string | `any` | `any` or `all`. Other values return `400` `E04`. |
 | `facets` | boolean | `false` | Value for Go `ParseBool`, for example `true` or `false`. The server computes tag facets on the first page only. |
 | `pools` | string | none | Pool references in the form `chainId:address`. Repeat the parameter or use commas. At most 100 distinct references. The chain ID must be a positive integer. A voucher matches when at least one selected pool allows it. |
+| `bbox` | string | none | A public viewport in the form `minLng,minLat,maxLng,maxLat`. Repeat once with two non-overlapping boxes for a viewport split at the antimeridian. Each box uses finite coordinates in longitude `[-180,180]` and latitude `[-90,90]`, with each minimum not above its maximum. At most two values are accepted. |
 | `nearby` | string | none | `true` or `false`. Other values return `400` `E04`. |
 
 Validation rules for these parameters:
@@ -1821,6 +1822,7 @@ Validation rules for these parameters:
 - A value outside the rules returns `400` with code `E04`. The description names the parameter.
 - A `tags` value outside the tag vocabulary returns `400` `E04`. To read the valid values, retry without `tags` and with `facets=true`.
 - A `pools` reference that does not exist returns `400` `E04`. The server never drops it.
+- `bbox` and `nearby=true` cannot be combined. A bounded request excludes rows without an effective location; an unbounded request preserves the Global catalog behavior.
 
 #### Nearby search
 
@@ -1940,7 +1942,7 @@ Returns active vouchers that have complete coordinates. The route supports a map
 | `perPage` | integer | `500` | Maximum is `500`. `0` or a larger value becomes `500`. |
 | `next` | boolean | `false` | See pagination in section 7.1. |
 | `cursor` | integer | none | A voucher `id`. |
-| `bbox` | string | none | `minLng,minLat,maxLng,maxLat`. Four finite numbers. Longitude from -180 to 180, latitude from -90 to 90, and each minimum not above its maximum. A box cannot cross the antimeridian. Split the viewport into two requests in that case. An invalid value returns `400` `E04`. |
+| `bbox` | string | none | See section 7.1. Repeat the parameter with the two halves of an antimeridian-crossing viewport. |
 | `owner` | string | none | A hex address. The server compares it with the voucher owner and ignores case. An invalid address returns `400` `E04`. |
 | `q`, `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. `q` matches the voucher name and the symbol. The name is the display name when one is set. |
 
@@ -2136,7 +2138,7 @@ Returns available offerings of active vouchers. An offering must have a location
 | `perPage` | integer | `20` | From 1 to 100. |
 | `cursor` | string | none | The `nextCursor` of the previous response. |
 | `q` | string | none | Matches the offering name, the offering description, the voucher name, the voucher symbol and the offering tags. |
-| `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. The tags are the offering tags. |
+| `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby` | | | See section 7.1. The tags are the offering tags. Bounds use the offering location, falling back to its voucher location. |
 
 Status `200`, description `Offerings`. The `result` has these fields:
 
@@ -2158,15 +2160,15 @@ Status `200`, description `Offerings`. The `result` has these fields:
 
 **Access:** Public. A user session is needed when `nearby=true`. See section 7.1 for the rate limit.
 
-Returns one mixed list of offerings, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has `Cache-Control: no-store`.
+Returns one mixed list of offerings, Wants, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has `Cache-Control: no-store`.
 
 | Parameter | Type | Default | Rules |
 |---|---|---|---|
 | `perPage` | integer | `20` | From 1 to 100. |
 | `cursor` | string | none | The `nextCursor` of the previous response. |
-| `kinds` | string | all kinds | Values `catalog`, `offering`, `pool` and `voucher`. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns `400` `E04`. |
+| `kinds` | string | all kinds | Values `catalog`, `offering`, `pool`, `voucher` and `want`. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns `400` `E04`. |
 | `q` | string | none | Matches the name, symbol, description, tags and related names of a row. |
-| `tags`, `tagMatch`, `facets`, `pools`, `nearby` | | | See section 7.1. The tags are the tags of each row. |
+| `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby` | | | See section 7.1. The tags are the tags of each row. |
 
 The server includes only rows that have coordinates. Offerings and vouchers must be available and active. The order is:
 
@@ -2589,6 +2591,7 @@ Returns the pool catalog, newest first.
 | `voucherMatch` | string | `any` | `any` or `all`. Other values return `400` `E04`. |
 | `owner` | string | none | A hex address. The server compares it with the pool owner and ignores case. |
 | `facets` | boolean | `false` | With `true` on the first page, the response has `tagFacets` and `voucherFacets`. |
+| `bbox` | string | none | See section 7.1. Only pools whose coordinates fall inside either supplied box are returned. |
 | `nearby` | string | none | `true` or `false`. Limits the result to pools within 1000 kilometers (see section 7.1). The pool rows have no distance field. |
 
 Status `200`, description `Pools`. The `result` has these fields:
@@ -2899,6 +2902,7 @@ A request with `nearby=true` and no valid session returns `401 E06`. A request w
 |---|---|---|---|
 | `perPage` | integer | `20` | See section 9.1. |
 | `cursor` | string | none | See section 9.1. |
+| `bbox` | string | none | See section 7.1. Only located catalogs inside either supplied box are returned. |
 | `nearby` | `true` or `false` | `false` | Use the saved profile location of the caller. Only catalogs within 1000 km are returned. The response is not cached. |
 | `q` | string | none | Search text. Whitespace is trimmed and repeated spaces become one space. The length must be 2 to 64 characters. The search is not case-sensitive. It matches `name`, `locationName`, and `description`. A term of 2 characters matches the start of the text. A longer term matches any part of the text. |
 | `tags` | string | none | Tag filter. Repeat the parameter or use a comma-separated list. At most 12 distinct values. Each value must exist in the tag vocabulary. The comparison is exact. |
@@ -3111,7 +3115,7 @@ Errors: `400 E04` for a bad ID. `401 E06`. `403 E10` for a service token or a ca
 
 ## 10. Posts
 
-Posts are community reports. The API path uses the word `reports`. A post has text, optional images and attachments, tags, and links to vouchers.
+Posts are community reports. The API path uses the word `reports`. A post has text, optional images and attachments, tags, and links to vouchers and pools. Every new or edited post must link at least one voucher or pool.
 
 All paths in this section start with `/api/v2`.
 This section covers the public reads, the author writes, and the reads of an author for the author own posts.
@@ -3142,12 +3146,13 @@ A post list item has the fields below. The detail response has more fields.
 | `geoLng` | number or null | Yes | Yes | Longitude. |
 | `periodFrom` | string or null | Yes | Yes | RFC 3339 time. |
 | `periodTo` | string or null | Yes | Yes | RFC 3339 time. |
-| `authorAddress` | string | Yes | Yes | The account of the original author. It never changes. |
-| `status` | string | Only in `/users/me/reports` | Yes | `DRAFT`, `SUBMITTED`, `APPROVED`, or `REJECTED`. |
+| `authorAddress` | string | Only in managed user/admin lists | Only in managed user/admin detail | The account of the original author. Public responses never include it. |
+| `status` | string | Only in managed user/admin lists | Only in managed user/admin detail | `DRAFT`, `SUBMITTED`, `APPROVED`, or `REJECTED`. Public responses never include it. |
 | `createdAt` | string | Yes | Yes | RFC 3339 time. |
 | `updatedAt` | string | Yes | Yes | RFC 3339 time. |
 | `tags` | array of string | Yes | Yes | Tags in sorted order. |
 | `vouchers` | array | Yes | Yes | Linked vouchers: `{"id", "chainId", "address", "name", "symbol"}`. `name` and `symbol` can be null. |
+| `pools` | array | Yes | Yes | Linked pools: `{"id", "chainId", "address", "name", "symbol"}`. |
 | `body` | string | No | Yes | Markdown text. Omitted when empty. |
 | `hostName` | string | No | Yes | Free text. Omitted when not set. |
 | `participants` | string | No | Yes | Free text. Omitted when not set. |
@@ -3180,11 +3185,13 @@ The response has no `Cache-Control` header, except for `nearby=true`, which sets
 | `tagMatch` | `any` or `all` | `any` | A post must have any of the tags, or all of the tags. |
 | `vouchers` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every voucher must exist. |
 | `voucherMatch` | `any` or `all` | `any` | A post must link any of the vouchers, or all of the vouchers. |
-| `author` | string | none | A hex account address. Shows only the posts of this author. |
+| `pools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every pool must exist. |
+| `poolMatch` | `any` or `all` | `any` | A post must link any of the pools, or all of the pools. |
+| `bbox` | string | none | See section 7.1. Only posts with coordinates inside either supplied box are returned. |
 | `nearby` | `true` or `false` | `false` | Show only posts with coordinates within 1000 km of the saved profile location of the caller. The order does not change. A caller without a saved location gets `400 E04`. |
-| `facets` | `true` or `false` | `false` | With `true` and no cursor, add `tagFacets` and `voucherFacets`. |
+| `facets` | `true` or `false` | `false` | With `true` and no cursor, add `tagFacets`, `voucherFacets`, and `poolFacets`. |
 
-A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04`. A bad time or ID returns `400 E04`. A tag that is not in the vocabulary returns `400 E04`. A voucher that is not valid, or does not exist, returns `400 E04`.
+A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04`. A bad time or ID returns `400 E04`. A tag that is not in the vocabulary returns `400 E04`. A voucher or pool that is not valid, or does not exist, returns `400 E04`. The obsolete public `author` parameter is rejected with `400 E04` so a caller cannot enumerate a wallet's public posts.
 
 #### Response
 
@@ -3194,6 +3201,7 @@ A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04
 | `next` | object or null | `{"updatedAt": "<RFC 3339 time>", "id": 4633}`. Send the two values as `cursorUpdatedAt` and `cursorId` to get the next page. The value is `null` when the page has fewer than `perPage` posts. A full last page can still give a `next` value, and the next page is then empty. |
 | `tagFacets` | array | Only with `facets=true` and no cursor. Items are `{"tag", "count"}`. It lists only tags that appear on a matching post. The count ignores `tags`. |
 | `voucherFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `vouchers`. |
+| `poolFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `pools`. |
 
 ```json
 {
@@ -3210,11 +3218,13 @@ A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04
         "geoLng": 36.8172,
         "periodFrom": null,
         "periodTo": null,
-        "authorAddress": "0x0000000000000000000000000000000000000001",
         "createdAt": "2026-08-01T08:00:00Z",
         "updatedAt": "2026-08-02T08:00:00Z",
         "tags": ["Agriculture"],
-        "vouchers": []
+        "vouchers": [
+          {"id": 21, "chainId": 100, "address": "0x1111111111111111111111111111111111111111", "name": "Harvest", "symbol": "HRV"}
+        ],
+        "pools": []
       }
     ],
     "next": { "updatedAt": "2026-08-02T08:00:00Z", "id": 4633 }
@@ -3242,9 +3252,10 @@ The response has no `Cache-Control` header.
 ### 10.5 Write body for `POST /api/v2/reports` and `PUT /api/v2/reports/:id`
 
 Both routes use the same body.
-`PUT` replaces all editable fields and all four collections.
+`PUT` replaces all editable fields and all five collections.
 An omitted optional field is cleared. An omitted collection becomes empty.
 A failed request changes nothing.
+At least one of `vouchers` or `pools` must be non-empty.
 
 The body cannot set `authorAddress`, `status`, or a time. The service takes the author from the session.
 
@@ -3263,6 +3274,7 @@ The body cannot set `authorAddress`, `status`, or a time. The service takes the 
 | `timeTaken` | string | No | Trimmed. At most 100 characters. A blank value is cleared. |
 | `tags` | array of string | No | At most 12 values. Each value must not be blank and has at most 100 characters. No duplicates. A tag that is not in the vocabulary is created. See section 11. |
 | `vouchers` | array | No | At most 12 items: `{"chainId": 42220, "address": "0x..."}`. `chainId` must be positive. `address` must be a hex address. No duplicates. Every voucher must exist. |
+| `pools` | array | No | At most 12 items: `{"chainId": 100, "address": "0x..."}`. `chainId` must be positive. `address` must be a hex address. No duplicates. Every pool must exist. |
 | `images` | array | No | At most 50 items. No duplicate URLs. See below. |
 | `attachments` | array | No | At most 20 items. No duplicate `kind` and `url` pairs. See below. |
 
@@ -3275,7 +3287,7 @@ Each item of `attachments` has these fields.
 `byteSize` is an optional integer greater than 0.
 The same URL can appear twice when the two items have different `kind` values.
 
-A caller that is not a superadmin can link only vouchers that the caller owns. Another voucher returns `403 E10`.
+A caller that is not a superadmin can link only vouchers and pools that the caller currently owns. Another account's resource returns `403 E10`. A superadmin can link any catalog voucher or pool. Existing links remain stored after an ownership transfer, but a regular author must remove any resource no longer owned before saving another edit.
 
 ```json
 {
@@ -3294,6 +3306,7 @@ A caller that is not a superadmin can link only vouchers that the caller owns. A
   "vouchers": [
     { "chainId": 42220, "address": "0x1111111111111111111111111111111111111111" }
   ],
+  "pools": [],
   "images": [
     { "url": "https://example.com/posts/1.jpg", "width": 720, "height": 1080, "caption": "Sorting" }
   ],
@@ -3312,9 +3325,9 @@ Creates a post. The status is `APPROVED` at once. There is no review queue. Stat
 | Status | Code | When |
 |---|---|---|
 | `400` | `E02` | The body is not valid JSON. |
-| `400` | `E04` | A field breaks a rule in section 10.5. Also for a voucher that does not exist, and for a tag error. |
+| `400` | `E04` | A field breaks a rule in section 10.5. Also for a voucher or pool that does not exist, and for a tag error. |
 | `401` | `E06` | The request has no valid session. |
-| `403` | `E10` | The caller uses a service token. Or the caller links a voucher that the caller does not own. |
+| `403` | `E10` | The caller uses a service token. Or the caller links a voucher or pool that the caller does not own. |
 
 ### 10.7 `PUT /api/v2/reports/:id`
 
@@ -3327,14 +3340,14 @@ Replaces the post with the body in section 10.5. Status `200`. `description` is 
 | Original author | `APPROVED` |
 | Superadmin | Unchanged |
 
-The body is validated first, then the author, then the tags and vouchers.
+The body is validated first, then the author, then the tags, vouchers, and pools.
 
 | Status | Code | When |
 |---|---|---|
 | `400` | `E02` | The body is not valid JSON. |
 | `400` | `E04` | `:id` is not a positive integer, or a field breaks a rule. |
 | `401` | `E06` | The request has no valid session. |
-| `403` | `E10` | The caller is not the author and not a superadmin. Or a service token. Or a voucher that the caller does not own. |
+| `403` | `E10` | The caller is not the author and not a superadmin. Or a service token. Or a voucher or pool that the caller does not own. |
 | `404` | `E03` | The post does not exist. |
 
 ### 10.8 `PUT /api/v2/reports/:id/approve`
@@ -3349,7 +3362,7 @@ Errors: `400 E04` for a bad `:id`. `403 E10` for a caller that is not a superadm
 
 **Access:** Superadmin.
 
-Deletes the post with its tags, voucher links, images, and attachments. An author cannot delete the own post. Status `200`. `description` is `Report deleted`. `result` is `{"id": 4633}`.
+Deletes the post with its tags, voucher links, pool links, images, and attachments. An author cannot delete the own post. Status `200`. `description` is `Report deleted`. `result` is `{"id": 4633}`.
 
 Errors: `400 E04` for a bad `:id`. `403 E10` for a caller that is not a superadmin. `404 E03` when the post does not exist.
 
@@ -3558,7 +3571,7 @@ A recipient is a public identity that can receive a payment: an approved user wi
 | Field | Type | Description |
 |---|---|---|
 | `kind` | `user` or `pool` | Type of the recipient. |
-| `name` | string | The name of the user, or the username when the user has no name. For a pool: the display name or the name. |
+| `name` | string | For a user, the username. Profile names are never returned. For a pool: the display name or the name. |
 | `alias` | string | The username, or for a pool the display name or the name. |
 | `address` | string | Account address. |
 | `chainId` | number | Chain ID. For a user, the chain ID of the service. |
@@ -3590,16 +3603,16 @@ Searches recipients.
 Rules:
 
 - The route returns at most 20 recipients, in `result.recipients`. The array is empty when there are no matches.
-- A text search matches any part of the username of a user, or the name of a pool. The comparison ignores case and uses the same normalization as the username rules.
+- A user matches only when `q` is the exact username after case-insensitive normalization. Prefixes and partial usernames return no user. A pool name remains a public partial-text search.
 - Only approved users with a username are searched. Pools are limited to the chain of the service.
 - The order is: exact name matches first, then the lower-case alias, then `kind`, then `address`.
 - Phone search: the service treats `q` as a phone number when it has digits. It can also have a leading `+`, spaces, parentheses and hyphens.
-  After the service removes these characters, at least 3 digits must remain.
-  Then the route also searches approved users with a username by the start of the stored phone number.
+  After the service removes these characters, the complete normalized phone number must exactly match the stored number. Phone prefixes return nothing.
   The route keeps every digit, including leading zeros.
   For example, `071` is not changed to an international number.
-- With a phone search, the order is: exact name matches, then phone matches (exact phone first), then other name matches. A phone search returns only users for the phone part. A pool phone is never searched.
+- A phone search returns only users for the phone part. A pool phone is never searched.
 - A phone number is never in the response.
+- This route uses a recipient-specific throttle keyed by the caller identity, or by client IP for non-user credentials: one request per second with a burst of 30. It does not consume the Marketplace rate-limit budget.
 - A bad `q` or `kind` returns `400 E04`.
 
 ```json
@@ -3610,7 +3623,7 @@ Rules:
     "recipients": [
       {
         "kind": "user",
-        "name": "Amina",
+        "name": "amina",
         "alias": "amina",
         "address": "0x0000000000000000000000000000000000000001",
         "chainId": 42220
@@ -4295,7 +4308,8 @@ Returns the profile of the caller.
 | `preferredCurrency`, `bio`, `website`, `locationName`, `geoLat`, `geoLng`, `avatarUrl` | mixed | Profile fields. Not present if not set. |
 | `role` | string | `USER` or `SUPERADMIN`. |
 | `status` | string | `PENDING`, `APPROVED` or `REJECTED`. |
-| `maxPools`, `maxTokens`, `maxCatalogs`, `maxOffers` | number | Limits for pools, vouchers, catalogs and offerings. |
+| `maxPools`, `maxTokens`, `maxCatalogs` | number | Limits for pools, vouchers and catalogs. |
+| `maxOffers` | number | Maximum available offerings on each voucher the user owns. |
 | `createdAt`, `updatedAt` | string | RFC 3339 times. |
 
 **Errors:** `404` with code `E07` if the user record does not exist.
@@ -4306,6 +4320,12 @@ Returns the profile of the caller.
 
 Returns how much of each limit the caller used.
 The response has the header `Cache-Control: no-store`.
+
+Optional query parameter:
+
+| Parameter | Type | Meaning |
+|---|---|---|
+| `voucher` | address | Return `offers` usage for this voucher. The caller must own the voucher, unless the caller is a superadmin. Other resource counts remain the caller's normal aggregate counts. Without this parameter, `offers` retains the legacy account-wide aggregate for older clients. |
 
 **Response `200`:**
 
@@ -4318,7 +4338,8 @@ The response has the header `Cache-Control: no-store`.
       "vouchers": { "used": 1, "limit": 1, "unlimited": false, "canCreate": false },
       "pools": { "used": 2, "limit": 10, "unlimited": false, "canCreate": true },
       "catalogs": { "used": 0, "limit": 1, "unlimited": false, "canCreate": true },
-      "offers": { "used": 3, "limit": 3, "unlimited": false, "canCreate": false }
+      "offers": { "used": 2, "limit": 3, "unlimited": false, "canCreate": true },
+      "wants": { "used": 1, "limit": 3, "unlimited": false, "canCreate": true }
     }
   }
 }
@@ -4332,7 +4353,9 @@ The response has the header `Cache-Control: no-store`.
 | `canCreate` | boolean | `true` if the user is unlimited or `used` is below `limit`. |
 
 A voucher deploy counts until the deploy fails on chain or the voucher is retired.
-An offering counts while it is available and its voucher is active.
+When `voucher` is supplied, an offering counts while it is available on that voucher. Each voucher receives the user's full `maxOffers` allowance independently. Unavailable offerings release their slot. Existing offerings remain visible and editable after an ownership transfer even when their count exceeds the new owner's allowance; only additional creation is blocked.
+
+**Errors:** `400` with code `E04` for a malformed voucher address, `403` with code `E10` when a non-superadmin does not own the voucher, and `404` with code `E07` when the voucher is unknown.
 
 ### 14.3 `GET /api/v2/users/me/vouchers`
 
@@ -4877,7 +4900,7 @@ The description is `Users list`. The result has the keys `users`, `first` and `l
 | `maxPools` | integer | Pool limit. |
 | `maxTokens` | integer | Voucher limit. |
 | `maxCatalogs` | integer | Catalog limit. |
-| `maxOffers` | integer | Offering limit. |
+| `maxOffers` | integer | Offering limit per voucher. |
 | `createdAt` | string | RFC 3339 time. |
 | `updatedAt` | string | RFC 3339 time. |
 
@@ -4940,7 +4963,7 @@ Change the creation limits of an account. The server changes only the fields tha
 | `maxPools` | integer | No | Pool limit. The value must be from `0` to `2147483647`. |
 | `maxTokens` | integer | No | Voucher limit. The value must be from `0` to `2147483647`. |
 | `maxCatalogs` | integer | No | Catalog limit. The value must be from `0` to `2147483647`. |
-| `maxOffers` | integer | No | Offering limit. The value must be from `0` to `2147483647`. |
+| `maxOffers` | integer | No | Offering limit per voucher. The value must be from `0` to `2147483647`. |
 
 A field that is absent or `null` keeps its old value. A body with no fields changes nothing and still returns `200`.
 

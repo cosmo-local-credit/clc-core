@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -79,6 +80,39 @@ func TestMarketLimiterRefillsOverTime(t *testing.T) {
 	clock.Advance(time.Second)
 	if allowed, _ := limiter.allow("198.51.100.7"); !allowed {
 		t.Fatal("expected one refilled token after one second")
+	}
+}
+
+func TestRecipientLimiterUsesItsOwnSmallerBudget(t *testing.T) {
+	clock := newFakeClock()
+	market := newMarketRateLimiter(marketRateLimit, marketRateBurst, clock.Now)
+	recipients := newMarketRateLimiter(recipientRateLimit, recipientRateBurst, clock.Now)
+	const caller = "0x00000000000000000000000000000000000000aa"
+
+	for range recipientRateBurst {
+		if allowed, _ := recipients.allow(caller); !allowed {
+			t.Fatal("recipient lookup was limited inside its configured burst")
+		}
+	}
+	if allowed, _ := recipients.allow(caller); allowed {
+		t.Fatal("recipient lookup beyond the 30-request burst was allowed")
+	}
+	if allowed, _ := market.allow(caller); !allowed {
+		t.Fatal("recipient lookups consumed the caller's Marketplace budget")
+	}
+}
+
+func TestRecipientLimiterCaseFoldsAuthenticatedCallerKeys(t *testing.T) {
+	clock := newFakeClock()
+	limiter := newMarketRateLimiter(recipientRateLimit, recipientRateBurst, clock.Now)
+	lower := "0x00000000000000000000000000000000000000aa"
+	upper := strings.ToUpper(lower)
+
+	for range recipientRateBurst {
+		limiter.allow(strings.ToLower(strings.TrimSpace(upper)))
+	}
+	if allowed, _ := limiter.allow(strings.ToLower(lower)); allowed {
+		t.Fatal("wallet-address casing created a second recipient lookup budget")
 	}
 }
 

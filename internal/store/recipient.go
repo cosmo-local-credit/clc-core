@@ -25,7 +25,7 @@ type (
 
 const (
 	recipientProjection = `WITH recipients AS (
-    SELECT 'user'::TEXT AS kind, COALESCE(NULLIF(name, ''), username) AS name,
+    SELECT 'user'::TEXT AS kind, username AS name,
            username AS alias, blockchain_address AS address, $2::BIGINT AS chain_id
     FROM users WHERE username IS NOT NULL AND status = 'APPROVED'
     UNION ALL
@@ -38,7 +38,7 @@ const (
 	// existing address indexes to load its public owner. Deployment reservations
 	// never resolve as recipients.
 	recipientForwardLookup = `SELECT 'user'::TEXT AS kind,
-    COALESCE(NULLIF(u.name, ''), u.username) AS name, u.username AS alias,
+    u.username AS name, u.username AS alias,
     u.blockchain_address AS address, $2::BIGINT AS chain_id
 FROM identity_claims c JOIN users u ON lower(u.blockchain_address) = c.owner_key
 WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
@@ -54,18 +54,18 @@ WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
   AND c.owner_kind = 'pool' AND ($2::BIGINT = 0 OR p.chain_id = $2)`
 
 	recipientSearchQuery = recipientProjection + `WHERE ($3 = '' OR kind = $3)
-        AND normalize_identity_name(alias) LIKE '%' || normalize_identity_name($1) || '%' ESCAPE '\'
+        AND ((kind = 'user' AND normalize_identity_name(alias) = normalize_identity_name($4))
+          OR (kind = 'pool' AND normalize_identity_name(alias) LIKE '%' || normalize_identity_name($1) || '%' ESCAPE '\'))
         ORDER BY (normalize_identity_name(alias) = normalize_identity_name($4)) DESC,
                  lower(alias), kind, address LIMIT 20`
 
 	recipientPhoneSearchQuery = `SELECT 'user'::TEXT AS kind,
-    COALESCE(NULLIF(name, ''), username) AS name, username AS alias,
+    username AS name, username AS alias,
     blockchain_address AS address, $2::BIGINT AS chain_id
 FROM users
 WHERE username IS NOT NULL AND status = 'APPROVED' AND ($3 = '' OR $3 = 'user')
-  AND starts_with(regexp_replace(phone, '[+[:space:]()-]', '', 'g'), $1)
-ORDER BY (regexp_replace(phone, '[+[:space:]()-]', '', 'g') = $4) DESC,
-         lower(username), blockchain_address LIMIT 20`
+  AND regexp_replace(phone, '[^0-9]', '', 'g') = $1
+ORDER BY lower(username), blockchain_address LIMIT 20`
 
 	recipientDeploymentOwnersQuery = `SELECT owner_key FROM identity_claims
         WHERE starts_with(owner_key, 'deploy:') FOR UPDATE SKIP LOCKED`
@@ -76,7 +76,7 @@ var (
 	ErrNoUsernameAvailable = errors.New("no username available for this hint")
 
 	recipientPhonePattern    = regexp.MustCompile(`^\+?[0-9\s()-]*[0-9][0-9\s()-]*$`)
-	recipientPhoneFormatting = regexp.MustCompile(`[+\s()-]`)
+	recipientPhoneFormatting = regexp.MustCompile(`[^0-9]`)
 )
 
 func ValidUsername(name string) bool {
@@ -170,7 +170,7 @@ func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, cha
 	rows.Close()
 	if recipientPhonePattern.MatchString(strings.TrimSpace(query)) {
 		phone := recipientPhoneFormatting.ReplaceAllString(strings.TrimSpace(query), "")
-		if len(phone) >= 3 {
+		if phone != "" {
 			nameMatches := result
 			result = []Recipient{}
 			for _, r := range nameMatches {
@@ -178,7 +178,7 @@ func (pg *Pg) SearchRecipients(ctx context.Context, tx pgx.Tx, query string, cha
 					result = append(result, r)
 				}
 			}
-			phoneRows, err := tx.Query(ctx, recipientPhoneSearchQuery, phone, chainID, kind, phone)
+			phoneRows, err := tx.Query(ctx, recipientPhoneSearchQuery, phone, chainID, kind)
 			if err != nil {
 				return nil, err
 			}

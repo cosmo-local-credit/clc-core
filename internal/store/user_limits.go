@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,7 @@ type (
 		MaxTokens   *int
 		MaxCatalogs *int
 		MaxOffers   *int
+		MaxWants    *int
 	}
 
 	ResourceQuota struct {
@@ -27,6 +29,7 @@ type (
 		Pools    ResourceQuota `json:"pools"`
 		Catalogs ResourceQuota `json:"catalogs"`
 		Offers   ResourceQuota `json:"offers"`
+		Wants    ResourceQuota `json:"wants"`
 	}
 
 	ResourceLimitError struct {
@@ -47,17 +50,78 @@ func (pg *Pg) GetUserResourceUsage(ctx context.Context, tx pgx.Tx, userID uint64
 	var usage UserResourceUsage
 	var role string
 	err := tx.QueryRow(ctx, pg.queries.GetUserResourceUsage, userID).Scan(
-		&role, &usage.Vouchers.Limit, &usage.Pools.Limit, &usage.Catalogs.Limit, &usage.Offers.Limit,
-		&usage.Vouchers.Used, &usage.Pools.Used, &usage.Catalogs.Used, &usage.Offers.Used,
+		&role, &usage.Vouchers.Limit, &usage.Pools.Limit, &usage.Catalogs.Limit, &usage.Offers.Limit, &usage.Wants.Limit,
+		&usage.Vouchers.Used, &usage.Pools.Used, &usage.Catalogs.Used, &usage.Offers.Used, &usage.Wants.Used,
 	)
 	if err != nil {
 		return usage, err
 	}
-	for _, quota := range []*ResourceQuota{&usage.Vouchers, &usage.Pools, &usage.Catalogs, &usage.Offers} {
+	for _, quota := range []*ResourceQuota{&usage.Vouchers, &usage.Pools, &usage.Catalogs, &usage.Offers, &usage.Wants} {
 		quota.Unlimited = role == "SUPERADMIN"
 		quota.CanCreate = quota.Unlimited || quota.Used < quota.Limit
 	}
 	return usage, nil
+}
+
+// LockQuotaUser serializes allowance checks and admin limit changes for one
+// account. Offering creation takes this lock before the voucher lock, then
+// counts the locked voucher, so concurrent creates cannot both claim the final
+// per-voucher slot.
+func (pg *Pg) LockQuotaUser(ctx context.Context, tx pgx.Tx, userID uint64) error {
+	var lockedID uint64
+	return tx.QueryRow(ctx, pg.queries.LockQuotaUser, userID).Scan(&lockedID)
+}
+
+func voucherOfferingQuota(row pgx.Row) (ResourceQuota, error) {
+	var quota ResourceQuota
+	var role string
+	var used int64
+	if err := row.Scan(&role, &quota.Limit, &used); err != nil {
+		return quota, err
+	}
+	quota.Used = int(used)
+	quota.Unlimited = role == "SUPERADMIN"
+	quota.CanCreate = quota.Unlimited || quota.Used < quota.Limit
+	return quota, nil
+}
+
+// GetUserResourceUsageForVoucher preserves the legacy aggregate resource
+// response while replacing only Offers with the authorized voucher's exact
+// count. An unknown voucher and a voucher belonging to another user both return
+// pgx.ErrNoRows, so the handler does not disclose catalog membership.
+func (pg *Pg) GetUserResourceUsageForVoucher(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID uint64,
+	voucherAddress string,
+) (UserResourceUsage, error) {
+	usage, err := pg.GetUserResourceUsage(ctx, tx, userID)
+	if err != nil {
+		return usage, err
+	}
+	usage.Offers, err = voucherOfferingQuota(
+		tx.QueryRow(ctx, pg.queries.GetVoucherOfferingQuota, userID, voucherAddress),
+	)
+	return usage, err
+}
+
+// CheckVoucherOfferingLimit applies max_offers independently to one voucher.
+// The caller must already hold the quota-user lock and the voucher row lock.
+func (pg *Pg) CheckVoucherOfferingLimit(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID, voucherID uint64,
+) error {
+	quota, err := voucherOfferingQuota(
+		tx.QueryRow(ctx, pg.queries.GetVoucherOfferingQuotaByID, userID, voucherID),
+	)
+	if err != nil {
+		return err
+	}
+	if !quota.CanCreate {
+		return &ResourceLimitError{Resource: "offers", Used: quota.Used, Limit: quota.Limit}
+	}
+	return nil
 }
 
 // CheckUserResourceLimit must run before resource locks. The caller must insert
@@ -65,8 +129,7 @@ func (pg *Pg) GetUserResourceUsage(ctx context.Context, tx pgx.Tx, userID uint64
 // The separate count statement sees a preceding creator's commit after waiting
 // for the user lock under READ COMMITTED. Admin allowance updates use this row too.
 func (pg *Pg) CheckUserResourceLimit(ctx context.Context, tx pgx.Tx, userID uint64, resource string) error {
-	var lockedID uint64
-	if err := tx.QueryRow(ctx, pg.queries.LockQuotaUser, userID).Scan(&lockedID); err != nil {
+	if err := pg.LockQuotaUser(ctx, tx, userID); err != nil {
 		return err
 	}
 	usage, err := pg.GetUserResourceUsage(ctx, tx, userID)
@@ -81,8 +144,8 @@ func (pg *Pg) CheckUserResourceLimit(ctx context.Context, tx pgx.Tx, userID uint
 		quota = usage.Pools
 	case "catalogs":
 		quota = usage.Catalogs
-	case "offers":
-		quota = usage.Offers
+	case "wants":
+		quota = usage.Wants
 	default:
 		return fmt.Errorf("unknown quota resource %q", resource)
 	}
@@ -137,10 +200,29 @@ func (pg *Pg) RestoreVoucherWithinLimits(ctx context.Context, tx pgx.Tx, address
 			after    ResourceQuota
 		}{
 			{"vouchers", before[id].Vouchers, after.Vouchers},
-			{"offers", before[id].Offers, after.Offers},
 		} {
 			if !check.after.Unlimited && check.after.Used > check.after.Limit && check.after.Used > check.before.Used {
 				return &ResourceLimitError{Resource: check.resource, Used: check.after.Used, Limit: check.after.Limit}
+			}
+		}
+	}
+	// Restoring an inactive voucher makes every retained available offering
+	// public again. Validate that voucher against its current registered owner;
+	// historical sellers and the original deployer no longer define this quota.
+	if parent.OwnerAddress != nil {
+		owner, ownerErr := pg.GetUserByAddress(ctx, tx, *parent.OwnerAddress)
+		if ownerErr != nil && !errors.Is(ownerErr, pgx.ErrNoRows) {
+			return ownerErr
+		}
+		if ownerErr == nil {
+			quota, quotaErr := voucherOfferingQuota(
+				tx.QueryRow(ctx, pg.queries.GetVoucherOfferingQuotaByID, owner.ID, voucher.ID),
+			)
+			if quotaErr != nil {
+				return quotaErr
+			}
+			if !quota.Unlimited && quota.Used > quota.Limit {
+				return &ResourceLimitError{Resource: "offers", Used: quota.Used, Limit: quota.Limit}
 			}
 		}
 	}

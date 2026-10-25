@@ -19,8 +19,7 @@ var (
 const (
 	// marketMaxPerPage is both the default and the maximum page size for the
 	// public market catalog. It is deliberately higher than catalogMaxPerPage:
-	// the map client bulk-imports the whole catalog so its cluster counts are
-	// correct, and doing that 100 rows at a time would be 22 round trips.
+	// viewport maps can hydrate dense marker sets without excessive round trips.
 	marketMaxPerPage = 500
 )
 
@@ -29,34 +28,44 @@ const (
 // The parsed box is never interpolated into SQL; it only selects the bounded
 // prepared statement and supplies its parameters.
 func parseMarketBounds(raw string) (*store.MarketVoucherBounds, error) {
-	if raw == "" {
-		return nil, nil
-	}
-
-	parts := strings.Split(raw, ",")
-	if len(parts) != 4 {
-		return nil, errInvalidBbox
-	}
-
-	var values [4]float64
-	for i, part := range parts {
-		value, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
-		if err != nil {
-			return nil, errInvalidBbox
-		}
-		values[i] = value
-	}
-
-	bounds := store.MarketVoucherBounds{
-		MinLng: values[0],
-		MinLat: values[1],
-		MaxLng: values[2],
-		MaxLat: values[3],
-	}
-	if err := bounds.Validate(); err != nil {
+	bounds, err := parseMarketBoundsValues([]string{raw})
+	if err != nil || len(bounds) == 0 {
 		return nil, err
 	}
-	return &bounds, nil
+	return &bounds[0], nil
+}
+
+func parseMarketBoundsValues(rawValues []string) ([]store.CatalogBounds, error) {
+	parsed := make([]store.CatalogBounds, 0, len(rawValues))
+	for _, raw := range rawValues {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		parts := strings.Split(raw, ",")
+		if len(parts) != 4 {
+			return nil, errInvalidBbox
+		}
+
+		var values [4]float64
+		for i, part := range parts {
+			value, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+			if err != nil {
+				return nil, errInvalidBbox
+			}
+			values[i] = value
+		}
+
+		parsed = append(parsed, store.CatalogBounds{
+			MinLng: values[0],
+			MinLat: values[1],
+			MaxLng: values[2],
+			MaxLat: values[3],
+		})
+	}
+	if len(parsed) == 0 {
+		return nil, nil
+	}
+	return store.NormalizeCatalogBounds(parsed)
 }
 
 // voucherByAddressHandler serves the public detail view for one voucher: the

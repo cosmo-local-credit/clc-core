@@ -37,8 +37,10 @@ const (
 	// visitor would have been 429'd for using the feature normally. 60 covers the
 	// enumerated 36 with margin for the exhaustion pages a filtered set over 500
 	// rows adds.
-	marketRateLimit = rate.Limit(1) // one token per second == 60/min
-	marketRateBurst = 60
+	marketRateLimit    = rate.Limit(1) // one token per second == 60/min
+	marketRateBurst    = 60
+	recipientRateLimit = rate.Limit(1)
+	recipientRateBurst = 30
 
 	// The registry is bounded and swept so forged source addresses cannot grow
 	// it without bound.
@@ -159,6 +161,23 @@ func (a *API) marketRateLimitMiddleware() echo.MiddlewareFunc {
 	}
 }
 
+// recipientRateLimitMiddleware isolates authenticated identity lookups from
+// public Marketplace discovery. User sessions are keyed by their verified
+// wallet; non-user credentials fall back to the same trusted client-IP rules
+// as public traffic.
+func (a *API) recipientRateLimitMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			_, address, _ := getUserClaims(c)
+			key := strings.ToLower(strings.TrimSpace(address))
+			if key == "" {
+				key = marketClientIP(c.Request(), a.trustProxy)
+			}
+			return a.throttleKey(c, a.recipientLimiter, key, next)
+		}
+	}
+}
+
 // poolCatalogMiddleware opens the pool reads to signed-out visitors, so the
 // map's voucher card can list the pools that hold a voucher. A caller with a
 // valid credential passes unthrottled and keeps its caller context, exactly as
@@ -181,7 +200,11 @@ func (a *API) poolCatalogMiddleware() echo.MiddlewareFunc {
 // throttle spends one of the client's tokens from limiter, answering 429 with
 // Retry-After once they run out.
 func (a *API) throttle(c *echo.Context, limiter *marketRateLimiter, next echo.HandlerFunc) error {
-	allowed, retryAfter := limiter.allow(marketClientIP(c.Request(), a.trustProxy))
+	return a.throttleKey(c, limiter, marketClientIP(c.Request(), a.trustProxy), next)
+}
+
+func (a *API) throttleKey(c *echo.Context, limiter *marketRateLimiter, key string, next echo.HandlerFunc) error {
+	allowed, retryAfter := limiter.allow(key)
 	if allowed {
 		return next(c)
 	}

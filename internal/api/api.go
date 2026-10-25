@@ -43,26 +43,27 @@ type (
 	}
 
 	API struct {
-		listenAddress   string
-		build           string
-		prod            bool
-		signingKey      crypto.PrivateKey
-		verifyingKey    crypto.PublicKey
-		siweNonces      *util.SIWENonceStore
-		store           store.Store
-		federationStore store.FederationStore
-		logg            *slog.Logger
-		chainProvider   *ethutils.Provider
-		server          *http.Server
-		router          *echo.Echo
-		queueClient     *river.Client[pgx.Tx]
-		chainID         int64
-		relayer         *relayer.Relayer
-		pretium         *pretium.PretiumClient
-		trustProxy      bool
-		marketLimiter   *marketRateLimiter
-		poolLimiter     *marketRateLimiter
-		marketFacets    *marketFacetCache
+		listenAddress    string
+		build            string
+		prod             bool
+		signingKey       crypto.PrivateKey
+		verifyingKey     crypto.PublicKey
+		siweNonces       *util.SIWENonceStore
+		store            store.Store
+		federationStore  store.FederationStore
+		logg             *slog.Logger
+		chainProvider    *ethutils.Provider
+		server           *http.Server
+		router           *echo.Echo
+		queueClient      *river.Client[pgx.Tx]
+		chainID          int64
+		relayer          *relayer.Relayer
+		pretium          *pretium.PretiumClient
+		trustProxy       bool
+		marketLimiter    *marketRateLimiter
+		poolLimiter      *marketRateLimiter
+		recipientLimiter *marketRateLimiter
+		marketFacets     *marketFacetCache
 	}
 )
 
@@ -76,27 +77,29 @@ func New(o APIOpts) *API {
 	siweNonces.StartCleanup(time.Minute)
 
 	a := &API{
-		prod:            o.Prod,
-		build:           o.Build,
-		signingKey:      o.SigningKey,
-		verifyingKey:    o.VerifyingKey,
-		siweNonces:      siweNonces,
-		listenAddress:   o.ListenAddress,
-		logg:            o.Logg,
-		store:           o.Store,
-		federationStore: o.FederationStore,
-		chainProvider:   o.ChainProvider,
-		queueClient:     o.QueueClient,
-		chainID:         o.ChainID,
-		relayer:         o.Relayer,
-		pretium:         o.Pretium,
-		trustProxy:      o.TrustProxy,
-		marketLimiter:   newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
-		poolLimiter:     newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
-		marketFacets:    newMarketFacetCache(time.Now),
+		prod:             o.Prod,
+		build:            o.Build,
+		signingKey:       o.SigningKey,
+		verifyingKey:     o.VerifyingKey,
+		siweNonces:       siweNonces,
+		listenAddress:    o.ListenAddress,
+		logg:             o.Logg,
+		store:            o.Store,
+		federationStore:  o.FederationStore,
+		chainProvider:    o.ChainProvider,
+		queueClient:      o.QueueClient,
+		chainID:          o.ChainID,
+		relayer:          o.Relayer,
+		pretium:          o.Pretium,
+		trustProxy:       o.TrustProxy,
+		marketLimiter:    newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
+		poolLimiter:      newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
+		recipientLimiter: newMarketRateLimiter(recipientRateLimit, recipientRateBurst, time.Now),
+		marketFacets:     newMarketFacetCache(time.Now),
 	}
 	a.marketLimiter.startSweeper()
 	a.poolLimiter.startSweeper()
+	a.recipientLimiter.startSweeper()
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
 	router := echo.New()
@@ -186,6 +189,10 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/offerings", a.offeringsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/wants", a.wantsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/wants/:id", a.wantDetailHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/wants/:id/vouchers", a.wantCreatorVouchersListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/wants/:id/pools", a.wantCreatorPoolsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/marketplace", a.marketplaceListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	// User-curated catalogs are public to browse; nearby discovery uses the
 	// viewer's saved profile location and therefore requires a user session.
@@ -205,6 +212,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/pools/:address", a.poolsByAddressHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/vouchers", a.poolVouchersListHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/offerings", a.poolOfferingsListHandler, a.poolCatalogMiddleware())
+	router.GET(apiVersion+"/pools/:address/wants", a.poolWantsListHandler, a.poolCatalogMiddleware())
 
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
@@ -233,11 +241,11 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/units-of-account", a.unitsOfAccountHandler, a.requireUserAuth())
 	apiGroup.GET("/symbols", a.symbolsLookupHandler)
 	apiGroup.GET("/names", a.namesLookupHandler)
-	apiGroup.GET("/recipients", a.recipientSearchHandler)
+	apiGroup.GET("/recipients", a.recipientSearchHandler, a.recipientRateLimitMiddleware())
 	router.GET(apiVersion+"/recipients/suggest", a.usernameSuggestHandler, a.marketRateLimitMiddleware())
-	apiGroup.GET("/recipients/resolve", a.recipientResolveHandler)
-	apiGroup.GET("/recipients/resolve/:name", a.recipientResolveHandler)
-	apiGroup.GET("/recipients/reverse/:address", a.recipientReverseHandler)
+	apiGroup.GET("/recipients/resolve", a.recipientResolveHandler, a.recipientRateLimitMiddleware())
+	apiGroup.GET("/recipients/resolve/:name", a.recipientResolveHandler, a.recipientRateLimitMiddleware())
+	apiGroup.GET("/recipients/reverse/:address", a.recipientReverseHandler, a.recipientRateLimitMiddleware())
 	apiGroup.GET("/oracle-feeds", a.oracleFeedsHandler)
 	apiGroup.GET("/system", a.systemHandler)
 	apiGroup.GET("/otx/track/:trackingId", a.trackOTXHandler)
@@ -299,6 +307,12 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/resource-usage", a.userResourceUsageHandler)
 	userGroup.GET("/me/catalogs", a.myCuratedCatalogsHandler)
 	userGroup.GET("/me/vouchers", a.userOwnedVouchersHandler)
+	userGroup.GET("/me/wants", a.ownedWantsListHandler)
+	userGroup.POST("/me/wants", a.wantCreateHandler)
+	userGroup.PUT("/me/wants/:id", a.wantUpdateHandler)
+	userGroup.POST("/me/wants/:id/close", a.wantCloseHandler)
+	userGroup.POST("/me/wants/:id/reopen", a.wantReopenHandler)
+	userGroup.DELETE("/me/wants/:id", a.wantDeleteHandler)
 	userGroup.GET("/me/tokens", a.userTokensHandler)
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)

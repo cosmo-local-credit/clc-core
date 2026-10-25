@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	marketplaceKinds = []string{"catalog", "offering", "pool", "voucher"}
+	marketplaceKinds = []string{"catalog", "offering", "pool", "voucher", "want"}
 )
 
 func parseMarketplaceKinds(c *echo.Context) ([]string, error) {
@@ -29,7 +29,7 @@ func parseMarketplaceKinds(c *echo.Context) ([]string, error) {
 				continue
 			}
 			if !slices.Contains(marketplaceKinds, kind) {
-				return nil, fmt.Errorf("kinds must contain only catalog, offering, pool, or voucher")
+				return nil, fmt.Errorf("kinds must contain only catalog, offering, pool, voucher, or want")
 			}
 			seen[kind] = struct{}{}
 		}
@@ -47,8 +47,8 @@ func marketplaceOrigin(caller uint64, filter store.CatalogFilter, kinds []string
 	if filter.Nearby != nil {
 		lat, lng = filter.Nearby.Lat, filter.Nearby.Lng
 	}
-	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%t:%.17g:%.17g:%s:%v:%d:%v:%v",
-		caller, filter.Nearby != nil, lat, lng, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, kinds))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%t:%.17g:%.17g:%s:%v:%d:%v:%v:%v",
+		caller, filter.Nearby != nil, lat, lng, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, kinds, filter.Bounds))
 	return hex.EncodeToString(sum[:])
 }
 

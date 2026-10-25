@@ -120,6 +120,8 @@ type (
 		LockQuotaUser                 string `query:"lock-quota-user"`
 		LockVoucherRestoreUsers       string `query:"lock-voucher-restore-users"`
 		GetUserResourceUsage          string `query:"get-user-resource-usage"`
+		GetVoucherOfferingQuota       string `query:"get-voucher-offering-quota"`
+		GetVoucherOfferingQuotaByID   string `query:"get-voucher-offering-quota-by-id"`
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
 		GetUserByEmail                string `query:"get-user-by-email"`
@@ -213,6 +215,8 @@ type (
 		InsertReportTag              string `query:"insert-report-tag"`
 		DeleteReportVouchers         string `query:"delete-report-vouchers"`
 		InsertReportVoucher          string `query:"insert-report-voucher"`
+		DeleteReportPools            string `query:"delete-report-pools"`
+		InsertReportPool             string `query:"insert-report-pool"`
 		DeleteReportImages           string `query:"delete-report-images"`
 		InsertReportImage            string `query:"insert-report-image"`
 		DeleteReportAttachments      string `query:"delete-report-attachments"`
@@ -241,6 +245,7 @@ type (
 		ResolveVoucherRefs         string `query:"resolve-voucher-refs"`
 		ResolvePoolRefs            string `query:"resolve-pool-refs"`
 		CountVouchersOwnedBy       string `query:"count-vouchers-owned-by"`
+		CountPoolsOwnedBy          string `query:"count-pools-owned-by"`
 
 		// Facet vocabularies are parameterless and request-independent; the
 		// named count statements vary with discovery scope and search filters.
@@ -253,6 +258,28 @@ type (
 		ListOfferingTagCountsGlobal string `query:"list-offering-tag-counts-global"`
 		ListOfferingTagCountsNearby string `query:"list-offering-tag-counts-nearby"`
 		ListMarketplace             string `query:"list-marketplace"`
+		ListWants                   string `query:"list-wants"`
+		ListWantsNext               string `query:"list-wants-next"`
+		ListWantsPrev               string `query:"list-wants-prev"`
+		ListWantTagFacets           string `query:"list-want-tag-facets"`
+		ListPoolWants               string `query:"list-pool-wants"`
+		ListPoolWantsNext           string `query:"list-pool-wants-next"`
+		ListPoolWantsPrev           string `query:"list-pool-wants-prev"`
+		ListWantCreatorVouchers     string `query:"list-want-creator-vouchers"`
+		ListWantCreatorVouchersNext string `query:"list-want-creator-vouchers-next"`
+		ListWantCreatorVouchersPrev string `query:"list-want-creator-vouchers-prev"`
+		ListWantCreatorPools        string `query:"list-want-creator-pools"`
+		ListWantCreatorPoolsNext    string `query:"list-want-creator-pools-next"`
+		ListWantCreatorPoolsPrev    string `query:"list-want-creator-pools-prev"`
+		ListOwnedWants              string `query:"list-owned-wants"`
+		GetWant                     string `query:"get-want"`
+		LockWantOwner               string `query:"lock-want-owner"`
+		CreateWant                  string `query:"create-want"`
+		UpdateWant                  string `query:"update-want"`
+		SetWantStatus               string `query:"set-want-status"`
+		DeleteWant                  string `query:"delete-want"`
+		DeleteWantTags              string `query:"delete-want-tags"`
+		InsertWantTag               string `query:"insert-want-tag"`
 
 		DashboardCatalogSnapshot string `query:"dashboard-catalog-snapshot"`
 		DashboardCatalogSeries   string `query:"dashboard-catalog-series"`

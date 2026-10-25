@@ -23,9 +23,9 @@ func TestResourceLimitsConcurrentLastSlotDB(t *testing.T) {
 		_, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, id)
 		require.NoError(t, err)
 	}()
-	for _, resource := range []string{"vouchers", "pools", "catalogs"} {
+	for _, resource := range []string{"vouchers", "pools", "catalogs", "wants"} {
 		t.Run(resource, func(t *testing.T) {
-			_, err := pool.Exec(ctx, `UPDATE users SET max_pools=1 WHERE id=$1`, id)
+			_, err := pool.Exec(ctx, `UPDATE users SET max_pools=1,max_wants=1 WHERE id=$1`, id)
 			require.NoError(t, err)
 			start := make(chan struct{})
 			results := make(chan error, 2)
@@ -43,10 +43,14 @@ func TestResourceLimitsConcurrentLastSlotDB(t *testing.T) {
 						results <- err
 						return
 					}
-					if resource == "catalogs" {
+					switch resource {
+					case "catalogs":
 						zero := 0.0
 						_, err = pg.CreateCuratedCatalog(ctx, tx, id, CuratedCatalogWrite{Name: "Quota", LocationName: "Test", GeoLat: &zero, GeoLng: &zero})
-					} else {
+					case "wants":
+						_, err = tx.Exec(ctx, `INSERT INTO wants(owner_user_id,name,description,location_name,geo_lat,geo_lng,contact_text)
+							VALUES($1,'Quota Want','Quota test','Test',0,0,'Contact')`, id)
+					default:
 						kind := "TOKEN"
 						if resource == "pools" {
 							kind = "POOL"
@@ -92,15 +96,16 @@ func TestResourceLimitsDefaultsRollbackAndAdminUpdateDB(t *testing.T) {
 	require.Equal(t, 1, user.MaxCatalogs)
 	require.Equal(t, 3, user.MaxOffers)
 	require.Equal(t, 10, user.MaxPools)
+	require.Equal(t, 3, user.MaxWants)
 	zero, two := 0, 2
-	updated, err := pg.UpdateUserLimits(ctx, tx, user.EthereumAddress, UserLimitsUpdate{MaxCatalogs: &two, MaxOffers: &zero})
+	updated, err := pg.UpdateUserLimits(ctx, tx, user.EthereumAddress, UserLimitsUpdate{MaxCatalogs: &two, MaxOffers: &zero, MaxWants: &two})
 	require.NoError(t, err)
 	require.Equal(t, 1, updated.MaxTokens)
 	require.Equal(t, 10, updated.MaxPools)
 	require.Equal(t, 2, updated.MaxCatalogs)
 	require.Zero(t, updated.MaxOffers)
-	var limit *ResourceLimitError
-	require.ErrorAs(t, pg.CheckUserResourceLimit(ctx, tx, user.ID, "offers"), &limit)
+	require.Equal(t, 2, updated.MaxWants)
+	require.EqualError(t, pg.CheckUserResourceLimit(ctx, tx, user.ID, "offers"), `unknown quota resource "offers"`)
 	nested, err := tx.Begin(ctx)
 	require.NoError(t, err)
 	require.NoError(t, pg.CheckUserResourceLimit(ctx, nested, user.ID, "vouchers"))
@@ -116,8 +121,8 @@ func TestResourceLimitsDefaultsRollbackAndAdminUpdateDB(t *testing.T) {
 	require.NoError(t, nested.Rollback(ctx))
 	_, err = tx.Exec(ctx, `UPDATE users SET role='SUPERADMIN' WHERE id=$1`, user.ID)
 	require.NoError(t, err)
-	require.NoError(t, pg.CheckUserResourceLimit(ctx, tx, user.ID, "offers"))
-	require.ErrorIs(t, pg.CheckUserResourceLimit(ctx, tx, 2147483647, "offers"), pgx.ErrNoRows)
+	require.NoError(t, pg.CheckUserResourceLimit(ctx, tx, user.ID, "catalogs"))
+	require.ErrorIs(t, pg.CheckUserResourceLimit(ctx, tx, 2147483647, "catalogs"), pgx.ErrNoRows)
 }
 
 func TestResourceLimitsRetiredVoucherReleasesSlotDB(t *testing.T) {
@@ -220,6 +225,8 @@ func TestResourceLimitsOffersOnRetiredVouchersDB(t *testing.T) {
 	user, err := pg.InsertUser(ctx, tx, User{EthereumAddress: "0x1234567890123456789012345678901234567890", Email: "retired-offers@test.example", Role: "USER", Status: "APPROVED"})
 	require.NoError(t, err)
 	oldID := seedMarketVoucher(t, tx, 0, 0, true, "Produce", "Produce", "Training")
+	_, err = tx.Exec(ctx, `UPDATE vouchers SET owner_address=$1 WHERE id=$2`, user.EthereumAddress, oldID)
+	require.NoError(t, err)
 	_, err = tx.Exec(ctx, `UPDATE offerings SET seller_address=$1 WHERE voucher_id=$2`, user.EthereumAddress, oldID)
 	require.NoError(t, err)
 	usage, err := pg.GetUserResourceUsage(ctx, tx, user.ID)
@@ -229,37 +236,43 @@ func TestResourceLimitsOffersOnRetiredVouchersDB(t *testing.T) {
 
 	require.NoError(t, pg.SetVoucherActive(ctx, tx, oldID, false))
 	freshID := seedMarketVoucher(t, tx, 0, 0, true)
+	_, err = tx.Exec(ctx, `UPDATE vouchers SET owner_address=$1 WHERE id=$2`, user.EthereumAddress, freshID)
+	require.NoError(t, err)
 	freshOffers, err := pg.ListVoucherOfferings(ctx, tx, marketVoucherAddress(t, tx, freshID), 20)
 	require.NoError(t, err)
 	require.Empty(t, freshOffers)
 	usage, err = pg.GetUserResourceUsage(ctx, tx, user.ID)
 	require.NoError(t, err)
 	require.Zero(t, usage.Offers.Used)
-	require.NoError(t, pg.CheckUserResourceLimit(ctx, tx, user.ID, "offers"))
+	require.NoError(t, pg.CheckVoucherOfferingLimit(ctx, tx, user.ID, freshID))
 	oldOffers, err := pg.ListVoucherOfferings(ctx, tx, marketVoucherAddress(t, tx, oldID), 20)
 	require.NoError(t, err)
 	require.Empty(t, oldOffers)
 
-	// Another active voucher still consumes this user's shared allowance.
+	// Another voucher has its own full allowance.
 	_, err = tx.Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,description,quantity,available) VALUES($1,$2,'Fresh','',1,true)`, freshID, user.EthereumAddress)
 	require.NoError(t, err)
 	usage, err = pg.GetUserResourceUsage(ctx, tx, user.ID)
 	require.NoError(t, err)
 	require.Equal(t, 1, usage.Offers.Used)
-	// Restore must not bypass the seller's shared offer allowance.
+	// Restore validates the retired voucher against the current owner's
+	// per-voucher allowance, not against offerings on another voucher.
 	address := marketVoucherAddress(t, tx, oldID)
+	_, err = tx.Exec(ctx, `UPDATE users SET max_offers=2 WHERE id=$1`, user.ID)
+	require.NoError(t, err)
 	attempt, err := tx.Begin(ctx)
 	require.NoError(t, err)
 	var limit *ResourceLimitError
 	require.ErrorAs(t, pg.RestoreVoucherWithinLimits(ctx, attempt, address), &limit)
 	require.Equal(t, "offers", limit.Resource)
-	require.Equal(t, 4, limit.Used)
+	require.Equal(t, 3, limit.Used)
 	require.NoError(t, attempt.Rollback(ctx))
 	retired, err := pg.GetAdminVoucherByAddress(ctx, tx, address)
 	require.NoError(t, err)
 	require.False(t, retired.Active)
-	// The admin can raise the seller's allowance, then restore at exact capacity.
-	_, err = tx.Exec(ctx, `UPDATE users SET max_offers=4 WHERE id=$1`, user.ID)
+	// The admin can raise the owner's per-voucher allowance, then restore at
+	// exact capacity even though aggregate legacy usage is four.
+	_, err = tx.Exec(ctx, `UPDATE users SET max_offers=3 WHERE id=$1`, user.ID)
 	require.NoError(t, err)
 	require.NoError(t, pg.RestoreVoucherWithinLimits(ctx, tx, address))
 	require.NoError(t, pg.RestoreVoucherWithinLimits(ctx, tx, address))
@@ -267,6 +280,10 @@ func TestResourceLimitsOffersOnRetiredVouchersDB(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 4, usage.Offers.Used)
 	require.False(t, usage.Offers.CanCreate)
+	scoped, err := pg.GetUserResourceUsageForVoucher(ctx, tx, user.ID, address)
+	require.NoError(t, err)
+	require.Equal(t, 3, scoped.Offers.Used)
+	require.False(t, scoped.Offers.CanCreate)
 }
 
 func TestResourceLimitsConcurrentVoucherRestoresDB(t *testing.T) {
@@ -292,8 +309,8 @@ func TestResourceLimitsConcurrentVoucherRestoresDB(t *testing.T) {
 	for range 2 {
 		var id uint64
 		var address string
-		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO vouchers(chain_id,address,active)
-            VALUES(42220,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),false) RETURNING id,address`).Scan(&id, &address))
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO vouchers(chain_id,address,active,owner_address)
+			VALUES(42220,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),false,$1) RETURNING id,address`, seller).Scan(&id, &address))
 		voucherIDs = append(voucherIDs, id)
 		addresses = append(addresses, address)
 		_, err := pool.Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,description,quantity,available)
@@ -330,6 +347,6 @@ func TestResourceLimitsConcurrentVoucherRestoresDB(t *testing.T) {
 			rejected++
 		}
 	}
-	require.Equal(t, 1, succeeded)
-	require.Equal(t, 1, rejected)
+	require.Equal(t, 2, succeeded)
+	require.Zero(t, rejected)
 }
