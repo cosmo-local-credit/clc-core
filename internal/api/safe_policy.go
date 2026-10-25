@@ -111,8 +111,8 @@ func (a *API) callerMayManageRecord(ctx context.Context, tx pgx.Tx, callerAddres
 	if callerAddress == "" || ownerAddress == nil || !common.IsHexAddress(*ownerAddress) {
 		return false
 	}
-	state, err := a.store.GetSafeState(ctx, tx, a.chainID, *ownerAddress)
-	if err != nil || time.Since(state.RefreshedAt) > safeSignerMaxAge {
+	state, err := a.freshSafeState(ctx, tx, *ownerAddress)
+	if err != nil || state == nil {
 		return false
 	}
 	for _, signer := range state.Signers {

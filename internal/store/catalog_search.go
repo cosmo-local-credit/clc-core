@@ -720,7 +720,21 @@ func ownerPredicate(args *sqlArgs, column string, filter CatalogFilter) string {
 	if filter.Owner == "" {
 		return ""
 	}
-	return "lower(" + column + ") = lower(" + args.bind(filter.Owner) + ")"
+	return ownedByPredicate(column, args.bind(filter.Owner))
+}
+
+// ownedByPredicate matches assets the account owns directly, or through a Safe
+// that lists the account as a signer. param is a bound placeholder, reused
+// three times, so the account is sent once. The Safe side starts from
+// safe_signers_signer_idx and is a handful of rows, so the direct-owner index
+// path stays the plan for the common case.
+//
+// Display only: it does not check signer-set age. Every write re-verifies the
+// set (callerMayManageRecord), so a stale row can at worst list an asset the
+// signer then cannot change.
+func ownedByPredicate(column, param string) string {
+	return "(lower(" + column + ") = lower(" + param + ") OR lower(" + column + ") IN (" +
+		"SELECT ss.safe_address FROM safe_signers ss WHERE ss.signer = lower(" + param + ")))"
 }
 
 // cursorPredicate returns the keyset comparison for a page direction, over the

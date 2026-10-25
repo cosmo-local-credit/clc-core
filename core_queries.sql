@@ -964,33 +964,39 @@ LIMIT $3;
 -- deployment-based. It deliberately includes retired and unlocated vouchers;
 -- public discovery retains its stricter active/geolocation predicates.
 --name: list-owned-vouchers
+WITH me AS (SELECT lower(u.blockchain_address) AS addr FROM users u WHERE u.id = $1)
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
     COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
     v.decimals, v.icon_url, v.owner_address, v.active
 FROM vouchers v
-INNER JOIN users u ON lower(u.blockchain_address) = lower(v.owner_address)
-WHERE u.id = $1
+WHERE lower(v.owner_address) IN (
+    SELECT addr FROM me
+    UNION SELECT ss.safe_address FROM safe_signers ss INNER JOIN me ON ss.signer = me.addr)
 ORDER BY v.id DESC
 LIMIT $2;
 
 --name: list-owned-vouchers-next
+WITH me AS (SELECT lower(u.blockchain_address) AS addr FROM users u WHERE u.id = $1)
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
     COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
     v.decimals, v.icon_url, v.owner_address, v.active
 FROM vouchers v
-INNER JOIN users u ON lower(u.blockchain_address) = lower(v.owner_address)
-WHERE u.id = $1 AND v.id < $2
+WHERE lower(v.owner_address) IN (
+    SELECT addr FROM me
+    UNION SELECT ss.safe_address FROM safe_signers ss INNER JOIN me ON ss.signer = me.addr) AND v.id < $2
 ORDER BY v.id DESC
 LIMIT $3;
 
 --name: list-owned-vouchers-prev
+WITH me AS (SELECT lower(u.blockchain_address) AS addr FROM users u WHERE u.id = $1)
 SELECT * FROM (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
         COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
         v.decimals, v.icon_url, v.owner_address, v.active
     FROM vouchers v
-    INNER JOIN users u ON lower(u.blockchain_address) = lower(v.owner_address)
-    WHERE u.id = $1 AND v.id > $2
+    WHERE lower(v.owner_address) IN (
+        SELECT addr FROM me
+        UNION SELECT ss.safe_address FROM safe_signers ss INNER JOIN me ON ss.signer = me.addr) AND v.id > $2
     ORDER BY v.id ASC
     LIMIT $3
 ) page
@@ -2807,11 +2813,13 @@ SELECT
         WHERE r.status = 'APPROVED' AND lower(r.author_address) = lower($1)) AS reports,
     (SELECT COUNT(*) FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL
-            AND lower(v.owner_address) = lower($1)) AS vouchers,
+            AND (lower(v.owner_address) = lower($1) OR lower(v.owner_address) IN (
+                SELECT ss.safe_address FROM safe_signers ss WHERE ss.signer = lower($1)))) AS vouchers,
     (SELECT COUNT(DISTINCT pt.pool_id)
         FROM pool_tokens pt
         INNER JOIN vouchers v ON v.id = pt.voucher_id
-        WHERE pt.is_allowed AND lower(v.owner_address) = lower($1)) AS pool_memberships;
+        WHERE pt.is_allowed AND (lower(v.owner_address) = lower($1) OR lower(v.owner_address) IN (
+                SELECT ss.safe_address FROM safe_signers ss WHERE ss.signer = lower($1)))) AS pool_memberships;
 
 -- Unsettled transactions for one signer, oldest nonce first. The reconciler
 -- walks this list: receipts first, then republishes the lowest nonce the chain

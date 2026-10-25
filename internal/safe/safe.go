@@ -179,17 +179,25 @@ func (p *Policy) Check(ctx context.Context, calls []Call) (*Verdict, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrRejected, err)
 	}
-	return p.checkExec(ctx, call.To, exec)
+	return p.checkExec(ctx, call.To, exec, true)
 }
 
-func (p *Policy) checkExec(ctx context.Context, safe common.Address, exec *Exec) (*Verdict, error) {
+// CheckTransaction applies the same rules to a Safe transaction that has not
+// been executed yet, so a proposal is judged by exactly the code the relay
+// runs at execution. The transaction carries no signatures to count.
+func (p *Policy) CheckTransaction(ctx context.Context, safe common.Address, tx *Exec) error {
+	_, err := p.checkExec(ctx, safe, tx, false)
+	return err
+}
+
+func (p *Policy) checkExec(ctx context.Context, safe common.Address, exec *Exec, signed bool) (*Verdict, error) {
 	if exec.SafeTxGas.Sign() != 0 || exec.GasPrice.Sign() != 0 ||
 		exec.GasToken != (common.Address{}) || exec.RefundReceiver != (common.Address{}) {
 		// safeTxGas = 0 makes an inner failure revert and surface; a gas price
 		// would refund the relayer out of the Safe.
 		return nil, fmt.Errorf("%w: safeTxGas, gasPrice, gasToken and refundReceiver must be zero", ErrRejected)
 	}
-	if len(exec.Signatures) == 0 || len(exec.Signatures)%65 != 0 {
+	if signed && (len(exec.Signatures) == 0 || len(exec.Signatures)%65 != 0) {
 		return nil, fmt.Errorf("%w: signatures must be packed 65-byte entries", ErrRejected)
 	}
 	verdict := &Verdict{Safe: safe, Signatures: len(exec.Signatures) / 65}

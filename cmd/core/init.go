@@ -283,5 +283,7 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		Relayer:         relayerInst,
 		Pretium:         pretiumClient,
 		SafeMultiSend:   ko.Strings("safe.multisend_call_only"),
+		SafeSTSURL:      ko.String("safe.sts_base_url"),
+		SafeSTSKey:      ko.String("safe.sts_api_key"),
 	})
 }

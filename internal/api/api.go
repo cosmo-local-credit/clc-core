@@ -44,6 +44,11 @@ type (
 		// SafeMultiSend lists the pinned MultiSendCallOnly deployments. Empty
 		// disables Safe execution through the relay.
 		SafeMultiSend []string
+		// SafeSTSURL and SafeSTSKey configure the Safe Transaction Service
+		// proxy. With an empty URL or no pinned MultiSend the /safe routes are
+		// not mounted.
+		SafeSTSURL string
+		SafeSTSKey string
 	}
 
 	API struct {
@@ -69,6 +74,8 @@ type (
 		recipientLimiter *marketRateLimiter
 		marketFacets     *marketFacetCache
 		safePolicy       *safe.Policy
+		safeReader       safeStateReader
+		safeProxy        *safeService
 	}
 )
 
@@ -103,6 +110,17 @@ func New(o APIOpts) *API {
 		marketFacets:     newMarketFacetCache(time.Now),
 	}
 	a.safePolicy = a.newSafePolicy(o.SafeMultiSend)
+	if o.ChainProvider != nil {
+		a.safeReader = safe.NewReader(o.ChainProvider)
+	}
+	if a.safePolicy != nil && o.SafeSTSURL != "" {
+		a.safeProxy = &safeService{
+			chainID: o.ChainID,
+			policy:  a.safePolicy,
+			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey),
+			signers: storeSafeSigners{a: a},
+		}
+	}
 	a.marketLimiter.startSweeper()
 	a.poolLimiter.startSweeper()
 	a.recipientLimiter.startSweeper()
@@ -305,6 +323,15 @@ func New(o APIOpts) *API {
 		apiGroup.GET("/accounts/:address/tokens", a.accountTokensHandler)
 		apiGroup.GET("/accounts/:address/transfers", a.accountTransfersHandler)
 		apiGroup.GET("/accounts/:address/activity", a.accountActivityHandler)
+	}
+
+	// Safe Transaction Service proxy: the API key stays in clc-core's config.
+	if a.safeProxy != nil {
+		safeGroup := apiGroup.Group("/safe", a.requireUserAuth())
+		safeGroup.POST("/proposals", a.safeProposalHandler)
+		safeGroup.POST("/confirmations", a.safeConfirmationHandler)
+		safeGroup.GET("/transactions/:safeTxHash", a.safeTransactionHandler)
+		safeGroup.GET("/:address/pending", a.safePendingHandler)
 	}
 
 	// User-only routes

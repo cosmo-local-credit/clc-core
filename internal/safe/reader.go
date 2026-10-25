@@ -70,6 +70,17 @@ func (r *Reader) ReadSafe(ctx context.Context, address common.Address, block uin
 	return &State{Owners: owners, Threshold: int(threshold.Int64())}, nil
 }
 
+// ReadSafeLatest reads at the current head and returns the block it read, so
+// the result can be stored at a real position.
+func (r *Reader) ReadSafeLatest(ctx context.Context, address common.Address) (*State, uint64, error) {
+	var head *big.Int
+	if err := r.provider.Client.CallCtx(ctx, eth.BlockNumber().Returns(&head)); err != nil {
+		return nil, 0, fmt.Errorf("safe: read head: %w", err)
+	}
+	state, err := r.ReadSafe(ctx, address, head.Uint64())
+	return state, head.Uint64(), err
+}
+
 func supportedVersion(v string) bool {
 	for _, s := range SupportedVersions {
 		if s == v {
