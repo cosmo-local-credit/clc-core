@@ -15,6 +15,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/sub"
 	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
@@ -168,7 +169,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 	return workerContainer
 }
 
-func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
+func loadSub(pgStore store.Store, chainProvider *ethutils.Provider) (*sub.Sub, *pub.Pub) {
 	endpoints := ko.MustStrings("jetstream.endpoints")
 	persistDuration := time.Duration(ko.MustInt("jetstream.persist_duration_hrs")) * time.Hour
 
@@ -195,6 +196,7 @@ func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
 		SkipBacklog: ko.Bool("jetstream.skip_backlog"),
 		Pub:         pubInst,
 		Logg:        lo,
+		SafeReader:  safe.NewReader(chainProvider),
 	})
 	if err != nil {
 		lo.Error("could not initialize jetstream subscriber", "error", err)

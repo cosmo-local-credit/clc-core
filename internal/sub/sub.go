@@ -20,16 +20,19 @@ type (
 		SkipBacklog bool
 		Pub         *pub.Pub
 		Logg        *slog.Logger
+		// SafeReader enables the Safe signer cache; nil leaves it unprojected.
+		SafeReader SafeReader
 	}
 
 	Sub struct {
-		chainID int64
-		store   store.Store
-		js      jetstream.JetStream
-		jsIter  jetstream.MessagesContext
-		pub     *pub.Pub
-		logg    *slog.Logger
-		done    chan struct{}
+		chainID    int64
+		safeReader SafeReader
+		store      store.Store
+		js         jetstream.JetStream
+		jsIter     jetstream.MessagesContext
+		pub        *pub.Pub
+		logg       *slog.Logger
+		done       chan struct{}
 	}
 )
 
@@ -77,13 +80,14 @@ func NewSub(o SubObts) (*Sub, error) {
 	}
 
 	return &Sub{
-		chainID: o.ChainID,
-		store:   o.Store,
-		js:      o.JS,
-		jsIter:  iter,
-		pub:     o.Pub,
-		logg:    o.Logg,
-		done:    make(chan struct{}),
+		chainID:    o.ChainID,
+		safeReader: o.SafeReader,
+		store:      o.Store,
+		js:         o.JS,
+		jsIter:     iter,
+		pub:        o.Pub,
+		logg:       o.Logg,
+		done:       make(chan struct{}),
 	}, nil
 }
 

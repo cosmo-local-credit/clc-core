@@ -38,6 +38,9 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	if err := s.projectPoolComposition(ctx, tx, chainEvent); err != nil {
 		return err
 	}
+	if err := s.projectSafeSigners(ctx, tx, chainEvent); err != nil {
+		return err
+	}
 
 	otx, err := s.store.GetOTXByTxHash(ctx, tx, chainEvent.TxHash)
 	if err != nil {

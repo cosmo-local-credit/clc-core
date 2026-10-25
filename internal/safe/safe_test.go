@@ -227,3 +227,46 @@ func TestSelectorsMatchKnownValues(t *testing.T) {
 	}
 	_ = strings.TrimSpace
 }
+
+func TestReadSafeVia(t *testing.T) {
+	pack := func(typ string, v any) []byte {
+		b, err := abi.Arguments{{Type: mustType(t, typ)}}.Pack(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	ownersRet := pack("address[]", []common.Address{holder, assetAddr})
+	versionRet := func(v string) []byte { return pack("string", v) }
+	thresholdRet := func(n int64) []byte { return pack("uint256", big.NewInt(n)) }
+	caller := func(version string, threshold int64, fail error) Caller {
+		return func(_ context.Context, _ common.Address, data []byte) ([]byte, error) {
+			if fail != nil {
+				return nil, fail
+			}
+			switch [4]byte(data) {
+			case versionFunc.Selector:
+				return versionRet(version), nil
+			case getOwnersFunc.Selector:
+				return ownersRet, nil
+			default:
+				return thresholdRet(threshold), nil
+			}
+		}
+	}
+
+	state, err := ReadSafeVia(context.Background(), safeAddr, caller("1.3.0", 2, nil))
+	if err != nil || state.Threshold != 2 || len(state.Owners) != 2 {
+		t.Fatalf("got %+v, %v", state, err)
+	}
+	for name, c := range map[string]Caller{
+		"unsupported version": caller("1.2.0", 1, nil),
+		"threshold zero":      caller("1.4.1", 0, nil),
+		"threshold > owners":  caller("1.4.1", 3, nil),
+		"reverted probe":      caller("", 0, errors.New("execution reverted")),
+	} {
+		if _, err := ReadSafeVia(context.Background(), safeAddr, c); !errors.Is(err, ErrNotSafe) {
+			t.Errorf("%s: got %v, want ErrNotSafe", name, err)
+		}
+	}
+}
