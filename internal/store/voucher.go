@@ -84,7 +84,7 @@ func (pg *Pg) ListOwnedVoucherTokens(
 		"    FROM vouchers v" +
 		whereClause(
 			"v.active",
-			ownerPredicate(args, "v.owner_address", CatalogFilter{Owner: owner}),
+			assetOwnerPredicate(args, "v", CatalogFilter{Owner: owner}),
 			cursorPredicate(args, "v.id", page, cursor),
 		) +
 		"\n    ORDER BY v.id " + pageOrder(page) +

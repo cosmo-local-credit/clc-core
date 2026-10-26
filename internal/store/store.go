@@ -75,8 +75,15 @@ type (
 		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
 		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
 		RestoreVoucherWithinLimits(context.Context, pgx.Tx, string) error
+		RestoreVoucherWithinLimitsChanged(context.Context, pgx.Tx, string) (bool, error)
+		RestorePoolWithinLimits(context.Context, pgx.Tx, string) error
+		RestorePoolWithinLimitsChanged(context.Context, pgx.Tx, string) (bool, error)
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		ProjectCatalogOwnership(context.Context, pgx.Tx, int64, string, string, uint64, uint64) (int64, error)
+		ReplaceSafeSigners(context.Context, pgx.Tx, int64, string, []string, int, uint64, uint64) (bool, error)
+		GetSafeState(context.Context, pgx.Tx, int64, string) (SafeState, error)
+		CatalogHasOwner(context.Context, pgx.Tx, int64, string) (bool, error)
+		SafeManagesAsset(context.Context, pgx.Tx, int64, string, string) (bool, error)
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
 		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string) (int64, error)
@@ -146,6 +153,8 @@ type (
 		ListPoolsNext(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
 		ListPoolsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
 		GetPoolByAddress(context.Context, pgx.Tx, string) (Pool, error)
+		ListManagedPools(context.Context, pgx.Tx, CatalogFilter, string, string, CatalogPage, uint64, uint64) ([]Pool, error)
+		CheckPoolOperationsAllowed(context.Context, pgx.Tx, int64, []string) error
 		ListPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)

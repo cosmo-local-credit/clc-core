@@ -447,8 +447,9 @@ func (a *API) adminListDeploymentsHandler(c *echo.Context) error {
 // editing a form.
 //
 // Assign-all, like the account profile handler beside it: the caller sends the
-// whole record and every column is written, so clearing a field means sending it
-// empty. Tags are replaced in the same transaction, so a rejected tag value
+// whole record and every column is written. Contact fields are the compatibility
+// exception: omission preserves them and clearContactFields makes removal
+// explicit. Tags are replaced in the same transaction, so a rejected tag value
 // leaves the profile edit unapplied rather than half-saved.
 func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 	address, handled, err := adminUserAddress(c)
@@ -498,9 +499,10 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 // description edit hide a voucher by accident.
 //
 // Assign-all, like the pool handler above: the caller sends the whole record and
-// every column is written, so clearing a field means sending it empty. Tags are
-// replaced in the same transaction, so a rejected tag value leaves the profile
-// edit unapplied rather than half-saved.
+// every column is written. Contact fields preserve on omission and are removed
+// only through clearContactFields. Tags are replaced in the same transaction,
+// so a rejected tag value leaves the profile edit unapplied rather than
+// half-saved.
 func (a *API) adminUpdateVoucherProfileHandler(c *echo.Context) error {
 	address, handled, err := adminUserAddress(c)
 	if handled || err != nil {
@@ -518,10 +520,8 @@ func (a *API) adminUpdateVoucherProfileHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// The public detail row rather than an admin-only shape: it is what the
-	// console already caches for this voucher, so the response can be written
-	// straight into that cache instead of being refetched through a second
-	// endpoint that would have to agree with this one.
+	// The complete detail row is what the authenticated console caches, so the
+	// response can be written straight into that private cache.
 	voucher, handled, err := a.saveVoucherProfile(c, ctx, tx, address, req)
 	if handled || err != nil {
 		return err

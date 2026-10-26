@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"math"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -22,6 +24,14 @@ import (
 )
 
 type (
+	safeSnapshot struct {
+		Safe      string   `json:"safe"`
+		Owners    []string `json:"owners"`
+		Threshold int      `json:"threshold"`
+		Block     uint64   `json:"block"`
+		BlockHash string   `json:"blockHash"`
+	}
+
 	snapshot struct {
 		Address       string  `json:"address"`
 		PreviousOwner *string `json:"previousOwner"`
@@ -115,6 +125,15 @@ func run() error {
 			return err
 		}
 	}
+	safes, err := snapshotSafes(ctx, client, height, assets, *block, header.Hash().Hex())
+	if err != nil {
+		return err
+	}
+	for _, s := range safes {
+		if err := json.NewEncoder(os.Stdout).Encode(s); err != nil {
+			return err
+		}
+	}
 	again, err := client.HeaderByNumber(ctx, height)
 	if err != nil {
 		return err
@@ -139,9 +158,56 @@ func run() error {
 			return err
 		}
 	}
+	for _, s := range safes {
+		// Same ordering rule as the owners above: dominates the block's logs,
+		// never overwrites a newer projected set.
+		if _, err := pg.ReplaceSafeSigners(ctx, tx, *chainID, s.Safe, s.Owners, s.Threshold, *block, math.MaxInt64); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Reconciled %d assets at block %d (%s).\n", len(assets), *block, header.Hash())
 	return nil
+}
+
+// snapshotSafes reads the signer set of every distinct asset owner that is a
+// supported Safe, at the same block as the owner snapshot. An owner that is
+// not a Safe is skipped; a transport failure aborts the run like any other
+// failed read.
+func snapshotSafes(ctx context.Context, client *ethclient.Client, height *big.Int, assets []snapshot, block uint64, blockHash string) ([]safeSnapshot, error) {
+	call := func(ctx context.Context, to common.Address, data []byte) ([]byte, error) {
+		return client.CallContract(ctx, ethereum.CallMsg{To: &to, Data: data}, height)
+	}
+	seen := make(map[common.Address]struct{})
+	var out []safeSnapshot
+	for _, asset := range assets {
+		owner := common.HexToAddress(asset.Owner)
+		if _, done := seen[owner]; done {
+			continue
+		}
+		seen[owner] = struct{}{}
+		code, err := client.CodeAt(ctx, owner, height)
+		if err != nil {
+			return nil, fmt.Errorf("code of owner %s: %w", owner.Hex(), err)
+		}
+		// Empty code is an EOA; 0xef0100 is an EIP-7702 delegated EOA.
+		if len(code) == 0 || (len(code) == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00) {
+			continue
+		}
+		state, err := safe.ReadSafeVia(ctx, owner, call)
+		if errors.Is(err, safe.ErrNotSafe) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		owners := make([]string, len(state.Owners))
+		for i, o := range state.Owners {
+			owners[i] = o.Hex()
+		}
+		out = append(out, safeSnapshot{Safe: owner.Hex(), Owners: owners, Threshold: state.Threshold, Block: block, BlockHash: blockHash})
+	}
+	return out, nil
 }

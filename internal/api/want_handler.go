@@ -142,13 +142,19 @@ func (a *API) wantsListHandler(c *echo.Context) error {
 	pagination := normalizePaginationWithMax(req, marketMaxPerPage)
 	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.Want]{
 		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.Want, error) {
-			return a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogFirstPage, 0, limit)
+			rows, err := a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogFirstPage, 0, limit)
+			redactWantContacts(rows)
+			return rows, err
 		},
 		nextPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.Want, error) {
-			return a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogNextPage, cursor, limit)
+			rows, err := a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogNextPage, cursor, limit)
+			redactWantContacts(rows)
+			return rows, err
 		},
 		prevPage: func(ctx context.Context, tx pgx.Tx, cursor, limit uint64) ([]store.Want, error) {
-			return a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogPrevPage, cursor, limit)
+			rows, err := a.store.ListWants(ctx, tx, search.filter, nil, store.CatalogPrevPage, cursor, limit)
+			redactWantContacts(rows)
+			return rows, err
 		},
 	}, pagination, "wants", "Wants", func(w store.Want) uint64 { return w.ID }, catalogListHooks{
 		validate: func(tx pgx.Tx) (bool, error) {
@@ -189,7 +195,9 @@ func (a *API) wantDetailHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	c.Response().Header().Set("Cache-Control", "private, no-store")
-	return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "Want", Result: map[string]any{"want": want}})
+	return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "Want", Result: map[string]any{
+		"want": publicResource(*want, publicWantContactFields...),
+	}})
 }
 
 func activeWantListValidation(c *echo.Context, a *API, id uint64) func(pgx.Tx) (bool, error) {
@@ -251,14 +259,29 @@ func (a *API) poolWantsListHandler(c *echo.Context) error {
 	return catalogAddressListHandler(c, a, "wants", "Wants in pool %s",
 		func(w store.Want) uint64 { return w.ID },
 		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]store.Want, error) {
-			return a.store.ListPoolWants(ctx, tx, address, store.CatalogFirstPage, 0, limit)
+			rows, err := a.store.ListPoolWants(ctx, tx, address, store.CatalogFirstPage, 0, limit)
+			redactWantContacts(rows)
+			return rows, err
 		},
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Want, error) {
-			return a.store.ListPoolWants(ctx, tx, address, store.CatalogNextPage, cursor, limit)
+			rows, err := a.store.ListPoolWants(ctx, tx, address, store.CatalogNextPage, cursor, limit)
+			redactWantContacts(rows)
+			return rows, err
 		},
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Want, error) {
-			return a.store.ListPoolWants(ctx, tx, address, store.CatalogPrevPage, cursor, limit)
+			rows, err := a.store.ListPoolWants(ctx, tx, address, store.CatalogPrevPage, cursor, limit)
+			redactWantContacts(rows)
+			return rows, err
 		}, catalogListHooks{onSuccess: setMarketCacheHeaders})
+}
+
+func redactWantContacts(wants []store.Want) {
+	for index := range wants {
+		wants[index].ContactPermission = 0
+		wants[index].ContactText = nil
+		wants[index].Email = nil
+		wants[index].Phone = nil
+	}
 }
 
 func (a *API) ownedWantsListHandler(c *echo.Context) error {

@@ -84,7 +84,8 @@ func (a *API) voucherReviewsListHandler(c *echo.Context) error {
 
 func (a *API) reviewAccess(c *echo.Context, tx pgx.Tx, voucher store.ReviewVoucher, caller string) (store.ReviewAccess, error) {
 	ctx := c.Request().Context()
-	access, err := store.GetVoucherReviewAccess(ctx, tx, voucher, caller)
+	isOwner := voucher.OwnerAddress != nil && strings.EqualFold(a.actingOwner(ctx, tx, caller, voucher.OwnerAddress), *voucher.OwnerAddress)
+	access, err := store.GetVoucherReviewAccess(ctx, tx, voucher, caller, isOwner)
 	if err != nil || access.IsOwner || access.Hidden || voucher.OwnerAddress == nil {
 		return access, err
 	}
@@ -211,7 +212,7 @@ func (a *API) voucherReviewOwnerWrite(c *echo.Context, flag bool) error {
 	if err != nil {
 		return reviewStoreError(c, err)
 	}
-	if voucher.OwnerAddress == nil || !strings.EqualFold(caller, *voucher.OwnerAddress) {
+	if voucher.OwnerAddress == nil || !strings.EqualFold(a.actingOwner(ctx, tx, caller, voucher.OwnerAddress), *voucher.OwnerAddress) {
 		return handleForbiddenError(c, "only the current voucher owner may reply or flag a review")
 	}
 	if flag {

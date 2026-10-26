@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -20,16 +21,25 @@ type (
 		SkipBacklog bool
 		Pub         *pub.Pub
 		Logg        *slog.Logger
+		// SafeReader enables the Safe signer cache; nil leaves it unprojected.
+		SafeReader   SafeReader
+		RegisterSafe func(context.Context, pgx.Tx, string) error
+		// RefreshSafe durably queues a head read of an address whose signer
+		// set could not be read at its event's block.
+		RefreshSafe func(ctx context.Context, tx pgx.Tx, address string, minBlock uint64, register bool) error
 	}
 
 	Sub struct {
-		chainID int64
-		store   store.Store
-		js      jetstream.JetStream
-		jsIter  jetstream.MessagesContext
-		pub     *pub.Pub
-		logg    *slog.Logger
-		done    chan struct{}
+		chainID      int64
+		safeReader   SafeReader
+		registerSafe func(context.Context, pgx.Tx, string) error
+		refreshSafe  func(ctx context.Context, tx pgx.Tx, address string, minBlock uint64, register bool) error
+		store        store.Store
+		js           jetstream.JetStream
+		jsIter       jetstream.MessagesContext
+		pub          *pub.Pub
+		logg         *slog.Logger
+		done         chan struct{}
 	}
 )
 
@@ -77,13 +87,16 @@ func NewSub(o SubObts) (*Sub, error) {
 	}
 
 	return &Sub{
-		chainID: o.ChainID,
-		store:   o.Store,
-		js:      o.JS,
-		jsIter:  iter,
-		pub:     o.Pub,
-		logg:    o.Logg,
-		done:    make(chan struct{}),
+		chainID:      o.ChainID,
+		safeReader:   o.SafeReader,
+		registerSafe: o.RegisterSafe,
+		refreshSafe:  o.RefreshSafe,
+		store:        o.Store,
+		js:           o.JS,
+		jsIter:       iter,
+		pub:          o.Pub,
+		logg:         o.Logg,
+		done:         make(chan struct{}),
 	}, nil
 }
 

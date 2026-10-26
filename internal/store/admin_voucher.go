@@ -117,7 +117,7 @@ func composeAdminVoucherPage(
 			"    FROM vouchers v" +
 			whereClause(
 				status.predicate(),
-				ownerPredicate(args, "v.owner_address", filter),
+				assetOwnerPredicate(args, "v", filter),
 				voucherTagPredicate(args, filter),
 				cursorPredicate(args, "v.id", page, cursor),
 			) +
@@ -132,7 +132,7 @@ func composeAdminVoucherPage(
 		"    FROM vouchers v" +
 		whereClause(
 			status.predicate(),
-			ownerPredicate(args, "v.owner_address", filter),
+			assetOwnerPredicate(args, "v", filter),
 			searchPredicate(args, filter, "v"),
 			voucherTagPredicate(args, filter),
 		) +

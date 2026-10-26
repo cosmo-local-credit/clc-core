@@ -66,6 +66,28 @@ func requireWantPrivacyBoundary(t *testing.T, res *httptest.ResponseRecorder, re
 	}
 }
 
+func requireNoWantContacts(t *testing.T, res *httptest.ResponseRecorder, resultKey string) {
+	t.Helper()
+	var body struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &body))
+	raw := body.Result[resultKey]
+	rows := []map[string]json.RawMessage{}
+	if len(raw) > 0 && raw[0] == '[' {
+		require.NoError(t, json.Unmarshal(raw, &rows))
+	} else {
+		var row map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &row))
+		rows = append(rows, row)
+	}
+	for _, row := range rows {
+		for _, field := range []string{"contactPermission", "contactText", "email", "phone"} {
+			require.NotContains(t, row, field)
+		}
+	}
+}
+
 func requireOnlyJSONFields(t *testing.T, res *httptest.ResponseRecorder, resultKey string, allowed ...string) {
 	t.Helper()
 	var body struct {
@@ -129,11 +151,25 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	publicResponse := curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d", active.ID), "", "")
 	public := wantResult(t, publicResponse, http.StatusOK).Want
 	requireWantPrivacyBoundary(t, publicResponse, "want")
+	requireNoWantContacts(t, publicResponse, "want")
 	require.Zero(t, public.ContactPermission)
-	require.Equal(t, "amina@example.test", *public.Email)
+	require.Nil(t, public.Email)
 	require.Nil(t, public.Phone)
-	require.Equal(t, "Meet by the market", *public.ContactText)
+	require.Nil(t, public.ContactText)
 	require.Nil(t, public.ImageURL)
+
+	contactResponse := curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/contact", active.ID), token, "")
+	require.Equal(t, http.StatusOK, contactResponse.Code, contactResponse.Body.String())
+	require.Equal(t, "private, no-store", contactResponse.Header().Get("Cache-Control"))
+	var contactEnvelope struct {
+		Result struct {
+			Contact wantContactResponse `json:"contact"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(contactResponse.Body.Bytes(), &contactEnvelope))
+	require.Equal(t, "Meet by the market", *contactEnvelope.Result.Contact.Text)
+	require.Equal(t, "amina@example.test", *contactEnvelope.Result.Contact.Email)
+	require.Nil(t, contactEnvelope.Result.Contact.Phone)
 
 	tx, err := a.store.Pool().Begin(ctx)
 	require.NoError(t, err)
@@ -148,6 +184,7 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	listResponse := curatedRequest(a, http.MethodGet, "/api/v2/wants?q=wheel&tags=Bicycle%20Help&facets=true", "", "")
 	list := wantResult(t, listResponse, http.StatusOK)
 	requireWantPrivacyBoundary(t, listResponse, "wants")
+	requireNoWantContacts(t, listResponse, "wants")
 	require.Len(t, list.Wants, 1)
 	require.Zero(t, list.Wants[0].ContactPermission)
 	require.Nil(t, list.Wants[0].ContactText)
@@ -169,8 +206,11 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	_, err = a.store.Pool().Exec(ctx, `UPDATE users SET email='new@example.test',avatar_url='https://storage.example/new.webp' WHERE id=$1`, userID)
 	require.NoError(t, err)
 	public = wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d", active.ID), "", ""), http.StatusOK).Want
-	require.Equal(t, "new@example.test", *public.Email)
+	require.Nil(t, public.Email)
 	require.Nil(t, public.ImageURL)
+	contactResponse = curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/contact", active.ID), token, "")
+	require.NoError(t, json.Unmarshal(contactResponse.Body.Bytes(), &contactEnvelope))
+	require.Equal(t, "new@example.test", *contactEnvelope.Result.Contact.Email)
 
 	const explicitWantImage = "https://storage.example/want.webp"
 	updateResponse := curatedRequest(a, http.MethodPut, fmt.Sprintf("/api/v2/users/me/wants/%d", active.ID), token,
@@ -250,6 +290,7 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	poolWantsResponse := curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/pools/%s/wants", poolAddress), "", "")
 	poolWants := wantResult(t, poolWantsResponse, http.StatusOK)
 	requireWantPrivacyBoundary(t, poolWantsResponse, "wants")
+	requireNoWantContacts(t, poolWantsResponse, "wants")
 	require.NotEmpty(t, poolWants.Wants)
 	relatedVouchersResponse := curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/vouchers?perPage=10", active.ID), "", "")
 	relatedVouchers := wantResult(t, relatedVouchersResponse, http.StatusOK)

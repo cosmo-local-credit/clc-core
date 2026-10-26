@@ -84,3 +84,13 @@ allowed_origins = [
   "http://192.168.1.20:3000",
   "http://192.168.1.20:3001",
 ]
+
+[safe]
+# Pinned MultiSendCallOnly deployments (Safe 1.3.0 and 1.4.1 canonical
+# addresses on Gnosis). Empty disables Safe execution through /relayer/relay.
+multisend_call_only = []
+# Safe Transaction Service the /safe routes proxy. Empty disables them.
+# Gnosis: https://safe-transaction-gnosis-chain.safe.global
+sts_base_url = ""
+# Optional API key, sent as a bearer token. Never logged.
+sts_api_key = ""

@@ -103,7 +103,7 @@ func (a *API) voucherByAddressHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Market voucher",
 		Result: map[string]any{
-			"voucher": voucher,
+			"voucher": publicResource(voucher, publicContactFields...),
 		},
 	})
 }

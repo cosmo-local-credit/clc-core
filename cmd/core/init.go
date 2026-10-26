@@ -15,6 +15,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/sub"
 	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
@@ -22,6 +23,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
+	"github.com/jackc/pgx/v5"
 )
 
 func notifyShutdown() (context.Context, context.CancelFunc) {
@@ -159,6 +161,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 		ChainProvider:       chainProvider,
 		Relayer:             relayerInst,
 		AccountIndexAddress: accountIndexAddress,
+		ChainID:             ko.MustInt64("chain.id"),
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)
@@ -168,7 +171,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 	return workerContainer
 }
 
-func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
+func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *worker.WorkerContainer) (*sub.Sub, *pub.Pub) {
 	endpoints := ko.MustStrings("jetstream.endpoints")
 	persistDuration := time.Duration(ko.MustInt("jetstream.persist_duration_hrs")) * time.Hour
 
@@ -195,6 +198,13 @@ func loadSub(pgStore store.Store) (*sub.Sub, *pub.Pub) {
 		SkipBacklog: ko.Bool("jetstream.skip_backlog"),
 		Pub:         pubInst,
 		Logg:        lo,
+		SafeReader:  safe.NewReader(chainProvider),
+		RegisterSafe: func(ctx context.Context, tx pgx.Tx, address string) error {
+			return worker.EnqueueSafeRegistration(ctx, workers.Client(), tx, address)
+		},
+		RefreshSafe: func(ctx context.Context, tx pgx.Tx, address string, minBlock uint64, register bool) error {
+			return worker.EnqueueSafeSignersRefresh(ctx, workers.Client(), tx, address, minBlock, register)
+		},
 	})
 	if err != nil {
 		lo.Error("could not initialize jetstream subscriber", "error", err)
@@ -280,5 +290,8 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		QueueClient:     workerContainer.Client(),
 		Relayer:         relayerInst,
 		Pretium:         pretiumClient,
+		SafeMultiSend:   ko.Strings("safe.multisend_call_only"),
+		SafeSTSURL:      ko.String("safe.sts_base_url"),
+		SafeSTSKey:      ko.String("safe.sts_api_key"),
 	})
 }

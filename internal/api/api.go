@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
@@ -40,35 +41,48 @@ type (
 		ChainID         int64
 		Relayer         *relayer.Relayer
 		Pretium         *pretium.PretiumClient
+		// SafeMultiSend lists the pinned MultiSendCallOnly deployments. Empty
+		// disables Safe execution through the relay.
+		SafeMultiSend []string
+		// SafeSTSURL and SafeSTSKey configure the Safe Transaction Service
+		// proxy. With an empty URL or no pinned MultiSend the /safe routes are
+		// not mounted.
+		SafeSTSURL string
+		SafeSTSKey string
 	}
 
 	API struct {
-		listenAddress         string
-		build                 string
-		prod                  bool
-		signingKey            crypto.PrivateKey
-		verifyingKey          crypto.PublicKey
-		siweNonces            *util.SIWENonceStore
-		store                 store.Store
-		federationStore       store.FederationStore
-		logg                  *slog.Logger
-		chainProvider         *ethutils.Provider
-		server                *http.Server
-		router                *echo.Echo
-		queueClient           *river.Client[pgx.Tx]
-		chainID               int64
-		relayer               *relayer.Relayer
-		pretium               *pretium.PretiumClient
-		trustProxy            bool
-		marketLimiter         *marketRateLimiter
-		marketMapUserLimiter  *marketRateLimiter
-		marketMapGuestLimiter *marketRateLimiter
-		poolLimiter           *marketRateLimiter
-		recipientLimiter      *marketRateLimiter
-		marketFacets          *marketFacetCache
-		marketMapCache        *marketMapCache
-		marketMapExecutor     *marketMapExecutor
-		marketMapLoads        singleflight.Group
+		listenAddress           string
+		build                   string
+		prod                    bool
+		signingKey              crypto.PrivateKey
+		verifyingKey            crypto.PublicKey
+		siweNonces              *util.SIWENonceStore
+		store                   store.Store
+		federationStore         store.FederationStore
+		logg                    *slog.Logger
+		chainProvider           *ethutils.Provider
+		server                  *http.Server
+		router                  *echo.Echo
+		queueClient             *river.Client[pgx.Tx]
+		chainID                 int64
+		relayer                 *relayer.Relayer
+		pretium                 *pretium.PretiumClient
+		trustProxy              bool
+		marketLimiter           *marketRateLimiter
+		marketMapUserLimiter    *marketRateLimiter
+		marketMapGuestLimiter   *marketRateLimiter
+		poolLimiter             *marketRateLimiter
+		recipientLimiter        *marketRateLimiter
+		marketFacets            *marketFacetCache
+		marketMapCache          *marketMapCache
+		marketMapExecutor       *marketMapExecutor
+		marketMapLoads          singleflight.Group
+		retirementPreviewReader func(context.Context, pgx.Tx, store.RetirementResource) (store.RetirementPreview, error)
+		safePolicy              *safe.Policy
+		safeReader              safeStateReader
+		safeMisses              *safeMissCache
+		safeProxy               *safeService
 	}
 )
 
@@ -105,6 +119,19 @@ func New(o APIOpts) *API {
 		marketFacets:          newMarketFacetCache(time.Now),
 		marketMapCache:        newMarketMapCache(time.Now),
 		marketMapExecutor:     newMarketMapExecutor(),
+	}
+	a.safePolicy = a.newSafePolicy(o.SafeMultiSend)
+	if o.ChainProvider != nil {
+		a.safeReader = safe.NewReader(o.ChainProvider)
+		a.safeMisses = newSafeMissCache(time.Now)
+	}
+	if a.safePolicy != nil && o.SafeSTSURL != "" {
+		a.safeProxy = &safeService{
+			chainID: o.ChainID,
+			policy:  a.safePolicy,
+			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey),
+			signers: storeSafeSigners{a: a},
+		}
 	}
 	a.marketLimiter.startSweeper()
 	a.marketMapUserLimiter.startSweeper()
@@ -230,6 +257,9 @@ func New(o APIOpts) *API {
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
+	apiGroup.GET("/vouchers/:address/info", a.voucherInfoHandler, a.requireUserAuth())
+	apiGroup.GET("/pools/:address/info", a.poolInfoHandler, a.requireUserAuth())
+	apiGroup.GET("/wants/:id/contact", a.wantContactHandler, a.requireUserAuth())
 
 	apiGroup.GET("/vouchers/:address/reviews/me", a.voucherReviewAccessHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
@@ -287,10 +317,16 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/pools/:address/profile", a.updatePoolProfileHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/profile", a.updateVoucherProfileHandler, a.requireUserAuth())
-	// Retiring is an owner capability for the same reason, and the same handler
-	// serves a superadmin through canManageVoucher. Restoring is not symmetric and
-	// lives under /api/v2/admin with the console's voucher reads.
+	// The old immediate-retirement route now returns an upgrade error. Owners
+	// request retirement; superadmins decide and restore through the console.
 	apiGroup.DELETE("/vouchers/:address", a.retireVoucherHandler, a.requireUserAuth())
+	apiGroup.GET("/vouchers/:address/retirement-preview", a.retirementPreviewHandler, a.requireUserAuth())
+	apiGroup.GET("/vouchers/:address/retirement-requests", a.retirementResourceHistoryHandler, a.requireUserAuth())
+	apiGroup.POST("/vouchers/:address/retirement-requests", a.createRetirementRequestHandler, a.requireUserAuth())
+	apiGroup.GET("/pools/:address/retirement-preview", a.retirementPreviewHandler, a.requireUserAuth())
+	apiGroup.GET("/pools/:address/retirement-requests", a.retirementResourceHistoryHandler, a.requireUserAuth())
+	apiGroup.POST("/pools/:address/retirement-requests", a.createRetirementRequestHandler, a.requireUserAuth())
+	apiGroup.PUT("/retirement-requests/:id/cancel", a.decideRetirementRequestHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")
@@ -314,6 +350,19 @@ func New(o APIOpts) *API {
 		apiGroup.GET("/accounts/:address/activity", a.accountActivityHandler)
 	}
 
+	// Public ownership inspection also discovers pre-existing compatible
+	// multisigs. It is available without STS or gasless Safe execution.
+	router.GET(apiVersion+"/owners/:address", a.safeOwnerHandler, a.marketRateLimitMiddleware())
+
+	// Safe Transaction Service proxy: the API key stays in clc-core's config.
+	if a.safeProxy != nil {
+		safeGroup := apiGroup.Group("/safe", a.requireUserAuth())
+		safeGroup.POST("/proposals", a.safeProposalHandler)
+		safeGroup.POST("/confirmations", a.safeConfirmationHandler)
+		safeGroup.GET("/transactions/:safeTxHash", a.safeTransactionHandler)
+		safeGroup.GET("/:address/pending", a.safePendingHandler)
+	}
+
 	// User-only routes
 	userGroup := apiGroup.Group("/users", a.requireUserAuth())
 	userGroup.GET("/me", a.userMeHandler)
@@ -330,6 +379,10 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/tokens/:address", a.userTokenByAddressHandler)
 	userGroup.GET("/me/pools", a.userPoolsHandler)
 	userGroup.GET("/me/pools/:address", a.userPoolByAddressHandler)
+	userGroup.GET("/me/owned-pools", a.ownerPoolsListHandler)
+	userGroup.GET("/me/owned-pools/:address", a.ownerPoolByAddressHandler)
+	userGroup.GET("/me/owned-pools/:address/vouchers", a.ownerPoolVouchersListHandler)
+	userGroup.GET("/me/retirement-requests", a.ownRetirementRequestsHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
 	userGroup.GET("/me/shares/eligibility/:address", a.userShareEligibilityHandler)
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
@@ -352,6 +405,15 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/users/:address/stats", a.adminAccountStatsHandler)
 	adminGroup.GET("/tokens", a.adminListTokensHandler)
 	adminGroup.GET("/pools", a.adminListPoolsHandler)
+	adminGroup.GET("/pool-catalog", a.adminPoolCatalogHandler)
+	adminGroup.GET("/pools/:address", a.adminPoolByAddressHandler)
+	adminGroup.PUT("/pools/:address/restore", a.adminRestorePoolHandler)
+	adminGroup.GET("/pools/:address/retirement-history", a.retirementResourceHistoryHandler)
+	adminGroup.GET("/vouchers/:address/retirement-history", a.retirementResourceHistoryHandler)
+	adminGroup.GET("/retirement-requests", a.adminRetirementRequestsHandler)
+	adminGroup.GET("/retirement-requests/:id", a.adminRetirementRequestHandler)
+	adminGroup.PUT("/retirement-requests/:id/approve", a.decideRetirementRequestHandler)
+	adminGroup.PUT("/retirement-requests/:id/reject", a.decideRetirementRequestHandler)
 	adminGroup.GET("/pools/:address/vouchers", a.adminPoolVouchersListHandler)
 	adminGroup.PUT("/pools/:address/profile", a.adminUpdatePoolProfileHandler)
 	adminGroup.PUT("/vouchers/:address/profile", a.adminUpdateVoucherProfileHandler)

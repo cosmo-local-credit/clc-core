@@ -127,7 +127,7 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 		return handleConflictError(c, "voucher is retired and cannot receive offerings")
 	}
 
-	seller, ok := offeringSeller(callerAddress, callerRole, voucher.OwnerAddress)
+	seller, ok := offeringSeller(a.actingOwnerFor(ctx, tx, callerAddress, callerRole, voucher.OwnerAddress), callerRole, voucher.OwnerAddress)
 	if !ok {
 		return handleForbiddenError(c,
 			"only the voucher owner or a superadmin may publish offerings for this voucher")
@@ -284,7 +284,7 @@ func (a *API) authorizeOfferingMutation(
 	if !parent.Active {
 		return nil, true, handleConflictError(c, "voucher is retired and its offerings cannot be changed")
 	}
-	if !canWriteVoucherOfferings(callerAddress, callerRole, parent.OwnerAddress) {
+	if !canWriteVoucherOfferings(a.actingOwnerFor(c.Request().Context(), tx, callerAddress, callerRole, parent.OwnerAddress), callerRole, parent.OwnerAddress) {
 		return nil, true, handleForbiddenError(c,
 			"only the voucher owner or a superadmin may change this offering")
 	}

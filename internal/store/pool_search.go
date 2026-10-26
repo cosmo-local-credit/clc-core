@@ -7,9 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Filtered pool catalog pages and the pool tag facet. Pools carry no visibility flag and no coordinate requirement, so a
-// filtered pool page differs from the unfiltered one only by the predicates the
-// caller asked for.
+// Filtered public pool pages and facets exclude retired pools before pagination.
 //
 // The local catalog holds two pools, which is not representative of a
 // production catalog of thousands. The plan shapes here are the ones the
@@ -27,7 +25,7 @@ import (
 const (
 	poolPageProjection = `
 SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
-    p.name AS contract_name, p.symbol, p.owner_address, p.fee_ppm,
+    p.name AS contract_name, p.symbol, p.active, p.owner_address, p.fee_ppm,
     p.fee_address, p.token_registry_address, p.limiter_address, p.quoter_address, p.quoter_type,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
@@ -57,7 +55,7 @@ func poolTextMatchesCTE(args *sqlArgs, filter CatalogFilter) string {
 	return `pool_text_matches AS MATERIALIZED (
     SELECT search_pool.id
     FROM pools search_pool
-    WHERE ` + poolMatch + `
+    WHERE search_pool.active AND ` + poolMatch + `
     UNION
     SELECT search_token.pool_id AS id
     FROM vouchers search_voucher
@@ -65,6 +63,7 @@ func poolTextMatchesCTE(args *sqlArgs, filter CatalogFilter) string {
         ON search_token.voucher_id = search_voucher.id
         AND search_token.is_allowed
     WHERE search_voucher.active
+        AND EXISTS (SELECT 1 FROM pools matched_pool WHERE matched_pool.id = search_token.pool_id AND matched_pool.active)
         AND ` + voucherMatch + `
 )`
 }
@@ -95,7 +94,8 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 			"    SELECT p.id\n" +
 			"    FROM pools p" +
 			whereClause(
-				ownerPredicate(args, "p.owner_address", filter),
+				"p.active",
+				assetOwnerPredicate(args, "p", filter),
 				catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 				poolTagPredicate(args, filter),
@@ -116,7 +116,8 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 			"    FROM pool_text_matches text_match\n" +
 			"    INNER JOIN pools p ON p.id = text_match.id" +
 			whereClause(
-				ownerPredicate(args, "p.owner_address", filter),
+				"p.active",
+				assetOwnerPredicate(args, "p", filter),
 				catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 				poolTagPredicate(args, filter),
@@ -154,7 +155,8 @@ func composePoolTagCounts(filter CatalogFilter) composed {
     SELECT p.id
 ` + from +
 		whereClause(
-			ownerPredicate(args, "p.owner_address", filter),
+			"p.active",
+			assetOwnerPredicate(args, "p", filter),
 			catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 			poolVoucherPredicate(args, filter),
@@ -215,7 +217,8 @@ func composePoolVoucherCounts(filter CatalogFilter) composed {
     SELECT p.id
 ` + from +
 		whereClause(
-			ownerPredicate(args, "p.owner_address", filter),
+			"p.active",
+			assetOwnerPredicate(args, "p", filter),
 			catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 			poolTagPredicate(args, filter),
