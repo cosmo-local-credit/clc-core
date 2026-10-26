@@ -2,10 +2,12 @@
 -- AddedOwner / RemovedOwner / ChangedThreshold / SafeSetup events and by
 -- cmd/reconcile-ownership, ordered by (block_number, log_index) like
 -- catalog_ownership. An address absent from safe_state is not a known Safe.
+-- threshold is NULL for a compatible multisig without a usable getThreshold:
+-- its signer set still authorizes metadata, without inventing a quorum.
 CREATE TABLE safe_state (
     chain_id BIGINT NOT NULL,
     safe_address TEXT NOT NULL CHECK (safe_address = lower(safe_address)),
-    threshold INTEGER NOT NULL CHECK (threshold >= 1),
+    threshold INTEGER CHECK (threshold >= 1),
     block_number BIGINT NOT NULL CHECK (block_number >= 0),
     log_index BIGINT NOT NULL CHECK (log_index >= 0),
     refreshed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
