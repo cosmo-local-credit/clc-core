@@ -89,7 +89,7 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 	}
 
 	result := map[string]any{
-		"pools": pools,
+		"pools": publicResources(pools, publicContactFields...),
 		"first": first,
 		"last":  last,
 	}
@@ -147,7 +147,7 @@ func (a *API) poolsByAddressHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: fmt.Sprintf("Pool at address %s", address),
 		Result: map[string]any{
-			"pool": pool,
+			"pool": publicResource(pool, publicContactFields...),
 		},
 	})
 }

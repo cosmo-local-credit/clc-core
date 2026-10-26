@@ -51,11 +51,42 @@ type (
 )
 
 func (a *API) poolVouchersListHandler(c *echo.Context) error {
-	return a.poolVouchersList(c, false, false)
+	return a.publicPoolVouchersList(c)
 }
 
 func (a *API) adminPoolVouchersListHandler(c *echo.Context) error {
 	return a.poolVouchersList(c, true, false)
+}
+
+func (a *API) publicPoolVouchersList(c *echo.Context) error {
+	hooks := catalogListHooks{
+		validate: func(tx pgx.Tx) (bool, error) {
+			pool, err := a.store.GetPoolByAddress(c.Request().Context(), tx, c.Param("address"))
+			if err != nil {
+				return true, handlePostgresError(c, err)
+			}
+			if !pool.Active {
+				return true, poolProfileNotFoundError(c)
+			}
+			return false, nil
+		},
+		onSuccess: func(c *echo.Context) { c.Response().Header().Set("Cache-Control", "no-store") },
+	}
+	return catalogAddressListHandler(c, a, "vouchers", "Vouchers in pool %s",
+		func(v publicResourceProjection[store.PoolVoucher]) uint64 { return v.value.ID },
+		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
+			rows, err := a.store.ListPoolVouchers(ctx, tx, address, limit)
+			return publicResources(rows, publicContactFields...), err
+		},
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
+			rows, err := a.store.ListPoolVouchersNext(ctx, tx, address, cursor, limit)
+			return publicResources(rows, publicContactFields...), err
+		},
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
+			rows, err := a.store.ListPoolVouchersPrevious(ctx, tx, address, cursor, limit)
+			return publicResources(rows, publicContactFields...), err
+		}, hooks,
+	)
 }
 
 // Retained composition is available only to an admin or the current pool owner.

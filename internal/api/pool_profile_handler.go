@@ -116,6 +116,16 @@ func (a *API) savePoolProfile(
 		req.UnitOfAccount = &unitOfAccount.Value
 	}
 
+	contacts, handled, err := protectResourceContacts(c,
+		resourceContactFields{Email: current.Email, Phone: current.Phone, Website: current.Website},
+		resourceContactFields{Email: req.Email, Phone: req.Phone, Website: req.Website},
+		req.ClearContactFields,
+	)
+	if handled || err != nil {
+		return store.Pool{}, handled, err
+	}
+	req.Email, req.Phone, req.Website = contacts.Email, contacts.Phone, contacts.Website
+
 	// See saveVoucherProfile: only a non-empty override can collide, and the
 	// pool's own address is excluded so an unchanged re-save is not a conflict.
 	if req.DisplayName != nil && *req.DisplayName != "" {
