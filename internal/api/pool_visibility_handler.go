@@ -81,7 +81,7 @@ func (a *API) managedPoolByAddress(c *echo.Context, ownerOnly bool) error {
 	}
 	if ownerOnly {
 		_, owner, _ := getUserClaims(c)
-		if pool.OwnerAddress == nil || !strings.EqualFold(*pool.OwnerAddress, owner) {
+		if pool.OwnerAddress == nil || !strings.EqualFold(*pool.OwnerAddress, a.actingOwner(ctx, tx, owner, pool.OwnerAddress)) {
 			return poolProfileNotFoundError(c)
 		}
 	}

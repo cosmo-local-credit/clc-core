@@ -155,7 +155,10 @@ func ListRetirementRequests(ctx context.Context, tx pgx.Tx, f RetirementFilter) 
 	}
 	if f.OwnerAddress != "" {
 		owner := args.bind(strings.ToLower(f.OwnerAddress))
-		conditions = append(conditions, "(r.requester_address="+owner+" OR lower(COALESCE(v.owner_address,p.owner_address))="+owner+")")
+		// Requests on a Safe's resources reach every current signer.
+		conditions = append(conditions, "(r.requester_address="+owner+" OR lower(COALESCE(v.owner_address,p.owner_address))="+owner+
+			" OR (COALESCE(v.chain_id,p.chain_id), lower(COALESCE(v.owner_address,p.owner_address))) IN ("+
+			"SELECT ss.chain_id, ss.safe_address FROM safe_signers ss WHERE ss.signer="+owner+"))")
 	}
 	if f.Resource != nil {
 		_, column, err := retirementTable(f.Resource.ResourceType)

@@ -269,3 +269,17 @@ func TestBuildAndSignRelay_WebAuthn_FirstRelay(t *testing.T) {
 		t.Fatalf("auth list len = %d, want 1", len(res.Tx.SetCodeAuthorizations()))
 	}
 }
+
+// A Safe execTransaction is one outer Calibur call however much it does
+// inside, so the budget must grow with signatures and MultiSend subcalls.
+func TestAddSafeBudgetOnlyAppliesToExecTransaction(t *testing.T) {
+	r := testRelayer()
+	plain := []gocalibur.Call{{To: common.HexToAddress("0x01"), Value: big.NewInt(0), Data: []byte{0xa9, 0x05, 0x9c, 0xbb}}}
+	if got := r.addSafeBudget(300_000, plain); got != 300_000 {
+		t.Fatalf("plain call budget changed to %d", got)
+	}
+	exec := []gocalibur.Call{{To: common.HexToAddress("0x02"), Value: big.NewInt(0), Data: []byte{0x6a, 0x76, 0x12, 0x02}}}
+	if got := r.addSafeBudget(300_000, exec); got != 300_000 {
+		t.Fatalf("undecodable exec must not raise the budget, got %d", got)
+	}
+}

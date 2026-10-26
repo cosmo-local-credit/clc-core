@@ -98,9 +98,9 @@ func ListVoucherReviews(ctx context.Context, tx pgx.Tx, voucherID uint64, stars 
 	return page, err
 }
 
-func GetVoucherReviewAccess(ctx context.Context, tx pgx.Tx, voucher ReviewVoucher, address string) (ReviewAccess, error) {
+func GetVoucherReviewAccess(ctx context.Context, tx pgx.Tx, voucher ReviewVoucher, address string, isOwner bool) (ReviewAccess, error) {
 	access := ReviewAccess{EditableReplyIDs: []uint64{}, FlaggedReviewIDs: []uint64{}}
-	access.IsOwner = voucher.OwnerAddress != nil && strings.EqualFold(*voucher.OwnerAddress, address)
+	access.IsOwner = isOwner
 	var own struct {
 		VoucherReview
 

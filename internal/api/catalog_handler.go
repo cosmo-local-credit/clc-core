@@ -98,6 +98,9 @@ func (a *API) poolVouchersList(c *echo.Context, includeRetired, ownerOnly bool) 
 				return true, handlePostgresError(c, err)
 			}
 			_, owner, _ := getUserClaims(c)
+			if ownerOnly {
+				owner = a.actingOwner(c.Request().Context(), tx, owner, pool.OwnerAddress)
+			}
 			if (!includeRetired && !pool.Active) || (ownerOnly && (pool.OwnerAddress == nil || !strings.EqualFold(*pool.OwnerAddress, owner))) {
 				return true, poolProfileNotFoundError(c)
 			}

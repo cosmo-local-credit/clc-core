@@ -42,7 +42,7 @@ func (a *API) updatePoolProfileHandler(c *echo.Context) error {
 		}
 		return handlePostgresError(c, err)
 	}
-	if !canManageCatalogRecord(callerAddress, callerRole, pool.OwnerAddress) {
+	if !a.callerMayManageRecord(ctx, tx, callerAddress, callerRole, pool.OwnerAddress) {
 		return handleForbiddenError(c,
 			"only the pool owner or a superadmin may change this pool's details")
 	}

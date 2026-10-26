@@ -76,7 +76,7 @@ func (a *API) retirementPreviewHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	_, caller, role := getUserClaims(c)
-	if role != "SUPERADMIN" && !strings.EqualFold(caller, resource.OwnerAddress) {
+	if !a.callerMayManageRecord(ctx, tx, caller, role, &resource.OwnerAddress) {
 		return handleForbiddenError(c, "only the current owner or an admin may check retirement balances")
 	}
 	preview, err := a.retirementPreview(ctx, tx, resource)
@@ -108,8 +108,11 @@ func (a *API) createRetirementRequestHandler(c *echo.Context) error {
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
+	// A Safe signer requests on the Safe's behalf: the request records the
+	// Safe as owner and the signer as requester, and an administrator still
+	// decides it.
 	_, caller, _ := getUserClaims(c)
-	if !strings.EqualFold(caller, resource.OwnerAddress) {
+	if !strings.EqualFold(a.actingOwner(ctx, tx, caller, &resource.OwnerAddress), resource.OwnerAddress) {
 		return handleForbiddenError(c, "only the current owner may request retirement")
 	}
 	if !resource.Active {
@@ -119,7 +122,7 @@ func (a *API) createRetirementRequestHandler(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(pending) > 0 && strings.EqualFold(pending[0].OwnerAddress, caller) {
+	if len(pending) > 0 && strings.EqualFold(pending[0].OwnerAddress, resource.OwnerAddress) {
 		return retirementOK(c, map[string]any{"request": pending[0]})
 	}
 	preview, err := a.retirementPreview(ctx, tx, resource)
@@ -160,7 +163,7 @@ func (a *API) retirementResourceHistoryHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	_, caller, role := getUserClaims(c)
-	if role != "SUPERADMIN" && !strings.EqualFold(caller, resource.OwnerAddress) {
+	if !a.callerMayManageRecord(ctx, tx, caller, role, &resource.OwnerAddress) {
 		return handleForbiddenError(c, "only the current owner or an admin may read retirement history")
 	}
 	requests, err := store.ListRetirementRequests(ctx, tx, store.RetirementFilter{Resource: &resource})
@@ -313,7 +316,8 @@ func (a *API) decideRetirementRequestHandler(c *echo.Context) error {
 	}
 	_, caller, role := getUserClaims(c)
 	if action == "cancelled" {
-		if !strings.EqualFold(caller, request.RequesterAddress) || !strings.EqualFold(caller, resource.OwnerAddress) {
+		if !strings.EqualFold(caller, request.RequesterAddress) ||
+			!strings.EqualFold(a.actingOwner(ctx, tx, caller, &resource.OwnerAddress), resource.OwnerAddress) {
 			return handleForbiddenError(c, "only the current owner who made this request may cancel it")
 		}
 	} else if role != "SUPERADMIN" {

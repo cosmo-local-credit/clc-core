@@ -365,6 +365,10 @@ func (a *API) relayHandler(c *echo.Context) error {
 	}
 	ctx := c.Request().Context()
 
+	if handled, err := a.enforceSafePolicy(c, req); handled || err != nil {
+		return err
+	}
+
 	args := worker.RelayArgs{
 		UserAddress:   req.UserAddress,
 		SignedBatch:   req.SignedBatch,

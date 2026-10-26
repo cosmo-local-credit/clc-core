@@ -37,7 +37,7 @@ func (a *API) voucherInfoHandler(c *echo.Context) error {
 	}
 	if !voucher.Active {
 		_, callerAddress, callerRole := getUserClaims(c)
-		if !canManageVoucher(callerAddress, callerRole, voucher.OwnerAddress) {
+		if !a.callerMayManageRecord(ctx, tx, callerAddress, callerRole, voucher.OwnerAddress) {
 			return voucherProfileNotFoundError(c)
 		}
 	}
@@ -75,7 +75,7 @@ func (a *API) poolInfoHandler(c *echo.Context) error {
 	}
 	if !pool.Active {
 		_, callerAddress, callerRole := getUserClaims(c)
-		if !canManageCatalogRecord(callerAddress, callerRole, pool.OwnerAddress) {
+		if !a.callerMayManageRecord(ctx, tx, callerAddress, callerRole, pool.OwnerAddress) {
 			return poolProfileNotFoundError(c)
 		}
 	}

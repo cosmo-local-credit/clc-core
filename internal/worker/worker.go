@@ -8,6 +8,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/gas"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
@@ -35,6 +36,8 @@ type (
 		Pub                 *pub.Pub
 		Relayer             *relayer.Relayer
 		AccountIndexAddress common.Address
+		// ChainID scopes Safe signer projections, as in the subscriber.
+		ChainID int64
 	}
 
 	WorkerContainer struct {
@@ -48,6 +51,7 @@ type (
 		pub                 *pub.Pub
 		relayer             *relayer.Relayer
 		accountIndexAddress common.Address
+		chainID             int64
 	}
 )
 
@@ -64,6 +68,7 @@ func New(o WorkerOpts) *WorkerContainer {
 		pub:                 o.Pub,
 		relayer:             o.Relayer,
 		accountIndexAddress: o.AccountIndexAddress,
+		chainID:             o.ChainID,
 	}
 }
 
@@ -173,6 +178,10 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 	}
 
 	if err := river.AddWorkerSafely(workers, &NonceReconcilerWorker{wc: wc}); err != nil {
+		return nil, err
+	}
+
+	if err := river.AddWorkerSafely(workers, &SafeSignersRefreshWorker{wc: wc, reader: safe.NewReader(wc.chainProvider)}); err != nil {
 		return nil, err
 	}
 

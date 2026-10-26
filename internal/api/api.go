@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
@@ -40,6 +41,14 @@ type (
 		ChainID         int64
 		Relayer         *relayer.Relayer
 		Pretium         *pretium.PretiumClient
+		// SafeMultiSend lists the pinned MultiSendCallOnly deployments. Empty
+		// disables Safe execution through the relay.
+		SafeMultiSend []string
+		// SafeSTSURL and SafeSTSKey configure the Safe Transaction Service
+		// proxy. With an empty URL or no pinned MultiSend the /safe routes are
+		// not mounted.
+		SafeSTSURL string
+		SafeSTSKey string
 	}
 
 	API struct {
@@ -70,6 +79,10 @@ type (
 		marketMapExecutor       *marketMapExecutor
 		marketMapLoads          singleflight.Group
 		retirementPreviewReader func(context.Context, pgx.Tx, store.RetirementResource) (store.RetirementPreview, error)
+		safePolicy              *safe.Policy
+		safeReader              safeStateReader
+		safeMisses              *safeMissCache
+		safeProxy               *safeService
 	}
 )
 
@@ -106,6 +119,19 @@ func New(o APIOpts) *API {
 		marketFacets:          newMarketFacetCache(time.Now),
 		marketMapCache:        newMarketMapCache(time.Now),
 		marketMapExecutor:     newMarketMapExecutor(),
+	}
+	a.safePolicy = a.newSafePolicy(o.SafeMultiSend)
+	if o.ChainProvider != nil {
+		a.safeReader = safe.NewReader(o.ChainProvider)
+		a.safeMisses = newSafeMissCache(time.Now)
+	}
+	if a.safePolicy != nil && o.SafeSTSURL != "" {
+		a.safeProxy = &safeService{
+			chainID: o.ChainID,
+			policy:  a.safePolicy,
+			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey),
+			signers: storeSafeSigners{a: a},
+		}
 	}
 	a.marketLimiter.startSweeper()
 	a.marketMapUserLimiter.startSweeper()
@@ -322,6 +348,19 @@ func New(o APIOpts) *API {
 		apiGroup.GET("/accounts/:address/tokens", a.accountTokensHandler)
 		apiGroup.GET("/accounts/:address/transfers", a.accountTransfersHandler)
 		apiGroup.GET("/accounts/:address/activity", a.accountActivityHandler)
+	}
+
+	// Public ownership inspection also discovers pre-existing compatible
+	// multisigs. It is available without STS or gasless Safe execution.
+	router.GET(apiVersion+"/owners/:address", a.safeOwnerHandler, a.marketRateLimitMiddleware())
+
+	// Safe Transaction Service proxy: the API key stays in clc-core's config.
+	if a.safeProxy != nil {
+		safeGroup := apiGroup.Group("/safe", a.requireUserAuth())
+		safeGroup.POST("/proposals", a.safeProposalHandler)
+		safeGroup.POST("/confirmations", a.safeConfirmationHandler)
+		safeGroup.GET("/transactions/:safeTxHash", a.safeTransactionHandler)
+		safeGroup.GET("/:address/pending", a.safePendingHandler)
 	}
 
 	// User-only routes

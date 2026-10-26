@@ -49,13 +49,14 @@ func (pg *Pg) AccountRelationshipCounts(
 // carry identical fields.
 func composeAccountPoolPage(owner string, page CatalogPage, cursor, limit uint64) composed {
 	args := &sqlArgs{}
+	ownerParam := args.bind(owner)
 	membership := `EXISTS (
             SELECT 1
             FROM pool_tokens pt
             INNER JOIN vouchers v ON v.id = pt.voucher_id
             WHERE pt.pool_id = p.id
                 AND pt.is_allowed
-                AND lower(v.owner_address) = lower(` + args.bind(owner) + `)
+                AND ` + ownedByPredicate("v", ownerParam) + `
         )`
 
 	body := "WITH page AS MATERIALIZED (\n" +
