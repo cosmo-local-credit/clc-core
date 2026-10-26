@@ -43,6 +43,8 @@ type (
 		IsExecuted            bool           `json:"isExecuted"`
 		IsSuccessful          *bool          `json:"isSuccessful"`
 		TransactionHash       *string        `json:"transactionHash"`
+		// Executing: clc-core has queued or sent the execution itself.
+		Executing bool `json:"executing"`
 	}
 )
 

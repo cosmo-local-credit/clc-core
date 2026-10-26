@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
@@ -135,4 +136,27 @@ func (a *API) actingOwner(ctx context.Context, tx pgx.Tx, callerAddress string, 
 		}
 	}
 	return callerAddress
+}
+
+func (a *API) queueSafeExecution(ctx context.Context, safeAddress, safeTxHash string) bool {
+	if err := worker.EnqueueSafeExecution(ctx, a.queueClient, safeAddress, safeTxHash); err != nil {
+		a.logg.Error("could not queue Safe execution", "safeTxHash", safeTxHash, "err", err)
+		return false
+	}
+	return true
+}
+
+func (a *API) safeExecutionsQueued(ctx context.Context, safeTxHashes []string) map[string]bool {
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		a.logg.Error("could not read Safe executions", "err", err)
+		return nil
+	}
+	defer tx.Rollback(ctx)
+	queued, err := a.store.SafeExecutionsQueued(ctx, tx, safeTxHashes)
+	if err != nil {
+		a.logg.Error("could not read Safe executions", "err", err)
+		return nil
+	}
+	return queued
 }

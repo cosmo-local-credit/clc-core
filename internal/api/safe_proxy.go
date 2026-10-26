@@ -49,6 +49,11 @@ type (
 		policy  *safe.Policy
 		sts     safeSTSClient
 		signers safeSignerSource
+		// execute queues clc-core's execution of a confirmed transaction and
+		// executing reports which are queued; both nil leaves execution to
+		// the Safe app.
+		execute   func(ctx context.Context, safe, safeTxHash string) bool
+		executing func(ctx context.Context, safeTxHashes []string) map[string]bool
 	}
 
 	safeProposalRequest struct {
@@ -185,7 +190,33 @@ func (s *safeService) propose(ctx context.Context, caller string, req safePropos
 	if err != nil {
 		return nil, upstreamError(err)
 	}
+	s.queueExecution(ctx, tx)
 	return tx, nil
+}
+
+// queueExecution hands a transaction that has just reached its threshold to
+// clc-core's executor. The caller's signature is recorded either way; a failed
+// enqueue leaves execution to the Safe app.
+func (s *safeService) queueExecution(ctx context.Context, tx *safe.Transaction) {
+	if s.execute == nil || tx.IsExecuted || tx.ConfirmationsRequired < 1 ||
+		len(tx.Confirmations) < tx.ConfirmationsRequired {
+		return
+	}
+	tx.Executing = s.execute(ctx, tx.Safe, tx.SafeTxHash)
+}
+
+func (s *safeService) markExecuting(ctx context.Context, txs []safe.Transaction) {
+	if s.executing == nil || len(txs) == 0 {
+		return
+	}
+	hashes := make([]string, len(txs))
+	for i, tx := range txs {
+		hashes[i] = strings.ToLower(tx.SafeTxHash)
+	}
+	queued := s.executing(ctx, hashes)
+	for i := range txs {
+		txs[i].Executing = queued[hashes[i]]
+	}
 }
 
 func (s *safeService) confirm(ctx context.Context, caller string, req safeConfirmationRequest) (*safe.Transaction, error) {
@@ -224,6 +255,7 @@ func (s *safeService) confirm(ctx context.Context, caller string, req safeConfir
 	if err != nil {
 		return nil, upstreamError(err)
 	}
+	s.queueExecution(ctx, updated)
 	return updated, nil
 }
 
@@ -249,6 +281,7 @@ func (s *safeService) pending(ctx context.Context, caller, safeAddress string) (
 			results = append(results, tx)
 		}
 	}
+	s.markExecuting(ctx, results)
 	return results, nil
 }
 
@@ -266,7 +299,9 @@ func (s *safeService) transaction(ctx context.Context, caller, safeTxHash string
 	if err := s.requireSigner(ctx, caller, common.HexToAddress(tx.Safe)); err != nil {
 		return nil, err
 	}
-	return tx, nil
+	single := []safe.Transaction{*tx}
+	s.markExecuting(ctx, single)
+	return &single[0], nil
 }
 
 func (s storeSafeSigners) Signers(ctx context.Context, safeAddress common.Address) ([]string, bool, error) {

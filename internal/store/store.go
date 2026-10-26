@@ -84,6 +84,7 @@ type (
 		GetSafeState(context.Context, pgx.Tx, int64, string) (SafeState, error)
 		CatalogHasOwner(context.Context, pgx.Tx, int64, string) (bool, error)
 		SafeManagesAsset(context.Context, pgx.Tx, int64, string, string) (bool, error)
+		SafeExecutionsQueued(context.Context, pgx.Tx, []string) (map[string]bool, error)
 		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
 		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
 		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string) (int64, error)

@@ -162,6 +162,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 		Relayer:             relayerInst,
 		AccountIndexAddress: accountIndexAddress,
 		ChainID:             ko.MustInt64("chain.id"),
+		SafeExecutor:        loadSafeExecutor(pgStore, chainProvider),
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)
@@ -293,5 +294,28 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		SafeMultiSend:   ko.Strings("safe.multisend_call_only"),
 		SafeSTSURL:      ko.String("safe.sts_base_url"),
 		SafeSTSKey:      ko.String("safe.sts_api_key"),
+		SafeAutoExecute: safeAutoExecute(),
 	})
+}
+
+// safeAutoExecute needs the Transaction Service and pinned MultiSend as well as
+// the switch: the API queues executions only when its /safe proxy is mounted,
+// and the worker must then run the executor that drains them.
+func safeAutoExecute() bool {
+	return ko.Bool("safe.auto_execute") && ko.String("safe.sts_base_url") != "" &&
+		len(ko.Strings("safe.multisend_call_only")) > 0
+}
+
+func loadSafeExecutor(pgStore store.Store, chainProvider *ethutils.Provider) *safe.Executor {
+	if !safeAutoExecute() {
+		return nil
+	}
+	chainID := ko.MustInt64("chain.id")
+	multiSend := make([]common.Address, 0, len(ko.Strings("safe.multisend_call_only")))
+	for _, address := range ko.Strings("safe.multisend_call_only") {
+		multiSend = append(multiSend, common.HexToAddress(address))
+	}
+	policy := safe.NewPolicy(worker.NewSafeResolver(pgStore, chainID), multiSend, safe.DefaultAllowedSignatures)
+	sts := safe.NewSTS(ko.String("safe.sts_base_url"), ko.String("safe.sts_api_key"))
+	return safe.NewExecutor(chainID, policy, sts, safe.NewReader(chainProvider))
 }

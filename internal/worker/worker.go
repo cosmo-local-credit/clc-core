@@ -38,6 +38,9 @@ type (
 		AccountIndexAddress common.Address
 		// ChainID scopes Safe signer projections, as in the subscriber.
 		ChainID int64
+		// SafeExecutor enables executing confirmed Safe transactions from the
+		// system signer; nil leaves execution to the Safe app.
+		SafeExecutor *safe.Executor
 	}
 
 	WorkerContainer struct {
@@ -52,6 +55,7 @@ type (
 		relayer             *relayer.Relayer
 		accountIndexAddress common.Address
 		chainID             int64
+		safeExecutor        *safe.Executor
 	}
 )
 
@@ -69,6 +73,7 @@ func New(o WorkerOpts) *WorkerContainer {
 		relayer:             o.Relayer,
 		accountIndexAddress: o.AccountIndexAddress,
 		chainID:             o.ChainID,
+		safeExecutor:        o.SafeExecutor,
 	}
 }
 
@@ -183,6 +188,12 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 
 	if err := river.AddWorkerSafely(workers, &SafeSignersRefreshWorker{wc: wc, reader: safe.NewReader(wc.chainProvider)}); err != nil {
 		return nil, err
+	}
+
+	if wc.safeExecutor != nil {
+		if err := river.AddWorkerSafely(workers, &SafeExecuteWorker{wc: wc, executor: wc.safeExecutor}); err != nil {
+			return nil, err
+		}
 	}
 
 	return workers, nil

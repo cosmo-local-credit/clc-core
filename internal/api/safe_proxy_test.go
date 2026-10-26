@@ -338,3 +338,72 @@ func TestProxyResultIsFlattenedIntoTheEnvelope(t *testing.T) {
 		t.Fatalf("unexpected %v", body)
 	}
 }
+
+// The confirmation that reaches the threshold hands execution to clc-core;
+// one below it does not, and the caller's confirmation stands either way.
+func TestConfirmationReachingTheThresholdQueuesExecution(t *testing.T) {
+	for name, tc := range map[string]struct {
+		confirmations int
+		queued        bool
+	}{
+		"threshold reached": {confirmations: 2, queued: true},
+		"one short":         {confirmations: 1, queued: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newProxyFixture(t, true)
+			f.sts.stored = storedFor(t, txFor(proxyAsset, ownershipCall()))
+			f.sts.stored.ConfirmationsRequired = 2
+			f.sts.stored.Confirmations = make([]safe.Confirmation, tc.confirmations)
+			var calls []string
+			f.svc.execute = func(_ context.Context, safeAddress, safeTxHash string) bool {
+				calls = append(calls, safeAddress+":"+safeTxHash)
+				return true
+			}
+			hash := common.HexToHash(f.sts.stored.SafeTxHash)
+			tx, err := f.svc.confirm(context.Background(), f.key, safeConfirmationRequest{SafeTxHash: hash.Hex(), Signature: f.sign(hash)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(f.sts.confirmed) != 1 {
+				t.Fatal("confirmation not forwarded")
+			}
+			if tc.queued != (len(calls) == 1) || tx.Executing != tc.queued {
+				t.Fatalf("queued %v executing %v, want %v", calls, tx.Executing, tc.queued)
+			}
+		})
+	}
+}
+
+// A threshold-one Safe executes straight from the proposal.
+func TestProposalOfAThresholdOneSafeQueuesExecution(t *testing.T) {
+	f := newProxyFixture(t, true)
+	req := f.proposal(t, txFor(proxyAsset, ownershipCall()))
+	f.sts.stored = &safe.Transaction{Safe: proxySafe.Hex(), SafeTxHash: req.SafeTxHash, TxFields: req.Tx,
+		ConfirmationsRequired: 1, Confirmations: make([]safe.Confirmation, 1)}
+	queued := 0
+	f.svc.execute = func(context.Context, string, string) bool { queued++; return true }
+	tx, err := f.svc.propose(context.Background(), f.key, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 || !tx.Executing {
+		t.Fatalf("queued %d executing %v", queued, tx.Executing)
+	}
+}
+
+func TestPendingReportsWhichTransactionsAreExecuting(t *testing.T) {
+	f := newProxyFixture(t, true)
+	a := storedFor(t, txFor(proxyAsset, ownershipCall()))
+	b := storedFor(t, func() safe.TxFields { tx := txFor(proxyAsset, ownershipCall()); tx.Nonce = "5"; return tx }())
+	f.sts.queued = []safe.Transaction{*a, *b}
+	f.svc.executing = func(_ context.Context, hashes []string) map[string]bool {
+		return map[string]bool{hashes[1]: true}
+	}
+	got, err := f.svc.pending(context.Background(), f.key, proxySafe.Hex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Executing || !got[1].Executing {
+		t.Fatalf("executing flags %v %v", got[0].Executing, got[1].Executing)
+	}
+}
