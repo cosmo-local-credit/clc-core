@@ -3447,9 +3447,9 @@ WITH raw AS MATERIALIZED (
     ) related ON true
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.geo_lng IS NOT NULL
       AND (point(v.geo_lng,v.geo_lat) <@ box(
-              point(CASE WHEN $21::BOOLEAN THEN $22 ELSE -180 END,CASE WHEN $21::BOOLEAN THEN $23 ELSE -90 END),
-              point(CASE WHEN $21::BOOLEAN THEN $24 ELSE 180 END,CASE WHEN $21::BOOLEAN THEN $25 ELSE 90 END)) OR
-          ($26::BOOLEAN AND point(v.geo_lng,v.geo_lat) <@ box(point($27,$28),point($29,$30))))
+              point(CASE WHEN $21::BOOLEAN THEN $22::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $21::BOOLEAN THEN $23::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $21::BOOLEAN THEN $24::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $21::BOOLEAN THEN $25::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($26::BOOLEAN AND point(v.geo_lng,v.geo_lat) <@ box(point($27::FLOAT8,$28::FLOAT8),point($29::FLOAT8,$30::FLOAT8))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id=v.id AND pt.is_allowed AND pt.pool_id=ANY($5::BIGINT[])
       ))
@@ -3495,9 +3495,9 @@ WITH raw AS MATERIALIZED (
     WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
       AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND (point(w.geo_lng,w.geo_lat) <@ box(
-              point(CASE WHEN $21::BOOLEAN THEN $22 ELSE -180 END,CASE WHEN $21::BOOLEAN THEN $23 ELSE -90 END),
-              point(CASE WHEN $21::BOOLEAN THEN $24 ELSE 180 END,CASE WHEN $21::BOOLEAN THEN $25 ELSE 90 END)) OR
-          ($26::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($27,$28),point($29,$30))))
+              point(CASE WHEN $21::BOOLEAN THEN $22::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $21::BOOLEAN THEN $23::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $21::BOOLEAN THEN $24::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $21::BOOLEAN THEN $25::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($26::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($27::FLOAT8,$28::FLOAT8),point($29::FLOAT8,$30::FLOAT8))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM vouchers v
           JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed
@@ -3616,9 +3616,9 @@ WITH raw AS MATERIALIZED (
     ) related ON true
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.geo_lng IS NOT NULL
       AND (point(v.geo_lng,v.geo_lat) <@ box(
-              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
-              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
-          ($14::BOOLEAN AND point(v.geo_lng,v.geo_lat) <@ box(point($15,$16),point($17,$18))))
+              point(CASE WHEN $9::BOOLEAN THEN $10::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $11::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $13::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($14::BOOLEAN AND point(v.geo_lng,v.geo_lat) <@ box(point($15::FLOAT8,$16::FLOAT8),point($17::FLOAT8,$18::FLOAT8))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id=v.id AND pt.is_allowed AND pt.pool_id=ANY($5::BIGINT[])
       ))
@@ -3635,9 +3635,9 @@ WITH raw AS MATERIALIZED (
     WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
       AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND (point(w.geo_lng,w.geo_lat) <@ box(
-              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
-              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
-          ($14::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($15,$16),point($17,$18))))
+              point(CASE WHEN $9::BOOLEAN THEN $10::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $11::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $13::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($14::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($15::FLOAT8,$16::FLOAT8),point($17::FLOAT8,$18::FLOAT8))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM vouchers v
           JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed
@@ -3663,9 +3663,9 @@ WITH raw AS MATERIALIZED (
     ) related ON true
     WHERE p.geo_lat IS NOT NULL AND p.geo_lng IS NOT NULL
       AND (point(p.geo_lng,p.geo_lat) <@ box(
-              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
-              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
-          ($14::BOOLEAN AND point(p.geo_lng,p.geo_lat) <@ box(point($15,$16),point($17,$18))))
+              point(CASE WHEN $9::BOOLEAN THEN $10::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $11::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $13::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($14::BOOLEAN AND point(p.geo_lng,p.geo_lat) <@ box(point($15::FLOAT8,$16::FLOAT8),point($17::FLOAT8,$18::FLOAT8))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR p.id=ANY($5::BIGINT[]))
 
     UNION ALL
@@ -3678,9 +3678,9 @@ WITH raw AS MATERIALIZED (
     ) ctags ON true
     WHERE c.geo_lat IS NOT NULL AND c.geo_lng IS NOT NULL
       AND (point(c.geo_lng,c.geo_lat) <@ box(
-              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
-              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
-          ($14::BOOLEAN AND point(c.geo_lng,c.geo_lat) <@ box(point($15,$16),point($17,$18))))
+              point(CASE WHEN $9::BOOLEAN THEN $10::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $11::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $13::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($14::BOOLEAN AND point(c.geo_lng,c.geo_lat) <@ box(point($15::FLOAT8,$16::FLOAT8),point($17::FLOAT8,$18::FLOAT8))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
         SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($5::BIGINT[])
         UNION ALL
@@ -3698,9 +3698,9 @@ WITH raw AS MATERIALIZED (
     ) rtags ON true
     WHERE r.status='APPROVED' AND r.geo_lat IS NOT NULL AND r.geo_lng IS NOT NULL
       AND (point(r.geo_lng,r.geo_lat) <@ box(
-              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
-              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
-          ($14::BOOLEAN AND point(r.geo_lng,r.geo_lat) <@ box(point($15,$16),point($17,$18))))
+              point(CASE WHEN $9::BOOLEAN THEN $10::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $11::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $13::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($14::BOOLEAN AND point(r.geo_lng,r.geo_lat) <@ box(point($15::FLOAT8,$16::FLOAT8),point($17::FLOAT8,$18::FLOAT8))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM report_pools rp
           WHERE rp.report_id=r.id AND rp.pool_id=ANY($5::BIGINT[])
