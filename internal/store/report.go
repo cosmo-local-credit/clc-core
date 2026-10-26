@@ -99,6 +99,8 @@ type (
 		GeoLng      *float64        `db:"geo_lng"        json:"geoLng"`
 		PeriodFrom  *time.Time      `db:"period_from"    json:"periodFrom"`
 		PeriodTo    *time.Time      `db:"period_to"      json:"periodTo"`
+		MarkerIcon  string          `db:"marker_icon"    json:"markerIcon"`
+		MarkerColor string          `db:"marker_color"   json:"markerColor"`
 		AuthorAddr  string          `db:"author_address" json:"authorAddress"`
 		Status      string          `db:"status"         json:"status,omitempty"`
 		CreatedAt   time.Time       `db:"created_at"     json:"createdAt"`
@@ -142,6 +144,8 @@ type (
 		HostName     *string
 		Participants *string
 		TimeTaken    *string
+		MarkerIcon   string
+		MarkerColor  string
 		Tags         []string
 		VoucherIDs   []uint64
 		PoolIDs      []uint64
@@ -227,6 +231,7 @@ func (pg *Pg) CreateReport(
 	authorAddress string,
 	status string,
 ) (uint64, error) {
+	markerIcon, markerColor := reportMarkerStyleOrDefault(report.MarkerIcon, report.MarkerColor)
 	var id uint64
 	err := tx.QueryRow(
 		ctx,
@@ -244,6 +249,8 @@ func (pg *Pg) CreateReport(
 		report.HostName,
 		report.Participants,
 		report.TimeTaken,
+		markerIcon,
+		markerColor,
 	).Scan(&id)
 	return id, err
 }
@@ -272,6 +279,7 @@ func (pg *Pg) UpdateReport(
 	modifierAddress string,
 	status *string,
 ) error {
+	markerIcon, markerColor := reportMarkerStyleOrDefault(report.MarkerIcon, report.MarkerColor)
 	_, err := tx.Exec(
 		ctx,
 		pg.queries.UpdateReport,
@@ -288,9 +296,21 @@ func (pg *Pg) UpdateReport(
 		report.HostName,
 		report.Participants,
 		report.TimeTaken,
+		markerIcon,
+		markerColor,
 		status,
 	)
 	return err
+}
+
+func reportMarkerStyleOrDefault(icon, color string) (string, string) {
+	if icon == "" {
+		icon = "post"
+	}
+	if color == "" {
+		color = "pink"
+	}
+	return icon, color
 }
 
 // ApproveReport changes workflow state without rewriting content. Keeping it

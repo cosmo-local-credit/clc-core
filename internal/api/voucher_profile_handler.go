@@ -100,8 +100,9 @@ func (a *API) bindVoucherProfileRequest(c *echo.Context) (apiresp.UpdateVoucherP
 }
 
 // saveVoucherProfile writes a validated profile inside the caller's transaction
-// and reads the public detail row back so the response can seed the caller's
-// cache. `handled` reports that an error response has already been written.
+// and reads the complete authenticated detail row back so the response can seed
+// the caller's private cache. `handled` reports that an error response has
+// already been written.
 //
 // The read-back is also what proves the write landed as intended — the update
 // statement returns an id, not a row, and `get-market-voucher-by-address`
@@ -114,6 +115,23 @@ func (a *API) saveVoucherProfile(
 	address string,
 	req apiresp.UpdateVoucherProfileRequest,
 ) (store.MarketVoucherDetail, bool, error) {
+	current, err := a.store.GetAdminVoucherByAddress(ctx, tx, address)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return store.MarketVoucherDetail{}, true, voucherProfileNotFoundError(c)
+		}
+		return store.MarketVoucherDetail{}, true, handlePostgresError(c, err)
+	}
+	contacts, handled, err := protectResourceContacts(c,
+		resourceContactFields{Email: current.Email, Phone: current.Phone, Website: current.Website},
+		resourceContactFields{Email: req.Email, Phone: req.Phone, Website: req.Website},
+		req.ClearContactFields,
+	)
+	if handled || err != nil {
+		return store.MarketVoucherDetail{}, handled, err
+	}
+	req.Email, req.Phone, req.Website = contacts.Email, contacts.Phone, contacts.Website
+
 	// An omitted or cleared display name falls back to the immutable contract
 	// name, which is already unique enough to have deployed; only a new override
 	// can collide. The voucher's own address is excluded so re-saving the profile

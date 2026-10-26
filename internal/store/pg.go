@@ -258,6 +258,7 @@ type (
 		ListOfferingTagCountsGlobal string `query:"list-offering-tag-counts-global"`
 		ListOfferingTagCountsNearby string `query:"list-offering-tag-counts-nearby"`
 		ListMarketplace             string `query:"list-marketplace"`
+		ListMarketMap               string `query:"list-market-map"`
 		ListWants                   string `query:"list-wants"`
 		ListWantsNext               string `query:"list-wants-next"`
 		ListWantsPrev               string `query:"list-wants-prev"`

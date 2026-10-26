@@ -1,6 +1,7 @@
 package api
 
 import (
+	"container/list"
 	"math"
 	"net"
 	"net/http"
@@ -37,39 +38,61 @@ const (
 	// visitor would have been 429'd for using the feature normally. 60 covers the
 	// enumerated 36 with margin for the exhaustion pages a filtered set over 500
 	// rows adds.
-	marketRateLimit    = rate.Limit(1) // one token per second == 60/min
-	marketRateBurst    = 60
-	recipientRateLimit = rate.Limit(1)
-	recipientRateBurst = 30
+	marketRateLimit         = rate.Limit(1) // one token per second == 60/min
+	marketRateBurst         = 60
+	recipientRateLimit      = rate.Limit(1)
+	recipientRateBurst      = 30
+	marketMapUserRateLimit  = rate.Limit(2)
+	marketMapUserRateBurst  = 30
+	marketMapGuestRateLimit = rate.Limit(100)
+	marketMapGuestRateBurst = 1000
 
 	// The registry is bounded and swept so forged source addresses cannot grow
 	// it without bound.
-	marketRateMaxClients = 10_000
-	marketRateIdleTTL    = 10 * time.Minute
-	marketRateSweepEvery = time.Minute
+	marketRateMaxClients    = 10_000
+	marketMapRateMaxClients = 100_000
+	marketRateIdleTTL       = 10 * time.Minute
+	marketRateSweepEvery    = time.Minute
 )
 
 type (
 	marketRateLimiterEntry struct {
 		limiter  *rate.Limiter
 		lastSeen time.Time
+		element  *list.Element
 	}
 
 	marketRateLimiter struct {
-		mu      sync.Mutex
-		clients map[string]*marketRateLimiterEntry
-		limit   rate.Limit
-		burst   int
-		now     func() time.Time
+		mu          sync.Mutex
+		clients     map[string]*marketRateLimiterEntry
+		limit       rate.Limit
+		burst       int
+		now         func() time.Time
+		order       *list.List
+		maxClients  int
+		evictOldest bool
 	}
 )
 
 func newMarketRateLimiter(limit rate.Limit, burst int, now func() time.Time) *marketRateLimiter {
+	return newMarketRateLimiterWithCapacity(limit, burst, marketRateMaxClients, false, now)
+}
+
+func newMarketRateLimiterWithCapacity(
+	limit rate.Limit,
+	burst int,
+	maxClients int,
+	evictOldest bool,
+	now func() time.Time,
+) *marketRateLimiter {
 	return &marketRateLimiter{
-		clients: make(map[string]*marketRateLimiterEntry),
-		limit:   limit,
-		burst:   burst,
-		now:     now,
+		clients:     make(map[string]*marketRateLimiterEntry),
+		limit:       limit,
+		burst:       burst,
+		now:         now,
+		order:       list.New(),
+		maxClients:  maxClients,
+		evictOldest: evictOldest,
 	}
 }
 
@@ -83,16 +106,22 @@ func (l *marketRateLimiter) allow(key string) (bool, time.Duration) {
 	if !ok {
 		// Sweep before admitting a new key so a flood of one-shot addresses
 		// reclaims space instead of only growing the map.
-		if len(l.clients) >= marketRateMaxClients {
+		if len(l.clients) >= l.maxClients {
 			l.evictIdleLocked(now)
 		}
-		if len(l.clients) >= marketRateMaxClients {
+		if len(l.clients) >= l.maxClients && l.evictOldest {
+			l.removeOldestLocked()
+		}
+		if len(l.clients) >= l.maxClients {
 			l.mu.Unlock()
 			// The registry is saturated by active clients; shed rather than grow.
 			return false, time.Second
 		}
 		entry = &marketRateLimiterEntry{limiter: rate.NewLimiter(l.limit, l.burst)}
+		entry.element = l.order.PushFront(key)
 		l.clients[key] = entry
+	} else {
+		l.order.MoveToFront(entry.element)
 	}
 	entry.lastSeen = now
 	limiter := entry.limiter
@@ -118,9 +147,20 @@ func (l *marketRateLimiter) evictIdle() {
 func (l *marketRateLimiter) evictIdleLocked(now time.Time) {
 	for key, entry := range l.clients {
 		if now.Sub(entry.lastSeen) >= marketRateIdleTTL {
+			l.order.Remove(entry.element)
 			delete(l.clients, key)
 		}
 	}
+}
+
+func (l *marketRateLimiter) removeOldestLocked() {
+	oldest := l.order.Back()
+	if oldest == nil {
+		return
+	}
+	key, _ := oldest.Value.(string)
+	delete(l.clients, key)
+	l.order.Remove(oldest)
 }
 
 func (l *marketRateLimiter) size() int {
@@ -159,6 +199,16 @@ func (a *API) marketRateLimitMiddleware() echo.MiddlewareFunc {
 			return a.throttle(c, a.marketLimiter, next)
 		}
 	}
+}
+
+func (a *API) marketMapRateLimitIdentity(c *echo.Context) (*marketRateLimiter, string) {
+	if a.authenticateCaller(c) {
+		_, address, role := getUserClaims(c)
+		if address != "" && role != "SERVICE" {
+			return a.marketMapUserLimiter, strings.ToLower(address)
+		}
+	}
+	return a.marketMapGuestLimiter, marketClientIP(c.Request(), a.trustProxy)
 }
 
 // recipientRateLimitMiddleware isolates authenticated identity lookups from
@@ -225,7 +275,8 @@ func (a *API) throttleKey(c *echo.Context, limiter *marketRateLimiter, key strin
 // entry is the address that proxy actually observed, so a client-forged
 // leftmost entry cannot displace it.
 func marketClientIP(r *http.Request, trustProxy bool) string {
-	if trustProxy {
+	peer := directPeerIP(r.RemoteAddr)
+	if trustProxy && trustedProxyPeer(peer) {
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 			parts := strings.Split(forwarded, ",")
 			if candidate := strings.TrimSpace(parts[len(parts)-1]); candidate != "" {
@@ -233,9 +284,22 @@ func marketClientIP(r *http.Request, trustProxy bool) string {
 			}
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	return peer
+}
+
+func directPeerIP(remoteAddress string) string {
+	host, _, err := net.SplitHostPort(remoteAddress)
 	if err != nil {
-		return r.RemoteAddr
+		return remoteAddress
 	}
 	return host
+}
+
+// trustedProxyPeer constrains forwarded-header trust to the Caddy hop. The
+// deployment flag still has to be enabled, and the service must be reached by
+// loopback or a private container-network address. A public direct client
+// cannot opt itself into a new rate-limit identity with a forged header.
+func trustedProxyPeer(peer string) bool {
+	ip := net.ParseIP(strings.TrimSpace(peer))
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 }

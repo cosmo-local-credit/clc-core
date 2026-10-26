@@ -92,6 +92,8 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "057_wants.sql")
 	assert.Contains(t, sqlFiles, "058_report_pools.sql")
 	assert.Contains(t, sqlFiles, "059_viewport_spatial_indexes.sql")
+	assert.Contains(t, sqlFiles, "060_report_marker_style.sql")
+	assert.Contains(t, sqlFiles, "061_retirement_requests.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -153,7 +155,10 @@ func TestMigrationFiles(t *testing.T) {
 				name == "057_wants.sql" ||
 				name == "058_report_pools.sql" ||
 				name == "059_viewport_spatial_indexes.sql" ||
-				name == "060_safe_signers.sql" || name == "061_safe_compatible_owners.sql",
+				name == "060_report_marker_style.sql" ||
+				name == "061_retirement_requests.sql" ||
+				name == "062_safe_signers.sql" ||
+				name == "063_safe_compatible_owners.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -222,8 +227,10 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"057_wants.sql",
 		"058_report_pools.sql",
 		"059_viewport_spatial_indexes.sql",
-		"060_safe_signers.sql",
-		"061_safe_compatible_owners.sql",
+		"060_report_marker_style.sql",
+		"061_retirement_requests.sql",
+		"062_safe_signers.sql",
+		"063_safe_compatible_owners.sql",
 	}, files)
 }
 

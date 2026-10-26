@@ -30,6 +30,8 @@ type (
 		GeoLng       *float64                 `json:"geoLng"`
 		PeriodFrom   *time.Time               `json:"periodFrom"`
 		PeriodTo     *time.Time               `json:"periodTo"`
+		MarkerIcon   string                   `json:"markerIcon"`
+		MarkerColor  string                   `json:"markerColor"`
 		CreatedAt    time.Time                `json:"createdAt"`
 		UpdatedAt    time.Time                `json:"updatedAt"`
 		Tags         []string                 `json:"tags"`
@@ -67,7 +69,8 @@ const (
 // repeat rows. The cursor is therefore the (updatedAt, id) pair the last row
 // carried, and it is echoed back as `next`.
 //
-// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, and `facets` narrow the feed
+// Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, `pools`,
+// `poolMatch`, `creditablePools`, `bbox`, and `facets` narrow the feed
 // (SEARCH_FILTER_PLAN.md Slice 4). `q` matches title and description; report body
 // search stays parked. Report tags are the reports' own `report_tags`, which each
 // row already returns, so a filtered row carries the tag that matched it. The
@@ -121,6 +124,9 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 		return vErr
 	}
 	if handled, vErr := a.resolvePoolFilter(c, tx, &search); handled || vErr != nil {
+		return vErr
+	}
+	if handled, vErr := a.resolveCreditablePoolFilter(c, tx, &search); handled || vErr != nil {
 		return vErr
 	}
 
@@ -467,6 +473,8 @@ func publicReport(report store.Report) publicReportResponse {
 		GeoLng:       report.GeoLng,
 		PeriodFrom:   report.PeriodFrom,
 		PeriodTo:     report.PeriodTo,
+		MarkerIcon:   report.MarkerIcon,
+		MarkerColor:  report.MarkerColor,
 		CreatedAt:    report.CreatedAt,
 		UpdatedAt:    report.UpdatedAt,
 		Tags:         report.Tags,
@@ -517,6 +525,14 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, re
 	imageURL, err := optionalHTTPURL(req.ImageURL, "imageUrl")
 	if err != nil {
 		return store.ReportWrite{}, reportWriteRelations{}, err
+	}
+	markerIcon := strings.TrimSpace(req.MarkerIcon)
+	if markerIcon == "" {
+		markerIcon = "post"
+	}
+	markerColor := strings.TrimSpace(req.MarkerColor)
+	if markerColor == "" {
+		markerColor = "pink"
 	}
 
 	// All five collections reject duplicates after normalization. Tags and
@@ -655,6 +671,8 @@ func normalizeReportWrite(req apiresp.ReportWriteRequest) (store.ReportWrite, re
 		HostName:     optionalText(req.HostName),
 		Participants: optionalText(req.Participants),
 		TimeTaken:    optionalText(req.TimeTaken),
+		MarkerIcon:   markerIcon,
+		MarkerColor:  markerColor,
 		Tags:         tags,
 		Images:       images,
 		Attachments:  attachments,

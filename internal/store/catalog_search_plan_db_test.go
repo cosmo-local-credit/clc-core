@@ -688,6 +688,13 @@ func TestReportSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 			filter:    CatalogFilter{Term: "harvest", Tags: []string{"Permaculture"}},
 			hasCursor: true,
 		},
+		{
+			name: "substring with creditable pools, cursor page",
+			filter: CatalogFilter{
+				Term: "harvest", CreditablePoolIDs: []uint64{7, 11},
+			},
+			hasCursor: true,
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			query := composeReportPage(testCase.filter, cursor, testCase.hasCursor, 20)
@@ -758,5 +765,19 @@ func TestUnfilteredReportFeedKeepsItsMeasuredPlan(t *testing.T) {
 		if !strings.Contains(plan, "reports_status_updated_idx") {
 			t.Errorf("%s: the feed's own index no longer drives it.\nplan:\n%s", name, plan)
 		}
+	}
+}
+
+// The unified map must reduce each resource branch by its viewport before the
+// union is materialized. Otherwise a pan across a small neighborhood scans and
+// decorates the entire catalog before throwing almost every row away.
+func TestMarketMapViewportUsesVoucherSpatialIndex(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+
+	seedFivefoldVouchers(t, tx)
+	plan := explainGenericPlan(t, tx, pg.queries.ListMarketMap)
+	if !strings.Contains(plan, "vouchers_geo_gist_idx") {
+		t.Errorf("market map viewport is not driven by the voucher spatial index.\nplan:\n%s", plan)
 	}
 }

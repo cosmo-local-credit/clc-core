@@ -474,6 +474,13 @@ func (a *API) relayHandler(c *echo.Context) error {
 		}
 	}
 
+	if err := a.store.CheckPoolOperationsAllowed(ctx, tx, a.chainID, poolOperationTargets(req.SignedBatch.BatchedCall)); err != nil {
+		if errors.Is(err, store.ErrRetiredPool) {
+			return handleConflictError(c, err.Error())
+		}
+		return handlePostgresError(c, err)
+	}
+
 	args.TrackingID = trackingID
 
 	if _, err := a.queueClient.InsertTx(ctx, tx, args, &river.InsertOpts{MaxAttempts: 1}); err != nil {
@@ -537,6 +544,23 @@ func (a *API) relayPreviewHandler(c *echo.Context) error {
 	}
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
+	}
+	ctx := c.Request().Context()
+	if targets := poolOperationTargets(req.BatchedCall); len(targets) > 0 {
+		tx, err := a.store.Pool().Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := a.store.CheckPoolOperationsAllowed(ctx, tx, a.chainID, targets); err != nil {
+			if errors.Is(err, store.ErrRetiredPool) {
+				return handleConflictError(c, err.Error())
+			}
+			return handlePostgresError(c, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return handlePostgresError(c, err)
+		}
 	}
 
 	nonce, digest, err := a.relayer.PreviewBatch(

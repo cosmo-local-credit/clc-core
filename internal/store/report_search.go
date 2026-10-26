@@ -33,7 +33,7 @@ import (
 const (
 	reportSummaryColumns = `r.id, r.title, r.description,
     CASE WHEN left(r.image_url, 8) ~* '^https?://' THEN r.image_url END AS image_url,
-    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.author_address,
+    r.geo_lat, r.geo_lng, r.period_from, r.period_to, r.marker_icon, r.marker_color, r.author_address,
     r.created_at, r.updated_at,
     COALESCE((
         SELECT array_agg(rt.tag_value ORDER BY rt.tag_value)
@@ -152,6 +152,34 @@ func reportPoolPredicate(args *sqlArgs, filter CatalogFilter) string {
         )`
 }
 
+// reportCreditablePoolPredicate connects a Post to the viewer's verified
+// creditable pools. A direct pool link qualifies, as does a linked active
+// voucher which that pool currently allows. EXISTS keeps one Post row even
+// when several vouchers or pools satisfy the relationship.
+func reportCreditablePoolPredicate(args *sqlArgs, filter CatalogFilter) string {
+	if len(filter.CreditablePoolIDs) == 0 {
+		return ""
+	}
+	placeholder := args.bind(voucherIDsParam(filter.CreditablePoolIDs))
+	return `(EXISTS (
+            SELECT 1
+            FROM report_pools credit_rp
+            WHERE credit_rp.report_id = r.id
+                AND credit_rp.pool_id = ANY(` + placeholder + `::BIGINT[])
+        ) OR EXISTS (
+            SELECT 1
+            FROM report_vouchers credit_rv
+            INNER JOIN vouchers credit_v
+                ON credit_v.id = credit_rv.voucher_id
+                AND credit_v.active
+            INNER JOIN pool_tokens credit_pt
+                ON credit_pt.voucher_id = credit_v.id
+                AND credit_pt.is_allowed
+            WHERE credit_rv.report_id = r.id
+                AND credit_pt.pool_id = ANY(` + args.reuse() + `::BIGINT[])
+        ))`
+}
+
 // reportCursorPredicate returns the feed's keyset comparison.
 //
 // A row comparison rather than a single column: `(updated_at, id) < ($1, $2)` is what makes
@@ -195,6 +223,7 @@ func composeReportPage(
 				reportTagPredicate(args, filter),
 				reportVoucherPredicate(args, filter),
 				reportPoolPredicate(args, filter),
+				reportCreditablePoolPredicate(args, filter),
 				reportCursorPredicate(args, cursor, hasCursor),
 			) +
 			"\nORDER BY r.updated_at DESC, r.id DESC" +
@@ -215,6 +244,7 @@ func composeReportPage(
 			reportTagPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
 			reportPoolPredicate(args, filter),
+			reportCreditablePoolPredicate(args, filter),
 		) +
 		"\n),\npage AS MATERIALIZED (\n" +
 		"    SELECT m.id\n" +
@@ -263,6 +293,7 @@ func composeReportTagCounts(filter CatalogFilter) composed {
 			reportSearchPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
 			reportPoolPredicate(args, filter),
+			reportCreditablePoolPredicate(args, filter),
 		) + `
 )
 SELECT rt.tag_value AS tag_value,
@@ -291,6 +322,7 @@ func composeReportVoucherCounts(filter CatalogFilter) composed {
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportPoolPredicate(args, filter),
+			reportCreditablePoolPredicate(args, filter),
 		) + `
 )
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol,
@@ -316,6 +348,7 @@ func composeReportPoolCounts(filter CatalogFilter) composed {
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
+			reportCreditablePoolPredicate(args, filter),
 		) + `
 )
 SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name, p.symbol,

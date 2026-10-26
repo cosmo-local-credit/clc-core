@@ -75,6 +75,9 @@ type (
 		UpdateVoucherDisplayName(context.Context, pgx.Tx, uint64, string) error
 		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
 		RestoreVoucherWithinLimits(context.Context, pgx.Tx, string) error
+		RestoreVoucherWithinLimitsChanged(context.Context, pgx.Tx, string) (bool, error)
+		RestorePoolWithinLimits(context.Context, pgx.Tx, string) error
+		RestorePoolWithinLimitsChanged(context.Context, pgx.Tx, string) (bool, error)
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error
 		ProjectCatalogOwnership(context.Context, pgx.Tx, int64, string, string, uint64, uint64) (int64, error)
 		ReplaceSafeSigners(context.Context, pgx.Tx, int64, string, []string, int, uint64, uint64) (bool, error)
@@ -150,6 +153,8 @@ type (
 		ListPoolsNext(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
 		ListPoolsPrevious(context.Context, pgx.Tx, uint64, uint64) ([]Pool, error)
 		GetPoolByAddress(context.Context, pgx.Tx, string) (Pool, error)
+		ListManagedPools(context.Context, pgx.Tx, CatalogFilter, string, string, CatalogPage, uint64, uint64) ([]Pool, error)
+		CheckPoolOperationsAllowed(context.Context, pgx.Tx, int64, []string) error
 		ListPoolVouchers(context.Context, pgx.Tx, string, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersNext(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
 		ListPoolVouchersPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]PoolVoucher, error)
@@ -217,6 +222,7 @@ type (
 		CountPoolsOwnedBy(context.Context, pgx.Tx, []uint64, string) (int, error)
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 		ListMarketplace(context.Context, pgx.Tx, CatalogFilter, []string, *CatalogLocation, MarketplaceCursor, uint64, bool) ([]MarketplaceResult, error)
+		ListMarketMap(context.Context, pgx.Tx, CatalogFilter, []string, float64, bool) (MarketMapResult, error)
 		ListWants(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds, CatalogPage, uint64, uint64) ([]Want, error)
 		ListWantTagFacets(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds) ([]TagFacet, error)
 		ListPoolWants(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Want, error)

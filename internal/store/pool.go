@@ -17,6 +17,7 @@ type (
 		ID      uint64  `db:"id"                              json:"id"`
 		ChainID int64   `db:"chain_id"                        json:"chainId"`
 		Address string  `db:"address"                         json:"address"`
+		Active  bool    `db:"active" json:"active"`
 		Name    *string `db:"name"                            json:"name"`
 		// ContractName is the immutable SwapPool name. Name is the effective
 		// catalog label, which may be an owner-set display-name override.

@@ -166,7 +166,9 @@ func TestVoucherReviewsHTTP(t *testing.T) {
 	_, err = fed.Exec(ctx, `UPDATE tx SET date_block=(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-interval '8 days' WHERE id=10`)
 	require.NoError(t, err)
 	request(http.MethodPut, root+"/me", userToken, write, http.StatusForbidden)
-	_, err = fed.Exec(ctx, `UPDATE tx SET date_block=CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE id=10`)
+	// Keep the redemption in the past for both the database and API clocks.
+	// Exact database "now" can be future-dated on the host running the API.
+	_, err = fed.Exec(ctx, `UPDATE tx SET date_block=(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-interval '1 minute' WHERE id=10`)
 	require.NoError(t, err)
 	request(http.MethodPut, root+"/me", userToken, write, http.StatusOK)
 	page = request(http.MethodGet, root, "", nil, http.StatusOK)

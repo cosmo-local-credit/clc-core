@@ -93,9 +93,8 @@ func TestVoucherRestoreRejectsOfferQuotaAndRollsBack(t *testing.T) {
 	_, err = a.store.Pool().Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,description,quantity,available)
         VALUES($1,$2,'Restore quota','',1,true)`, fx.ownedID, offeringOwnerAddress)
 	require.NoError(t, err)
-	res, _ := offeringRequest(t, a, http.MethodDelete, "/api/v2/vouchers/"+fx.ownedAddress, owner, nil)
-	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
-	res, _ = offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vouchers/"+fx.ownedAddress+"/restore", operator, nil)
+	requestAndApproveVoucher(t, a, fx.ownedAddress, owner, operator)
+	res, _ := offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vouchers/"+fx.ownedAddress+"/restore", operator, nil)
 	require.Equal(t, http.StatusTooManyRequests, res.Code, res.Body.String())
 	var active bool
 	require.NoError(t, a.store.Pool().QueryRow(ctx, `SELECT active FROM vouchers WHERE id=$1`, fx.ownedID).Scan(&active))
@@ -108,11 +107,10 @@ func TestVoucherRestoreRejectsOfferQuotaAndRollsBack(t *testing.T) {
 //
 //	CORE_TEST_DSN=postgres://postgres:postgres@127.0.0.1:5432/clc_core go test ./internal/api/
 
-// TestVoucherRetireAuthorization pins who may take a voucher out of the catalog.
+// TestVoucherRetireAuthorization pins closure of the legacy immediate-retirement route.
 //
-// Fixtures are re-seeded per case because retiring is not idempotent: a second
-// request against a voucher an earlier case retired would answer 409, and the
-// table would then be asserting the order it happens to run in.
+// Every authenticated wallet gets an explicit upgrade response, including
+// owners and admins. Neither can bypass request review through an old client.
 func TestVoucherRetireAuthorization(t *testing.T) {
 	a, priv := newOfferingAPI(t)
 
@@ -124,32 +122,32 @@ func TestVoucherRetireAuthorization(t *testing.T) {
 		"owner": {
 			func(fx offeringFixtures) string { return fx.ownedAddress },
 			offeringToken(t, priv, offeringOwnerAddress, "USER"),
-			http.StatusOK,
+			http.StatusGone,
 		},
 		"owner in another casing": {
 			func(fx offeringFixtures) string { return fx.ownedAddress },
 			offeringToken(t, priv, strings.ToLower(offeringOwnerAddress), "USER"),
-			http.StatusOK,
+			http.StatusGone,
 		},
 		"superadmin on someone else's voucher": {
 			func(fx offeringFixtures) string { return fx.otherVoucherAddr },
 			offeringToken(t, priv, offeringOperatorAddr, "SUPERADMIN"),
-			http.StatusOK,
+			http.StatusGone,
 		},
 		"superadmin on an ownerless imported voucher": {
 			func(fx offeringFixtures) string { return fx.ownerlessAddress },
 			offeringToken(t, priv, offeringOperatorAddr, "SUPERADMIN"),
-			http.StatusOK,
+			http.StatusGone,
 		},
 		"a different signed-in user": {
 			func(fx offeringFixtures) string { return fx.ownedAddress },
 			offeringToken(t, priv, offeringStrangerAddr, "USER"),
-			http.StatusForbidden,
+			http.StatusGone,
 		},
 		"a user on an ownerless voucher": {
 			func(fx offeringFixtures) string { return fx.ownerlessAddress },
 			offeringToken(t, priv, offeringOwnerAddress, "USER"),
-			http.StatusForbidden,
+			http.StatusGone,
 		},
 		"no session": {
 			func(fx offeringFixtures) string { return fx.ownedAddress },
@@ -164,12 +162,12 @@ func TestVoucherRetireAuthorization(t *testing.T) {
 		"a voucher that is already retired": {
 			func(fx offeringFixtures) string { return fx.inactiveAddress },
 			offeringToken(t, priv, offeringOwnerAddress, "USER"),
-			http.StatusConflict,
+			http.StatusGone,
 		},
 		"a voucher that does not exist": {
 			func(offeringFixtures) string { return "0x99f573149db22e759fB9A38Bcc461C12855c2699" },
 			offeringToken(t, priv, offeringOwnerAddress, "USER"),
-			http.StatusNotFound,
+			http.StatusGone,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -200,9 +198,7 @@ func TestRetiredVoucherLeavesThePublicCatalogAndComesBack(t *testing.T) {
 		t.Fatalf("public detail before retire = %d, want 200 body=%s", res.Code, res.Body.String())
 	}
 
-	if res, _ := offeringRequest(t, a, http.MethodDelete, "/api/v2/vouchers/"+fx.ownedAddress, owner, nil); res.Code != http.StatusOK {
-		t.Fatalf("retire = %d, want 200 body=%s", res.Code, res.Body.String())
-	}
+	requestAndApproveVoucher(t, a, fx.ownedAddress, owner, operator)
 
 	// Gone from the public detail, and indistinguishable from an address the
 	// catalog never held.
