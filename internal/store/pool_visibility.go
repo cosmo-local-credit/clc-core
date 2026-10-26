@@ -28,7 +28,7 @@ func (pg *Pg) ListManagedPools(ctx context.Context, tx pgx.Tx, filter CatalogFil
 	}
 	ownerMatch, textMatch := "", ""
 	if owner != "" {
-		ownerMatch = "lower(p.owner_address) = lower(" + args.bind(owner) + ")"
+		ownerMatch = ownedByPredicate("p", args.bind(owner))
 	}
 	if filter.Term != "" {
 		term := args.bind(filter.likeTerm())
