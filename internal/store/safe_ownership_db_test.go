@@ -86,6 +86,21 @@ func TestSafeSignerSeesSafeOwnedAssetsDB(t *testing.T) {
 		require.NotEqual(t, voucherID, r.ID)
 	}
 
+	// Safe addresses repeat across chains. A same-address Safe elsewhere that
+	// lists a different account grants that account nothing here.
+	elsewhere := randomAddress(t, tx)
+	_, err = pg.ReplaceSafeSigners(ctx, tx, 100, safeAddr, []string{elsewhere}, 1, 10, 0)
+	require.NoError(t, err)
+	rows, err = pg.ListMarketVouchersFiltered(ctx, tx, nil, CatalogFilter{Owner: elsewhere}, CatalogFirstPage, 0, 50)
+	require.NoError(t, err)
+	for _, r := range rows {
+		require.NotEqual(t, voucherID, r.ID)
+	}
+	other, err := pg.AccountRelationshipCounts(ctx, tx, elsewhere)
+	require.NoError(t, err)
+	require.Zero(t, other.Vouchers)
+	require.Zero(t, other.PoolMemberships)
+
 	// RemovedOwner: the account loses the asset everywhere.
 	_, err = pg.ReplaceSafeSigners(ctx, tx, 42220, safeAddr, []string{coSigner}, 1, 11, 0)
 	require.NoError(t, err)

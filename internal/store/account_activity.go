@@ -56,7 +56,7 @@ func composeAccountPoolPage(owner string, page CatalogPage, cursor, limit uint64
             INNER JOIN vouchers v ON v.id = pt.voucher_id
             WHERE pt.pool_id = p.id
                 AND pt.is_allowed
-                AND ` + ownedByPredicate("v.owner_address", ownerParam) + `
+                AND ` + ownedByPredicate("v", ownerParam) + `
         )`
 
 	body := "WITH page AS MATERIALIZED (\n" +

@@ -734,25 +734,37 @@ func poolTagPredicate(args *sqlArgs, filter CatalogFilter) string {
 // ownerPredicate restricts a page to one owning address. Compared case-folded
 // because an address reaches the database from several sources — a checksummed
 // deploy, a lowercased URL — and migration 018 indexes the same expression.
+// Reports use it for their author, who is always an account, never a Safe.
 func ownerPredicate(args *sqlArgs, column string, filter CatalogFilter) string {
 	if filter.Owner == "" {
 		return ""
 	}
-	return ownedByPredicate(column, args.bind(filter.Owner))
+	return "lower(" + column + ") = lower(" + args.bind(filter.Owner) + ")"
 }
 
-// ownedByPredicate matches assets the account owns directly, or through a Safe
-// that lists the account as a signer. param is a bound placeholder, reused
-// three times, so the account is sent once. The Safe side starts from
-// safe_signers_signer_idx and is a handful of rows, so the direct-owner index
-// path stays the plan for the common case.
+// assetOwnerPredicate is ownerPredicate for a voucher or pool row (alias),
+// which an account also owns through a Safe it signs for.
+func assetOwnerPredicate(args *sqlArgs, alias string, filter CatalogFilter) string {
+	if filter.Owner == "" {
+		return ""
+	}
+	return ownedByPredicate(alias, args.bind(filter.Owner))
+}
+
+// ownedByPredicate matches the voucher or pool row alias when the account owns
+// it directly, or through a Safe on the same chain that lists the account as a
+// signer. param is a bound placeholder, reused, so the account is sent once.
+// The Safe side is an uncorrelated, hashed subplan over a handful of
+// safe_signers rows, so the direct-owner index path stays the plan for the
+// common case.
 //
-// Display only: it does not check signer-set age. Every write re-verifies the
-// set (callerMayManageRecord), so a stale row can at worst list an asset the
-// signer then cannot change.
-func ownedByPredicate(column, param string) string {
-	return "(lower(" + column + ") = lower(" + param + ") OR lower(" + column + ") IN (" +
-		"SELECT ss.safe_address FROM safe_signers ss WHERE ss.signer = lower(" + param + ")))"
+// Writes authorize from the same tracker-maintained projection
+// (callerMayManageRecord), so a projected RemovedOwner takes the asset out of
+// both the lists and the signer's permissions at once.
+func ownedByPredicate(alias, param string) string {
+	owner := "lower(" + alias + ".owner_address)"
+	return "(" + owner + " = lower(" + param + ") OR (" + alias + ".chain_id, " + owner + ") IN (" +
+		"SELECT ss.chain_id, ss.safe_address FROM safe_signers ss WHERE ss.signer = lower(" + param + ")))"
 }
 
 // cursorPredicate returns the keyset comparison for a page direction, over the

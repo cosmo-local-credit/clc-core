@@ -95,7 +95,7 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 			"    FROM pools p" +
 			whereClause(
 				"p.active",
-				ownerPredicate(args, "p.owner_address", filter),
+				assetOwnerPredicate(args, "p", filter),
 				catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 				poolTagPredicate(args, filter),
@@ -117,7 +117,7 @@ func composePoolPage(filter CatalogFilter, page CatalogPage, cursor, limit uint6
 			"    INNER JOIN pools p ON p.id = text_match.id" +
 			whereClause(
 				"p.active",
-				ownerPredicate(args, "p.owner_address", filter),
+				assetOwnerPredicate(args, "p", filter),
 				catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 				poolTagPredicate(args, filter),
@@ -156,7 +156,7 @@ func composePoolTagCounts(filter CatalogFilter) composed {
 ` + from +
 		whereClause(
 			"p.active",
-			ownerPredicate(args, "p.owner_address", filter),
+			assetOwnerPredicate(args, "p", filter),
 			catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 			poolVoucherPredicate(args, filter),
@@ -218,7 +218,7 @@ func composePoolVoucherCounts(filter CatalogFilter) composed {
 ` + from +
 		whereClause(
 			"p.active",
-			ownerPredicate(args, "p.owner_address", filter),
+			assetOwnerPredicate(args, "p", filter),
 			catalogBoundsPredicate(args, filter.Bounds, "p.geo_lat", "p.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "p.geo_lat", "p.geo_lng"),
 			poolTagPredicate(args, filter),
