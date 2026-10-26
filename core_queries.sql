@@ -3446,6 +3446,10 @@ WITH raw AS MATERIALIZED (
         FROM offerings o2 WHERE o2.voucher_id=v.id AND o2.available
     ) related ON true
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.geo_lng IS NOT NULL
+      AND (point(v.geo_lng,v.geo_lat) <@ box(
+              point(CASE WHEN $21::BOOLEAN THEN $22 ELSE -180 END,CASE WHEN $21::BOOLEAN THEN $23 ELSE -90 END),
+              point(CASE WHEN $21::BOOLEAN THEN $24 ELSE 180 END,CASE WHEN $21::BOOLEAN THEN $25 ELSE 90 END)) OR
+          ($26::BOOLEAN AND point(v.geo_lng,v.geo_lat) <@ box(point($27,$28),point($29,$30))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id=v.id AND pt.is_allowed AND pt.pool_id=ANY($5::BIGINT[])
       ))
@@ -3490,6 +3494,10 @@ WITH raw AS MATERIALIZED (
     ) wtags ON true
     WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
       AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND (point(w.geo_lng,w.geo_lat) <@ box(
+              point(CASE WHEN $21::BOOLEAN THEN $22 ELSE -180 END,CASE WHEN $21::BOOLEAN THEN $23 ELSE -90 END),
+              point(CASE WHEN $21::BOOLEAN THEN $24 ELSE 180 END,CASE WHEN $21::BOOLEAN THEN $25 ELSE 90 END)) OR
+          ($26::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($27,$28),point($29,$30))))
       AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
           SELECT 1 FROM vouchers v
           JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed
@@ -3583,6 +3591,195 @@ SELECT kind,id,chain_id,address,name,description,symbol,image_url,marker_icon,ma
 FROM page
 ORDER BY rank ASC,CASE WHEN $7::BOOLEAN THEN distance_meters END ASC NULLS LAST,
     updated_at DESC,kind ASC,id DESC;
+
+--name: list-market-map
+WITH raw AS MATERIALIZED (
+    SELECT 'voucher'::TEXT AS kind,v.id::BIGINT AS id,v.address::TEXT AS resource_id,
+        COALESCE(v.display_name,v.name,v.address)::TEXT AS name,
+        v.geo_lat::FLOAT8 AS geo_lat,v.geo_lng::FLOAT8 AS geo_lng,
+        v.marker_icon::TEXT AS marker_icon,v.marker_color::TEXT AS marker_color,
+        COALESCE(vtags.tags,ARRAY[]::TEXT[]) AS tags,
+        lower(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,v.description,
+            array_to_string(vtags.tags,' '),related.text)) AS search_text
+    FROM vouchers v
+    LEFT JOIN LATERAL (
+        SELECT array_agg(tag ORDER BY tag) AS tags FROM (
+            SELECT x.tag_value AS tag FROM voucher_tags x WHERE x.voucher_id=v.id
+            UNION
+            SELECT x.tag_value FROM offerings o2 JOIN offering_tags x ON x.offering_id=o2.id
+            WHERE o2.voucher_id=v.id AND o2.available
+        ) valueset
+    ) vtags ON true
+    LEFT JOIN LATERAL (
+        SELECT string_agg(concat_ws(' ',o2.commodity_name,o2.description),' ') AS text
+        FROM offerings o2 WHERE o2.voucher_id=v.id AND o2.available
+    ) related ON true
+    WHERE v.active AND v.geo_lat IS NOT NULL AND v.geo_lng IS NOT NULL
+      AND (point(v.geo_lng,v.geo_lat) <@ box(
+              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
+          ($14::BOOLEAN AND point(v.geo_lng,v.geo_lat) <@ box(point($15,$16),point($17,$18))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+          SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id=v.id AND pt.is_allowed AND pt.pool_id=ANY($5::BIGINT[])
+      ))
+
+    UNION ALL
+    SELECT 'want',w.id::BIGINT,w.id::TEXT,w.name,w.geo_lat::FLOAT8,w.geo_lng::FLOAT8,
+        w.marker_icon,w.marker_color,COALESCE(wtags.tags,ARRAY[]::TEXT[]),
+        lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wtags.tags,' ')))
+    FROM wants w
+    JOIN users u ON u.id=w.owner_user_id
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id
+    ) wtags ON true
+    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+      AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND (point(w.geo_lng,w.geo_lat) <@ box(
+              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
+          ($14::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($15,$16),point($17,$18))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+          SELECT 1 FROM vouchers v
+          JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed
+          WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address)
+            AND pt.pool_id=ANY($5::BIGINT[])
+      ))
+
+    UNION ALL
+    SELECT 'pool',p.id::BIGINT,p.address::TEXT,COALESCE(p.display_name,p.name,p.address),
+        p.geo_lat::FLOAT8,p.geo_lng::FLOAT8,NULL::TEXT,NULL::TEXT,
+        COALESCE(ptags.tags,ARRAY[]::TEXT[]),
+        lower(concat_ws(' ',COALESCE(p.display_name,p.name),p.symbol,p.description,
+            array_to_string(ptags.tags,' '),related.text))
+    FROM pools p
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM pool_tags x WHERE x.pool_id=p.id
+    ) ptags ON true
+    LEFT JOIN LATERAL (
+        SELECT string_agg(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,o.commodity_name,o.description),' ') AS text
+        FROM pool_tokens x JOIN vouchers v ON v.id=x.voucher_id AND v.active
+        LEFT JOIN offerings o ON o.voucher_id=v.id AND o.available
+        WHERE x.pool_id=p.id AND x.is_allowed
+    ) related ON true
+    WHERE p.geo_lat IS NOT NULL AND p.geo_lng IS NOT NULL
+      AND (point(p.geo_lng,p.geo_lat) <@ box(
+              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
+          ($14::BOOLEAN AND point(p.geo_lng,p.geo_lat) <@ box(point($15,$16),point($17,$18))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR p.id=ANY($5::BIGINT[]))
+
+    UNION ALL
+    SELECT 'catalog',c.id::BIGINT,c.id::TEXT,c.name,c.geo_lat::FLOAT8,c.geo_lng::FLOAT8,
+        NULL::TEXT,NULL::TEXT,COALESCE(ctags.tags,ARRAY[]::TEXT[]),
+        lower(concat_ws(' ',c.name,c.description,c.location_name,array_to_string(ctags.tags,' ')))
+    FROM catalogs c
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM catalog_tags x WHERE x.catalog_id=c.id
+    ) ctags ON true
+    WHERE c.geo_lat IS NOT NULL AND c.geo_lng IS NOT NULL
+      AND (point(c.geo_lng,c.geo_lat) <@ box(
+              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
+          ($14::BOOLEAN AND point(c.geo_lng,c.geo_lat) <@ box(point($15,$16),point($17,$18))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+        SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($5::BIGINT[])
+        UNION ALL
+        SELECT 1 FROM catalog_vouchers cv JOIN pool_tokens x ON x.voucher_id=cv.voucher_id AND x.is_allowed
+        WHERE cv.catalog_id=c.id AND x.pool_id=ANY($5::BIGINT[])
+      ))
+
+    UNION ALL
+    SELECT 'post',r.id::BIGINT,r.id::TEXT,r.title,r.geo_lat::FLOAT8,r.geo_lng::FLOAT8,
+        r.marker_icon,r.marker_color,COALESCE(rtags.tags,ARRAY[]::TEXT[]),
+        lower(concat_ws(' ',r.title,r.description))
+    FROM reports r
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM report_tags x WHERE x.report_id=r.id
+    ) rtags ON true
+    WHERE r.status='APPROVED' AND r.geo_lat IS NOT NULL AND r.geo_lng IS NOT NULL
+      AND (point(r.geo_lng,r.geo_lat) <@ box(
+              point(CASE WHEN $9::BOOLEAN THEN $10 ELSE -180 END,CASE WHEN $9::BOOLEAN THEN $11 ELSE -90 END),
+              point(CASE WHEN $9::BOOLEAN THEN $12 ELSE 180 END,CASE WHEN $9::BOOLEAN THEN $13 ELSE 90 END)) OR
+          ($14::BOOLEAN AND point(r.geo_lng,r.geo_lat) <@ box(point($15,$16),point($17,$18))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+          SELECT 1 FROM report_pools rp
+          WHERE rp.report_id=r.id AND rp.pool_id=ANY($5::BIGINT[])
+      ) OR EXISTS (
+          SELECT 1 FROM report_vouchers rv
+          JOIN vouchers credit_v ON credit_v.id=rv.voucher_id AND credit_v.active
+          JOIN pool_tokens credit_pt ON credit_pt.voucher_id=credit_v.id AND credit_pt.is_allowed
+          WHERE rv.report_id=r.id AND credit_pt.pool_id=ANY($5::BIGINT[])
+      ))
+), filtered AS MATERIALIZED (
+    SELECT * FROM raw
+    WHERE (COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[]))
+      AND ($1='' OR CASE WHEN $2::BOOLEAN
+            THEN search_text LIKE lower($1)||'%' ESCAPE '\'
+            ELSE search_text LIKE '%'||lower($1)||'%' ESCAPE '\' END)
+      AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR (
+          CASE WHEN $4::BOOLEAN THEN
+              (SELECT count(DISTINCT tag) FROM unnest(tags) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[])
+          ELSE tags && $3::TEXT[] END
+      ))
+), bucketed AS MATERIALIZED (
+    SELECT filtered.*,
+        ((geo_lng+180.0)/360.0) AS world_x,
+        ((1.0-ln(tan(radians(least(85.05112878,greatest(-85.05112878,geo_lat))))+
+            1.0/cos(radians(least(85.05112878,greatest(-85.05112878,geo_lat)))))/pi())/2.0) AS world_y,
+        CASE WHEN $7::FLOAT8>=16 THEN kind||':'||id::TEXT
+             ELSE concat(
+                floor((((geo_lng+180.0)/360.0)*256.0*power(2.0,floor($7::FLOAT8)))/60.0)::BIGINT,
+                ':',
+                floor(((1.0-ln(tan(radians(least(85.05112878,greatest(-85.05112878,geo_lat))))+
+                    1.0/cos(radians(least(85.05112878,greatest(-85.05112878,geo_lat)))))/pi())/2.0*
+                    256.0*power(2.0,floor($7::FLOAT8)))/60.0)::BIGINT
+             ) END AS bucket_key
+    FROM filtered
+), grouped AS MATERIALIZED (
+    SELECT bucket_key,count(*)::BIGINT AS feature_count,
+        avg(geo_lat)::FLOAT8 AS geo_lat,avg(geo_lng)::FLOAT8 AS geo_lng,
+        min(world_x) AS min_world_x,max(world_x) AS max_world_x,
+        min(world_y) AS min_world_y,max(world_y) AS max_world_y,
+        min(kind) AS kind,min(resource_id) AS resource_id,min(name) AS name,
+        min(marker_icon) AS marker_icon,min(marker_color) AS marker_color
+    FROM bucketed GROUP BY bucket_key
+), kind_counts AS MATERIALIZED (
+    SELECT bucket_key,kind,count(*)::BIGINT AS kind_count
+    FROM bucketed GROUP BY bucket_key,kind
+), kind_json AS MATERIALIZED (
+    SELECT bucket_key,jsonb_object_agg(kind,kind_count ORDER BY kind) AS kinds
+    FROM kind_counts GROUP BY bucket_key
+), facet_counts AS MATERIALIZED (
+    SELECT tag,count(DISTINCT kind||':'||id::TEXT)::BIGINT AS count
+    FROM filtered CROSS JOIN LATERAL unnest(tags) tag GROUP BY tag
+), features AS (
+    SELECT CASE WHEN g.feature_count=1 THEN 'marker' ELSE 'cluster' END AS feature_type,
+        CASE WHEN g.feature_count=1 THEN 'marker:'||g.kind||':'||g.resource_id
+             ELSE 'cluster:'||floor($7::FLOAT8)::TEXT||':'||g.bucket_key END AS feature_id,
+        CASE WHEN g.feature_count=1 THEN g.kind END AS kind,
+        CASE WHEN g.feature_count=1 THEN g.resource_id END AS resource_id,
+        CASE WHEN g.feature_count=1 THEN g.name END AS name,
+        g.geo_lat,g.geo_lng,
+        CASE WHEN g.feature_count=1 THEN g.marker_icon END AS marker_icon,
+        CASE WHEN g.feature_count=1 THEN g.marker_color END AS marker_color,
+        g.feature_count,k.kinds,
+        CASE WHEN g.feature_count>1 THEN least(16.0,greatest(
+            floor($7::FLOAT8)+1.0,
+            COALESCE(ceil(ln(60.0/NULLIF(
+                greatest(g.max_world_x-g.min_world_x,g.max_world_y-g.min_world_y)*256.0,0.0
+            ))/ln(2.0)),16.0)
+        )) ELSE 0.0 END AS expansion_zoom
+    FROM grouped g JOIN kind_json k USING(bucket_key)
+    ORDER BY g.feature_count DESC,g.bucket_key
+    LIMIT $19
+)
+SELECT feature_type,feature_id,kind,resource_id,name,geo_lat,geo_lng,marker_icon,marker_color,
+    feature_count,kinds,expansion_zoom,
+    CASE WHEN $8::BOOLEAN THEN COALESCE((
+        SELECT jsonb_agg(jsonb_build_object('tag',tag,'count',count) ORDER BY tag)
+        FROM facet_counts
+    ),'[]'::JSONB) ELSE '[]'::JSONB END AS tag_facets
+FROM features;
 
 --name: lock-quota-user
 SELECT id FROM users WHERE id = $1 FOR UPDATE;

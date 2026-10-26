@@ -767,3 +767,17 @@ func TestUnfilteredReportFeedKeepsItsMeasuredPlan(t *testing.T) {
 		}
 	}
 }
+
+// The unified map must reduce each resource branch by its viewport before the
+// union is materialized. Otherwise a pan across a small neighborhood scans and
+// decorates the entire catalog before throwing almost every row away.
+func TestMarketMapViewportUsesVoucherSpatialIndex(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+
+	seedFivefoldVouchers(t, tx)
+	plan := explainGenericPlan(t, tx, pg.queries.ListMarketMap)
+	if !strings.Contains(plan, "vouchers_geo_gist_idx") {
+		t.Errorf("market map viewport is not driven by the voucher spatial index.\nplan:\n%s", plan)
+	}
+}

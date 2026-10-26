@@ -170,6 +170,42 @@ func TestMarketLimiterBoundsTheClientRegistry(t *testing.T) {
 	}
 }
 
+func TestMarketMapLimiterEvictsLeastRecentlyUsedClient(t *testing.T) {
+	clock := newFakeClock()
+	limiter := newMarketRateLimiterWithCapacity(marketMapGuestRateLimit, marketMapGuestRateBurst, 2, true, clock.Now)
+
+	limiter.allow("first")
+	limiter.allow("second")
+	limiter.allow("first") // Promote first; second is now least recently used.
+	limiter.allow("third")
+
+	if _, ok := limiter.peek("second"); ok {
+		t.Fatal("least-recently-used client survived at capacity")
+	}
+	if _, ok := limiter.peek("first"); !ok {
+		t.Fatal("recently used client was evicted")
+	}
+	if _, ok := limiter.peek("third"); !ok {
+		t.Fatal("new client was not admitted")
+	}
+}
+
+func TestMarketMapSignedInAndGuestBudgetsAreIndependent(t *testing.T) {
+	clock := newFakeClock()
+	users := newMarketRateLimiterWithCapacity(marketMapUserRateLimit, marketMapUserRateBurst, 10, true, clock.Now)
+	guests := newMarketRateLimiterWithCapacity(marketMapGuestRateLimit, marketMapGuestRateBurst, 10, true, clock.Now)
+
+	for range marketMapUserRateBurst {
+		users.allow("0x00000000000000000000000000000000000000aa")
+	}
+	if allowed, _ := users.allow("0x00000000000000000000000000000000000000aa"); allowed {
+		t.Fatal("signed-in bucket exceeded its burst")
+	}
+	if allowed, _ := guests.allow("198.51.100.7"); !allowed {
+		t.Fatal("signed-in activity consumed the aggregate guest-IP budget")
+	}
+}
+
 func TestMarketLimiterIsConcurrencySafe(t *testing.T) {
 	clock := newFakeClock()
 	limiter := newMarketRateLimiter(marketRateLimit, marketRateBurst, clock.Now)
@@ -213,6 +249,16 @@ func TestClientIPUsesTheProxyAppendedAddressWhenTrusted(t *testing.T) {
 
 	if got := marketClientIP(req, true); got != "198.51.100.7" {
 		t.Fatalf("clientIP = %q, want the rightmost proxy-appended address", got)
+	}
+}
+
+func TestClientIPIgnoresForwardingHeadersFromPublicPeerEvenWhenEnabled(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/market-map", nil)
+	req.RemoteAddr = "203.0.113.9:54321"
+	req.Header.Set("X-Forwarded-For", "198.51.100.7")
+
+	if got := marketClientIP(req, true); got != "203.0.113.9" {
+		t.Fatalf("clientIP = %q, want the public direct peer", got)
 	}
 }
 

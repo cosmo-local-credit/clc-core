@@ -18,6 +18,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/riverqueue/river"
+	"golang.org/x/sync/singleflight"
 )
 
 type (
@@ -26,9 +27,8 @@ type (
 		Build         string
 		Prod          bool
 		CORS          []string
-		// TrustProxy enables X-Forwarded-For as the rate-limit key. Set it
-		// only when the service is reachable exclusively through the Caddy
-		// proxy network; otherwise a caller can forge the header.
+		// TrustProxy enables X-Forwarded-For as the rate-limit key when the
+		// direct peer is the loopback/private Caddy hop.
 		TrustProxy      bool
 		VerifyingKey    crypto.PublicKey
 		SigningKey      crypto.PrivateKey
@@ -43,27 +43,32 @@ type (
 	}
 
 	API struct {
-		listenAddress    string
-		build            string
-		prod             bool
-		signingKey       crypto.PrivateKey
-		verifyingKey     crypto.PublicKey
-		siweNonces       *util.SIWENonceStore
-		store            store.Store
-		federationStore  store.FederationStore
-		logg             *slog.Logger
-		chainProvider    *ethutils.Provider
-		server           *http.Server
-		router           *echo.Echo
-		queueClient      *river.Client[pgx.Tx]
-		chainID          int64
-		relayer          *relayer.Relayer
-		pretium          *pretium.PretiumClient
-		trustProxy       bool
-		marketLimiter    *marketRateLimiter
-		poolLimiter      *marketRateLimiter
-		recipientLimiter *marketRateLimiter
-		marketFacets     *marketFacetCache
+		listenAddress         string
+		build                 string
+		prod                  bool
+		signingKey            crypto.PrivateKey
+		verifyingKey          crypto.PublicKey
+		siweNonces            *util.SIWENonceStore
+		store                 store.Store
+		federationStore       store.FederationStore
+		logg                  *slog.Logger
+		chainProvider         *ethutils.Provider
+		server                *http.Server
+		router                *echo.Echo
+		queueClient           *river.Client[pgx.Tx]
+		chainID               int64
+		relayer               *relayer.Relayer
+		pretium               *pretium.PretiumClient
+		trustProxy            bool
+		marketLimiter         *marketRateLimiter
+		marketMapUserLimiter  *marketRateLimiter
+		marketMapGuestLimiter *marketRateLimiter
+		poolLimiter           *marketRateLimiter
+		recipientLimiter      *marketRateLimiter
+		marketFacets          *marketFacetCache
+		marketMapCache        *marketMapCache
+		marketMapExecutor     *marketMapExecutor
+		marketMapLoads        singleflight.Group
 	}
 )
 
@@ -77,27 +82,33 @@ func New(o APIOpts) *API {
 	siweNonces.StartCleanup(time.Minute)
 
 	a := &API{
-		prod:             o.Prod,
-		build:            o.Build,
-		signingKey:       o.SigningKey,
-		verifyingKey:     o.VerifyingKey,
-		siweNonces:       siweNonces,
-		listenAddress:    o.ListenAddress,
-		logg:             o.Logg,
-		store:            o.Store,
-		federationStore:  o.FederationStore,
-		chainProvider:    o.ChainProvider,
-		queueClient:      o.QueueClient,
-		chainID:          o.ChainID,
-		relayer:          o.Relayer,
-		pretium:          o.Pretium,
-		trustProxy:       o.TrustProxy,
-		marketLimiter:    newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
-		poolLimiter:      newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
-		recipientLimiter: newMarketRateLimiter(recipientRateLimit, recipientRateBurst, time.Now),
-		marketFacets:     newMarketFacetCache(time.Now),
+		prod:                  o.Prod,
+		build:                 o.Build,
+		signingKey:            o.SigningKey,
+		verifyingKey:          o.VerifyingKey,
+		siweNonces:            siweNonces,
+		listenAddress:         o.ListenAddress,
+		logg:                  o.Logg,
+		store:                 o.Store,
+		federationStore:       o.FederationStore,
+		chainProvider:         o.ChainProvider,
+		queueClient:           o.QueueClient,
+		chainID:               o.ChainID,
+		relayer:               o.Relayer,
+		pretium:               o.Pretium,
+		trustProxy:            o.TrustProxy,
+		marketLimiter:         newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
+		marketMapUserLimiter:  newMarketRateLimiterWithCapacity(marketMapUserRateLimit, marketMapUserRateBurst, marketMapRateMaxClients, true, time.Now),
+		marketMapGuestLimiter: newMarketRateLimiterWithCapacity(marketMapGuestRateLimit, marketMapGuestRateBurst, marketMapRateMaxClients, true, time.Now),
+		poolLimiter:           newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
+		recipientLimiter:      newMarketRateLimiter(recipientRateLimit, recipientRateBurst, time.Now),
+		marketFacets:          newMarketFacetCache(time.Now),
+		marketMapCache:        newMarketMapCache(time.Now),
+		marketMapExecutor:     newMarketMapExecutor(),
 	}
 	a.marketLimiter.startSweeper()
+	a.marketMapUserLimiter.startSweeper()
+	a.marketMapGuestLimiter.startSweeper()
 	a.poolLimiter.startSweeper()
 	a.recipientLimiter.startSweeper()
 
@@ -182,7 +193,8 @@ func New(o APIOpts) *API {
 	// Public market catalog. Registered on the root router, NOT on apiGroup:
 	// flexibleAuthMiddleware is mandatory authentication despite its name, and
 	// ordinary catalog/detail reads remain public. Nearby list reads opt into
-	// user authentication. All market reads retain their per-IP rate limit.
+	// user authentication. Catalog/detail reads retain their per-IP rate limit;
+	// the unified map route applies its dedicated cache-aware limiter in-handler.
 	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
@@ -194,6 +206,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/wants/:id/vouchers", a.wantCreatorVouchersListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/wants/:id/pools", a.wantCreatorPoolsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/marketplace", a.marketplaceListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
+	router.GET(apiVersion+"/market-map", a.marketMapHandler)
 	// User-curated catalogs are public to browse; nearby discovery uses the
 	// viewer's saved profile location and therefore requires a user session.
 	router.GET(apiVersion+"/catalogs", a.curatedCatalogListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
