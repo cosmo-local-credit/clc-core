@@ -2415,6 +2415,130 @@
         ]
       }
     },
+    "/api/v2/market-map": {
+      "get": {
+        "tags": [
+          "Vouchers and offerings"
+        ],
+        "summary": "List clustered Marketplace map features",
+        "description": "Returns lightweight markers and server clusters for one settled viewport. Identical cache misses coalesce. Successful responses are publicly cacheable for 15 seconds. Access is public; a valid session selects the signed-in wallet rate-limit bucket.",
+        "operationId": "getMarketMap",
+        "parameters": [
+          {
+            "name": "bbox",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Viewport as minLng,minLat,maxLng,maxLat. Repeat once for an antimeridian split."
+          },
+          {
+            "name": "zoom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 22,
+              "default": 0
+            },
+            "description": "Map zoom. Its integer floor selects the server cluster bucket."
+          },
+          {
+            "name": "kinds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Values catalog, pool, post, voucher, and want. Repeat the parameter or use commas."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tagMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            }
+          },
+          {
+            "name": "facets",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "creditablePools",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Verified pool references as chainId:address. Repeat the parameter or use commas."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "At most 2,000 lightweight markers and clusters, plus optional tag facets.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "public, max-age=15, stale-while-revalidate=60"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OKResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "security": [
+          {},
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
     "/api/v2/marketplace": {
       "get": {
         "tags": [
@@ -7392,8 +7516,8 @@
                         "geoLng": 36.8172,
                         "periodFrom": null,
                         "periodTo": null,
-                    "markerIcon": "event",
-                    "markerColor": "pink",
+                        "markerIcon": "event",
+                        "markerColor": "pink",
                         "createdAt": "2026-08-01T08:00:00Z",
                         "updatedAt": "2026-08-02T08:00:00Z",
                         "tags": [
