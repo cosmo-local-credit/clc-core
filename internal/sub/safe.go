@@ -25,8 +25,13 @@ type (
 //
 // Neither is applied as a delta. A Safe event names one change, so the whole
 // set is re-read at the event's block and replaced; a missed event then
-// cannot leave membership wrong past the next one. Reads at old blocks need an
-// archive node, like cmd/reconcile-ownership.
+// cannot leave membership wrong past the next one.
+//
+// The read needs the event block's state. A subscriber that falls behind the
+// RPC's pruning window (hours on Celo) or meets an RPC outage must not hold
+// back the catalog and OTX projections sharing this transaction, nor be
+// redelivered forever, so a failed read queues a durable head refresh that
+// commits with the event instead.
 func (s *Sub) projectSafeSigners(ctx context.Context, tx pgx.Tx, evt event.Event) error {
 	if s.safeReader == nil || !evt.Success {
 		return nil
@@ -58,7 +63,12 @@ func (s *Sub) projectSafeSigners(ctx context.Context, tx pgx.Tx, evt event.Event
 		return nil
 	}
 	if err != nil {
-		return err
+		if s.refreshSafe == nil {
+			return err
+		}
+		s.logg.Warn("safe signer read at event block failed; queued a head refresh",
+			"address", safeAddress, "block", evt.Block, "error", err)
+		return s.refreshSafe(ctx, tx, safeAddress, evt.Block, evt.TxType == "OWNERSHIP_TRANSFERRED")
 	}
 	signers := make([]string, len(state.Owners))
 	for i, owner := range state.Owners {

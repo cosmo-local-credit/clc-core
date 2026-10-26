@@ -161,6 +161,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 		ChainProvider:       chainProvider,
 		Relayer:             relayerInst,
 		AccountIndexAddress: accountIndexAddress,
+		ChainID:             ko.MustInt64("chain.id"),
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)
@@ -200,6 +201,9 @@ func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *wor
 		SafeReader:  safe.NewReader(chainProvider),
 		RegisterSafe: func(ctx context.Context, tx pgx.Tx, address string) error {
 			return worker.EnqueueSafeRegistration(ctx, workers.Client(), tx, address)
+		},
+		RefreshSafe: func(ctx context.Context, tx pgx.Tx, address string, minBlock uint64, register bool) error {
+			return worker.EnqueueSafeSignersRefresh(ctx, workers.Client(), tx, address, minBlock, register)
 		},
 	})
 	if err != nil {

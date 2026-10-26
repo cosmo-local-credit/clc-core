@@ -98,10 +98,40 @@ func TestAccountIndexEntrySeedsMultisigWithoutAnotherRegistration(t *testing.T) 
 }
 
 func TestSafeProjectionRetriesOnReadFailure(t *testing.T) {
+	// Without a refresh queue there is nowhere durable to defer to.
 	s, r := newTestSub()
 	s.safeReader = &fakeSafeReader{err: errors.New("missing trie node")}
 	require.Error(t, s.projectSafeSigners(context.Background(), nil, safeEvent("SAFE_OWNERS_CHANGED")))
 	require.Empty(t, r.calls)
+}
+
+func TestSafeReadFailureQueuesAHeadRefreshInsteadOfFailingTheEvent(t *testing.T) {
+	type refresh struct {
+		address  string
+		minBlock uint64
+		register bool
+	}
+	for txType, want := range map[string]refresh{
+		"SAFE_OWNERS_CHANGED":   {testPool, 90, false},
+		"OWNERSHIP_TRANSFERRED": {testToken, 90, true},
+	} {
+		t.Run(txType, func(t *testing.T) {
+			s, r := newTestSub()
+			s.safeReader = &fakeSafeReader{err: errors.New("state at block #90 is pruned")}
+			var queued []refresh
+			s.refreshSafe = func(_ context.Context, _ pgx.Tx, address string, minBlock uint64, register bool) error {
+				queued = append(queued, refresh{address, minBlock, register})
+				return nil
+			}
+			s.registerSafe = func(context.Context, pgx.Tx, string) error {
+				t.Fatal("registration waits for the refresh to prove a multisig")
+				return nil
+			}
+			require.NoError(t, s.projectSafeSigners(context.Background(), nil, safeEvent(txType)))
+			require.Equal(t, []refresh{want}, queued)
+			require.Empty(t, r.calls, "nothing is projected from a read that failed")
+		})
+	}
 }
 
 func TestSafeProjectionSkipsRevertedUnrelatedAndDisabled(t *testing.T) {
