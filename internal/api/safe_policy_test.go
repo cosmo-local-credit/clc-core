@@ -13,7 +13,9 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-type noSafes struct{}
+type (
+	noSafes struct{}
+)
 
 func (noSafes) IsSafe(context.Context, common.Address) (bool, error) { return false, nil }
 func (noSafes) ManagesAsset(context.Context, common.Address, common.Address) (bool, error) {

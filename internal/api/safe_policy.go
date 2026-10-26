@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -15,16 +14,12 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// safeSignerMaxAge bounds how stale a cached signer set may be and still
-// authorize an off-chain write. The event feed refreshes it; past this age the
-// set is treated as unknown, so a missed RemovedOwner cannot keep a removed
-// signer in control.
-const safeSignerMaxAge = 24 * time.Hour
-
-// storeSafeResolver answers policy questions from the signer cache and the
-// catalog. Every method reads in its own short transaction and returns an
-// error on any failure, which Check treats as a rejection.
-type storeSafeResolver struct{ a *API }
+type (
+	// storeSafeResolver answers policy questions from the signer cache and the
+	// catalog. Every method reads in its own short transaction and returns an
+	// error on any failure, which Check treats as a rejection.
+	storeSafeResolver struct{ a *API }
+)
 
 func (r storeSafeResolver) IsSafe(ctx context.Context, address common.Address) (bool, error) {
 	tx, err := r.a.store.Pool().Begin(ctx)
@@ -99,17 +94,17 @@ func (a *API) enforceSafePolicy(c *echo.Context, req apiresp.RelayRequest) (hand
 
 // callerMayManageRecord is canManageCatalogRecord extended with Safe signers:
 // a caller who is not the recorded owner still qualifies when the owner is a
-// Safe whose fresh cached signer set contains them. A missing or stale cache
-// denies.
+// multisig whose persisted signer projection contains them. Tracker events
+// replace membership; ordinary metadata writes do not depend on RPC freshness.
 //
 // Off-chain catalog edits never pass the Safe's threshold, so any single signer
-// of a multi-signer Safe can act alone here; see SAFE.md, open question 1.
+// of a multi-signer Safe can act alone here, including retirement.
 func (a *API) callerMayManageRecord(ctx context.Context, tx pgx.Tx, callerAddress, callerRole string, ownerAddress *string) bool {
 	return canManageCatalogRecord(a.actingOwner(ctx, tx, callerAddress, ownerAddress), callerRole, ownerAddress)
 }
 
 // actingOwner is the address to judge a caller by for an owner-only catalog
-// write: the recorded owner when the caller is a fresh signer of the owner
+// write: the recorded owner when the caller is a projected signer of the owner
 // Safe, otherwise the caller itself. It lets the pure owner rules
 // (offeringSeller, canWriteVoucherOfferings) serve a Safe's signers unchanged,
 // while anything recorded as the author still uses the real caller.
@@ -118,7 +113,7 @@ func (a *API) actingOwner(ctx context.Context, tx pgx.Tx, callerAddress string, 
 		strings.EqualFold(callerAddress, *ownerAddress) {
 		return callerAddress
 	}
-	state, err := a.freshSafeState(ctx, tx, *ownerAddress)
+	state, err := a.ensureSafeState(ctx, tx, *ownerAddress, false)
 	if err != nil || state == nil {
 		return callerAddress
 	}

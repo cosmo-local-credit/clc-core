@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -19,7 +19,9 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-var safeTxHashPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
+var (
+	safeTxHashPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
+)
 
 type (
 	safeSTSClient interface {
@@ -68,6 +70,10 @@ type (
 		code    string
 		message string
 	}
+
+	// storeSafeSigners reads the persisted signer projection, discovering an
+	// existing multisig if needed.
+	storeSafeSigners struct{ a *API }
 )
 
 func (e *proxyError) Error() string { return e.message }
@@ -263,17 +269,13 @@ func (s *safeService) transaction(ctx context.Context, caller, safeTxHash string
 	return tx, nil
 }
 
-// storeSafeSigners reads signer sets from the cache and revalidates a stale
-// one against the chain before trusting it.
-type storeSafeSigners struct{ a *API }
-
 func (s storeSafeSigners) Signers(ctx context.Context, safeAddress common.Address) ([]string, bool, error) {
 	tx, err := s.a.store.Pool().Begin(ctx)
 	if err != nil {
 		return nil, false, err
 	}
 	defer tx.Rollback(ctx)
-	state, err := s.a.freshSafeState(ctx, tx, safeAddress.Hex())
+	state, err := s.a.ensureSafeState(ctx, tx, safeAddress.Hex(), false)
 	if err != nil || state == nil {
 		return nil, false, err
 	}
@@ -283,20 +285,16 @@ func (s storeSafeSigners) Signers(ctx context.Context, safeAddress common.Addres
 	return state.Signers, true, nil
 }
 
-// freshSafeState returns the signer set of a Safe the subscriber has seeded,
-// or nil when the address is not one or cannot be verified. A set older than
-// safeSignerMaxAge is re-read from the chain and rewritten, because a Safe
-// whose signers never change emits nothing that would refresh it; without a
-// reader a stale set is not trusted.
-func (a *API) freshSafeState(ctx context.Context, tx pgx.Tx, safeAddress string) (*store.SafeState, error) {
+// ensureSafeState reads the durable tracker projection. First inspection seeds
+// an existing multisig, and explicit inspections refresh custom implementations
+// that may not emit Safe owner events. Projection age never expires permissions.
+func (a *API) ensureSafeState(ctx context.Context, tx pgx.Tx, safeAddress string, inspect bool) (*store.SafeState, error) {
 	state, err := a.store.GetSafeState(ctx, tx, a.chainID, safeAddress)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
+	known := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if time.Since(state.RefreshedAt) <= safeSignerMaxAge {
+	if known && (!inspect || a.safeReader == nil) {
 		return &state, nil
 	}
 	if a.safeReader == nil {
@@ -307,6 +305,11 @@ func (a *API) freshSafeState(ctx context.Context, tx pgx.Tx, safeAddress string)
 		return nil, nil
 	}
 	if err != nil {
+		// A visitor refresh must not discard a durable event projection just
+		// because RPC is temporarily unavailable.
+		if known {
+			return &state, nil
+		}
 		return nil, err
 	}
 	signers := make([]string, len(read.Owners))
@@ -324,6 +327,47 @@ func (a *API) freshSafeState(ctx context.Context, tx pgx.Tx, safeAddress string)
 		return nil, err
 	}
 	return &refreshed, nil
+}
+
+// safeOwnerHandler is independent of STS: metadata and public ownership must
+// work even where transaction proposals are unavailable. Only a real catalog
+// owner can trigger a sponsored AccountIndex registration.
+func (a *API) safeOwnerHandler(c *echo.Context) error {
+	address := c.Param("address")
+	if !common.IsHexAddress(address) {
+		return a.writeProxyError(c, badRequest("invalid owner address"))
+	}
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	defer tx.Rollback(ctx)
+	owned, err := a.store.CatalogHasOwner(ctx, tx, a.chainID, address)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	result := map[string]any{"kind": "unsupported", "owner": strings.ToLower(address)}
+	if owned {
+		state, err := a.ensureSafeState(ctx, tx, address, true)
+		if err != nil {
+			return a.writeProxyError(c, policyError(err))
+		}
+		if state != nil {
+			if err := worker.EnqueueSafeRegistration(ctx, a.queueClient, tx, address); err != nil {
+				return handlePostgresError(c, err)
+			}
+			var threshold *int
+			if state.Threshold > 0 {
+				threshold = &state.Threshold
+			}
+			result = map[string]any{"kind": "safe", "owner": state.Address, "signers": state.Signers, "threshold": threshold}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	return a.writeProxyResult(c, "Multisig ownership", result)
 }
 
 func (a *API) writeProxyError(c *echo.Context, err error) error {

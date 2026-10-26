@@ -23,6 +23,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
+	"github.com/jackc/pgx/v5"
 )
 
 func notifyShutdown() (context.Context, context.CancelFunc) {
@@ -169,7 +170,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 	return workerContainer
 }
 
-func loadSub(pgStore store.Store, chainProvider *ethutils.Provider) (*sub.Sub, *pub.Pub) {
+func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *worker.WorkerContainer) (*sub.Sub, *pub.Pub) {
 	endpoints := ko.MustStrings("jetstream.endpoints")
 	persistDuration := time.Duration(ko.MustInt("jetstream.persist_duration_hrs")) * time.Hour
 
@@ -197,6 +198,9 @@ func loadSub(pgStore store.Store, chainProvider *ethutils.Provider) (*sub.Sub, *
 		Pub:         pubInst,
 		Logg:        lo,
 		SafeReader:  safe.NewReader(chainProvider),
+		RegisterSafe: func(ctx context.Context, tx pgx.Tx, address string) error {
+			return worker.EnqueueSafeRegistration(ctx, workers.Client(), tx, address)
+		},
 	})
 	if err != nil {
 		lo.Error("could not initialize jetstream subscriber", "error", err)

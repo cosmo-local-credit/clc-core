@@ -53,7 +53,7 @@ func (a *API) retireVoucherHandler(c *echo.Context) error {
 	if !voucher.Active {
 		return handleConflictError(c, "voucher is already retired")
 	}
-	if !canManageVoucher(callerAddress, callerRole, voucher.OwnerAddress) {
+	if !a.callerMayManageRecord(ctx, tx, callerAddress, callerRole, voucher.OwnerAddress) {
 		return handleForbiddenError(c, "only the voucher owner or a superadmin may retire this voucher")
 	}
 

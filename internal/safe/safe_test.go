@@ -20,11 +20,13 @@ var (
 	holder       = common.HexToAddress("0x4444444444444444444444444444444444444444")
 )
 
-type fakeResolver struct {
-	safes  map[common.Address]bool
-	assets map[common.Address]bool
-	err    error
-}
+type (
+	fakeResolver struct {
+		safes  map[common.Address]bool
+		assets map[common.Address]bool
+		err    error
+	}
+)
 
 func (f fakeResolver) IsSafe(_ context.Context, a common.Address) (bool, error) {
 	return f.safes[a], f.err
@@ -210,7 +212,7 @@ func TestGasLimitScalesWithSignaturesAndSubcalls(t *testing.T) {
 	one := (&Verdict{Signatures: 1, Subcalls: 4}).GasLimit()
 	three := (&Verdict{Signatures: 3, Subcalls: 4}).GasLimit()
 	five := (&Verdict{Signatures: 3, Subcalls: 5}).GasLimit()
-	if !(one < three && three < five) {
+	if one >= three || three >= five {
 		t.Fatalf("gas not monotonic: %d %d %d", one, three, five)
 	}
 	if (&Verdict{Signatures: 1, Subcalls: 1}).GasLimit() >= one {
@@ -260,13 +262,19 @@ func TestReadSafeVia(t *testing.T) {
 		t.Fatalf("got %+v, %v", state, err)
 	}
 	for name, c := range map[string]Caller{
-		"unsupported version": caller("1.2.0", 1, nil),
-		"threshold zero":      caller("1.4.1", 0, nil),
-		"threshold > owners":  caller("1.4.1", 3, nil),
-		"reverted probe":      caller("", 0, errors.New("execution reverted")),
+		"reverted probe": caller("", 0, errors.New("execution reverted")),
 	} {
 		if _, err := ReadSafeVia(context.Background(), safeAddr, c); !errors.Is(err, ErrNotSafe) {
 			t.Errorf("%s: got %v, want ErrNotSafe", name, err)
+		}
+	}
+	if _, err := ReadSafeVia(context.Background(), safeAddr, caller("custom", 1, nil)); err != nil {
+		t.Fatalf("compatible custom version rejected: %v", err)
+	}
+	for _, threshold := range []int64{0, 3} {
+		state, err := ReadSafeVia(context.Background(), safeAddr, caller("custom", threshold, nil))
+		if err != nil || len(state.Owners) != 2 || state.Threshold != 0 {
+			t.Fatalf("partial interface: state=%+v error=%v", state, err)
 		}
 	}
 }

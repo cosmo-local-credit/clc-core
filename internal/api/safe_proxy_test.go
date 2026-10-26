@@ -22,29 +22,38 @@ var (
 	proxyOther = common.HexToAddress("0x3333333333333333333333333333333333333333")
 )
 
-type assetResolver struct{}
+type (
+	assetResolver struct{}
+
+	fakeSigners struct {
+		signers []string
+		ok      bool
+		err     error
+	}
+
+	fakeSTS struct {
+		stored    *safe.Transaction
+		proposed  []string
+		confirmed []string
+		queued    []safe.Transaction
+		err       error
+	}
+
+	proxyFixture struct {
+		svc  *safeService
+		sts  *fakeSTS
+		key  string // signer address
+		sign func(common.Hash) string
+	}
+)
 
 func (assetResolver) IsSafe(context.Context, common.Address) (bool, error) { return false, nil }
 func (assetResolver) ManagesAsset(_ context.Context, _, target common.Address) (bool, error) {
 	return target == proxyAsset, nil
 }
 
-type fakeSigners struct {
-	signers []string
-	ok      bool
-	err     error
-}
-
 func (f fakeSigners) Signers(context.Context, common.Address) ([]string, bool, error) {
 	return f.signers, f.ok, f.err
-}
-
-type fakeSTS struct {
-	stored    *safe.Transaction
-	proposed  []string
-	confirmed []string
-	queued    []safe.Transaction
-	err       error
 }
 
 func (f *fakeSTS) Propose(_ context.Context, _, hash, sender, _ string, _ safe.TxFields) error {
@@ -86,13 +95,6 @@ func txFor(to common.Address, data []byte) safe.TxFields {
 		SafeTxGas: "0", BaseGas: "0", GasPrice: "0",
 		GasToken: common.Address{}.Hex(), RefundReceiver: common.Address{}.Hex(), Nonce: "4",
 	}
-}
-
-type proxyFixture struct {
-	svc  *safeService
-	sts  *fakeSTS
-	key  string // signer address
-	sign func(common.Hash) string
 }
 
 func newProxyFixture(t *testing.T, signersOK bool) *proxyFixture {

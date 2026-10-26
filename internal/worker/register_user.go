@@ -2,23 +2,28 @@ package worker
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/grassrootseconomics/ethutils"
+	"github.com/jackc/pgx/v5"
 	"github.com/lmittmann/w3"
+	"github.com/lmittmann/w3/module/eth"
 	"github.com/riverqueue/river"
 )
 
 var (
-	accountIndexAddFunc = w3.MustNewFunc("add(address)", "")
+	accountIndexAddFunc      = w3.MustNewFunc("add(address)", "")
+	accountIndexContainsFunc = w3.MustNewFunc("contains(address)", "bool")
 )
 
 type (
 	RegisterUserArgs struct {
 		TrackingID  string `json:"trackingId"`
-		UserAddress string `json:"userAddress"`
+		UserAddress string `json:"userAddress" river:"unique"`
 	}
 
 	RegisterUserWorker struct {
@@ -30,6 +35,19 @@ type (
 
 func (RegisterUserArgs) Kind() string { return "REGISTER_USER" }
 
+// EnqueueSafeRegistration uses the same system signer and index as signup.
+// River deduplicates discovery from several assets, visitors and replayed events.
+// It commits with the signer projection, so a crash cannot lose registration.
+func EnqueueSafeRegistration(ctx context.Context, queue *river.Client[pgx.Tx], tx pgx.Tx, address string) error {
+	if queue == nil {
+		return nil
+	}
+	_, err := queue.InsertTx(ctx, tx, RegisterUserArgs{
+		TrackingID: uuid.NewString(), UserAddress: strings.ToLower(address),
+	}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}})
+	return err
+}
+
 // Work builds, signs, records, and dispatches an AccountIndex.add(userAddress)
 // transaction — registering the user onchain. The master signing key pays gas
 // and is the caller; it must be a writer on the AccountIndex contract.
@@ -39,6 +57,17 @@ func (RegisterUserArgs) Kind() string { return "REGISTER_USER" }
 func (w *RegisterUserWorker) Work(ctx context.Context, job *river.Job[RegisterUserArgs]) error {
 	if w.wc.accountIndexAddress == (common.Address{}) {
 		w.wc.logg.Debug("skipping user registration: AccountIndex not configured", "trackingId", job.Args.TrackingID)
+		return nil
+	}
+	// AccountsIndex.add reverts for an existing address, including inactive
+	// entries. contains (rather than have) avoids accidentally reactivating one.
+	var registered bool
+	if err := w.wc.chainProvider.Client.CallCtx(ctx,
+		eth.CallFunc(w.wc.accountIndexAddress, accountIndexContainsFunc,
+			common.HexToAddress(job.Args.UserAddress)).Returns(&registered)); err != nil {
+		return err
+	}
+	if registered {
 		return nil
 	}
 

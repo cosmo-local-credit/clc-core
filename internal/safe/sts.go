@@ -21,23 +21,51 @@ const (
 	apiKeyHeader = "Authorization"
 )
 
-// STSError is a non-2xx answer from the Transaction Service. Status is the
-// upstream status; Message is a bounded excerpt, never a credential.
-type STSError struct {
-	Status  int
-	Message string
-}
+type (
+	// STSError is a non-2xx answer from the Transaction Service. Status is the
+	// upstream status; Message is a bounded excerpt, never a credential.
+	STSError struct {
+		Status  int
+		Message string
+	}
+
+	// STS is a client for the Safe Transaction Service. The API key stays in this
+	// struct and is only ever written to the outgoing request header.
+	STS struct {
+		base   string
+		apiKey string
+		http   *http.Client
+	}
+
+	// stsTransaction is the upstream shape. nonce and the gas fields arrive as
+	// numbers or strings depending on the field, so they are read as json.Number.
+	stsTransaction struct {
+		Safe                  string      `json:"safe"`
+		To                    string      `json:"to"`
+		Value                 json.Number `json:"value"`
+		Data                  *string     `json:"data"`
+		Operation             uint8       `json:"operation"`
+		GasToken              string      `json:"gasToken"`
+		SafeTxGas             json.Number `json:"safeTxGas"`
+		BaseGas               json.Number `json:"baseGas"`
+		GasPrice              json.Number `json:"gasPrice"`
+		RefundReceiver        *string     `json:"refundReceiver"`
+		Nonce                 json.Number `json:"nonce"`
+		IsExecuted            bool        `json:"isExecuted"`
+		IsSuccessful          *bool       `json:"isSuccessful"`
+		TransactionHash       *string     `json:"transactionHash"`
+		SafeTxHash            string      `json:"safeTxHash"`
+		ConfirmationsRequired int         `json:"confirmationsRequired"`
+		Confirmations         []struct {
+			Owner          string `json:"owner"`
+			Signature      string `json:"signature"`
+			SubmissionDate string `json:"submissionDate"`
+		} `json:"confirmations"`
+	}
+)
 
 func (e *STSError) Error() string {
 	return fmt.Sprintf("safe transaction service: status %d: %s", e.Status, e.Message)
-}
-
-// STS is a client for the Safe Transaction Service. The API key stays in this
-// struct and is only ever written to the outgoing request header.
-type STS struct {
-	base   string
-	apiKey string
-	http   *http.Client
 }
 
 func NewSTS(baseURL, apiKey string) *STS {
@@ -46,32 +74,6 @@ func NewSTS(baseURL, apiKey string) *STS {
 		apiKey: apiKey,
 		http:   &http.Client{Timeout: stsTimeout},
 	}
-}
-
-// stsTransaction is the upstream shape. nonce and the gas fields arrive as
-// numbers or strings depending on the field, so they are read as json.Number.
-type stsTransaction struct {
-	Safe                  string      `json:"safe"`
-	To                    string      `json:"to"`
-	Value                 json.Number `json:"value"`
-	Data                  *string     `json:"data"`
-	Operation             uint8       `json:"operation"`
-	GasToken              string      `json:"gasToken"`
-	SafeTxGas             json.Number `json:"safeTxGas"`
-	BaseGas               json.Number `json:"baseGas"`
-	GasPrice              json.Number `json:"gasPrice"`
-	RefundReceiver        *string     `json:"refundReceiver"`
-	Nonce                 json.Number `json:"nonce"`
-	IsExecuted            bool        `json:"isExecuted"`
-	IsSuccessful          *bool       `json:"isSuccessful"`
-	TransactionHash       *string     `json:"transactionHash"`
-	SafeTxHash            string      `json:"safeTxHash"`
-	ConfirmationsRequired int         `json:"confirmationsRequired"`
-	Confirmations         []struct {
-		Owner          string `json:"owner"`
-		Signature      string `json:"signature"`
-		SubmissionDate string `json:"submissionDate"`
-	} `json:"confirmations"`
 }
 
 func (t stsTransaction) transaction() Transaction {
@@ -132,7 +134,7 @@ func (s *STS) do(ctx context.Context, method, path string, body any, out any) er
 		}
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSTSBody+1))
 	if err != nil {
 		return err

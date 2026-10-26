@@ -12,11 +12,11 @@ import (
 )
 
 type (
-	// SafeState is the cached signer set of one Safe.
+	// SafeState is the persisted, event-projected signer set of one multisig.
 	SafeState struct {
 		Address     string
 		Signers     []string
-		Threshold   int
+		Threshold   int // zero means the compatible contract has no threshold getter
 		Block       uint64
 		RefreshedAt time.Time
 	}
@@ -28,7 +28,7 @@ type (
 // the same reason as ProjectCatalogOwnership: cmd/reconcile-ownership calls it
 // on a bare Pg.
 func (pg *Pg) ReplaceSafeSigners(ctx context.Context, tx pgx.Tx, chainID int64, safe string, signers []string, threshold int, block, index uint64) (bool, error) {
-	if chainID <= 0 || !common.IsHexAddress(safe) || threshold < 1 || len(signers) < threshold ||
+	if chainID <= 0 || !common.IsHexAddress(safe) || threshold < 0 || len(signers) == 0 || len(signers) < threshold ||
 		block > math.MaxInt64 || index > math.MaxInt64 {
 		return false, fmt.Errorf("invalid safe signer set")
 	}
@@ -55,7 +55,7 @@ func (pg *Pg) ReplaceSafeSigners(ctx context.Context, tx pgx.Tx, chainID int64, 
 	err := tx.QueryRow(ctx, `
 WITH advanced AS (
     INSERT INTO safe_state (chain_id, safe_address, threshold, block_number, log_index)
-    VALUES ($1, $2, $3, $4, $5)
+    VALUES ($1, $2, NULLIF($3, 0), $4, $5)
     ON CONFLICT (chain_id, safe_address) DO UPDATE SET
         threshold = EXCLUDED.threshold,
         block_number = EXCLUDED.block_number,
@@ -80,13 +80,13 @@ SELECT $1, $2, unnest($3::text[])`, chainID, safe, lowered)
 	return advanced, err
 }
 
-// GetSafeState returns the cached signer set, or pgx.ErrNoRows for an address
+// GetSafeState returns the persisted signer set, or pgx.ErrNoRows for an address
 // that is not a known Safe.
 func (pg *Pg) GetSafeState(ctx context.Context, tx pgx.Tx, chainID int64, safe string) (SafeState, error) {
 	state := SafeState{Address: strings.ToLower(safe)}
 	var block int64
 	err := tx.QueryRow(ctx, `
-SELECT threshold, block_number, refreshed_at FROM safe_state
+SELECT COALESCE(threshold, 0), block_number, refreshed_at FROM safe_state
 WHERE chain_id = $1 AND safe_address = $2`, chainID, state.Address).
 		Scan(&state.Threshold, &block, &state.RefreshedAt)
 	if err != nil {
@@ -108,6 +108,16 @@ SELECT signer FROM safe_signers WHERE chain_id = $1 AND safe_address = $2 ORDER 
 		state.Signers = append(state.Signers, signer)
 	}
 	return state, rows.Err()
+}
+
+// CatalogHasOwner limits sponsored index registration to real catalog owners.
+func (pg *Pg) CatalogHasOwner(ctx context.Context, tx pgx.Tx, chainID int64, owner string) (bool, error) {
+	var found bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (
+    SELECT 1 FROM vouchers WHERE chain_id=$1 AND lower(owner_address)=lower($2)
+    UNION ALL SELECT 1 FROM pools WHERE chain_id=$1 AND lower(owner_address)=lower($2)
+)`, chainID, owner).Scan(&found)
+	return found, err
 }
 
 // SafeManagesAsset reports whether target is a voucher or pool owned by safe,

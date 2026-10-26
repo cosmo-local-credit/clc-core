@@ -21,10 +21,10 @@ func TestSafeSignerSeesSafeOwnedAssetsDB(t *testing.T) {
         VALUES('0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),'Safe signer',gen_random_uuid()::text||'@safe.test')
         RETURNING id, blockchain_address`).Scan(&userID, &account))
 	safeAddr, coSigner := randomAddress(t, tx), randomAddress(t, tx)
-	_, voucherID, _, _, _, _, token := seedComposablePool(t, tx)
+	poolID, voucherID, _, _, _, _, token := seedComposablePool(t, tx)
 	_, err := tx.Exec(ctx, `UPDATE vouchers SET owner_address=$2, active=true, geo_lat=0, geo_lng=0 WHERE id=$1`, voucherID, safeAddr)
 	require.NoError(t, err)
-	_, err = tx.Exec(ctx, `UPDATE pool_tokens SET is_allowed=true WHERE voucher_id=$1`, voucherID)
+	_, err = tx.Exec(ctx, `INSERT INTO pool_tokens(pool_id, voucher_id, is_allowed) VALUES($1,$2,true)`, poolID, voucherID)
 	require.NoError(t, err)
 
 	ownedIDs := func() []uint64 {

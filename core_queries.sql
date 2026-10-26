@@ -2681,14 +2681,18 @@ ORDER BY p.id;
 SELECT count(*)
 FROM vouchers v
 WHERE v.id = ANY($1::BIGINT[])
-    AND lower(v.owner_address) = lower($2);
+    AND (lower(v.owner_address) = lower($2) OR EXISTS (
+        SELECT 1 FROM safe_signers ss WHERE ss.chain_id=v.chain_id
+            AND ss.safe_address=lower(v.owner_address) AND ss.signer=lower($2)));
 
 -- How many resolved pools currently belong to the caller.
 --name: count-pools-owned-by
 SELECT count(*)
 FROM pools p
 WHERE p.id = ANY($1::BIGINT[])
-    AND lower(p.owner_address) = lower($2);
+    AND (lower(p.owner_address) = lower($2) OR EXISTS (
+        SELECT 1 FROM safe_signers ss WHERE ss.chain_id=p.chain_id
+            AND ss.safe_address=lower(p.owner_address) AND ss.signer=lower($2)));
 
 -- The voucher tag facet vocabulary: every tag that appears on an available
 -- offering of a visible voucher. Deliberately independent of the caller's
@@ -3688,7 +3692,9 @@ FROM users u
 JOIN vouchers voucher ON lower(voucher.address)=lower($2)
 LEFT JOIN offerings offer ON offer.voucher_id=voucher.id AND offer.available
 WHERE u.id=$1
-  AND (u.role='SUPERADMIN' OR lower(voucher.owner_address)=lower(u.blockchain_address))
+  AND (u.role='SUPERADMIN' OR lower(voucher.owner_address)=lower(u.blockchain_address)
+    OR EXISTS (SELECT 1 FROM safe_signers ss WHERE ss.chain_id=voucher.chain_id
+        AND ss.safe_address=lower(voucher.owner_address) AND ss.signer=lower(u.blockchain_address)))
 GROUP BY u.id,voucher.id;
 
 -- Creation has already locked and authorized the voucher. Keeping the count in
@@ -3700,7 +3706,9 @@ FROM users u
 JOIN vouchers voucher ON voucher.id=$2
 LEFT JOIN offerings offer ON offer.voucher_id=voucher.id AND offer.available
 WHERE u.id=$1
-  AND (u.role='SUPERADMIN' OR lower(voucher.owner_address)=lower(u.blockchain_address))
+  AND (u.role='SUPERADMIN' OR lower(voucher.owner_address)=lower(u.blockchain_address)
+    OR EXISTS (SELECT 1 FROM safe_signers ss WHERE ss.chain_id=voucher.chain_id
+        AND ss.safe_address=lower(voucher.owner_address) AND ss.signer=lower(u.blockchain_address)))
 GROUP BY u.id,voucher.id;
 
 --name: count-admin-pool-vouchers

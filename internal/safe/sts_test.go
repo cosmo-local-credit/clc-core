@@ -11,18 +11,20 @@ import (
 	"testing"
 )
 
-const stsTx = `{"safe":"0x1111111111111111111111111111111111111111","to":"0x2222222222222222222222222222222222222222",
+const (
+	stsTx = `{"safe":"0x1111111111111111111111111111111111111111","to":"0x2222222222222222222222222222222222222222",
 "value":"0","data":null,"operation":0,"gasToken":"0x0000000000000000000000000000000000000000","safeTxGas":0,"baseGas":0,
 "gasPrice":"0","refundReceiver":null,"nonce":5,"isExecuted":false,"isSuccessful":null,"transactionHash":null,
 "safeTxHash":"0xabc","confirmationsRequired":2,
 "confirmations":[{"owner":"0xA1","signature":"0x11","submissionDate":"2026-10-25T10:00:00Z"}]}`
+)
 
 func TestSTSTransactionNormalizesUpstreamShape(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/multisig-transactions/0xabc/" {
 			t.Errorf("path %s", r.URL.Path)
 		}
-		io.WriteString(w, stsTx)
+		_, _ = io.WriteString(w, stsTx)
 	}))
 	defer srv.Close()
 
@@ -42,7 +44,7 @@ func TestSTSSendsKeyOnlyAsBearerAndNeverInErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		io.WriteString(w, `{"nonce":["already used"]}`)
+		_, _ = io.WriteString(w, `{"nonce":["already used"]}`)
 	}))
 	defer srv.Close()
 
@@ -62,7 +64,9 @@ func TestSTSProposeBodyAndNonce(t *testing.T) {
 		if r.URL.Path != "/api/v1/safes/0xsafe/multisig-transactions/" || r.Method != http.MethodPost {
 			t.Errorf("%s %s", r.Method, r.URL.Path)
 		}
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer srv.Close()
@@ -78,14 +82,14 @@ func TestSTSProposeBodyAndNonce(t *testing.T) {
 
 func TestSTSQueuedAndNonce(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/safes/0xsafe/":
-			io.WriteString(w, `{"nonce":4,"threshold":2}`)
+		switch r.URL.Path {
+		case "/api/v1/safes/0xsafe/":
+			_, _ = io.WriteString(w, `{"nonce":4,"threshold":2}`)
 		default:
 			if r.URL.Query().Get("nonce__gte") != "4" {
 				t.Errorf("query %s", r.URL.RawQuery)
 			}
-			io.WriteString(w, `{"count":1,"results":[`+stsTx+`]}`)
+			_, _ = io.WriteString(w, `{"count":1,"results":[`+stsTx+`]}`)
 		}
 	}))
 	defer srv.Close()
@@ -101,7 +105,7 @@ func TestSTSQueuedAndNonce(t *testing.T) {
 
 func TestSTSBoundsResponseAndSurfacesOutage(t *testing.T) {
 	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, strings.Repeat("a", maxSTSBody+10))
+		_, _ = io.WriteString(w, strings.Repeat("a", maxSTSBody+10))
 	}))
 	defer big.Close()
 	if _, err := NewSTS(big.URL, "").Transaction(context.Background(), "0xabc"); err == nil {

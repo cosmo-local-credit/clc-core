@@ -55,10 +55,12 @@ func TestSafeSignersOrderingAndAssetOwnership(t *testing.T) {
 	for _, bad := range []struct {
 		signers   []string
 		threshold int
-	}{{[]string{a}, 2}, {[]string{a, a}, 1}, {[]string{"nope"}, 1}, {[]string{a}, 0}} {
+	}{{[]string{a}, 2}, {[]string{a, a}, 1}, {[]string{"nope"}, 1}, {[]string{a}, -1}} {
 		_, err = pg.ReplaceSafeSigners(ctx, tx, 42220, safeAddr, bad.signers, bad.threshold, 99, 0)
 		require.Error(t, err)
 	}
+	_, err = pg.ReplaceSafeSigners(ctx, tx, 100, safeAddr, []string{a}, 0, 10, 0)
+	require.NoError(t, err, "a compatible contract can have an unknown threshold")
 
 	// Asset management covers the voucher, the pool and its wiring, only for
 	// assets the Safe owns.

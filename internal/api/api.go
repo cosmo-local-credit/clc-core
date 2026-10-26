@@ -325,6 +325,10 @@ func New(o APIOpts) *API {
 		apiGroup.GET("/accounts/:address/activity", a.accountActivityHandler)
 	}
 
+	// Public ownership inspection also discovers pre-existing compatible
+	// multisigs. It is available without STS or gasless Safe execution.
+	router.GET(apiVersion+"/owners/:address", a.safeOwnerHandler, a.marketRateLimitMiddleware())
+
 	// Safe Transaction Service proxy: the API key stays in clc-core's config.
 	if a.safeProxy != nil {
 		safeGroup := apiGroup.Group("/safe", a.requireUserAuth())

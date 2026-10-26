@@ -17,11 +17,17 @@ func (r *recordingStore) ReplaceSafeSigners(_ context.Context, _ pgx.Tx, chain i
 	return true, nil
 }
 
-type fakeSafeReader struct {
-	state *safe.State
-	err   error
-	reads []uint64
+func (r *recordingStore) CatalogHasOwner(context.Context, pgx.Tx, int64, string) (bool, error) {
+	return true, nil
 }
+
+type (
+	fakeSafeReader struct {
+		state *safe.State
+		err   error
+		reads []uint64
+	}
+)
 
 func (f *fakeSafeReader) ReadSafe(_ context.Context, _ common.Address, block uint64) (*safe.State, error) {
 	f.reads = append(f.reads, block)
@@ -63,6 +69,32 @@ func TestOwnershipTransferToANonSafeIsIgnored(t *testing.T) {
 	s.safeReader = &fakeSafeReader{err: safe.ErrNotSafe}
 	require.NoError(t, s.projectSafeSigners(context.Background(), nil, safeEvent("OWNERSHIP_TRANSFERRED")))
 	require.Empty(t, r.calls)
+}
+
+func TestOwnershipTransferQueuesAccountIndexRegistration(t *testing.T) {
+	s, _ := newTestSub()
+	s.safeReader = &fakeSafeReader{state: &safe.State{Owners: []common.Address{ownerOne}}}
+	var registered []string
+	s.registerSafe = func(_ context.Context, _ pgx.Tx, address string) error {
+		registered = append(registered, address)
+		return nil
+	}
+	require.NoError(t, s.projectSafeSigners(context.Background(), nil, safeEvent("OWNERSHIP_TRANSFERRED")))
+	require.Equal(t, []string{testToken}, registered)
+}
+
+func TestAccountIndexEntrySeedsMultisigWithoutAnotherRegistration(t *testing.T) {
+	s, recorder := newTestSub()
+	s.chainID = 100
+	s.safeReader = &fakeSafeReader{state: &safe.State{Owners: []common.Address{ownerOne}}}
+	s.registerSafe = func(context.Context, pgx.Tx, string) error {
+		t.Fatal("an INDEX_ADD must not enqueue another registration")
+		return nil
+	}
+	evt := safeEvent("INDEX_ADD")
+	evt.Payload = map[string]any{"address": testToken}
+	require.NoError(t, s.projectSafeSigners(context.Background(), nil, evt))
+	require.Equal(t, []call{{"safe", []any{int64(100), testToken, []string{ownerOne.Hex()}, 0, uint64(90), uint64(4)}}}, recorder.calls)
 }
 
 func TestSafeProjectionRetriesOnReadFailure(t *testing.T) {

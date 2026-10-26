@@ -11,20 +11,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// SafeReader reads a Safe's signer set at a block. internal/safe.Reader
-// satisfies it; tests pass a fake.
-type SafeReader interface {
-	ReadSafe(ctx context.Context, address common.Address, block uint64) (*safe.State, error)
-}
+type (
+	// SafeReader reads a Safe's signer set at a block. internal/safe.Reader
+	// satisfies it; tests pass a fake.
+	SafeReader interface {
+		ReadSafe(ctx context.Context, address common.Address, block uint64) (*safe.State, error)
+	}
+)
 
-// projectSafeSigners keeps the signer cache in step with the chain. Two events
-// matter: a Safe's own owner or threshold change, and an asset's ownership
-// moving to an address that may be a Safe, which seeds the cache before the
-// Safe has emitted anything.
+// projectSafeSigners keeps persisted membership in step with the chain. Owner
+// and threshold events refresh it; asset handovers and AccountIndex additions
+// discover multisigs before they have emitted their own owner events.
 //
 // Neither is applied as a delta. A Safe event names one change, so the whole
 // set is re-read at the event's block and replaced; a missed event then
-// cannot leave the cache wrong past the next one. Reads at old blocks need an
+// cannot leave membership wrong past the next one. Reads at old blocks need an
 // archive node, like cmd/reconcile-ownership.
 func (s *Sub) projectSafeSigners(ctx context.Context, tx pgx.Tx, evt event.Event) error {
 	if s.safeReader == nil || !evt.Success {
@@ -40,6 +41,12 @@ func (s *Sub) projectSafeSigners(ctx context.Context, tx pgx.Tx, evt event.Event
 			return nil // projectCatalogOwnership already rejects the malformed event
 		}
 		safeAddress = owner
+	case "INDEX_ADD":
+		address, ok := payloadAddress(evt, "address")
+		if !ok {
+			return nil
+		}
+		safeAddress = address
 	default:
 		return nil
 	}
@@ -58,5 +65,19 @@ func (s *Sub) projectSafeSigners(ctx context.Context, tx pgx.Tx, evt event.Event
 		signers[i] = owner.Hex()
 	}
 	_, err = s.store.ReplaceSafeSigners(ctx, tx, s.chainID, safeAddress, signers, state.Threshold, evt.Block, uint64(evt.Index))
-	return err
+	if err != nil {
+		return err
+	}
+	// Ownership and first inspection enqueue the ordinary account-index path.
+	// Its INDEX_ADD event already means registration is complete.
+	if s.registerSafe != nil && evt.TxType == "OWNERSHIP_TRANSFERRED" {
+		owned, err := s.store.CatalogHasOwner(ctx, tx, s.chainID, safeAddress)
+		if err != nil {
+			return err
+		}
+		if owned {
+			return s.registerSafe(ctx, tx, safeAddress)
+		}
+	}
+	return nil
 }

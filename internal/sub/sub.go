@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -21,18 +22,20 @@ type (
 		Pub         *pub.Pub
 		Logg        *slog.Logger
 		// SafeReader enables the Safe signer cache; nil leaves it unprojected.
-		SafeReader SafeReader
+		SafeReader   SafeReader
+		RegisterSafe func(context.Context, pgx.Tx, string) error
 	}
 
 	Sub struct {
-		chainID    int64
-		safeReader SafeReader
-		store      store.Store
-		js         jetstream.JetStream
-		jsIter     jetstream.MessagesContext
-		pub        *pub.Pub
-		logg       *slog.Logger
-		done       chan struct{}
+		chainID      int64
+		safeReader   SafeReader
+		registerSafe func(context.Context, pgx.Tx, string) error
+		store        store.Store
+		js           jetstream.JetStream
+		jsIter       jetstream.MessagesContext
+		pub          *pub.Pub
+		logg         *slog.Logger
+		done         chan struct{}
 	}
 )
 
@@ -80,14 +83,15 @@ func NewSub(o SubObts) (*Sub, error) {
 	}
 
 	return &Sub{
-		chainID:    o.ChainID,
-		safeReader: o.SafeReader,
-		store:      o.Store,
-		js:         o.JS,
-		jsIter:     iter,
-		pub:        o.Pub,
-		logg:       o.Logg,
-		done:       make(chan struct{}),
+		chainID:      o.ChainID,
+		safeReader:   o.SafeReader,
+		registerSafe: o.RegisterSafe,
+		store:        o.Store,
+		js:           o.JS,
+		jsIter:       iter,
+		pub:          o.Pub,
+		logg:         o.Logg,
+		done:         make(chan struct{}),
 	}, nil
 }
 

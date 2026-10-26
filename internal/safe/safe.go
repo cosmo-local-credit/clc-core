@@ -51,9 +51,7 @@ var (
 		"withdraw(address,uint256)",
 		"withdrawLiquidity(address,address,uint256)",
 	}
-)
 
-var (
 	ErrNotSafeCall   = errors.New("safe: batch is not a single execTransaction call")
 	ErrRejected      = errors.New("safe: transaction rejected by policy")
 	errMalformedData = errors.New("safe: malformed calldata")
@@ -177,7 +175,7 @@ func (p *Policy) Check(ctx context.Context, calls []Call) (*Verdict, error) {
 	}
 	exec, err := DecodeExec(call.Data)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrRejected, err)
+		return nil, fmt.Errorf("%w: %w", ErrRejected, err)
 	}
 	return p.checkExec(ctx, call.To, exec, true)
 }
@@ -224,7 +222,7 @@ func (p *Policy) checkExec(ctx context.Context, safe common.Address, exec *Exec,
 		}
 		subs, err := DecodeMultiSend(exec.Data)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrRejected, err)
+			return nil, fmt.Errorf("%w: %w", ErrRejected, err)
 		}
 		if len(subs) == 0 || len(subs) > maxSubcallsCount {
 			return nil, fmt.Errorf("%w: multisend must carry 1..%d calls", ErrRejected, maxSubcallsCount)

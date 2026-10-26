@@ -9,11 +9,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type stateStore struct {
-	store.Store
-	state store.SafeState
-	err   error
-}
+type (
+	stateStore struct {
+		store.Store
+
+		state store.SafeState
+		err   error
+	}
+)
 
 func (s stateStore) GetSafeState(context.Context, pgx.Tx, int64, string) (store.SafeState, error) {
 	return s.state, s.err
@@ -34,13 +37,13 @@ func TestActingOwnerLetsASignerActAsTheOwnerSafe(t *testing.T) {
 		owner  *string
 		want   string
 	}{
-		"signer acts as the Safe":    {stateStore{state: fresh}, signer, &owner, safeAddr},
-		"non-signer stays itself":    {stateStore{state: fresh}, other, &owner, other},
-		"owner itself is unchanged":  {stateStore{state: fresh}, safeAddr, &owner, safeAddr},
-		"unknown Safe stays itself":  {stateStore{err: pgx.ErrNoRows}, signer, &owner, signer},
-		"store error fails closed":   {stateStore{err: context.DeadlineExceeded}, signer, &owner, signer},
-		"no recorded owner":          {stateStore{state: fresh}, signer, nil, signer},
-		"stale set without a reader": {stateStore{state: store.SafeState{Signers: []string{signer}, RefreshedAt: time.Now().Add(-48 * time.Hour)}}, signer, &owner, signer},
+		"signer acts as the Safe":              {stateStore{state: fresh}, signer, &owner, safeAddr},
+		"non-signer stays itself":              {stateStore{state: fresh}, other, &owner, other},
+		"owner itself is unchanged":            {stateStore{state: fresh}, safeAddr, &owner, safeAddr},
+		"unknown Safe stays itself":            {stateStore{err: pgx.ErrNoRows}, signer, &owner, signer},
+		"store error fails closed":             {stateStore{err: context.DeadlineExceeded}, signer, &owner, signer},
+		"no recorded owner":                    {stateStore{state: fresh}, signer, nil, signer},
+		"persisted membership does not expire": {stateStore{state: store.SafeState{Signers: []string{signer}, RefreshedAt: time.Now().Add(-48 * time.Hour)}}, signer, &owner, safeAddr},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

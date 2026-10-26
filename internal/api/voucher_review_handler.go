@@ -84,7 +84,8 @@ func (a *API) voucherReviewsListHandler(c *echo.Context) error {
 
 func (a *API) reviewAccess(c *echo.Context, tx pgx.Tx, voucher store.ReviewVoucher, caller string) (store.ReviewAccess, error) {
 	ctx := c.Request().Context()
-	access, err := store.GetVoucherReviewAccess(ctx, tx, voucher, caller)
+	isOwner := voucher.OwnerAddress != nil && strings.EqualFold(a.actingOwner(ctx, tx, caller, voucher.OwnerAddress), *voucher.OwnerAddress)
+	access, err := store.GetVoucherReviewAccess(ctx, tx, voucher, caller, isOwner)
 	if err != nil || access.IsOwner || access.Hidden || voucher.OwnerAddress == nil {
 		return access, err
 	}

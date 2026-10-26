@@ -34,9 +34,10 @@ type (
 
 	// Transaction is the object every /safe endpoint returns.
 	Transaction struct {
-		Safe       string `json:"safe"`
-		SafeTxHash string `json:"safeTxHash"`
 		TxFields
+
+		Safe                  string         `json:"safe"`
+		SafeTxHash            string         `json:"safeTxHash"`
 		Confirmations         []Confirmation `json:"confirmations"`
 		ConfirmationsRequired int            `json:"confirmationsRequired"`
 		IsExecuted            bool           `json:"isExecuted"`
