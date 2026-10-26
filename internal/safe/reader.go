@@ -23,6 +23,7 @@ var (
 	versionFunc      = w3.MustNewFunc("VERSION()", "string")
 	getOwnersFunc    = w3.MustNewFunc("getOwners()", "address[]")
 	getThresholdFunc = w3.MustNewFunc("getThreshold()", "uint256")
+	nonceFunc        = w3.MustNewFunc("nonce()", "uint256")
 )
 
 type (
@@ -73,6 +74,27 @@ func (r *Reader) ReadSafeLatest(ctx context.Context, address common.Address) (*S
 	}
 	state, err := r.ReadSafe(ctx, address, head.Uint64())
 	return state, head.Uint64(), err
+}
+
+// ReadExecState reads the signer set, threshold and next nonce at one head
+// block, so an execution is judged against a single consistent state.
+func (r *Reader) ReadExecState(ctx context.Context, address common.Address) (*State, uint64, error) {
+	var head *big.Int
+	if err := r.provider.Client.CallCtx(ctx, eth.BlockNumber().Returns(&head)); err != nil {
+		return nil, 0, fmt.Errorf("safe: read head: %w", err)
+	}
+	state, err := r.ReadSafe(ctx, address, head.Uint64())
+	if err != nil {
+		return nil, 0, err
+	}
+	var nonce big.Int
+	if err := r.provider.Client.CallCtx(ctx, eth.CallFunc(address, nonceFunc).AtBlock(head).Returns(&nonce)); err != nil {
+		return nil, 0, fmt.Errorf("safe: read nonce: %w", err)
+	}
+	if !nonce.IsUint64() {
+		return nil, 0, fmt.Errorf("safe: nonce out of range")
+	}
+	return state, nonce.Uint64(), nil
 }
 
 // UnsupportedCall distinguishes absent/reverting methods from transport
