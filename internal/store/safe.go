@@ -136,3 +136,26 @@ SELECT EXISTS (
 )`, chainID, safe, target).Scan(&ok)
 	return ok, err
 }
+
+// SafeExecutionsQueued reports which Safe transactions clc-core has queued or
+// sent for execution. A cancelled or discarded job is not executing: the Safe
+// app is the way forward for it.
+func (pg *Pg) SafeExecutionsQueued(ctx context.Context, tx pgx.Tx, safeTxHashes []string) (map[string]bool, error) {
+	rows, err := tx.Query(ctx, `
+SELECT DISTINCT args->>'safeTxHash' FROM river_job
+WHERE kind = 'SAFE_EXECUTE' AND args->>'safeTxHash' = ANY($1::text[])
+    AND state NOT IN ('cancelled', 'discarded')`, safeTxHashes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	queued := make(map[string]bool, len(safeTxHashes))
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		queued[hash] = true
+	}
+	return queued, rows.Err()
+}

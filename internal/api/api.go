@@ -49,6 +49,9 @@ type (
 		// not mounted.
 		SafeSTSURL string
 		SafeSTSKey string
+		// SafeAutoExecute has clc-core execute a proposal once its signers
+		// reach the threshold; the worker must run the matching executor.
+		SafeAutoExecute bool
 	}
 
 	API struct {
@@ -131,6 +134,10 @@ func New(o APIOpts) *API {
 			policy:  a.safePolicy,
 			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey),
 			signers: storeSafeSigners{a: a},
+		}
+		if o.SafeAutoExecute {
+			a.safeProxy.execute = a.queueSafeExecution
+			a.safeProxy.executing = a.safeExecutionsQueued
 		}
 	}
 	a.marketLimiter.startSweeper()
