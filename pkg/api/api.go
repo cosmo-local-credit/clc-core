@@ -282,7 +282,9 @@ type (
 	//
 	// Every ordinary metadata field is optional in the JSON but assigned
 	// unconditionally by the handler, so a caller sends the whole record and
-	// omitting one clears it. DisplayName and the images preserve on omission.
+	// omitting one clears it. Contacts preserve on omission and require an entry
+	// in ClearContactFields to clear. DisplayName and the images also preserve on
+	// omission.
 	// Nothing here mirrors SwapPool: name, symbol, decimals and the dependency
 	// addresses all come from the chain and are not editable.
 	UpdatePoolProfileRequest struct {
@@ -292,8 +294,8 @@ type (
 		DisplayName   *string  `json:"displayName,omitempty"  validate:"omitempty,max=80"`
 		Description   *string  `json:"description,omitempty"   validate:"omitempty,max=500"`
 		UnitOfAccount *string  `json:"unitOfAccount,omitempty" validate:"omitempty,max=32"`
-		Email         *string  `json:"email,omitempty"         validate:"omitempty,email"`
-		Website       *string  `json:"website,omitempty"       validate:"omitempty,url"`
+		Email         *string  `json:"email,omitempty"         validate:"omitempty,email|eq="`
+		Website       *string  `json:"website,omitempty"       validate:"omitempty,url|eq="`
 		Phone         *string  `json:"phone,omitempty"`
 		Terms         *string  `json:"terms,omitempty"         validate:"omitempty,max=5000"`
 		LocationName  *string  `json:"locationName,omitempty"  validate:"omitempty,max=200"`
@@ -307,13 +309,18 @@ type (
 		ImageURL  *string  `json:"imageUrl,omitempty"  validate:"omitempty,http_url|eq="`
 		BannerURL *string  `json:"bannerUrl,omitempty" validate:"omitempty,http_url|eq="`
 		Tags      []string `json:"tags,omitempty"`
+		// ClearContactFields explicitly authorizes clearing an existing contact.
+		// Older assign-all clients omit contact fields, so their absence alone must
+		// never erase a value that is already stored.
+		ClearContactFields []string `json:"clearContactFields,omitempty" validate:"omitempty,dive,oneof=email phone website"`
 	}
 
 	// UpdateVoucherProfileRequest carries a voucher's editable off-chain record.
 	//
 	// Assign-all, exactly as UpdatePoolProfileRequest: every field is optional in
 	// the JSON and written unconditionally by the handler, so a caller sends the
-	// whole record and omitting a field clears it. Except for DisplayName,
+	// whole record and omitting a field clears it. Contacts preserve on omission
+	// and require ClearContactFields to clear. Except for DisplayName,
 	// nothing here mirrors the deployed ERC20 — contract name, symbol, decimals
 	// and the owner all come from the chain and are not editable. Terms is a link
 	// or the terms themselves as Markdown, as on DeployTokenRequest.
@@ -325,8 +332,8 @@ type (
 		Description  *string  `json:"description,omitempty"  validate:"omitempty,max=500"`
 		VoucherUoa   *string  `json:"voucherUoa,omitempty"   validate:"omitempty,max=32"`
 		VoucherValue *float64 `json:"voucherValue,omitempty" validate:"omitempty,gte=0"`
-		Email        *string  `json:"email,omitempty"        validate:"omitempty,email"`
-		Website      *string  `json:"website,omitempty"      validate:"omitempty,url"`
+		Email        *string  `json:"email,omitempty"        validate:"omitempty,email|eq="`
+		Website      *string  `json:"website,omitempty"      validate:"omitempty,url|eq="`
 		Phone        *string  `json:"phone,omitempty"`
 		Terms        *string  `json:"terms,omitempty"        validate:"omitempty,max=5000"`
 		LocationName *string  `json:"locationName,omitempty" validate:"omitempty,max=200"`
@@ -346,6 +353,10 @@ type (
 		// client cannot reset it. "" returns that half to automatic.
 		MarkerIcon  *string `json:"markerIcon,omitempty"  validate:"omitempty,oneof=basket hand-coin coupon food farm tools health education|eq="`
 		MarkerColor *string `json:"markerColor,omitempty" validate:"omitempty,oneof=blue purple orange pink cyan brown|eq="`
+		// ClearContactFields explicitly authorizes clearing an existing contact.
+		// Older assign-all clients omit contact fields, so their absence alone must
+		// never erase a value that is already stored.
+		ClearContactFields []string `json:"clearContactFields,omitempty" validate:"omitempty,dive,oneof=email phone website"`
 	}
 
 	// UpdateVoucherDisplayNameRequest is the narrow owner-facing mutation for a

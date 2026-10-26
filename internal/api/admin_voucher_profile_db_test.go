@@ -190,9 +190,10 @@ func TestAdminUpdateVoucherProfileReturnsTheSavedRecord(t *testing.T) {
 	if got := voucher["terms"]; got != "https://after.example/terms" {
 		t.Errorf("terms = %v, want the saved URL", got)
 	}
-	// Assign-all: phone was seeded and not sent, so it is cleared.
-	if got := voucher["phone"]; got != nil {
-		t.Errorf("phone = %v, want nil — an omitted field must clear", got)
+	// Legacy partial writes preserve a contact they did not load. Updated
+	// editors clear it only through clearContactFields.
+	if got := voucher["phone"]; got != "+254700" {
+		t.Errorf("phone = %v, want the preserved legacy value", got)
 	}
 
 	got, ok := voucher["tags"].([]any)

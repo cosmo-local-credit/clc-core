@@ -231,6 +231,9 @@ func New(o APIOpts) *API {
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
+	apiGroup.GET("/vouchers/:address/info", a.voucherInfoHandler, a.requireUserAuth())
+	apiGroup.GET("/pools/:address/info", a.poolInfoHandler, a.requireUserAuth())
+	apiGroup.GET("/wants/:id/contact", a.wantContactHandler, a.requireUserAuth())
 
 	apiGroup.GET("/vouchers/:address/reviews/me", a.voucherReviewAccessHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
