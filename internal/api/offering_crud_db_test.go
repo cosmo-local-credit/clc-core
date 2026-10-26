@@ -274,6 +274,8 @@ func seedOfferingFixtures(t *testing.T, a *API) (offeringFixtures, func()) {
 			{`DELETE FROM offerings WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
 			{`DELETE FROM report_vouchers WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
 			{`DELETE FROM voucher_tags WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			{`DELETE FROM retirement_events WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
+			{`DELETE FROM retirement_requests WHERE voucher_id = ANY($1::BIGINT[])`, fx.voucherIDs},
 			{`DELETE FROM vouchers WHERE id = ANY($1::BIGINT[])`, fx.voucherIDs},
 			// Anything a test seeded under the marker that is not one of ours.
 			{`DELETE FROM vouchers WHERE location_name = $1`, offeringMarker},

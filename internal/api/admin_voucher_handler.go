@@ -129,10 +129,9 @@ func (a *API) adminVoucherByAddressHandler(c *echo.Context) error {
 
 // adminRestoreVoucherHandler returns a retired voucher to the public catalog.
 //
-// Superadmin-only, and deliberately not the mirror image of retire: an owner may
-// take their own voucher out of circulation, but putting one back is an operator
-// decision, so there is no owner-facing route and no toggle for an owner to flip
-// back and forth.
+// Superadmin-only. Owners request retirement; administrators approve it and can
+// restore retained records. Restoration also works for legacy retired vouchers
+// that have no retirement request.
 //
 // Restoration must fit the affected creators' and sellers' allowances. It
 // shares their quota locks with creation. An already-active voucher is a no-op.
@@ -140,6 +139,13 @@ func (a *API) adminRestoreVoucherHandler(c *echo.Context) error {
 	address, handled, err := adminUserAddress(c)
 	if handled || err != nil {
 		return err
+	}
+	body, err := retirementReason(c, false)
+	if err != nil {
+		return err
+	}
+	if body.Reason == "" {
+		body.Reason = "Restored by administrator"
 	}
 
 	ctx := c.Request().Context()
@@ -149,8 +155,19 @@ func (a *API) adminRestoreVoucherHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if err := a.store.RestoreVoucherWithinLimits(ctx, tx, address); err != nil {
+	before, err := store.GetRetirementResource(ctx, tx, "voucher", address, a.chainID, false)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	changed, err := a.store.RestoreVoucherWithinLimitsChanged(ctx, tx, address)
+	if err != nil {
 		return handleResourceLimitError(c, err)
+	}
+	if changed {
+		_, caller, _ := getUserClaims(c)
+		if err := store.InsertRetirementEvent(ctx, tx, before, nil, "restored", caller, body.Reason); err != nil {
+			return err
+		}
 	}
 
 	// Read back through the admin statement rather than the public one so the
