@@ -2258,7 +2258,37 @@ Row fields:
 | 429 | `E11` | The rate limit is exceeded. |
 | 500 | `E01` | The `cursor` is not valid for this search. The cursor check does not return a validation error. |
 
-### 7.8 Voucher reviews
+### 7.8 `GET /api/v2/market-map`
+
+**Access:** Public. A valid user session gives the request a wallet-keyed rate-limit bucket; a guest remains anonymous and uses the aggregate trusted client-IP bucket.
+
+Returns one bounded set of lightweight Marketplace markers and server clusters for a settled map viewport. List pages continue to use their paginated resource endpoints.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `bbox` | string | Global | Repeat once for an antimeridian split. See section 7.1. |
+| `zoom` | number | `0` | Finite value from 0 through 22. The server uses its integer floor as the cluster bucket. |
+| `kinds` | string | all kinds | `voucher`, `want`, `pool`, `catalog`, or `post`. Repeat the parameter or use commas. |
+| `q` | string | none | Uses the search behavior of the selected resource kinds. |
+| `tags`, `tagMatch`, `facets` | | | See section 7.1. |
+| `creditablePools` | string | none | Verified pool references in `chainId:address` form. Repeat the parameter or use commas. |
+
+At wide zooms, resources in the same Web Mercator grid cell become one cluster. At close zooms, the response returns individual markers so coincident resources can be fanned out by the client. A response contains at most 2,000 features.
+
+Marker fields are `type`, `id`, `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon`, and `markerColor`. Cluster fields are `type`, `id`, `lat`, `lng`, `count`, `kinds`, and `expansionZoom`. `kinds` contains the count for each represented resource kind. `tagFacets` is returned when `facets=true`.
+
+Successful responses use `Cache-Control: public, max-age=15, stale-while-revalidate=60`. Identical cache misses coalesce into one database read. The in-process response cache has a 15-second TTL, a 64 MiB limit, and least-recently-used eviction.
+
+The database executor runs up to 32 uncached map reads and queues 128. A full queue returns `503` `E11` with `Retry-After`. A coalesced cache miss consumes one token from the dedicated map limiter:
+
+- Signed-in wallet: 2 requests per second, burst 30.
+- Guest IP: 100 requests per second, burst 1,000.
+- Cached responses and other callers coalesced onto the same miss do not consume additional tokens.
+- The limiter registry holds up to 100,000 identities with least-recently-used eviction.
+
+A limited miss returns `429` `E11` with `Retry-After`. When proxy trust is enabled, forwarded addresses are accepted only from a loopback or private direct Caddy peer.
+
+### 7.9 Voucher reviews
 
 A review has 1 to 5 stars and an optional comment.
 A reviewer can review a voucher after the reviewer redeems it.
@@ -2283,7 +2313,7 @@ Review object:
 | `comment` | string | |
 | `reply` | string or null | The reply of the voucher owner. |
 
-#### 7.8.1 `GET /api/v2/vouchers/:address/reviews`
+#### 7.9.1 `GET /api/v2/vouchers/:address/reviews`
 
 **Access:** Public. See section 7.1 for the rate limit.
 
@@ -2325,7 +2355,7 @@ Status `200`. The `result` has these fields:
 | 404 | none | The voucher does not exist. |
 | 429 | `E11` | The rate limit is exceeded. |
 
-#### 7.8.2 `GET /api/v2/vouchers/:address/reviews/me`
+#### 7.9.2 `GET /api/v2/vouchers/:address/reviews/me`
 
 **Access:** User session.
 
@@ -2352,7 +2382,7 @@ For a caller who is not the owner, the server reads the latest redemption from t
 | 404 | none | The voucher does not exist. |
 | 503 | none | The voucher is not on the configured chain, or the transfer index is not available. |
 
-#### 7.8.3 `PUT /api/v2/vouchers/:address/reviews/me`
+#### 7.9.3 `PUT /api/v2/vouchers/:address/reviews/me`
 
 **Access:** User session. The caller must be a reviewer with a redemption in the last 7 days.
 
@@ -2375,7 +2405,7 @@ Status `200`. The `result` is `{"saved": true}`.
 | 404 | none | The voucher does not exist. |
 | 503 | none | The voucher is not on the configured chain, or the transfer index is not available. |
 
-#### 7.8.4 `PUT /api/v2/vouchers/:address/reviews/:id/reply`
+#### 7.9.4 `PUT /api/v2/vouchers/:address/reviews/:id/reply`
 
 **Access:** User session. The caller must be the current voucher owner.
 
@@ -2398,7 +2428,7 @@ Status `200`. The `result` is `{"saved": true}`.
 | 403 | `E10` | The caller is not the current voucher owner, or uses a service token. |
 | 404 | none | The voucher or the review does not exist, the review is hidden, or another account wrote the reply. |
 
-#### 7.8.5 `POST /api/v2/vouchers/:address/reviews/:id/flag`
+#### 7.9.5 `POST /api/v2/vouchers/:address/reviews/:id/flag`
 
 **Access:** User session. The caller must be the current voucher owner.
 
@@ -2410,9 +2440,9 @@ Reports a review to the moderators. A second flag from the same owner on the sam
 | `id` (path) | integer | A positive review ID. |
 | `reason` (body) | string | Required. The server trims it. From 1 to 500 characters. |
 
-Status `200`. The `result` is `{"saved": true}`. The errors are the same as in section 7.8.4, with `reason` in place of `reply`.
+Status `200`. The `result` is `{"saved": true}`. The errors are the same as in section 7.9.4, with `reason` in place of `reply`.
 
-### 7.9 `POST /api/v2/vouchers/:address/offerings`
+### 7.10 `POST /api/v2/vouchers/:address/offerings`
 
 **Access:** User session. The caller must be the voucher owner or a superadmin.
 
@@ -2448,7 +2478,7 @@ Status `201`, description `Offering created`. The `result` is `{"offering": {...
 | 409 | `E16` | The voucher is retired. |
 | 429 | `E11` | The caller reached the offer limit of the account. The `result` has `resource`, `used` and `limit`. A superadmin has no limit. |
 
-### 7.10 `PUT /api/v2/vouchers/:address/offerings/:id`
+### 7.11 `PUT /api/v2/vouchers/:address/offerings/:id`
 
 **Access:** User session. The caller must be the voucher owner or a superadmin.
 
@@ -2465,7 +2495,7 @@ Status `200`, description `Offering updated`. The `result` is `{"offering": {...
 | 404 | `E03` | The offering does not exist, belongs to another voucher, or is unlisted. |
 | 409 | `E16` | The voucher is retired. |
 
-### 7.11 `DELETE /api/v2/vouchers/:address/offerings/:id`
+### 7.12 `DELETE /api/v2/vouchers/:address/offerings/:id`
 
 **Access:** User session. The caller must be the voucher owner or a superadmin.
 
@@ -2475,7 +2505,7 @@ Status `200`, description `Offering deleted`. The `result` is `{"id": <offering 
 
 The errors are the same as for `PUT /api/v2/vouchers/:address/offerings/:id`, except that the body errors do not apply. A repeated request returns `404` `E03`.
 
-### 7.12 `PUT /api/v2/vouchers/:address/display-name`
+### 7.13 `PUT /api/v2/vouchers/:address/display-name`
 
 **Access:** User session. The caller must be the voucher owner or a superadmin.
 
@@ -2496,7 +2526,7 @@ Status `200`, description `Voucher display name updated`. The `result` is `{"vou
 | 404 | `E03` | The voucher does not exist. |
 | 409 | `E16` | The voucher is retired, or another voucher or pending token already uses the name. |
 
-### 7.13 `PUT /api/v2/vouchers/:address/profile`
+### 7.14 `PUT /api/v2/vouchers/:address/profile`
 
 **Access:** User session. The caller must be the voucher owner or a superadmin.
 
@@ -2535,7 +2565,7 @@ Status `200`, description `Voucher profile updated`. The `result` is `{"voucher"
 | 404 | `E03` | The voucher does not exist. |
 | 409 | `E16` | The voucher is retired, or another voucher or pending token already uses the display name. |
 
-### 7.14 `DELETE /api/v2/vouchers/:address`
+### 7.15 `DELETE /api/v2/vouchers/:address`
 
 **Access:** User session. The caller must be the voucher owner or a superadmin.
 
@@ -6462,6 +6492,7 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/vouchers/:address/reviews` | Public |
 | GET | `/api/v2/offerings` | Public (user session if nearby=true) |
 | GET | `/api/v2/marketplace` | Public (user session if nearby=true) |
+| GET | `/api/v2/market-map` | Public (optional user session selects a wallet rate-limit bucket) |
 | GET | `/api/v2/catalogs` | Public (user session if nearby=true) |
 | GET | `/api/v2/catalogs/:id` | Public |
 | GET | `/api/v2/catalogs/:id/pools` | Public |
