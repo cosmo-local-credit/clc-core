@@ -174,12 +174,9 @@ func (a *API) contractsVersionHandler(c *echo.Context) error {
 // Upgrades a single token proxy to the current ERC20 implementation in platform_contracts.
 func (a *API) upgradeTokenHandler(c *echo.Context) error {
 	serviceKey, _ := c.Get("service").(bool)
-	if !serviceKey {
-		return c.JSON(http.StatusForbidden, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "Insufficient permissions: service token required",
-		})
+	callerRole, _ := c.Get("callerRole").(string)
+	if !serviceKey && callerRole != "SUPERADMIN" {
+		return handleForbiddenError(c, "superadmin access or service token required")
 	}
 
 	req := apiresp.UpgradeTokenRequest{}
@@ -242,12 +239,9 @@ func (a *API) upgradeTokenHandler(c *echo.Context) error {
 // Upgrades a single pool proxy and its sub-contracts to their current implementations.
 func (a *API) upgradePoolHandler(c *echo.Context) error {
 	serviceKey, _ := c.Get("service").(bool)
-	if !serviceKey {
-		return c.JSON(http.StatusForbidden, apiresp.ErrResponse{
-			Ok:          false,
-			ErrCode:     apiresp.ErrCodeValidationFailed,
-			Description: "Insufficient permissions: service token required",
-		})
+	callerRole, _ := c.Get("callerRole").(string)
+	if !serviceKey && callerRole != "SUPERADMIN" {
+		return handleForbiddenError(c, "superadmin access or service token required")
 	}
 
 	req := apiresp.UpgradePoolRequest{}
