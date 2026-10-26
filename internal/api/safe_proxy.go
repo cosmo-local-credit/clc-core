@@ -297,11 +297,14 @@ func (a *API) ensureSafeState(ctx context.Context, tx pgx.Tx, safeAddress string
 	if known && (!inspect || a.safeReader == nil) {
 		return &state, nil
 	}
-	if a.safeReader == nil {
+	if a.safeReader == nil || (!known && !inspect && a.safeMisses.recent(safeAddress)) {
 		return nil, nil
 	}
-	read, block, err := a.safeReader.ReadSafeLatest(ctx, common.HexToAddress(safeAddress))
+	readCtx, cancel := context.WithTimeout(ctx, safeReadTimeout)
+	defer cancel()
+	read, block, err := a.safeReader.ReadSafeLatest(readCtx, common.HexToAddress(safeAddress))
 	if errors.Is(err, safe.ErrNotSafe) {
+		a.safeMisses.add(safeAddress)
 		return nil, nil
 	}
 	if err != nil {

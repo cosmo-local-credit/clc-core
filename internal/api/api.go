@@ -81,6 +81,7 @@ type (
 		retirementPreviewReader func(context.Context, pgx.Tx, store.RetirementResource) (store.RetirementPreview, error)
 		safePolicy              *safe.Policy
 		safeReader              safeStateReader
+		safeMisses              *safeMissCache
 		safeProxy               *safeService
 	}
 )
@@ -122,6 +123,7 @@ func New(o APIOpts) *API {
 	a.safePolicy = a.newSafePolicy(o.SafeMultiSend)
 	if o.ChainProvider != nil {
 		a.safeReader = safe.NewReader(o.ChainProvider)
+		a.safeMisses = newSafeMissCache(time.Now)
 	}
 	if a.safePolicy != nil && o.SafeSTSURL != "" {
 		a.safeProxy = &safeService{

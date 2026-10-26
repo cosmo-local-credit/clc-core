@@ -100,7 +100,19 @@ func (a *API) enforceSafePolicy(c *echo.Context, req apiresp.RelayRequest) (hand
 // Off-chain catalog edits never pass the Safe's threshold, so any single signer
 // of a multi-signer Safe can act alone here, including retirement.
 func (a *API) callerMayManageRecord(ctx context.Context, tx pgx.Tx, callerAddress, callerRole string, ownerAddress *string) bool {
+	if callerRole == "SUPERADMIN" {
+		return true // as canManageCatalogRecord, without a signer lookup
+	}
 	return canManageCatalogRecord(a.actingOwner(ctx, tx, callerAddress, ownerAddress), callerRole, ownerAddress)
+}
+
+// actingOwnerFor is actingOwner for the pure owner rules, which a superadmin
+// passes whatever address it is judged by: no signer lookup is needed.
+func (a *API) actingOwnerFor(ctx context.Context, tx pgx.Tx, callerAddress, callerRole string, ownerAddress *string) string {
+	if callerRole == "SUPERADMIN" {
+		return callerAddress
+	}
+	return a.actingOwner(ctx, tx, callerAddress, ownerAddress)
 }
 
 // actingOwner is the address to judge a caller by for an owner-only catalog
