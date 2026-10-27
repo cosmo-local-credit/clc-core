@@ -127,3 +127,21 @@ func TestSafeExecutionTrackingIDIsStablePerHash(t *testing.T) {
 	require.Equal(t, safeExecutionTrackingID(executeHash), safeExecutionTrackingID("0xABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"))
 	require.NotEqual(t, safeExecutionTrackingID(executeHash), safeExecutionTrackingID("0x"+executeHash[4:]+"cd"))
 }
+
+// Seven passkey confirmations on a Gnosis-fork Safe 1.5.0 estimated 3,276,905
+// gas and used 3,226,255; capped at 3,000,000 the call reverted.
+func TestSafeExecuteGasLimitNeverFallsBelowTheEstimate(t *testing.T) {
+	for estimate, want := range map[uint64]uint64{
+		200_000:   250_000,
+		2_000_000: 2_500_000,
+		2_600_000: maxSafeExecuteGas, // padded past the cap, still above the estimate
+		3_000_000: maxSafeExecuteGas,
+	} {
+		got, err := safeExecuteGasLimit(estimate)
+		require.NoError(t, err, "estimate %d", estimate)
+		require.Equal(t, want, got, "estimate %d", estimate)
+		require.GreaterOrEqual(t, got, estimate)
+	}
+	_, err := safeExecuteGasLimit(3_276_905)
+	require.Error(t, err, "an execution above the cap is not sponsored")
+}

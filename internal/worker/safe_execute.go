@@ -23,10 +23,11 @@ const (
 	// safeExecuteRetry spaces the check for a transaction queued behind an
 	// earlier nonce.
 	safeExecuteRetry = 30 * time.Second
-	// maxSafeExecuteGas caps a single execution; a MultiSend of the largest
-	// owner batch with threshold signatures stays well below it. Each passkey
-	// contract signature adds an on-chain WebAuthn P-256 verification, a few
-	// hundred thousand gas without a precompile.
+	// maxSafeExecuteGas caps what one sponsored execution may use. A MultiSend
+	// of the largest owner batch with ECDSA signatures stays well below it, but
+	// each passkey contract signature adds an on-chain WebAuthn P-256
+	// verification of roughly 450,000 gas without a precompile, so about six
+	// of them fit. A transaction estimated above the cap is not sponsored.
 	maxSafeExecuteGas uint64 = 3_000_000
 )
 
@@ -156,6 +157,18 @@ func (w *SafeExecuteWorker) alreadySent(ctx context.Context, trackingID string) 
 	return len(otx) > 0, err
 }
 
+// safeExecuteGasLimit pads the estimate by a quarter, up to the cap, and never
+// below the estimate. An estimate above the cap is refused rather than sent
+// with less gas than the call needs: that would revert, burn the system
+// signer's gas, and leave a tracked transaction that stops any retry. The
+// Safe app remains the place to execute it.
+func safeExecuteGasLimit(estimate uint64) (uint64, error) {
+	if estimate > maxSafeExecuteGas {
+		return 0, fmt.Errorf("safe execution needs %d gas, above the %d clc-core sponsors", estimate, maxSafeExecuteGas)
+	}
+	return min(estimate+estimate/4, maxSafeExecuteGas), nil
+}
+
 // sendFromSystemSigner simulates the call first, since a revert would only
 // burn the system signer's gas, then signs, records and dispatches it like
 // any other tracked transaction.
@@ -185,7 +198,10 @@ func (w *SafeExecuteWorker) sendFromSystemSigner(ctx context.Context, trackingID
 		}
 		return err
 	}
-	gasLimit := min(estimate+estimate/4, maxSafeExecuteGas)
+	gasLimit, err := safeExecuteGasLimit(estimate)
+	if err != nil {
+		return river.JobCancel(err)
+	}
 
 	nonce, err := w.wc.store.AcquireNonce(ctx, tx, systemKeypair.Public)
 	if err != nil {
