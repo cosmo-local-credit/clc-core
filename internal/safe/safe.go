@@ -1,5 +1,5 @@
-// Package safe decodes and polices Safe (1.3.0 / 1.4.1) execution calls that
-// arrive through the Calibur relay.
+// Package safe decodes and polices Safe (1.3.0 / 1.4.1 / 1.5.0) execution calls
+// that arrive through the Calibur relay.
 //
 // /relayer/relay accepts any signed Calibur batch, so nothing stops a signer
 // from relaying Safe.execTransaction directly and skipping proposal-time

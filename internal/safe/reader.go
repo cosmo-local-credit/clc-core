@@ -58,11 +58,22 @@ func (r *Reader) ReadSafe(ctx context.Context, address common.Address, block uin
 	if len(code) == 0 || (len(code) == 23 && bytes.HasPrefix(code, []byte{0xef, 0x01, 0x00})) {
 		return nil, ErrNotSafe
 	}
-	return ReadSafeVia(ctx, address, func(ctx context.Context, to common.Address, data []byte) ([]byte, error) {
+	return ReadSafeVia(ctx, address, r.callerAt(at))
+}
+
+// callerAt performs eth_calls at block; nil is the latest block.
+func (r *Reader) callerAt(block *big.Int) Caller {
+	return func(ctx context.Context, to common.Address, data []byte) ([]byte, error) {
 		var result []byte
-		err := r.provider.Client.CallCtx(ctx, eth.Call(&w3types.Message{To: &to, Input: data}, at, nil).Returns(&result))
+		err := r.provider.Client.CallCtx(ctx, eth.Call(&w3types.Message{To: &to, Input: data}, block, nil).Returns(&result))
 		return result, err
-	})
+	}
+}
+
+// ContractVerifierLatest checks contract signatures against a Safe at the
+// latest block.
+func (r *Reader) ContractVerifierLatest(safe common.Address) ContractVerifier {
+	return NewContractVerifier(safe, r.callerAt(nil))
 }
 
 // ReadSafeLatest reads at the current head and returns the block it read, so
@@ -77,24 +88,25 @@ func (r *Reader) ReadSafeLatest(ctx context.Context, address common.Address) (*S
 }
 
 // ReadExecState reads the signer set, threshold and next nonce at one head
-// block, so an execution is judged against a single consistent state.
-func (r *Reader) ReadExecState(ctx context.Context, address common.Address) (*State, uint64, error) {
+// block, so an execution is judged against a single consistent state. Contract
+// signatures are verified at that block too.
+func (r *Reader) ReadExecState(ctx context.Context, address common.Address) (*ExecState, error) {
 	var head *big.Int
 	if err := r.provider.Client.CallCtx(ctx, eth.BlockNumber().Returns(&head)); err != nil {
-		return nil, 0, fmt.Errorf("safe: read head: %w", err)
+		return nil, fmt.Errorf("safe: read head: %w", err)
 	}
 	state, err := r.ReadSafe(ctx, address, head.Uint64())
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	var nonce big.Int
 	if err := r.provider.Client.CallCtx(ctx, eth.CallFunc(address, nonceFunc).AtBlock(head).Returns(&nonce)); err != nil {
-		return nil, 0, fmt.Errorf("safe: read nonce: %w", err)
+		return nil, fmt.Errorf("safe: read nonce: %w", err)
 	}
 	if !nonce.IsUint64() {
-		return nil, 0, fmt.Errorf("safe: nonce out of range")
+		return nil, fmt.Errorf("safe: nonce out of range")
 	}
-	return state, nonce.Uint64(), nil
+	return &ExecState{State: *state, Nonce: nonce.Uint64(), Contracts: NewContractVerifier(address, r.callerAt(head))}, nil
 }
 
 // UnsupportedCall distinguishes absent/reverting methods from transport

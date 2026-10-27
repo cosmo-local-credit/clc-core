@@ -39,6 +39,14 @@ type (
 		err       error
 	}
 
+	// fakeContractVerifier stands in for a Safe and a Calibur owner on chain.
+	fakeContractVerifier struct {
+		accepts    bool
+		acceptsErr error
+		valid      bool
+		validErr   error
+	}
+
 	proxyFixture struct {
 		svc  *safeService
 		sts  *fakeSTS
@@ -405,5 +413,93 @@ func TestPendingReportsWhichTransactionsAreExecuting(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Executing || !got[1].Executing {
 		t.Fatalf("executing flags %v %v", got[0].Executing, got[1].Executing)
+	}
+}
+
+func (f fakeContractVerifier) Accepts(context.Context) (bool, error) { return f.accepts, f.acceptsErr }
+
+func (f fakeContractVerifier) Valid(context.Context, common.Address, common.Hash, []byte) (bool, error) {
+	return f.valid, f.validErr
+}
+
+// contractSignature is a passkey owner's standalone v = 0 signature.
+func contractSignature(owner string) string {
+	sig := common.LeftPadBytes(common.HexToAddress(owner).Bytes(), 32)
+	sig = append(sig, common.LeftPadBytes([]byte{65}, 32)...)
+	sig = append(sig, 0)
+	sig = append(sig, common.LeftPadBytes([]byte{3}, 32)...)
+	return hexutil.Encode(append(sig, 1, 2, 3))
+}
+
+func withContracts(f *proxyFixture, v fakeContractVerifier) *proxyFixture {
+	f.svc.contracts = func(common.Address) safe.ContractVerifier { return v }
+	return f
+}
+
+func TestProposeAcceptsACallersContractSignature(t *testing.T) {
+	f := withContracts(newProxyFixture(t, true), fakeContractVerifier{accepts: true, valid: true})
+	req := f.proposal(t, txFor(proxyAsset, ownershipCall()))
+	req.Signature = contractSignature(f.key)
+	f.sts.stored = &safe.Transaction{Safe: proxySafe.Hex(), SafeTxHash: req.SafeTxHash}
+	if _, err := f.svc.propose(context.Background(), f.key, req); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.sts.proposed) != 1 || !strings.EqualFold(f.sts.proposed[0], req.SafeTxHash+":"+f.key) {
+		t.Fatalf("proposed %v", f.sts.proposed)
+	}
+}
+
+func TestContractSignatureRejections(t *testing.T) {
+	boom := errors.New("dial tcp")
+	cases := map[string]struct {
+		want      int
+		contracts *fakeContractVerifier
+		signature func(f *proxyFixture) string
+	}{
+		"no verifier configured": {400, nil, func(f *proxyFixture) string { return contractSignature(f.key) }},
+		"Safe before 1.5.0":      {403, &fakeContractVerifier{valid: true}, func(f *proxyFixture) string { return contractSignature(f.key) }},
+		"invalid for its owner":  {400, &fakeContractVerifier{accepts: true}, func(f *proxyFixture) string { return contractSignature(f.key) }},
+		"another owner's":        {400, &fakeContractVerifier{accepts: true, valid: true}, func(*proxyFixture) string { return contractSignature(proxyOther.Hex()) }},
+		"malformed":              {400, &fakeContractVerifier{accepts: true, valid: true}, func(f *proxyFixture) string { return contractSignature(f.key)[:len(contractSignature(f.key))-2] }},
+		"version unreadable":     {503, &fakeContractVerifier{acceptsErr: boom}, func(f *proxyFixture) string { return contractSignature(f.key) }},
+		"owner unreachable":      {503, &fakeContractVerifier{accepts: true, validErr: boom}, func(f *proxyFixture) string { return contractSignature(f.key) }},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newProxyFixture(t, true)
+			if tc.contracts != nil {
+				withContracts(f, *tc.contracts)
+			}
+			req := f.proposal(t, txFor(proxyAsset, ownershipCall()))
+			req.Signature = tc.signature(f)
+			_, err := f.svc.propose(context.Background(), f.key, req)
+			if got := status(t, err); got != tc.want {
+				t.Fatalf("status %d, want %d (%v)", got, tc.want, err)
+			}
+			if len(f.sts.proposed) != 0 {
+				t.Fatal("rejected proposal reached the Transaction Service")
+			}
+		})
+	}
+}
+
+func TestConfirmAcceptsOnlyTheCallersContractSignature(t *testing.T) {
+	f := withContracts(newProxyFixture(t, true), fakeContractVerifier{accepts: true, valid: true})
+	f.sts.stored = storedFor(t, txFor(proxyAsset, ownershipCall()))
+	hash := common.HexToHash(f.sts.stored.SafeTxHash)
+
+	if _, err := f.svc.confirm(context.Background(), f.key, safeConfirmationRequest{SafeTxHash: hash.Hex(), Signature: contractSignature(f.key)}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.sts.confirmed) != 1 {
+		t.Fatal("confirmation not forwarded")
+	}
+	_, err := f.svc.confirm(context.Background(), f.key, safeConfirmationRequest{SafeTxHash: hash.Hex(), Signature: contractSignature(proxyOther.Hex())})
+	if got := status(t, err); got != http.StatusForbidden {
+		t.Fatalf("another owner's contract signature status %d", got)
+	}
+	// ECDSA confirmations keep working with a verifier configured.
+	if _, err := f.svc.confirm(context.Background(), f.key, safeConfirmationRequest{SafeTxHash: hash.Hex(), Signature: f.sign(hash)}); err != nil {
+		t.Fatal(err)
 	}
 }

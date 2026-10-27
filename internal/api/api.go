@@ -124,8 +124,10 @@ func New(o APIOpts) *API {
 		marketMapExecutor:     newMarketMapExecutor(),
 	}
 	a.safePolicy = a.newSafePolicy(o.SafeMultiSend)
+	var safeReader *safe.Reader
 	if o.ChainProvider != nil {
-		a.safeReader = safe.NewReader(o.ChainProvider)
+		safeReader = safe.NewReader(o.ChainProvider)
+		a.safeReader = safeReader
 		a.safeMisses = newSafeMissCache(time.Now)
 	}
 	if a.safePolicy != nil && o.SafeSTSURL != "" {
@@ -134,6 +136,9 @@ func New(o APIOpts) *API {
 			policy:  a.safePolicy,
 			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey),
 			signers: storeSafeSigners{a: a},
+		}
+		if safeReader != nil {
+			a.safeProxy.contracts = safeReader.ContractVerifierLatest
 		}
 		if o.SafeAutoExecute {
 			a.safeProxy.execute = a.queueSafeExecution

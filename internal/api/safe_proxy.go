@@ -54,6 +54,9 @@ type (
 		// the Safe app.
 		execute   func(ctx context.Context, safe, safeTxHash string) bool
 		executing func(ctx context.Context, safeTxHashes []string) map[string]bool
+		// contracts verifies contract (v 0) signatures against a Safe at the
+		// latest block; nil rejects them.
+		contracts func(safe common.Address) safe.ContractVerifier
 	}
 
 	safeProposalRequest struct {
@@ -161,6 +164,40 @@ func recoverFrom(hash common.Hash, signature string) (common.Address, error) {
 	return signer, nil
 }
 
+// signerOf returns the owner a signature speaks for. An ECDSA signature is
+// recovered. A contract signature names its owner and is checked through that
+// owner's isValidSignature, which a Safe calls that way only from 1.5.0 on.
+func (s *safeService) signerOf(ctx context.Context, safeAddress common.Address, hash common.Hash, signature string) (common.Address, error) {
+	raw, err := hexutil.Decode(signature)
+	if err != nil {
+		return common.Address{}, badRequest("invalid signature")
+	}
+	if s.contracts == nil || !safe.IsContractSignature(raw) {
+		return recoverFrom(hash, signature)
+	}
+	parsed, err := safe.ParseContractSignature(raw)
+	if err != nil {
+		return common.Address{}, badRequest("invalid contract signature")
+	}
+	unavailable := &proxyError{http.StatusServiceUnavailable, apiresp.ErrCodeInternalServerError, "could not verify signature"}
+	verifier := s.contracts(safeAddress)
+	accepts, err := verifier.Accepts(ctx)
+	if err != nil {
+		return common.Address{}, unavailable
+	}
+	if !accepts {
+		return common.Address{}, forbidden("this Safe accepts contract signatures from version 1.5.0")
+	}
+	ok, err := verifier.Valid(ctx, parsed.Owner, hash, parsed.Data)
+	if err != nil {
+		return common.Address{}, unavailable
+	}
+	if !ok {
+		return common.Address{}, badRequest("contract signature is not valid for its owner")
+	}
+	return parsed.Owner, nil
+}
+
 func (s *safeService) propose(ctx context.Context, caller string, req safeProposalRequest) (*safe.Transaction, error) {
 	if !common.IsHexAddress(req.Safe) || !common.IsHexAddress(req.Sender) || !safeTxHashPattern.MatchString(req.SafeTxHash) {
 		return nil, badRequest("invalid safe, sender or safeTxHash")
@@ -176,7 +213,7 @@ func (s *safeService) propose(ctx context.Context, caller string, req safePropos
 	if err != nil {
 		return nil, err
 	}
-	signer, err := recoverFrom(hash, req.Signature)
+	signer, err := s.signerOf(ctx, safeAddress, hash, req.Signature)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +278,7 @@ func (s *safeService) confirm(ctx context.Context, caller string, req safeConfir
 	if err != nil {
 		return nil, err
 	}
-	signer, err := recoverFrom(hash, req.Signature)
+	signer, err := s.signerOf(ctx, safeAddress, hash, req.Signature)
 	if err != nil {
 		return nil, err
 	}
