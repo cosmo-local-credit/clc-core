@@ -60,7 +60,7 @@ func (a *API) adminListUsersHandler(c *echo.Context) error {
 	}
 	pagination := normalizePagination(req)
 
-	filter, err := store.NewUserFilter(c.QueryParam("q"), c.QueryParam("status"))
+	filter, err := store.NewUserFilter(c.QueryParam("q"), c.QueryParam("status"), c.QueryParams()["roles"]...)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
@@ -70,6 +70,51 @@ func (a *API) adminListUsersHandler(c *echo.Context) error {
 		func(ctx context.Context, tx pgx.Tx, page store.CatalogPage, cursor, limit uint64) ([]store.User, error) {
 			return a.store.ListUsersFiltered(ctx, tx, filter, page, cursor, limit)
 		})
+}
+
+func (a *API) adminUpdateUserRoleHandler(c *echo.Context) error {
+	address, handled, err := adminUserAddress(c)
+	if handled || err != nil {
+		return err
+	}
+
+	var req apiresp.UpdateUserRoleRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	if req.Role != string(store.UserRoleAdmin) && req.Role != string(store.UserRoleUser) {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{Ok: false, ErrCode: apiresp.ErrCodeValidationFailed, Description: "role must be ADMIN or USER"})
+	}
+
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	previous, err := a.store.GetUserByAddress(ctx, tx, address)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if store.IsSuperadminRole(previous.Role) {
+		return c.JSON(http.StatusConflict, apiresp.ErrResponse{Ok: false, ErrCode: apiresp.ErrCodeConflict, Description: "superadmin roles cannot be changed here"})
+	}
+	if previous.Role == req.Role {
+		return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "User role unchanged", Result: map[string]any{"user": previous}})
+	}
+
+	user, err := a.store.UpdateUserRole(ctx, tx, address, req.Role)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	actor, _ := c.Get("callerAddress").(string)
+	a.logg.Info("admin user role changed", "actor", actor, "target", address, "previousRole", previous.Role, "newRole", user.Role)
+	return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "User role updated", Result: map[string]any{"user": user}})
 }
 
 // adminUserAddress reads the checksummed account address from the path.
@@ -175,7 +220,7 @@ func (a *API) adminUpdateUserLimitsHandler(c *echo.Context) error {
 	})
 }
 
-// adminUpdateUserProfileHandler lets a superadmin correct another account's
+// adminUpdateUserProfileHandler lets an administrator correct another account's
 // identity, contact details, and profile preferences.
 //
 // The self-service handler at PUT /auth/profile edits the signed-in account and
@@ -433,7 +478,7 @@ func (a *API) adminListDeploymentsHandler(c *echo.Context) error {
 	})
 }
 
-// adminUpdatePoolProfileHandler lets a superadmin correct a pool's off-chain
+// adminUpdatePoolProfileHandler lets an administrator correct a pool's off-chain
 // record.
 //
 // Pools had no write endpoint at all: `upsert-pool-from-deploy` fills what the
@@ -481,7 +526,7 @@ func (a *API) adminUpdatePoolProfileHandler(c *echo.Context) error {
 	return respondPoolProfile(c, pool)
 }
 
-// adminUpdateVoucherProfileHandler lets a superadmin correct a voucher's
+// adminUpdateVoucherProfileHandler lets an administrator correct a voucher's
 // off-chain record.
 //
 // The counterpart to adminUpdatePoolProfileHandler, and it exists for the same

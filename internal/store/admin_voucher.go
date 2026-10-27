@@ -17,7 +17,7 @@ import (
 // that could undo it.
 //
 // So these statements deliberately carry neither predicate, and are mounted
-// under /api/v2/admin where requireSuperAdmin has already decided the caller may
+// under /api/v2/admin where requireAdmin has already decided the caller may
 // see a retired voucher. The public path is untouched: the composer below is
 // separate from composeMarketVoucherPage rather than a flag on it, so no change
 // here can widen what a signed-out visitor sees.

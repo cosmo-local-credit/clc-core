@@ -374,15 +374,34 @@ func (a *API) sessionHandler(c *echo.Context) error {
 		return c.NoContent(http.StatusNoContent)
 	}
 
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	user, err := a.store.GetUserByID(ctx, tx, token.UserID)
+	if err != nil || user.Status != "APPROVED" || !strings.EqualFold(user.EthereumAddress, token.EthereumAddress) {
+		a.clearUserAuthCookie(c)
+		return c.NoContent(http.StatusNoContent)
+	}
+	if user.Role != token.Role {
+		refreshed, signErr := a.generateUserToken(user)
+		if signErr != nil {
+			return signErr
+		}
+		a.setUserAuthCookie(c, refreshed)
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		// Always emit the EIP-55 checksummed form, even for legacy lowercase
 		// tokens, so clients receive a consistent canonical address.
-		"address": common.HexToAddress(token.EthereumAddress).Hex(),
+		"address": common.HexToAddress(user.EthereumAddress).Hex(),
 		"chainId": a.chainID,
 		// The role the signin response already returns. Without it a client that
 		// gates on privilege has to re-derive it after every reload by probing an
 		// admin endpoint and reading the 403.
-		"role": token.Role,
+		"role": user.Role,
 	})
 }
 

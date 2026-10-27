@@ -15,7 +15,7 @@ import (
 // updatePoolProfileHandler lets the current pool owner edit the mutable half of
 // their catalog row. The current owner is read under a row lock in the same
 // transaction as the write, so a concurrent ownership correction cannot leave
-// a stale owner authorized. A superadmin may edit any pool, including an
+// a stale owner authorized. An administrator may edit any pool, including an
 // imported row whose owner is not yet known.
 func (a *API) updatePoolProfileHandler(c *echo.Context) error {
 	address, handled, err := adminUserAddress(c)
@@ -44,7 +44,7 @@ func (a *API) updatePoolProfileHandler(c *echo.Context) error {
 	}
 	if !a.callerMayManageRecord(ctx, tx, callerAddress, callerRole, pool.OwnerAddress) {
 		return handleForbiddenError(c,
-			"only the pool owner or a superadmin may change this pool's details")
+			"only the pool owner or an administrator may change this pool's details")
 	}
 
 	saved, handled, err := a.savePoolProfile(c, ctx, tx, address, req)

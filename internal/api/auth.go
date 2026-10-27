@@ -165,7 +165,7 @@ func (a *API) storageTokenHandler(c *echo.Context) error {
 //	"callerType"    → "user" or "service"
 //	"callerUserID"  → uint64 user id (user callers only)
 //	"callerAddress" → lowercase Ethereum address
-//	"callerRole"    → "USER", "SUPERADMIN", or "SERVICE"
+//	"callerRole"    → "USER", "ADMIN", "SUPERADMIN", or "SERVICE"
 func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -242,7 +242,7 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 }
 
 // requireUserAuth rejects requests that arrived via a service JWT.
-// Both USER and SUPERADMIN callers pass this guard.
+// USER, ADMIN, and SUPERADMIN callers pass this guard.
 func (a *API) requireUserAuth() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -254,11 +254,61 @@ func (a *API) requireUserAuth() echo.MiddlewareFunc {
 	}
 }
 
+// revalidatePrivilegedRole makes the database authoritative for long-lived
+// administrative sessions. A stale ADMIN/SUPERADMIN JWT is never enough to
+// authorize a protected request after the account has been demoted or rejected.
+func (a *API) revalidatePrivilegedRole() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if callerType, _ := c.Get("callerType").(string); callerType != "user" {
+				return next(c)
+			}
+			role, _ := c.Get("callerRole").(string)
+			if !store.IsAdministrativeRole(role) {
+				return next(c)
+			}
+			if a.store == nil {
+				return handleJWTAuthError(c, "current account status could not be verified")
+			}
+
+			ctx := c.Request().Context()
+			tx, err := a.store.Pool().Begin(ctx)
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback(ctx)
+
+			userID, _ := c.Get("callerUserID").(uint64)
+			user, err := a.store.GetUserByID(ctx, tx, userID)
+			claimedAddress, _ := c.Get("callerAddress").(string)
+			if err != nil || user.Status != "APPROVED" ||
+				!strings.EqualFold(user.EthereumAddress, claimedAddress) {
+				return handleJWTAuthError(c, "current account status could not be verified")
+			}
+			c.Set("callerAddress", common.HexToAddress(user.EthereumAddress).Hex())
+			c.Set("callerRole", user.Role)
+			return next(c)
+		}
+	}
+}
+
+// requireAdmin permits either administrative role.
+func (a *API) requireAdmin() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if role, _ := c.Get("callerRole").(string); !store.IsAdministrativeRole(role) {
+				return handleForbiddenError(c, "admin access required")
+			}
+			return next(c)
+		}
+	}
+}
+
 // requireSuperAdmin rejects any caller whose role is not SUPERADMIN.
 func (a *API) requireSuperAdmin() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if callerRole, _ := c.Get("callerRole").(string); callerRole != "SUPERADMIN" {
+			if callerRole, _ := c.Get("callerRole").(string); !store.IsSuperadminRole(callerRole) {
 				return handleForbiddenError(c, "superadmin access required")
 			}
 			return next(c)

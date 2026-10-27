@@ -11,6 +11,9 @@ both sides of an API change.
   real route/store boundary. Use isolated fixtures and assert expected data,
   including empty and clustered responses; execution coverage is supporting
   evidence rather than a correctness guarantee.
+- Treat `ADMIN` and `SUPERADMIN` as administrative roles. Keep account-role
+  mutation `SUPERADMIN`-only, and revalidate privileged JWT claims against the
+  current database role before authorizing a protected request.
 - Run `gofmt`, `golangci-lint run ./...`, focused database/query-plan tests, and
   `CORE_TEST_DSN=... go test -p 1 ./... -count=1 -timeout 900s` against an isolated
   local database. Confirm the relevant tests pass rather than skip. Serial

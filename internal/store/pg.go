@@ -127,6 +127,7 @@ type (
 		GetUserByEmail                string `query:"get-user-by-email"`
 		GetUserByID                   string `query:"get-user-by-id"`
 		UpdateUserStatus              string `query:"update-user-status"`
+		UpdateUserRole                string `query:"update-user-role"`
 		ApprovePendingUserByAddress   string `query:"approve-pending-user-by-address"`
 		UpdateUserLimits              string `query:"update-user-limits"`
 		UpdateUserProfile             string `query:"update-user-profile"`

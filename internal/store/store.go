@@ -109,6 +109,7 @@ type (
 		GetUserByEmail(context.Context, pgx.Tx, string) (User, error)
 		GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
+		UpdateUserRole(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, UserLimitsUpdate) (User, error)
 		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)

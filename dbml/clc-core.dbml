@@ -22,6 +22,7 @@ Enum "river_job_state" {
 
 Enum "user_role" {
   "USER"
+  "ADMIN"
   "SUPERADMIN"
 }
 

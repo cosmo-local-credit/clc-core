@@ -179,7 +179,7 @@ func (pg *Pg) GetReport(ctx context.Context, tx pgx.Tx, id uint64) (*Report, err
 
 // GetReportForMutation reads the just-written representation regardless of a
 // legacy row's workflow status. Mutation handlers call it only after creating
-// the row or locking it and authorising its author or a superadmin; public
+// the row or locking it and authorising its author or an administrator; public
 // detail keeps using GetReport and therefore still hides non-approved rows.
 func (pg *Pg) GetReportForMutation(ctx context.Context, tx pgx.Tx, id uint64) (*Report, error) {
 	return pg.getReport(ctx, tx, id, true)
@@ -197,7 +197,7 @@ func (pg *Pg) getReport(ctx context.Context, tx pgx.Tx, id uint64, includeUnappr
 }
 
 // GetManagedReport reads one complete post in any status, optionally
-// constrained to one author. authorAddress is "" for a superadmin read and the
+// constrained to one author. authorAddress is "" for an administrator read and the
 // caller's own wallet for GET /users/me/reports/:id; another author's row comes
 // back nil, so the handler's 404 cannot be used to probe for it.
 func (pg *Pg) GetManagedReport(
@@ -268,7 +268,7 @@ func (pg *Pg) LockReportAuthor(ctx context.Context, tx pgx.Tx, id uint64) (strin
 // ReplaceReportRelations in the same transaction, and modifierAddress records
 // who made the latest edit without changing the original author.
 //
-// status is nil to preserve the row's current workflow state (a superadmin
+// status is nil to preserve the row's current workflow state (an administrator
 // edit) or a value from ReportStatuses to assign it (an author's edit
 // resubmits). Derived by the handler, which knows the verified caller.
 func (pg *Pg) UpdateReport(

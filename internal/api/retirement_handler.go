@@ -320,7 +320,7 @@ func (a *API) decideRetirementRequestHandler(c *echo.Context) error {
 			!strings.EqualFold(a.actingOwner(ctx, tx, caller, &resource.OwnerAddress), resource.OwnerAddress) {
 			return handleForbiddenError(c, "only the current owner who made this request may cancel it")
 		}
-	} else if role != "SUPERADMIN" {
+	} else if !store.IsAdministrativeRole(role) {
 		return handleForbiddenError(c, "only an admin may decide retirement requests")
 	}
 	request, err = store.GetRetirementRequest(ctx, tx, id, true)

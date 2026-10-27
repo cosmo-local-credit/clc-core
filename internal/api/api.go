@@ -269,6 +269,7 @@ func New(o APIOpts) *API {
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
+	apiGroup.Use(a.revalidatePrivilegedRole())
 	apiGroup.GET("/vouchers/:address/info", a.voucherInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/pools/:address/info", a.poolInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/wants/:id/contact", a.wantContactHandler, a.requireUserAuth())
@@ -313,14 +314,14 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/reports/:id", a.reportByIDHandler, a.marketRateLimitMiddleware())
 	apiGroup.POST("/reports", a.reportCreateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
-	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
-	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
+	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireAdmin())
+	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireAdmin())
 
 	// Owner catalog writes. On apiGroup with requireUserAuth, like report
 	// mutations: a normal pool or voucher owner needs these capabilities, so they
 	// are not admin-only routes.
 	// Mounting a second copy under /api/v2/admin would give the console its own
-	// handlers to drift from. Each owner/superadmin decision happens inside the
+	// handlers to drift from. Each owner/administrator decision happens inside the
 	// handler, from the catalog row it locks — middleware only establishes who is
 	// calling.
 	apiGroup.POST("/vouchers/:address/offerings", a.voucherOfferingCreateHandler, a.requireUserAuth())
@@ -330,7 +331,7 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/profile", a.updateVoucherProfileHandler, a.requireUserAuth())
 	// The old immediate-retirement route now returns an upgrade error. Owners
-	// request retirement; superadmins decide and restore through the console.
+	// request retirement; administrators decide and restore through the console.
 	apiGroup.DELETE("/vouchers/:address", a.retireVoucherHandler, a.requireUserAuth())
 	apiGroup.GET("/vouchers/:address/retirement-preview", a.retirementPreviewHandler, a.requireUserAuth())
 	apiGroup.GET("/vouchers/:address/retirement-requests", a.retirementResourceHistoryHandler, a.requireUserAuth())
@@ -406,9 +407,10 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/reports", a.userReportsListHandler)
 	userGroup.GET("/me/reports/:id", a.userReportByIDHandler)
 
-	// Superadmin-only routes
-	adminGroup := apiGroup.Group("/admin", a.requireSuperAdmin())
+	// Administrative routes. Role mutation adds a second, superadmin-only guard.
+	adminGroup := apiGroup.Group("/admin", a.requireAdmin())
 	adminGroup.GET("/users", a.adminListUsersHandler)
+	adminGroup.PUT("/users/:address/role", a.adminUpdateUserRoleHandler, a.requireSuperAdmin())
 	adminGroup.PUT("/users/:address/approve", a.adminApproveUserHandler)
 	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
 	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)

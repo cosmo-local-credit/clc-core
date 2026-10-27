@@ -62,7 +62,7 @@
     },
     {
       "name": "Admin",
-      "description": "Superadmin routes for users, catalogs, moderation and statistics."
+      "description": "Administrative routes for users, catalogs, moderation and statistics. Role mutation requires SUPERADMIN."
     }
   ],
   "paths": {
@@ -476,7 +476,7 @@
           "Auth endpoints"
         ],
         "summary": "Return the session of the caller",
-        "description": "Returns the session of the caller. This response does not use the standard envelope. Access: Public. The route reads the '__clc_auth' cookie. It ignores the 'Authorization' header.",
+        "description": "Returns the current database-backed session of the caller. When the stored role differs from the cookie claim, the response refreshes the cookie. This response does not use the standard envelope. Access: Public. The route reads the '__clc_auth' cookie. It ignores the 'Authorization' header.",
         "operationId": "getAuthSession",
         "responses": {
           "200": {
@@ -497,6 +497,7 @@
                       "type": "string",
                       "enum": [
                         "USER",
+                        "ADMIN",
                         "SUPERADMIN"
                       ]
                     }
@@ -1502,7 +1503,7 @@
           "Vouchers and offerings"
         ],
         "summary": "Retire a voucher",
-        "description": "Retires a voucher. The server sets the voucher to inactive. The voucher then disappears from the public reads. The server keeps the voucher row, its offerings and its reports. The route takes no body. Access: User session. The caller must be the voucher owner or a superadmin.",
+        "description": "Retires a voucher. The server sets the voucher to inactive. The voucher then disappears from the public reads. The server keeps the voucher row, its offerings and its reports. The route takes no body. Access: User session. The caller must be the voucher owner or an administrator.",
         "operationId": "deleteVouchersByAddress",
         "parameters": [
           {
@@ -1556,7 +1557,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token."
+            "description": "E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -1678,7 +1679,7 @@
           "Vouchers and offerings"
         ],
         "summary": "Create an offering for a voucher",
-        "description": "Creates an offering for a voucher. The server sets the seller. The seller is the voucher owner. When the voucher has no owner, only a superadmin can create the offering, and the seller is that superadmin. Access: User session. The caller must be the voucher owner or a superadmin.",
+        "description": "Creates an offering for a voucher. The server sets the seller. The seller is the voucher owner. When the voucher has no owner, only an administrator can create the offering, and the seller is that administrator. Access: User session. The caller must be the voucher owner or an administrator.",
         "operationId": "postVouchersByAddressOfferings",
         "parameters": [
           {
@@ -1777,7 +1778,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token."
+            "description": "E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -1789,7 +1790,7 @@
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests",
-            "description": "E11: The caller reached the offer limit of the account. The result has resource, used and limit. A superadmin has no limit."
+            "description": "E11: The caller reached the offer limit of the account. The result has resource, used and limit. An administrator has no limit."
           }
         },
         "security": [
@@ -1878,7 +1879,7 @@
           "Vouchers and offerings"
         ],
         "summary": "Replace the product fields of an offering",
-        "description": "Replaces the product fields of an offering. The body is the same as for 'POST /api/v2/vouchers/:address/offerings'. Every field is written. A request without 'imageUrl' removes the image. There is no partial update. Access: User session. The caller must be the voucher owner or a superadmin.",
+        "description": "Replaces the product fields of an offering. The body is the same as for 'POST /api/v2/vouchers/:address/offerings'. Every field is written. A request without 'imageUrl' removes the image. There is no partial update. Access: User session. The caller must be the voucher owner or an administrator.",
         "operationId": "putVouchersByAddressOfferingsById",
         "parameters": [
           {
@@ -1986,7 +1987,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token."
+            "description": "E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -2008,7 +2009,7 @@
           "Vouchers and offerings"
         ],
         "summary": "Unlist an offering",
-        "description": "Unlists an offering. The server keeps the row and sets 'available' to 'false'. The public routes no longer return it. The server does not delete the stored image. Access: User session. The caller must be the voucher owner or a superadmin.",
+        "description": "Unlists an offering. The server keeps the row and sets 'available' to 'false'. The public routes no longer return it. The server does not delete the stored image. Access: User session. The caller must be the voucher owner or an administrator.",
         "operationId": "deleteVouchersByAddressOfferingsById",
         "parameters": [
           {
@@ -5063,7 +5064,7 @@
           "Contracts, tracking and system"
         ],
         "summary": "Queue a job that deploys a voucher (ERC-20 proxy)",
-        "description": "Queues a job that deploys a voucher (ERC-20 proxy). Access: User or service token. A user caller counts against the voucher limit. A superadmin or service token has no limit.",
+        "description": "Queues a job that deploys a voucher (ERC-20 proxy). Access: User or service token. A user caller counts against the voucher limit. An administrator or service token has no limit.",
         "operationId": "postContractsToken",
         "requestBody": {
           "required": true,
@@ -5264,7 +5265,7 @@
           "Contracts, tracking and system"
         ],
         "summary": "Queue a job that deploys a pool",
-        "description": "Queues a job that deploys a pool. Access: User or service token. A user caller counts against the pool limit. A superadmin or service token has no limit.",
+        "description": "Queues a job that deploys a pool. Access: User or service token. A user caller counts against the pool limit. An administrator or service token has no limit.",
         "operationId": "postContractsPool",
         "requestBody": {
           "required": true,
@@ -6807,7 +6808,7 @@
           "Contracts, tracking and system"
         ],
         "summary": "Return the OTX chain for a tracking ID",
-        "description": "Returns the OTX chain for a tracking ID. Access: User or service token. A user caller who is not a superadmin can track only IDs that the API recorded for that user at deploy time.",
+        "description": "Returns the OTX chain for a tracking ID. Access: User or service token. A user caller who is not an administrator can track only IDs that the API recorded for that user at deploy time.",
         "operationId": "getOtxTrackByTrackingId",
         "parameters": [
           {
@@ -6885,7 +6886,7 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
-            "description": "E07: A user caller (not a superadmin) does not own the tracking ID."
+            "description": "E07: A user caller (not an administrator) does not own the tracking ID."
           }
         },
         "security": [
@@ -6904,7 +6905,7 @@
           "Contracts, tracking and system"
         ],
         "summary": "Return the contract that a deploy created",
-        "description": "Returns the contract that a deploy created. The route looks for a voucher first, then for a pool. Access: User or service token. A user caller who is not a superadmin can read only IDs that the API recorded for that user at deploy time.",
+        "description": "Returns the contract that a deploy created. The route looks for a voucher first, then for a pool. Access: User or service token. A user caller who is not an administrator can read only IDs that the API recorded for that user at deploy time.",
         "operationId": "getOtxTrackByTrackingIdContract",
         "parameters": [
           {
@@ -6980,7 +6981,7 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
-            "description": "E07: A user caller (not a superadmin) does not own the tracking ID."
+            "description": "E07: A user caller (not an administrator) does not own the tracking ID."
           },
           "500": {
             "$ref": "#/components/responses/InternalError",
@@ -7003,7 +7004,7 @@
           "Contracts, tracking and system"
         ],
         "summary": "List the OTX that a custodial account signed",
-        "description": "Returns the OTX that a custodial signer account signed, newest first. Access: User or service token. 'address' must be the caller's own address, unless the caller is a service token or a superadmin.",
+        "description": "Returns the OTX that a custodial signer account signed, newest first. Access: User or service token. 'address' must be the caller's own address, unless the caller is a service token or an administrator.",
         "operationId": "getAccountOtxByAddress",
         "parameters": [
           {
@@ -7847,7 +7848,7 @@
           "Posts"
         ],
         "summary": "Replace a post",
-        "description": "Replaces all editable fields and all five collections of a post. An omitted optional field is cleared. An omitted collection becomes empty. At least one voucher or pool is required. A failed request changes nothing. After an edit by the original author the status is APPROVED. After an edit by a superadmin the status does not change. Access: User session. The caller must be the original author or a superadmin.",
+        "description": "Replaces all editable fields and all five collections of a post. An omitted optional field is cleared. An omitted collection becomes empty. At least one voucher or pool is required. A failed request changes nothing. After an edit by the original author the status is APPROVED. After an edit by an administrator the status does not change. Access: User session. The caller must be the original author or an administrator.",
         "operationId": "putReportsById",
         "parameters": [
           {
@@ -8056,7 +8057,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not the author and not a superadmin. Or a service token. Or a regular caller links a voucher or pool that the caller does not own. E10:."
+            "description": "E10: The caller is not the author and not an administrator. Or a service token. Or a regular caller links a voucher or pool that the caller does not own. E10:."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -8074,7 +8075,7 @@
           "Posts"
         ],
         "summary": "Delete a post",
-        "description": "Deletes the post with its tags, voucher links, pool links, images, and attachments. An author cannot delete the own post. Status '200'. 'description' is 'Report deleted'. 'result' is '{\"id\": 4633}'. Access: Superadmin.",
+        "description": "Deletes the post with its tags, voucher links, pool links, images, and attachments. An author cannot delete the own post. Status '200'. 'description' is 'Report deleted'. 'result' is '{\"id\": 4633}'. Access: Administrative.",
         "operationId": "deleteReportsById",
         "parameters": [
           {
@@ -8135,7 +8136,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: a caller that is not a superadmin."
+            "description": "E10: a caller that is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -8155,7 +8156,7 @@
           "Posts"
         ],
         "summary": "Set the status of the post to APPROVED",
-        "description": "Sets the status of the post to 'APPROVED'. The request has no body. The route changes nothing else. A post that is already 'APPROVED' stays the same and returns '200'. Status '200'. 'description' is 'Report approved'. 'result' is '{\"report\": <post>}'. Access: Superadmin.",
+        "description": "Sets the status of the post to 'APPROVED'. The request has no body. The route changes nothing else. A post that is already 'APPROVED' stays the same and returns '200'. Status '200'. 'description' is 'Report approved'. 'result' is '{\"report\": <post>}'. Access: Administrative.",
         "operationId": "putReportsByIdApprove",
         "parameters": [
           {
@@ -8209,7 +8210,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: a caller that is not a superadmin."
+            "description": "E10: a caller that is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -8229,7 +8230,7 @@
           "Pools"
         ],
         "summary": "Replace the off-chain profile of a pool",
-        "description": "Replaces the off-chain profile of a pool. The route writes every field, so a request must send the full record. An omitted field is cleared. The fields 'displayName', 'imageUrl' and 'bannerUrl' are the exception: an omitted field keeps its stored value, and an empty string clears it. The tags are always replaced. Access: User session. The caller must be the pool owner or a superadmin. A pool with no owner can only be changed by a superadmin. This route has no rate limit.",
+        "description": "Replaces the off-chain profile of a pool. The route writes every field, so a request must send the full record. An omitted field is cleared. The fields 'displayName', 'imageUrl' and 'bannerUrl' are the exception: an omitted field keeps its stored value, and an empty string clears it. The tags are always replaced. Access: User session. The caller must be the pool owner or an administrator. A pool with no owner can only be changed by an administrator. This route has no rate limit.",
         "operationId": "putPoolsByAddressProfile",
         "parameters": [
           {
@@ -8359,7 +8360,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller uses a service token, or is not the pool owner or a superadmin. E10: The caller uses a service token."
+            "description": "E10: The caller uses a service token, or is not the pool owner or an administrator. E10: The caller uses a service token."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -8387,7 +8388,7 @@
           "Vouchers and offerings"
         ],
         "summary": "Set the public name of a voucher",
-        "description": "Sets the public name of a voucher. The contract name does not change. Access: User session. The caller must be the voucher owner or a superadmin.",
+        "description": "Sets the public name of a voucher. The contract name does not change. Access: User session. The caller must be the voucher owner or an administrator.",
         "operationId": "putVouchersByAddressDisplayName",
         "parameters": [
           {
@@ -8460,7 +8461,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token."
+            "description": "E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -8484,7 +8485,7 @@
           "Vouchers and offerings"
         ],
         "summary": "Replace the off-chain profile of a voucher",
-        "description": "Replaces the off-chain profile of a voucher. The route writes every field, so a request must send the full record. An omitted field is cleared. The fields 'displayName', 'iconUrl', 'bannerUrl', 'markerIcon' and 'markerColor' are the exception: an omitted field keeps its stored value, and an empty string clears it. The tags are always replaced. Access: User session. The caller must be the voucher owner or a superadmin.",
+        "description": "Replaces the off-chain profile of a voucher. The route writes every field, so a request must send the full record. An omitted field is cleared. The fields 'displayName', 'iconUrl', 'bannerUrl', 'markerIcon' and 'markerColor' are the exception: an omitted field keeps its stored value, and an empty string clears it. The tags are always replaced. Access: User session. The caller must be the voucher owner or an administrator.",
         "operationId": "putVouchersByAddressProfile",
         "parameters": [
           {
@@ -8626,7 +8627,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token."
+            "description": "E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -8650,7 +8651,7 @@
           "Pretium"
         ],
         "summary": "Start a fiat-to-crypto onramp",
-        "description": "Starts a fiat-to-crypto onramp. Access: User or service token. 'address' must be the caller's own address, unless the caller is a service token or a superadmin.",
+        "description": "Starts a fiat-to-crypto onramp. Access: User or service token. 'address' must be the caller's own address, unless the caller is a service token or an administrator.",
         "operationId": "postPretiumTriggerOnramp",
         "requestBody": {
           "required": true,
@@ -8769,7 +8770,7 @@
           "Pretium"
         ],
         "summary": "Link a public key to a phone number",
-        "description": "Links a public key to a phone number. Access: User or service token. 'publicKey' must be the caller's own address, unless the caller is a service token or a superadmin.",
+        "description": "Links a public key to a phone number. Access: User or service token. 'publicKey' must be the caller's own address, unless the caller is a service token or an administrator.",
         "operationId": "postPretiumLink",
         "requestBody": {
           "required": true,
@@ -8870,7 +8871,7 @@
           "Pretium"
         ],
         "summary": "Return the links of a phone number",
-        "description": "Returns the links of a phone number. Access: Service token or superadmin.",
+        "description": "Returns the links of a phone number. Access: Service token or administrator.",
         "operationId": "getPretiumLinkByPhoneNumber",
         "parameters": [
           {
@@ -8954,7 +8955,7 @@
           "Pretium"
         ],
         "summary": "Return the link of a wallet address",
-        "description": "Returns the link of a wallet address. Access: User or service token. 'address' must be the caller's own address, unless the caller is a service token or a superadmin.",
+        "description": "Returns the link of a wallet address. Access: User or service token. 'address' must be the caller's own address, unless the caller is a service token or an administrator.",
         "operationId": "getPretiumLinkByAddressByAddress",
         "parameters": [
           {
@@ -9038,7 +9039,7 @@
           "Pretium"
         ],
         "summary": "Return the transactions of a phone number",
-        "description": "Returns the transactions of a phone number. Access: Service token or superadmin.",
+        "description": "Returns the transactions of a phone number. Access: Service token or administrator.",
         "operationId": "getPretiumTransactionsByPhoneNumber",
         "parameters": [
           {
@@ -9122,7 +9123,7 @@
           "Pretium"
         ],
         "summary": "Return the transactions of an address",
-        "description": "Returns the transactions of an address. Access: User or service token. 'address' must be the caller's own address, unless the caller is a service token or a superadmin.",
+        "description": "Returns the transactions of an address. Access: User or service token. 'address' must be the caller's own address, unless the caller is a service token or an administrator.",
         "operationId": "getPretiumTransactionsByAddressByAddress",
         "parameters": [
           {
@@ -9206,7 +9207,7 @@
           "Pretium"
         ],
         "summary": "Return recent transactions",
-        "description": "Returns recent transactions. The route has no parameters. The response is the upstream response. Access: Service token or superadmin.",
+        "description": "Returns recent transactions. The route has no parameters. The response is the upstream response. Access: Service token or administrator.",
         "operationId": "getPretiumTransactionsRecent",
         "responses": {
           "200": {
@@ -10259,7 +10260,7 @@
                             },
                             "role": {
                               "type": "string",
-                              "description": "'USER' or 'SUPERADMIN'."
+                              "description": "'USER', 'ADMIN' or 'SUPERADMIN'."
                             },
                             "status": {
                               "type": "string",
@@ -10370,7 +10371,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Voucher address. Scopes offers usage to this voucher. The caller must own it unless the caller is a superadmin."
+            "description": "Voucher address. Scopes offers usage to this voucher. The caller must own it unless the caller is an administrator."
           }
         ],
         "responses": {
@@ -10885,7 +10886,7 @@
           "Current user"
         ],
         "summary": "Return one confirmed deployed voucher",
-        "description": "Returns one confirmed deployed voucher. Access: User session. The caller must have started the deployment, or be a superadmin.",
+        "description": "Returns one confirmed deployed voucher. Access: User session. The caller must have started the deployment, or be an administrator.",
         "operationId": "getUsersMeTokensByAddress",
         "parameters": [
           {
@@ -11133,7 +11134,7 @@
           "Current user"
         ],
         "summary": "Return one confirmed deployed pool",
-        "description": "Returns one confirmed deployed pool. Access: User session. The caller must have started the deployment, or be a superadmin.",
+        "description": "Returns one confirmed deployed pool. Access: User session. The caller must have started the deployment, or be an administrator.",
         "operationId": "getUsersMePoolsByAddress",
         "parameters": [
           {
@@ -11934,7 +11935,7 @@
           "Admin"
         ],
         "summary": "Return one page of the account directory",
-        "description": "Return one page of the account directory. Rows are newest first. Access: Superadmin.",
+        "description": "Return one page of the account directory. Rows are newest first. Access: Administrative.",
         "operationId": "getAdminUsers",
         "parameters": [
           {
@@ -11954,6 +11955,15 @@
               "type": "string"
             },
             "description": "Filter by approval status. Values are 'PENDING', 'APPROVED' and 'REJECTED'. The case does not matter."
+          },
+          {
+            "name": "roles",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by USER, ADMIN, or SUPERADMIN. Repeat the parameter or use comma-separated values. Selected roles use OR semantics."
           },
           {
             "name": "perPage",
@@ -12054,7 +12064,7 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest",
-            "description": "E04: q is shorter than 2 or longer than 64 characters. E04: status is not one of the three values. The description is status must be \"PENDING\", \"APPROVED\" or \"REJECTED\"."
+            "description": "E04: q is shorter than 2 or longer than 64 characters. E04: status or roles contains an unknown value."
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized",
@@ -12062,7 +12072,110 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/admin/users/{address}/role": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Change a User to Admin or an Admin to User",
+        "description": "Changes USER to ADMIN or ADMIN to USER without changing approval status. Existing SUPERADMIN records are immutable through this route. Access: Superadmin.",
+        "operationId": "putAdminUsersByAddressRole",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Account address."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "USER",
+                      "ADMIN"
+                    ]
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              "example": {
+                "role": "ADMIN"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User role updated or unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "user": {
+                          "$ref": "#/components/schemas/User"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E02 or E04: The address, body, or role is invalid."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: The credential is missing or not valid."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: The caller is not a current SUPERADMIN."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "E07: No user has this address."
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict",
+            "description": "E16: The target is a SUPERADMIN."
           }
         },
         "security": [
@@ -12078,7 +12191,7 @@
           "Admin"
         ],
         "summary": "Set the status of an account to APPROVED",
-        "description": "Sets the status of an account to APPROVED. The route does not check the old status or the role of the account. Access: Superadmin.",
+        "description": "Sets the status of an account to APPROVED. The route does not check the old status or the role of the account. Access: Administrative.",
         "operationId": "putAdminUsersByAddressApprove",
         "parameters": [
           {
@@ -12154,7 +12267,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -12174,7 +12287,7 @@
           "Admin"
         ],
         "summary": "Set the status of an account to REJECTED",
-        "description": "Sets the status of an account to REJECTED. The route does not check the old status or the role of the account. Access: Superadmin.",
+        "description": "Sets the status of an account to REJECTED. The route does not check the old status or the role of the account. Access: Administrative.",
         "operationId": "putAdminUsersByAddressReject",
         "parameters": [
           {
@@ -12250,7 +12363,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -12270,7 +12383,7 @@
           "Admin"
         ],
         "summary": "Change the creation limits of an account",
-        "description": "Change the creation limits of an account. The server changes only the fields that you send. Access: Superadmin.",
+        "description": "Change the creation limits of an account. The server changes only the fields that you send. Access: Administrative.",
         "operationId": "putAdminUsersByAddressLimits",
         "parameters": [
           {
@@ -12356,7 +12469,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -12376,7 +12489,7 @@
           "Admin"
         ],
         "summary": "Replace the profile of an account",
-        "description": "Correct the identity, contact details and preferences of another account. The route does not change the status, the role or the limits. Access: Superadmin.",
+        "description": "Correct the identity, contact details and preferences of another account. The route does not change the status, the role or the limits. Access: Administrative.",
         "operationId": "putAdminUsersByAddressProfile",
         "parameters": [
           {
@@ -12518,7 +12631,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -12542,7 +12655,7 @@
           "Admin"
         ],
         "summary": "List the pools of an account",
-        "description": "Return the pools to which an account belongs, with cursor pagination. The server derives the membership. An account belongs to each pool that allows a voucher that the account owns. Pool ownership and deployment history do not count. Access: Superadmin.",
+        "description": "Return the pools to which an account belongs, with cursor pagination. The server derives the membership. An account belongs to each pool that allows a voucher that the account owns. Pool ownership and deployment history do not count. Access: Administrative.",
         "operationId": "getAdminUsersByAddressPools",
         "parameters": [
           {
@@ -12635,7 +12748,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -12651,7 +12764,7 @@
           "Admin"
         ],
         "summary": "Return the counts for one account",
-        "description": "Return the counts for one account. Access: Superadmin.",
+        "description": "Return the counts for one account. Access: Administrative.",
         "operationId": "getAdminUsersByAddressStats",
         "parameters": [
           {
@@ -12738,7 +12851,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -12754,7 +12867,7 @@
           "Admin"
         ],
         "summary": "Return all confirmed voucher deployments of all users",
-        "description": "Return all confirmed voucher deployments of all users. The list is not paginated. Rows are newest first by 'createdAt'. The name is the display name of the voucher when one exists. Access: Superadmin.",
+        "description": "Return all confirmed voucher deployments of all users. The list is not paginated. Rows are newest first by 'createdAt'. The name is the display name of the voucher when one exists. Access: Administrative.",
         "operationId": "getAdminTokens",
         "responses": {
           "200": {
@@ -12833,7 +12946,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -12849,7 +12962,7 @@
           "Admin"
         ],
         "summary": "Return all confirmed pool deployments of all users",
-        "description": "Return all confirmed pool deployments of all users. The list is not paginated. Rows are newest first by 'createdAt'. Access: Superadmin.",
+        "description": "Return all confirmed pool deployments of all users. The list is not paginated. Rows are newest first by 'createdAt'. Access: Administrative.",
         "operationId": "getAdminPools",
         "responses": {
           "200": {
@@ -12934,7 +13047,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -12950,7 +13063,7 @@
           "Admin"
         ],
         "summary": "Return the vouchers of one pool, with cursor pagination",
-        "description": "Return the vouchers of one pool, with cursor pagination. Access: Superadmin.",
+        "description": "Return the vouchers of one pool, with cursor pagination. Access: Administrative.",
         "operationId": "getAdminPoolsByAddressVouchers",
         "parameters": [
           {
@@ -13073,7 +13186,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -13089,7 +13202,7 @@
           "Admin"
         ],
         "summary": "Replace the off-chain record of a pool",
-        "description": "Replace the off-chain record of a pool. The route changes catalog data only. It does not change the name, symbol, decimals or contract addresses, which are facts from the chain. The owner can use 'PUT /api/v2/pools/:address/profile' with the same body. Access: Superadmin.",
+        "description": "Replace the off-chain record of a pool. The route changes catalog data only. It does not change the name, symbol, decimals or contract addresses, which are facts from the chain. The owner can use 'PUT /api/v2/pools/:address/profile' with the same body. Access: Administrative.",
         "operationId": "putAdminPoolsByAddressProfile",
         "parameters": [
           {
@@ -13231,7 +13344,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -13255,7 +13368,7 @@
           "Admin"
         ],
         "summary": "Replace the off-chain record of a voucher",
-        "description": "Replace the off-chain record of a voucher. The route changes catalog data only. It does not change the contract name, symbol, decimals or owner. It does not retire or restore the voucher. The owner can use 'PUT /api/v2/vouchers/:address/profile' with the same body. Access: Superadmin.",
+        "description": "Replace the off-chain record of a voucher. The route changes catalog data only. It does not change the contract name, symbol, decimals or owner. It does not retire or restore the voucher. The owner can use 'PUT /api/v2/vouchers/:address/profile' with the same body. Access: Administrative.",
         "operationId": "putAdminVouchersByAddressProfile",
         "parameters": [
           {
@@ -13415,7 +13528,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -13439,7 +13552,7 @@
           "Admin"
         ],
         "summary": "List vouchers for the console",
-        "description": "Return the voucher catalog for the console, with cursor pagination. This route shows all vouchers. Each row has the field 'active'. This route has no 'bbox' parameter. Access: Superadmin.",
+        "description": "Return the voucher catalog for the console, with cursor pagination. This route shows all vouchers. Each row has the field 'active'. This route has no 'bbox' parameter. Access: Administrative.",
         "operationId": "getAdminVouchers",
         "parameters": [
           {
@@ -13654,7 +13767,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -13670,7 +13783,7 @@
           "Admin"
         ],
         "summary": "Return one voucher, whatever its visibility",
-        "description": "Return one voucher, whatever its visibility. The route has no 'active' filter. A '404' means that the catalog does not hold the address. Access: Superadmin.",
+        "description": "Return one voucher, whatever its visibility. The route has no 'active' filter. A '404' means that the catalog does not hold the address. Access: Administrative.",
         "operationId": "getAdminVouchersByAddress",
         "parameters": [
           {
@@ -13761,7 +13874,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -13781,7 +13894,7 @@
           "Admin"
         ],
         "summary": "Return a retired voucher to the public catalog",
-        "description": "Return a retired voucher to the public catalog. The route has no owner version. The request has no body. Access: Superadmin.",
+        "description": "Return a retired voucher to the public catalog. The route has no owner version. The request has no body. Access: Administrative.",
         "operationId": "putAdminVouchersByAddressRestore",
         "parameters": [
           {
@@ -13835,7 +13948,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -13859,7 +13972,7 @@
           "Admin"
         ],
         "summary": "Return the deployment history of all users",
-        "description": "Return the deployment history of all users. The list is not paginated. Rows are newest first by 'createdAt'. Access: Superadmin.",
+        "description": "Return the deployment history of all users. The list is not paginated. Rows are newest first by 'createdAt'. Access: Administrative.",
         "operationId": "getAdminDeployments",
         "responses": {
           "200": {
@@ -13942,7 +14055,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -13958,7 +14071,7 @@
           "Admin"
         ],
         "summary": "List the shared vocabularies",
-        "description": "Return all values of the three shared vocabularies: tags, offering units and units of account. The list includes built-in values and custom values. The response is not paginated. Access: Superadmin.",
+        "description": "Return all values of the three shared vocabularies: tags, offering units and units of account. The list includes built-in values and custom values. The response is not paginated. Access: Administrative.",
         "operationId": "getAdminVocabulary",
         "responses": {
           "200": {
@@ -14116,7 +14229,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -14132,7 +14245,7 @@
           "Admin"
         ],
         "summary": "Rename a tag",
-        "description": "Renames a tag. All records that use the value follow the new name. Access: Superadmin.",
+        "description": "Renames a tag. All records that use the value follow the new name. Access: Administrative.",
         "operationId": "putAdminVocabularyTags",
         "requestBody": {
           "required": true,
@@ -14211,7 +14324,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -14233,7 +14346,7 @@
           "Admin"
         ],
         "summary": "Delete a custom tag",
-        "description": "Deletes a custom tag. The value is in the JSON body, not in the path. Access: Superadmin.",
+        "description": "Deletes a custom tag. The value is in the JSON body, not in the path. Access: Administrative.",
         "operationId": "deleteAdminVocabularyTags",
         "requestBody": {
           "required": true,
@@ -14321,7 +14434,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -14345,7 +14458,7 @@
           "Admin"
         ],
         "summary": "Rename an offering unit",
-        "description": "Renames an offering unit. All records that use the value follow the new name. Access: Superadmin.",
+        "description": "Renames an offering unit. All records that use the value follow the new name. Access: Administrative.",
         "operationId": "putAdminVocabularyUnits",
         "requestBody": {
           "required": true,
@@ -14424,7 +14537,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -14446,7 +14559,7 @@
           "Admin"
         ],
         "summary": "Delete a custom offering unit",
-        "description": "Deletes a custom offering unit. The value is in the JSON body, not in the path. Access: Superadmin.",
+        "description": "Deletes a custom offering unit. The value is in the JSON body, not in the path. Access: Administrative.",
         "operationId": "deleteAdminVocabularyUnits",
         "requestBody": {
           "required": true,
@@ -14534,7 +14647,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -14558,7 +14671,7 @@
           "Admin"
         ],
         "summary": "Create a custom unit of account",
-        "description": "Create a custom unit of account. This is the only vocabulary value that has a create route. The server creates tags and offering units when a write names them. Access: Superadmin.",
+        "description": "Create a custom unit of account. This is the only vocabulary value that has a create route. The server creates tags and offering units when a write names them. Access: Administrative.",
         "operationId": "postAdminVocabularyUnitsOfAccount",
         "requestBody": {
           "required": true,
@@ -14628,7 +14741,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "409": {
             "$ref": "#/components/responses/Conflict",
@@ -14646,7 +14759,7 @@
           "Admin"
         ],
         "summary": "Rename a custom unit of account",
-        "description": "Rename a custom unit of account. The new name applies to profiles, vouchers, pools and deployment data. It does not change the stored valuation snapshots of old transfers. Access: Superadmin.",
+        "description": "Rename a custom unit of account. The new name applies to profiles, vouchers, pools and deployment data. It does not change the stored valuation snapshots of old transfers. Access: Administrative.",
         "operationId": "putAdminVocabularyUnitsOfAccount",
         "requestBody": {
           "required": true,
@@ -14721,7 +14834,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -14743,7 +14856,7 @@
           "Admin"
         ],
         "summary": "Delete a custom unit of account",
-        "description": "Delete a custom unit of account. The route deletes the value only when no record uses it. Access: Superadmin.",
+        "description": "Delete a custom unit of account. The route deletes the value only when no record uses it. Access: Administrative.",
         "operationId": "deleteAdminVocabularyUnitsOfAccount",
         "requestBody": {
           "required": true,
@@ -14843,7 +14956,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -14867,7 +14980,7 @@
           "Admin"
         ],
         "summary": "Return the open flags on voucher reviews",
-        "description": "Return the open flags on voucher reviews. An owner of a voucher makes a flag with 'POST /api/v2/vouchers/:address/reviews/:id/flag'. The list shows flags that nobody has resolved. Rows are newest first. A page has at most 20 rows. Access: Superadmin.",
+        "description": "Return the open flags on voucher reviews. An owner of a voucher makes a flag with 'POST /api/v2/vouchers/:address/reviews/:id/flag'. The list shows flags that nobody has resolved. Rows are newest first. A page has at most 20 rows. Access: Administrative.",
         "operationId": "getAdminReviewNotifications",
         "parameters": [
           {
@@ -14986,7 +15099,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -15002,7 +15115,7 @@
           "Admin"
         ],
         "summary": "Resolve a flag on a review",
-        "description": "Resolve a flag on a review. Access: Superadmin.",
+        "description": "Resolve a flag on a review. Access: Administrative.",
         "operationId": "putAdminReviewNotificationsById",
         "parameters": [
           {
@@ -15084,7 +15197,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -15104,7 +15217,7 @@
           "Admin"
         ],
         "summary": "Return posts in all statuses from all authors",
-        "description": "Return posts in all statuses from all authors. It orders posts by 'updatedAt', newest first, with 'id' as the tie-breaker. The cursor has two parts. Access: Superadmin.",
+        "description": "Return posts in all statuses from all authors. It orders posts by 'updatedAt', newest first, with 'id' as the tie-breaker. The cursor has two parts. Access: Administrative.",
         "operationId": "getAdminReports",
         "parameters": [
           {
@@ -15413,7 +15526,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -15429,7 +15542,7 @@
           "Admin"
         ],
         "summary": "Return one complete post in any status",
-        "description": "Return one complete post in any status. Access: Superadmin.",
+        "description": "Return one complete post in any status. Access: Administrative.",
         "operationId": "getAdminReportsById",
         "parameters": [
           {
@@ -15483,7 +15596,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "404": {
             "$ref": "#/components/responses/NotFound",
@@ -15503,7 +15616,7 @@
           "Admin"
         ],
         "summary": "Get the totals and time series for the dashboard",
-        "description": "Return the totals and the time series for the console dashboard. Access: Superadmin.",
+        "description": "Return the totals and the time series for the console dashboard. Access: Administrative.",
         "operationId": "getAdminDashboardStats",
         "parameters": [
           {
@@ -15694,7 +15807,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -15710,7 +15823,7 @@
           "Admin"
         ],
         "summary": "List federation events for vouchers",
-        "description": "Returns voucher movements from federation, with cursor pagination. Access: Superadmin.",
+        "description": "Returns voucher movements from federation, with cursor pagination. Access: Administrative.",
         "operationId": "getAdminTransactionsVouchers",
         "parameters": [
           {
@@ -15855,7 +15968,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable",
@@ -15875,7 +15988,7 @@
           "Admin"
         ],
         "summary": "List federation events for pools",
-        "description": "Returns pool operations from federation, with cursor pagination. Access: Superadmin.",
+        "description": "Returns pool operations from federation, with cursor pagination. Access: Administrative.",
         "operationId": "getAdminTransactionsPools",
         "parameters": [
           {
@@ -16020,7 +16133,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable",
@@ -16040,7 +16153,7 @@
           "Admin"
         ],
         "summary": "List origin transactions that this service signed",
-        "description": "Return the origin transactions that this service signed, with cursor pagination. The route reads only local data. It works when federation is not available. An origin transaction with the status 'REVERTED' is not the same as a reverted transfer on the chain. Access: Superadmin.",
+        "description": "Return the origin transactions that this service signed, with cursor pagination. The route reads only local data. It works when federation is not available. An origin transaction with the status 'REVERTED' is not the same as a reverted transfer on the chain. Access: Administrative.",
         "operationId": "getAdminTransactionsOtx",
         "parameters": [
           {
@@ -16216,7 +16329,7 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden",
-            "description": "E10: The caller is not a superadmin."
+            "description": "E10: The caller is not an administrator."
           }
         },
         "security": [
@@ -18468,7 +18581,7 @@
           },
           "unlimited": {
             "type": "boolean",
-            "description": "'true' for a 'SUPERADMIN' user."
+            "description": "'true' for an 'ADMIN' or 'SUPERADMIN' user."
           },
           "canCreate": {
             "type": "boolean"
@@ -18621,6 +18734,11 @@
           },
           "role": {
             "type": "string",
+            "enum": [
+              "USER",
+              "ADMIN",
+              "SUPERADMIN"
+            ],
             "description": "Role of the user."
           },
           "status": {

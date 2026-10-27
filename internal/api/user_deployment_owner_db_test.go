@@ -12,7 +12,7 @@ import (
 )
 
 // GET /users/me/tokens/:address and /users/me/pools/:address return a
-// deployment only to the user who started it, and to a superadmin. Skipped
+// deployment only to the user who started it, and to an administrator. Skipped
 // unless CORE_TEST_DSN is set, like the other live endpoint tests.
 
 const (
@@ -41,7 +41,7 @@ func mintUserToken(t *testing.T, priv any, userID uint64, address, role string) 
 }
 
 func TestUserDeploymentByAddressIsOwnerOnlyDB(t *testing.T) {
-	a, _ := newAdminAPI(t)
+	a, adminToken := newAdminAPI(t)
 	ctx := context.Background()
 
 	var keyID, ownerID, otherID, tokenOTX, poolOTX int64
@@ -124,7 +124,7 @@ func TestUserDeploymentByAddressIsOwnerOnlyDB(t *testing.T) {
 	}{
 		{"owner", mintUserToken(t, priv, uint64(ownerID), ownerDeployAddress, "USER"), http.StatusOK},
 		{"another user", mintUserToken(t, priv, uint64(otherID), otherDeployAddress, "USER"), http.StatusNotFound},
-		{"superadmin", mintUserToken(t, priv, uint64(otherID), otherDeployAddress, "SUPERADMIN"), http.StatusOK},
+		{"administrator", adminToken, http.StatusOK},
 	}
 	paths := []string{
 		apiVersion + "/users/me/tokens/" + deployTokenAddress,
