@@ -314,11 +314,11 @@ func TestReportMutationRoutesEnforceCredentialKindsBeforeHandlers(t *testing.T) 
 	if status := request(http.MethodPut, "/api/v2/reports/not-an-id/approve", userToken); status != http.StatusForbidden {
 		t.Fatalf("author approve status = %d, want 403", status)
 	}
-	if status := request(http.MethodPut, "/api/v2/reports/not-an-id/approve", adminToken); status != http.StatusBadRequest {
-		t.Fatalf("admin approve status = %d, want handler validation 400", status)
+	if status := request(http.MethodPut, "/api/v2/reports/not-an-id/approve", adminToken); status != http.StatusUnauthorized {
+		t.Fatalf("unverifiable admin approve status = %d, want 401", status)
 	}
-	if status := request(http.MethodDelete, "/api/v2/reports/not-an-id", adminToken); status != http.StatusBadRequest {
-		t.Fatalf("admin delete status = %d, want handler validation 400", status)
+	if status := request(http.MethodDelete, "/api/v2/reports/not-an-id", adminToken); status != http.StatusUnauthorized {
+		t.Fatalf("unverifiable admin delete status = %d, want 401", status)
 	}
 }
 
@@ -355,7 +355,12 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 	})
 	authorToken := mintReportToken(t, private, reportAuthorAddress, "USER")
 	otherToken := mintReportToken(t, private, reportOtherAddress, "USER")
-	adminToken := mintReportToken(t, private, reportAdminAddress, "SUPERADMIN")
+	cleanupRoleTestUsers(t, a)
+	adminUser := seedRoleTestUser(t, a, reportAdminAddress, "ADMIN", "APPROVED")
+	adminToken, err := a.generateUserToken(adminUser)
+	if err != nil {
+		t.Fatalf("sign admin token: %v", err)
+	}
 	marker := "Zqreportmutation" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	var voucherID uint64
 	var voucherAddress string
@@ -371,6 +376,7 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 	defer func() {
 		_, _ = pgStore.Pool().Exec(context.Background(), `DELETE FROM reports WHERE title LIKE $1`, marker+"%")
 		_, _ = pgStore.Pool().Exec(context.Background(), `DELETE FROM vouchers WHERE id = $1`, voucherID)
+		cleanupRoleTestUsers(t, a)
 	}()
 
 	call := func(method, path, token, title string) *httptest.ResponseRecorder {
@@ -599,7 +605,12 @@ func TestReportResourceLinksRequireOwnershipThroughRoutes(t *testing.T) {
 	})
 	authorToken := mintReportToken(t, private, reportAuthorAddress, "USER")
 	otherToken := mintReportToken(t, private, reportOtherAddress, "USER")
-	adminToken := mintReportToken(t, private, reportAdminAddress, "SUPERADMIN")
+	cleanupRoleTestUsers(t, a)
+	adminUser := seedRoleTestUser(t, a, reportAdminAddress, "ADMIN", "APPROVED")
+	adminToken, err := a.generateUserToken(adminUser)
+	if err != nil {
+		t.Fatalf("sign admin token: %v", err)
+	}
 	marker := "Zqreportowner" + strconv.FormatInt(time.Now().UnixNano(), 10)
 
 	ctx := context.Background()
@@ -627,6 +638,7 @@ func TestReportResourceLinksRequireOwnershipThroughRoutes(t *testing.T) {
 		_, _ = pgStore.Pool().Exec(ctx, `DELETE FROM reports WHERE title LIKE $1`, marker+"%")
 		_, _ = pgStore.Pool().Exec(ctx, `DELETE FROM vouchers WHERE id = $1`, voucherID)
 		_, _ = pgStore.Pool().Exec(ctx, `DELETE FROM pools WHERE id = $1`, poolID)
+		cleanupRoleTestUsers(t, a)
 	}()
 
 	write := func(method, path, token, title string, includePool bool) *httptest.ResponseRecorder {

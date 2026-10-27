@@ -208,7 +208,7 @@ func (pg *Pg) LockOfferingVoucherOwner(ctx context.Context, tx pgx.Tx, id uint64
 // CreateOffering inserts one offering against an already-locked voucher.
 //
 // sellerAddress is chosen by the handler from the locked voucher owner, or from
-// the authenticated superadmin when the voucher has no owner yet. It is never a
+// the authenticated administrator when the voucher has no owner yet. It is never a
 // request field.
 func (pg *Pg) CreateOffering(
 	ctx context.Context,

@@ -46,9 +46,9 @@ func (a *API) userResourceUsageHandler(c *echo.Context) error {
 		if readErr != nil {
 			return handlePostgresError(c, readErr)
 		}
-		if callerRole != "SUPERADMIN" &&
+		if !store.IsAdministrativeRole(callerRole) &&
 			(voucher.OwnerAddress == nil || !strings.EqualFold(*voucher.OwnerAddress, a.actingOwner(ctx, tx, callerAddress, voucher.OwnerAddress))) {
-			return handleForbiddenError(c, "only the voucher owner or a superadmin may read its offering allowance")
+			return handleForbiddenError(c, "only the voucher owner or an admin may read its offering allowance")
 		}
 		usage, err = a.store.GetUserResourceUsageForVoucher(ctx, tx, id, voucherAddress)
 	}

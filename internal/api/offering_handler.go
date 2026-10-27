@@ -84,7 +84,7 @@ func (a *API) voucherOfferingHandler(c *echo.Context) error {
 // The seller is server-selected. Normally it is the locked voucher's owner, which
 // keeps the non-null provenance column honest without letting a caller claim
 // another address. An imported voucher with no owner yet can only be written by a
-// superadmin, and then the seller is that operator's own session address — the
+// administrator, and then the seller is that operator's own session address — the
 // row stays operator-managed until ownership is corrected.
 func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 	address, handled, err := offeringVoucherParam(c)
@@ -111,7 +111,7 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 	// Lock the quota user before the voucher. Once ownership is authorized, the
 	// count is scoped to this locked voucher rather than to every offering the
 	// account has published.
-	if callerRole != "SUPERADMIN" {
+	if !store.IsAdministrativeRole(callerRole) {
 		if err := a.store.LockQuotaUser(ctx, tx, callerID); err != nil {
 			return handlePostgresError(c, err)
 		}
@@ -130,9 +130,9 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 	seller, ok := offeringSeller(a.actingOwnerFor(ctx, tx, callerAddress, callerRole, voucher.OwnerAddress), callerRole, voucher.OwnerAddress)
 	if !ok {
 		return handleForbiddenError(c,
-			"only the voucher owner or a superadmin may publish offerings for this voucher")
+			"only the voucher owner or an administrator may publish offerings for this voucher")
 	}
-	if callerRole != "SUPERADMIN" {
+	if !store.IsAdministrativeRole(callerRole) {
 		if err := a.store.CheckVoucherOfferingLimit(ctx, tx, callerID, voucher.ID); err != nil {
 			return handleResourceLimitError(c, err)
 		}
@@ -286,15 +286,15 @@ func (a *API) authorizeOfferingMutation(
 	}
 	if !canWriteVoucherOfferings(a.actingOwnerFor(c.Request().Context(), tx, callerAddress, callerRole, parent.OwnerAddress), callerRole, parent.OwnerAddress) {
 		return nil, true, handleForbiddenError(c,
-			"only the voucher owner or a superadmin may change this offering")
+			"only the voucher owner or an administrator may change this offering")
 	}
 	return parent, false, nil
 }
 
-// canManageCatalogRecord is the owner-or-superadmin rule shared by mutable pool
+// canManageCatalogRecord is the owner-or-administrator rule shared by mutable pool
 // and voucher catalog records. A nil owner remains operator-only.
 func canManageCatalogRecord(callerAddress, callerRole string, ownerAddress *string) bool {
-	if callerRole == "SUPERADMIN" {
+	if store.IsAdministrativeRole(callerRole) {
 		return true
 	}
 	if callerAddress == "" || ownerAddress == nil {
@@ -317,7 +317,7 @@ func canWriteVoucherOfferings(callerAddress, callerRole string, ownerAddress *st
 // offeringSeller returns the address a new row records as its seller, and whether
 // the caller may create at all.
 //
-// A superadmin creating for an ownerless imported voucher becomes the seller
+// An administrator creating for an ownerless imported voucher becomes the seller
 // themselves: the column is NOT NULL and format-checked, so it needs a real
 // address, and attributing it to the operator who published it is the only
 // honest answer available.
@@ -328,7 +328,7 @@ func offeringSeller(callerAddress, callerRole string, ownerAddress *string) (str
 		}
 		return *ownerAddress, true
 	}
-	if callerRole != "SUPERADMIN" || !common.IsHexAddress(callerAddress) {
+	if !store.IsAdministrativeRole(callerRole) || !common.IsHexAddress(callerAddress) {
 		return "", false
 	}
 	return callerAddress, true

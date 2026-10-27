@@ -42,6 +42,7 @@ func TestCallerMayActOnAddress(t *testing.T) {
 		{"user on own address in another case", "user", "USER", callerOwnAddress, "0xABCDEF0000000000000000000000000000000001", true},
 		{"user on another address", "user", "USER", callerOwnAddress, callerOtherAddress, false},
 		{"superadmin on another address", "user", "SUPERADMIN", callerOwnAddress, callerOtherAddress, true},
+		{"admin on another address", "user", "ADMIN", callerOwnAddress, callerOtherAddress, true},
 		{"service token on any address", "service", "SERVICE", "", callerOtherAddress, true},
 		{"anonymous caller", "", "", "", callerOtherAddress, false},
 		{"user without an address", "user", "USER", "", callerOtherAddress, false},
@@ -70,6 +71,7 @@ func TestRequireStaff(t *testing.T) {
 	}{
 		{"service token", "service", "SERVICE", http.StatusOK, true},
 		{"superadmin", "user", "SUPERADMIN", http.StatusOK, true},
+		{"admin", "user", "ADMIN", http.StatusOK, true},
 		{"ordinary user", "user", "USER", http.StatusForbidden, false},
 		{"anonymous", "", "", http.StatusForbidden, false},
 	}
@@ -78,6 +80,40 @@ func TestRequireStaff(t *testing.T) {
 			c, rec := callerContext(tt.callerType, tt.role, callerOwnAddress)
 			called := false
 			handler := (&API{}).requireStaff()(func(c *echo.Context) error {
+				called = true
+				return c.NoContent(http.StatusOK)
+			})
+			_ = handler(c)
+			if called != tt.wantNext {
+				t.Fatalf("next called = %v, want %v", called, tt.wantNext)
+			}
+			if rec.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestAdministrativeRoleGuards(t *testing.T) {
+	tests := []struct {
+		name       string
+		middleware echo.MiddlewareFunc
+		role       string
+		wantCode   int
+		wantNext   bool
+	}{
+		{"admin passes admin guard", (&API{}).requireAdmin(), "ADMIN", http.StatusOK, true},
+		{"superadmin passes admin guard", (&API{}).requireAdmin(), "SUPERADMIN", http.StatusOK, true},
+		{"user fails admin guard", (&API{}).requireAdmin(), "USER", http.StatusForbidden, false},
+		{"admin fails superadmin guard", (&API{}).requireSuperAdmin(), "ADMIN", http.StatusForbidden, false},
+		{"superadmin passes superadmin guard", (&API{}).requireSuperAdmin(), "SUPERADMIN", http.StatusOK, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, rec := callerContext("user", tt.role, callerOwnAddress)
+			called := false
+			handler := tt.middleware(func(c *echo.Context) error {
 				called = true
 				return c.NoContent(http.StatusOK)
 			})

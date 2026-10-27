@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
@@ -101,16 +102,16 @@ func (a *API) enforceSafePolicy(c *echo.Context, req apiresp.RelayRequest) (hand
 // Off-chain catalog edits never pass the Safe's threshold, so any single signer
 // of a multi-signer Safe can act alone here, including retirement.
 func (a *API) callerMayManageRecord(ctx context.Context, tx pgx.Tx, callerAddress, callerRole string, ownerAddress *string) bool {
-	if callerRole == "SUPERADMIN" {
+	if store.IsAdministrativeRole(callerRole) {
 		return true // as canManageCatalogRecord, without a signer lookup
 	}
 	return canManageCatalogRecord(a.actingOwner(ctx, tx, callerAddress, ownerAddress), callerRole, ownerAddress)
 }
 
-// actingOwnerFor is actingOwner for the pure owner rules, which a superadmin
+// actingOwnerFor is actingOwner for the pure owner rules, which an administrator
 // passes whatever address it is judged by: no signer lookup is needed.
 func (a *API) actingOwnerFor(ctx context.Context, tx pgx.Tx, callerAddress, callerRole string, ownerAddress *string) string {
-	if callerRole == "SUPERADMIN" {
+	if store.IsAdministrativeRole(callerRole) {
 		return callerAddress
 	}
 	return a.actingOwner(ctx, tx, callerAddress, ownerAddress)

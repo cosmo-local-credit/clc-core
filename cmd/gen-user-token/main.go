@@ -42,7 +42,7 @@ func init() {
 	flag.StringVar(&confFlag, "config", "config.toml", "Config file location")
 	flag.Uint64Var(&userIDFlag, "user-id", 1, "User ID the token represents")
 	flag.StringVar(&addressFlag, "address", "", "Blockchain address the token represents")
-	flag.StringVar(&roleFlag, "role", "SUPERADMIN", "Role claim: USER or SUPERADMIN")
+	flag.StringVar(&roleFlag, "role", "SUPERADMIN", "Role claim: USER, ADMIN, or SUPERADMIN")
 	flag.DurationVar(&expiryFlag, "expiry", defaultExpiry, "Token lifetime")
 	flag.Parse()
 
@@ -55,8 +55,8 @@ func main() {
 		lo.Error("address is required; pass the user's blockchain_address")
 		os.Exit(1)
 	}
-	if roleFlag != "USER" && roleFlag != "SUPERADMIN" {
-		lo.Error("role must be USER or SUPERADMIN", "role", roleFlag)
+	if roleFlag != "USER" && roleFlag != "ADMIN" && roleFlag != "SUPERADMIN" {
+		lo.Error("role must be USER, ADMIN, or SUPERADMIN", "role", roleFlag)
 		os.Exit(1)
 	}
 

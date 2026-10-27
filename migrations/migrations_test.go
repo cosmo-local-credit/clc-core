@@ -94,6 +94,8 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "059_viewport_spatial_indexes.sql")
 	assert.Contains(t, sqlFiles, "060_report_marker_style.sql")
 	assert.Contains(t, sqlFiles, "061_retirement_requests.sql")
+	assert.Contains(t, sqlFiles, "064_admin_role.sql")
+	assert.Contains(t, sqlFiles, "065_admin_role_index.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -158,7 +160,9 @@ func TestMigrationFiles(t *testing.T) {
 				name == "060_report_marker_style.sql" ||
 				name == "061_retirement_requests.sql" ||
 				name == "062_safe_signers.sql" ||
-				name == "063_safe_execute_otx.sql",
+				name == "063_safe_execute_otx.sql" ||
+				name == "064_admin_role.sql" ||
+				name == "065_admin_role_index.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -231,7 +235,21 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"061_retirement_requests.sql",
 		"062_safe_signers.sql",
 		"063_safe_execute_otx.sql",
+		"064_admin_role.sql",
+		"065_admin_role_index.sql",
 	}, files)
+}
+
+func TestAdminRoleMigrationsStayInSeparateTransactions(t *testing.T) {
+	role, err := os.ReadFile("064_admin_role.sql")
+	require.NoError(t, err)
+	index, err := os.ReadFile("065_admin_role_index.sql")
+	require.NoError(t, err)
+	assert.Contains(t, string(role), "ADD VALUE 'ADMIN'")
+	assert.NotContains(t, string(role), "CREATE INDEX")
+	assert.Contains(t, string(index), "users_role_id_idx")
+	assert.Contains(t, string(index), "(id DESC)")
+	assert.Contains(t, string(index), "WHERE role IN ('ADMIN', 'SUPERADMIN')")
 }
 
 func TestUnitOfAccountVocabularyMigration(t *testing.T) {

@@ -168,6 +168,56 @@ func TestListUsersFilteredNarrowsByStatus(t *testing.T) {
 	}
 }
 
+func TestListUsersFilteredNarrowsByAdministrativeRoles(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	admin := seedDirectoryUser(t, tx, pg, "Zqrole Admin", "zqrole-admin@example.test", "+254700000311", "APPROVED")
+	superadmin := seedDirectoryUser(t, tx, pg, "Zqrole Super", "zqrole-super@example.test", "+254700000312", "APPROVED")
+	ordinary := seedDirectoryUser(t, tx, pg, "Zqrole User", "zqrole-user@example.test", "+254700000313", "APPROVED")
+	_, err := tx.Exec(ctx, `UPDATE users SET role='ADMIN' WHERE id=$1`, admin.ID)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE users SET role='SUPERADMIN' WHERE id=$1`, superadmin.ID)
+	require.NoError(t, err)
+
+	filter, err := NewUserFilter("zqrole", "", "ADMIN,SUPERADMIN")
+	require.NoError(t, err)
+	found, err := pg.ListUsersFiltered(ctx, tx, filter, CatalogFirstPage, 0, 100)
+	require.NoError(t, err)
+	ids := userIDs(found)
+	assert.Contains(t, ids, admin.ID)
+	assert.Contains(t, ids, superadmin.ID)
+	assert.NotContains(t, ids, ordinary.ID)
+}
+
+func TestAdministrativeRoleFilterUsesRoleIndex(t *testing.T) {
+	_, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	_, err := tx.Exec(ctx, `
+		INSERT INTO users (blockchain_address, name, email, role, status)
+		SELECT '0x' || lpad(to_hex(700000 + g), 40, '0'),
+		       'Zq role plan ' || g,
+		       'zq-role-plan-' || g || '@example.test',
+		       CASE WHEN g <= 10 THEN 'ADMIN'::user_role
+		            WHEN g <= 20 THEN 'SUPERADMIN'::user_role
+		            ELSE 'USER'::user_role END,
+		       'APPROVED'::user_status
+		FROM generate_series(1, 5000) AS g
+		ON CONFLICT DO NOTHING`)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `ANALYZE users`)
+	require.NoError(t, err)
+
+	filter, err := NewUserFilter("", "", "ADMIN,SUPERADMIN")
+	require.NoError(t, err)
+	query := composeUserPage(filter, CatalogFirstPage, 0, 100)
+	plan := explainGenericPlan(t, tx, query.sql)
+	assert.Contains(t, plan, "users_role_id_idx", "role filtering must be index-backed\nplan:\n%s", plan)
+}
+
 func TestListUsersFilteredPagesInBothDirections(t *testing.T) {
 	pg, tx, cleanup := newMarketTestPg(t)
 	defer cleanup()
