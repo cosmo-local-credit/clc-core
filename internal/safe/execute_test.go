@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -20,9 +22,20 @@ type (
 	}
 
 	fakeExecState struct {
-		state *State
-		nonce uint64
-		err   error
+		state     *State
+		nonce     uint64
+		err       error
+		contracts ContractVerifier
+	}
+
+	// fakeContracts answers for contract signatures and records the owners
+	// it was asked to verify.
+	fakeContracts struct {
+		accepts    bool
+		acceptsErr error
+		valid      map[common.Address]bool
+		validErr   error
+		asked      []common.Address
 	}
 
 	owner struct {
@@ -33,8 +46,24 @@ type (
 
 func (f fakeSource) Transaction(context.Context, string) (*Transaction, error) { return f.tx, f.err }
 
-func (f fakeExecState) ReadExecState(context.Context, common.Address) (*State, uint64, error) {
-	return f.state, f.nonce, f.err
+func (f fakeExecState) ReadExecState(context.Context, common.Address) (*ExecState, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &ExecState{State: *f.state, Nonce: f.nonce, Contracts: f.contracts}, nil
+}
+
+func (f *fakeContracts) Accepts(context.Context) (bool, error) { return f.accepts, f.acceptsErr }
+
+func (f *fakeContracts) Valid(_ context.Context, owner common.Address, _ common.Hash, _ []byte) (bool, error) {
+	f.asked = append(f.asked, owner)
+	return f.valid[owner], f.validErr
+}
+
+// contractConfirmation is a contract owner's confirmation as the Transaction
+// Service returns it.
+func contractConfirmation(owner common.Address, data []byte) Confirmation {
+	return Confirmation{Owner: owner.Hex(), Signature: hexutil.Encode(contractSig(owner, data))}
 }
 
 func newOwners(t *testing.T, n int) []owner {
@@ -97,7 +126,8 @@ func TestPackSignaturesVerifiesSortsAndTrimsToThreshold(t *testing.T) {
 	misfiled.Owner = owners[0].addr.Hex()
 	confirmations = append(confirmations, misfiled)
 
-	packed, err := PackSignatures(hash, confirmations, addresses(owners), 2)
+	ctx := context.Background()
+	packed, err := PackSignatures(ctx, hash, confirmations, addresses(owners), 2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,12 +146,139 @@ func TestPackSignaturesVerifiesSortsAndTrimsToThreshold(t *testing.T) {
 		t.Fatalf("signatures not in ascending owner order: %s, %s", first.Hex(), second.Hex())
 	}
 
-	if _, err := PackSignatures(hash, confirmations, addresses(owners), 3); !errors.Is(err, ErrNotReady) {
+	if _, err := PackSignatures(ctx, hash, confirmations, addresses(owners), 3, nil); !errors.Is(err, ErrNotReady) {
 		t.Fatalf("three of three = %v, want ErrNotReady", err)
 	}
-	if _, err := PackSignatures(hash, confirmations, addresses(owners), 0); !errors.Is(err, ErrNotReady) {
+	if _, err := PackSignatures(ctx, hash, confirmations, addresses(owners), 0, nil); !errors.Is(err, ErrNotReady) {
 		t.Fatalf("unknown threshold = %v, want ErrNotReady", err)
 	}
+}
+
+func TestPackSignaturesKeepsTheECDSAOnlyLayout(t *testing.T) {
+	hash := common.HexToHash("0x" + "ef" + "00000000000000000000000000000000000000000000000000000000000000")
+	owners := newOwners(t, 3)
+	confirmations := []Confirmation{typedSig(t, owners[0], hash), typedSig(t, owners[1], hash), typedSig(t, owners[2], hash)}
+	contracts := &fakeContracts{accepts: true}
+	packed, err := PackSignatures(context.Background(), hash, confirmations, addresses(owners), 2, contracts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The two lowest owners' signatures, concatenated: what clc-core packed
+	// before contract signatures existed.
+	byOwner := map[common.Address]string{}
+	for _, c := range confirmations {
+		byOwner[common.HexToAddress(c.Owner)] = c.Signature
+	}
+	signers := addresses(owners)
+	slices.SortFunc(signers, func(a, b common.Address) int { return bytes.Compare(a[:], b[:]) })
+	want := append(hexutil.MustDecode(byOwner[signers[0]]), hexutil.MustDecode(byOwner[signers[1]])...)
+	if !bytes.Equal(packed, want) {
+		t.Fatalf("packed %x, want %x", packed, want)
+	}
+	if len(contracts.asked) != 0 {
+		t.Fatal("ECDSA signatures met the threshold, yet a contract signature was verified")
+	}
+}
+
+func TestPackSignaturesFillsWithContractSignatures(t *testing.T) {
+	hash := common.HexToHash("0x" + "12" + "00000000000000000000000000000000000000000000000000000000000000")
+	ecdsaOwners := newOwners(t, 2)
+	passkeyA := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	passkeyB := common.HexToAddress("0xffffffffffffffffffffffffffffffffffffff01")
+	passkeyC := common.HexToAddress("0x8000000000000000000000000000000000000001")
+	owners := append(addresses(ecdsaOwners), passkeyA, passkeyB, passkeyC)
+	dataA, dataB, dataC := bytes.Repeat([]byte{0xaa}, 33), bytes.Repeat([]byte{0xbb}, 70), bytes.Repeat([]byte{0xcc}, 5)
+	ctx := context.Background()
+	stranger := common.HexToAddress("0x0000000000000000000000000000000000000002")
+
+	confirmations := []Confirmation{
+		typedSig(t, ecdsaOwners[0], hash),
+		contractConfirmation(passkeyB, dataB),
+		contractConfirmation(passkeyA, dataA),
+		contractConfirmation(stranger, dataA),                                            // not an owner
+		{Owner: passkeyC.Hex(), Signature: hexutil.Encode(contractSig(passkeyA, dataC))}, // filed under another owner
+	}
+
+	t.Run("one ECDSA and two contract signatures", func(t *testing.T) {
+		contracts := &fakeContracts{accepts: true, valid: map[common.Address]bool{passkeyA: true, passkeyB: true}}
+		packed, err := PackSignatures(ctx, hash, confirmations, owners, 3, contracts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Ascending: passkeyA, then the ECDSA owner (between 0x00.. and
+		// 0xff.. for any key), then passkeyB.
+		static := packed[:3*65]
+		if got := common.BytesToAddress(static[12:32]); got != passkeyA || static[64] != 0 {
+			t.Fatalf("first entry %s v%d", got.Hex(), static[64])
+		}
+		signer, err := recoverOwnerSignature(hash, static[65:130])
+		if err != nil || signer != ecdsaOwners[0].addr {
+			t.Fatalf("second entry %s %v", signer.Hex(), err)
+		}
+		if got := common.BytesToAddress(static[130+12 : 130+32]); got != passkeyB || static[194] != 0 {
+			t.Fatalf("third entry %s v%d", got.Hex(), static[194])
+		}
+		offsetA := new(big.Int).SetBytes(static[32:64]).Int64()
+		offsetB := new(big.Int).SetBytes(static[130+32 : 130+64]).Int64()
+		if offsetA != 195 || offsetB != 195+32+33 {
+			t.Fatalf("offsets %d, %d", offsetA, offsetB)
+		}
+		readDynamic := func(offset int64) []byte {
+			length := new(big.Int).SetBytes(packed[offset : offset+32]).Int64()
+			return packed[offset+32 : offset+32+length]
+		}
+		if !bytes.Equal(readDynamic(offsetA), dataA) || !bytes.Equal(readDynamic(offsetB), dataB) {
+			t.Fatal("dynamic parts do not match their owners")
+		}
+		if len(packed) != 195+32+33+32+70 {
+			t.Fatalf("packed %d bytes", len(packed))
+		}
+	})
+
+	t.Run("verifies only as many as the threshold needs", func(t *testing.T) {
+		contracts := &fakeContracts{accepts: true, valid: map[common.Address]bool{passkeyA: true, passkeyB: true}}
+		if _, err := PackSignatures(ctx, hash, confirmations, owners, 2, contracts); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(contracts.asked, []common.Address{passkeyA}) {
+			t.Fatalf("verified %v", contracts.asked)
+		}
+	})
+
+	t.Run("skips an invalid contract signature", func(t *testing.T) {
+		contracts := &fakeContracts{accepts: true, valid: map[common.Address]bool{passkeyB: true}}
+		if _, err := PackSignatures(ctx, hash, confirmations, owners, 3, contracts); !errors.Is(err, ErrNotReady) {
+			t.Fatalf("got %v, want ErrNotReady", err)
+		}
+	})
+
+	t.Run("a Safe before 1.5.0 counts none", func(t *testing.T) {
+		contracts := &fakeContracts{valid: map[common.Address]bool{passkeyA: true, passkeyB: true}}
+		if _, err := PackSignatures(ctx, hash, confirmations, owners, 2, contracts); !errors.Is(err, ErrNotReady) {
+			t.Fatalf("got %v, want ErrNotReady", err)
+		}
+		if len(contracts.asked) != 0 {
+			t.Fatal("verified a contract signature the Safe cannot accept")
+		}
+	})
+
+	t.Run("no verifier counts none", func(t *testing.T) {
+		if _, err := PackSignatures(ctx, hash, confirmations, owners, 2, nil); !errors.Is(err, ErrNotReady) {
+			t.Fatalf("got %v, want ErrNotReady", err)
+		}
+	})
+
+	t.Run("transport failures are returned for retry", func(t *testing.T) {
+		boom := errors.New("dial tcp")
+		for name, contracts := range map[string]*fakeContracts{
+			"version": {acceptsErr: boom},
+			"verify":  {accepts: true, validErr: boom},
+		} {
+			if _, err := PackSignatures(ctx, hash, confirmations, owners, 2, contracts); !errors.Is(err, boom) || errors.Is(err, ErrNotReady) {
+				t.Fatalf("%s: got %v, want the transport error", name, err)
+			}
+		}
+	})
 }
 
 func TestEncodeExecTransactionRoundTrips(t *testing.T) {

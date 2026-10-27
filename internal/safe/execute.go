@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"slices"
 	"strings"
@@ -44,7 +45,16 @@ type (
 	// ExecStateReader reads a Safe's signer set, threshold and next nonce at
 	// one block; Reader satisfies it.
 	ExecStateReader interface {
-		ReadExecState(ctx context.Context, safe common.Address) (*State, uint64, error)
+		ReadExecState(ctx context.Context, safe common.Address) (*ExecState, error)
+	}
+
+	// ExecState is a Safe as an execution is judged, all at one block.
+	ExecState struct {
+		State
+
+		Nonce uint64
+		// Contracts verifies owner contract signatures; nil accepts none.
+		Contracts ContractVerifier
 	}
 
 	Executor struct {
@@ -93,7 +103,7 @@ func (e *Executor) Prepare(ctx context.Context, safeTxHash string) (*Execution, 
 		return nil, err
 	}
 
-	state, nonce, err := e.reader.ReadExecState(ctx, safe)
+	state, err := e.reader.ReadExecState(ctx, safe)
 	if errors.Is(err, ErrNotSafe) {
 		return nil, fmt.Errorf("%w: owner is no longer a multisig", ErrRejected)
 	}
@@ -104,14 +114,14 @@ func (e *Executor) Prepare(ctx context.Context, safeTxHash string) (*Execution, 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRejected, err)
 	}
-	switch txNonce.Cmp(new(big.Int).SetUint64(nonce)) {
+	switch txNonce.Cmp(new(big.Int).SetUint64(state.Nonce)) {
 	case -1:
 		return nil, ErrSettled
 	case 1:
 		return nil, ErrNotNext
 	}
 
-	exec.Signatures, err = PackSignatures(hash, tx.Confirmations, state.Owners, state.Threshold)
+	exec.Signatures, err = PackSignatures(ctx, hash, tx.Confirmations, state.Owners, state.Threshold, state.Contracts)
 	if err != nil {
 		return nil, err
 	}
@@ -124,10 +134,12 @@ func (e *Executor) Prepare(ctx context.Context, safeTxHash string) (*Execution, 
 
 // PackSignatures verifies each confirmation against hash and the current owner
 // set, and packs threshold of them in ascending owner order, as Safe's
-// checkNSignatures requires. Only owner ECDSA signatures are accepted, typed
-// data (v 27/28) and eth_sign (v 31/32); contract (v 0) and approved-hash
-// (v 1) signatures are left to the Safe app.
-func PackSignatures(hash common.Hash, confirmations []Confirmation, owners []common.Address, threshold int) ([]byte, error) {
+// checkNSignatures requires. Owner ECDSA signatures are typed data (v 27/28)
+// and eth_sign (v 31/32). Contract signatures (v 0) from a Safe 1.5.0 or later
+// fill in only when ECDSA ones fall short of the threshold, so a transaction
+// they already satisfy is packed without an RPC call. Approved-hash (v 1)
+// signatures are left to the Safe app.
+func PackSignatures(ctx context.Context, hash common.Hash, confirmations []Confirmation, owners []common.Address, threshold int, contracts ContractVerifier) ([]byte, error) {
 	if threshold < 1 {
 		return nil, fmt.Errorf("%w: unknown threshold", ErrNotReady)
 	}
@@ -147,19 +159,104 @@ func PackSignatures(hash common.Hash, confirmations []Confirmation, owners []com
 		}
 		valid[signer] = sig
 	}
-	if len(valid) < threshold {
-		return nil, fmt.Errorf("%w: %d of %d", ErrNotReady, len(valid), threshold)
+	if len(valid) >= threshold {
+		signers := sortedSigners(valid)
+		chosen := make(map[common.Address][]byte, threshold)
+		for _, signer := range signers[:threshold] {
+			chosen[signer] = valid[signer]
+		}
+		return packSignatures(chosen, nil), nil
 	}
-	signers := make([]common.Address, 0, len(valid))
-	for signer := range valid {
-		signers = append(signers, signer)
+	contractSigs, err := verifyContractSignatures(ctx, hash, confirmations, isOwner, valid, threshold-len(valid), contracts)
+	if err != nil {
+		return nil, err
 	}
+	if len(valid)+len(contractSigs) < threshold {
+		return nil, fmt.Errorf("%w: %d of %d", ErrNotReady, len(valid)+len(contractSigs), threshold)
+	}
+	return packSignatures(valid, contractSigs), nil
+}
+
+// verifyContractSignatures returns up to need verified contract signatures from
+// owners without an ECDSA one, in ascending owner order. A transport failure is
+// returned so the execution is retried rather than judged not ready.
+func verifyContractSignatures(ctx context.Context, hash common.Hash, confirmations []Confirmation, isOwner map[common.Address]bool, ecdsa map[common.Address][]byte, need int, contracts ContractVerifier) (map[common.Address][]byte, error) {
+	if contracts == nil {
+		return nil, nil
+	}
+	candidates := make(map[common.Address][]byte)
+	for _, c := range confirmations {
+		sig, err := hexutil.Decode(c.Signature)
+		if err != nil || !IsContractSignature(sig) {
+			continue
+		}
+		parsed, err := ParseContractSignature(sig)
+		if err != nil || !isOwner[parsed.Owner] || !strings.EqualFold(parsed.Owner.Hex(), c.Owner) {
+			continue
+		}
+		if _, ok := ecdsa[parsed.Owner]; ok {
+			continue
+		}
+		if _, ok := candidates[parsed.Owner]; !ok {
+			candidates[parsed.Owner] = parsed.Data
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	accepts, err := contracts.Accepts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("safe: read version: %w", err)
+	}
+	if !accepts {
+		return nil, nil
+	}
+	verified := make(map[common.Address][]byte, need)
+	for _, owner := range sortedSigners(candidates) {
+		if len(verified) == need {
+			break
+		}
+		ok, err := contracts.Valid(ctx, owner, hash, candidates[owner])
+		if err != nil {
+			return nil, fmt.Errorf("safe: verify contract signature: %w", err)
+		}
+		if ok {
+			verified[owner] = candidates[owner]
+		}
+	}
+	return verified, nil
+}
+
+// packSignatures lays out ECDSA and contract signatures in ascending owner
+// order. A contract signature's static part is r = owner, s = the offset of its
+// length-prefixed data, appended after all static parts, and v = 0.
+func packSignatures(ecdsa, contracts map[common.Address][]byte) []byte {
+	all := make(map[common.Address][]byte, len(ecdsa)+len(contracts))
+	maps.Copy(all, ecdsa)
+	maps.Copy(all, contracts)
+	signers := sortedSigners(all)
+	static := make([]byte, 0, 65*len(signers))
+	var dynamic []byte
+	for _, signer := range signers {
+		if sig, ok := ecdsa[signer]; ok {
+			static = append(static, sig...)
+			continue
+		}
+		data := contracts[signer]
+		offset := uint64(65*len(signers) + len(dynamic))
+		static = append(static, common.LeftPadBytes(signer[:], 32)...)
+		static = append(static, common.LeftPadBytes(new(big.Int).SetUint64(offset).Bytes(), 32)...)
+		static = append(static, 0)
+		dynamic = append(dynamic, common.LeftPadBytes(big.NewInt(int64(len(data))).Bytes(), 32)...)
+		dynamic = append(dynamic, data...)
+	}
+	return append(static, dynamic...)
+}
+
+func sortedSigners(sigs map[common.Address][]byte) []common.Address {
+	signers := slices.Collect(maps.Keys(sigs))
 	slices.SortFunc(signers, func(a, b common.Address) int { return bytes.Compare(a[:], b[:]) })
-	packed := make([]byte, 0, 65*threshold)
-	for _, signer := range signers[:threshold] {
-		packed = append(packed, valid[signer]...)
-	}
-	return packed, nil
+	return signers
 }
 
 func recoverOwnerSignature(hash common.Hash, sig []byte) (common.Address, error) {

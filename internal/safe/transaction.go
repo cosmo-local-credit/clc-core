@@ -107,7 +107,7 @@ func (f TxFields) Exec() (*Exec, error) {
 }
 
 // SafeTxHash is the EIP-712 digest owners sign: domain {chainId,
-// verifyingContract}, matching Safe 1.3.0 and 1.4.1.
+// verifyingContract}, matching Safe 1.3.0, 1.4.1 and 1.5.0.
 func SafeTxHash(chainID int64, safe common.Address, f TxFields) (common.Hash, error) {
 	e, err := f.Exec()
 	if err != nil {
@@ -138,7 +138,8 @@ func SafeTxHash(chainID int64, safe common.Address, f TxFields) (common.Hash, er
 
 // RecoverSigner returns the address that signed hash with a 65-byte r|s|v
 // signature, v 27 or 28. Other signature kinds (contract, approved-hash,
-// eth_sign) are rejected, as the app produces none of them.
+// eth_sign) are rejected; contract signatures are parsed by
+// ParseContractSignature and verified on chain instead.
 func RecoverSigner(hash common.Hash, signature []byte) (common.Address, error) {
 	if len(signature) != 65 || (signature[64] != 27 && signature[64] != 28) {
 		return common.Address{}, fmt.Errorf("signature must be 65 bytes with v 27 or 28")

@@ -24,7 +24,9 @@ const (
 	// earlier nonce.
 	safeExecuteRetry = 30 * time.Second
 	// maxSafeExecuteGas caps a single execution; a MultiSend of the largest
-	// owner batch with threshold signatures stays well below it.
+	// owner batch with threshold signatures stays well below it. Each passkey
+	// contract signature adds an on-chain WebAuthn P-256 verification, a few
+	// hundred thousand gas without a precompile.
 	maxSafeExecuteGas uint64 = 3_000_000
 )
 
