@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/stretchr/testify/require"
@@ -38,6 +39,95 @@ func TestAccountActivityQueryGroupsAndFiltersBeforePaging(t *testing.T) {
 	}
 	require.Less(t, strings.Index(query, "filtered AS"), strings.Index(query, "page AS"))
 	require.Less(t, strings.Index(query, "page AS"), strings.LastIndex(query, "LIMIT $7"))
+}
+
+func TestLatestPoolReviewSwapQueryRequiresSuccessfulPositiveSwap(t *testing.T) {
+	queries, err := loadFederationQueries("../../federated_queries.sql")
+	require.NoError(t, err)
+	query := queries.LatestPoolReviewSwap
+	for _, fragment := range []string{
+		"ps.contract_address = ANY($1::text[])",
+		"ps.initiator_address = ANY($2::text[])",
+		"ps.in_value > 0",
+		"ps.out_value > 0",
+		"tx.success",
+		"tx.date_block <=",
+	} {
+		require.Contains(t, query, fragment)
+	}
+}
+
+func TestIndexedAddressVariantsCoverIndexerCasing(t *testing.T) {
+	variants := indexedAddressVariants("0x00000000000000000000000000000000000000aB")
+	require.Equal(t, []string{
+		"0x00000000000000000000000000000000000000ab",
+		"0x00000000000000000000000000000000000000AB",
+	}, variants)
+}
+
+func TestLatestPoolReviewSwapQueryQualifiesEveryRouteLegDB(t *testing.T) {
+	_, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	queries, err := loadFederationQueries("../../federated_queries.sql")
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+		CREATE TEMP TABLE tx(id BIGINT PRIMARY KEY, date_block TIMESTAMP NOT NULL, success BOOLEAN NOT NULL) ON COMMIT DROP;
+		CREATE TEMP TABLE pool_swap(
+			tx_id BIGINT NOT NULL, log_index BIGINT NOT NULL, contract_address TEXT NOT NULL,
+			initiator_address TEXT NOT NULL, in_value NUMERIC NOT NULL, out_value NUMERIC NOT NULL
+		) ON COMMIT DROP;
+		INSERT INTO tx VALUES
+			(1, CURRENT_TIMESTAMP AT TIME ZONE 'UTC' - interval '2 hours', false),
+			(2, CURRENT_TIMESTAMP AT TIME ZONE 'UTC' - interval '1 hour', true),
+			(3, CURRENT_TIMESTAMP AT TIME ZONE 'UTC' + interval '1 hour', true);
+		INSERT INTO pool_swap VALUES
+			(1, 1, '0x00000000000000000000000000000000000000a1', '0x00000000000000000000000000000000000000b1', 10, 9),
+			(2, 1, '0x00000000000000000000000000000000000000a1', '0x00000000000000000000000000000000000000b1', 10, 9),
+			(2, 2, '0x00000000000000000000000000000000000000a2', '0x00000000000000000000000000000000000000b1', 9, 8),
+			(2, 3, '0x00000000000000000000000000000000000000a3', '0x00000000000000000000000000000000000000b1', 0, 8),
+			(3, 1, '0x00000000000000000000000000000000000000a1', '0x00000000000000000000000000000000000000b1', 10, 9)`)
+	require.NoError(t, err)
+
+	for _, pool := range []string{
+		"0x00000000000000000000000000000000000000a1",
+		"0x00000000000000000000000000000000000000a2",
+	} {
+		var latest *time.Time
+		require.NoError(t, tx.QueryRow(ctx, queries.LatestPoolReviewSwap, indexedAddressVariants(pool), indexedAddressVariants("0x00000000000000000000000000000000000000b1")).Scan(&latest))
+		require.NotNil(t, latest, pool)
+		require.WithinDuration(t, time.Now().Add(-time.Hour), latest.UTC(), time.Minute)
+	}
+	var invalid *time.Time
+	require.NoError(t, tx.QueryRow(
+		ctx,
+		queries.LatestPoolReviewSwap,
+		indexedAddressVariants("0x00000000000000000000000000000000000000a3"),
+		indexedAddressVariants("0x00000000000000000000000000000000000000b1"),
+	).Scan(&invalid))
+	require.Nil(t, invalid)
+
+	_, err = tx.Exec(ctx, `
+		CREATE INDEX activity_review_swap_idx ON pool_swap(contract_address, initiator_address);
+		ANALYZE pool_swap;
+		SET LOCAL enable_seqscan = off`)
+	require.NoError(t, err)
+	rows, err := tx.Query(
+		ctx,
+		"EXPLAIN (COSTS OFF) "+queries.LatestPoolReviewSwap,
+		indexedAddressVariants("0x00000000000000000000000000000000000000a1"),
+		indexedAddressVariants("0x00000000000000000000000000000000000000b1"),
+	)
+	require.NoError(t, err)
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var line string
+		require.NoError(t, rows.Scan(&line))
+		plan = append(plan, line)
+	}
+	require.NoError(t, rows.Err())
+	require.Contains(t, strings.Join(plan, "\n"), "activity_review_swap_idx")
 }
 
 func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.T) {
