@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type (
@@ -139,10 +142,96 @@ func TestIdentityAvailabilityReportsTakenEmailPhoneAndUsername(t *testing.T) {
 	}
 }
 
-func getAvailability(t *testing.T, a *API, query url.Values) (string, map[string]availabilityField) {
+// Signup creates the account and its session before onboarding uploads the
+// photo, saves the profile and activates the wallet. A user who goes back after
+// one of those fails must not find their own identities reported as taken.
+func TestIdentityAvailabilityFreesTheCallersOwnIdentities(t *testing.T) {
+	a, _ := newAdminAPI(t)
+	ctx := context.Background()
+	address := "0x" + strings.Repeat("eF", 20)
+	email := "zqavail-own@example.test"
+	phone := "+254700009186"
+	username := "Aude-Péronne Zqavail Own"
+	poolName := "Aude-Péronne Pool Zqavail Own"
+	poolKey := "42220:0x" + strings.Repeat("e", 40)
+
+	t.Cleanup(func() {
+		_, _ = a.store.Pool().Exec(context.Background(), `DELETE FROM users WHERE blockchain_address = $1`, address)
+		_, _ = a.store.Pool().Exec(context.Background(), `DELETE FROM identity_claims WHERE owner_key = $1`, poolKey)
+	})
+	if _, err := a.store.Pool().Exec(ctx, `DELETE FROM users WHERE lower(blockchain_address) = lower($1) OR email = $2 OR phone = $3`, address, email, phone); err != nil {
+		t.Fatalf("clear previous user: %v", err)
+	}
+	if _, err := a.store.Pool().Exec(ctx, `DELETE FROM identity_claims WHERE owner_key = $1 OR name = normalize_identity_name($2)`, poolKey, poolName); err != nil {
+		t.Fatalf("clear previous claim: %v", err)
+	}
+	var id uint64
+	if err := a.store.Pool().QueryRow(ctx, `
+		INSERT INTO users (blockchain_address, name, email, phone, username, country, role, status)
+		VALUES ($1, 'Aude Péronne', $2, $3, $4, 'KE', 'USER', 'APPROVED')
+		RETURNING id`,
+		address, email, phone, username).Scan(&id); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := a.store.Pool().Exec(ctx, `
+		INSERT INTO identity_claims (namespace, name, owner_kind, owner_key)
+		VALUES ('recipient', normalize_identity_name($1), 'pool', $2)`, poolName, poolKey); err != nil {
+		t.Fatalf("seed pool claim: %v", err)
+	}
+
+	cookieFor := func(signer *API, address string) *http.Cookie {
+		t.Helper()
+		token, err := signer.generateUserToken(store.User{ID: id, EthereumAddress: address, Role: "USER"})
+		if err != nil {
+			t.Fatalf("sign session: %v", err)
+		}
+		return &http.Cookie{Name: userAuthCookieName, Value: token}
+	}
+	_, forgingKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate forging key: %v", err)
+	}
+	forger := &API{signingKey: forgingKey}
+
+	query := url.Values{}
+	query.Set("email", email)
+	query.Set("phone", phone)
+	query.Set("username", username)
+
+	_, own := getAvailability(t, a, query, cookieFor(a, common.HexToAddress(address).Hex()))
+	if !own["email"].Available || !own["phone"].Available || !own["username"].Available {
+		t.Fatalf("the caller's own identities were reported taken: %#v", own)
+	}
+
+	others := map[string]*http.Cookie{
+		"guest":                    nil,
+		"another account":          cookieFor(a, "0x"+strings.Repeat("1", 40)),
+		"cookie signed by another": cookieFor(forger, address),
+	}
+	for name, cookie := range others {
+		_, taken := getAvailability(t, a, query, cookie)
+		if taken["email"].Available || taken["phone"].Available || taken["username"].Available {
+			t.Fatalf("%s: another account's identities were reported free: %#v", name, taken)
+		}
+	}
+
+	poolQuery := url.Values{}
+	poolQuery.Set("username", poolName)
+	_, pool := getAvailability(t, a, poolQuery, cookieFor(a, address))
+	if pool["username"].Available {
+		t.Fatalf("a pool's name was freed for a signed-in user: %#v", pool)
+	}
+}
+
+func getAvailability(t *testing.T, a *API, query url.Values, cookie ...*http.Cookie) (string, map[string]availabilityField) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/identity/availability?"+query.Encode(), nil)
 	req.RemoteAddr = "198.51.100.80:1234"
+	for _, c := range cookie {
+		if c != nil {
+			req.AddCookie(c)
+		}
+	}
 	res := httptest.NewRecorder()
 	a.router.ServeHTTP(res, req)
 	raw := res.Body.String()

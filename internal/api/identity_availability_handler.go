@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/labstack/echo/v5"
 	"golang.org/x/text/unicode/norm"
 )
@@ -24,6 +25,11 @@ var (
 // name lookup: signup and profile save repeat the check and are what actually
 // claim the identity. The response names only the fields that were asked about,
 // and it does not repeat their values or say who holds them.
+//
+// A signed-in caller's own identities are free. Signup creates the account and
+// its session before onboarding uploads the photo, saves the profile and
+// activates the wallet, so a user who goes back after one of those fails would
+// otherwise be told their own email is taken.
 func (a *API) identityAvailabilityHandler(c *echo.Context) error {
 	email, phone, username, description := parseIdentityAvailabilityQuery(c)
 	if description != "" {
@@ -41,7 +47,7 @@ func (a *API) identityAvailabilityHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	taken, err := a.store.IdentityAvailability(ctx, tx, email, phone, username)
+	taken, err := a.store.IdentityAvailability(ctx, tx, email, phone, username, a.sessionOwnerKey(c))
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -78,6 +84,23 @@ func (a *API) identityAvailabilityHandler(c *echo.Context) error {
 		Description: "Identity availability",
 		Result:      result,
 	})
+}
+
+// sessionOwnerKey is the session cookie's address, lowercased the way
+// identity_claims keys a user, or nil for a guest. Resolved like
+// webAuthnCredentialsHandler: from the cookie only, never a service bearer, and
+// a cookie that does not verify is a guest rather than an error.
+func (a *API) sessionOwnerKey(c *echo.Context) *string {
+	cookie, err := c.Cookie(userAuthCookieName)
+	if err != nil || cookie.Value == "" {
+		return nil
+	}
+	token, err := a.parseUserJWT(cookie.Value)
+	if err != nil || !common.IsHexAddress(token.EthereumAddress) {
+		return nil
+	}
+	owner := strings.ToLower(common.HexToAddress(token.EthereumAddress).Hex())
+	return &owner
 }
 
 func availabilityFlag(taken *bool) (bool, error) {
