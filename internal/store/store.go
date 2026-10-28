@@ -110,6 +110,7 @@ type (
 		GetUserByEmail(context.Context, pgx.Tx, string) (User, error)
 		IdentityAvailability(context.Context, pgx.Tx, *string, *string, *string, *string) (IdentityTaken, error)
 		GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
+		GetUserAccessByID(context.Context, uint64) (UserAccess, error)
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		UpdateUserRole(context.Context, pgx.Tx, string, string) (User, error)
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)

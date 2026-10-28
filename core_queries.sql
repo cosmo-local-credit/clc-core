@@ -763,6 +763,11 @@ SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(emai
 FROM users
 WHERE id = $1;
 
+--name: get-user-access-by-id
+SELECT blockchain_address, role, status
+FROM users
+WHERE id = $1;
+
 --name: get-user-by-email
 SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at
 FROM users

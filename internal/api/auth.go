@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -257,6 +258,9 @@ func (a *API) requireUserAuth() echo.MiddlewareFunc {
 // revalidatePrivilegedRole makes the database authoritative for long-lived
 // administrative sessions. A stale ADMIN/SUPERADMIN JWT is never enough to
 // authorize a protected request after the account has been demoted or rejected.
+// The access lookup owns no transaction beyond its Scan: holding a connection
+// while next runs can starve handlers that need another pooled connection when
+// several administrative reads arrive together.
 func (a *API) revalidatePrivilegedRole() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -271,18 +275,16 @@ func (a *API) revalidatePrivilegedRole() echo.MiddlewareFunc {
 				return handleJWTAuthError(c, "current account status could not be verified")
 			}
 
-			ctx := c.Request().Context()
-			tx, err := a.store.Pool().Begin(ctx)
-			if err != nil {
-				return err
-			}
-			defer tx.Rollback(ctx)
-
 			userID, _ := c.Get("callerUserID").(uint64)
-			user, err := a.store.GetUserByID(ctx, tx, userID)
+			ctx := c.Request().Context()
+			user, err := a.store.GetUserAccessByID(ctx, userID)
 			claimedAddress, _ := c.Get("callerAddress").(string)
-			if err != nil || user.Status != "APPROVED" ||
-				!strings.EqualFold(user.EthereumAddress, claimedAddress) {
+			if err != nil {
+				a.logPrivilegedRoleRevalidationFailure(ctx, userID, "lookup_failed", err)
+				return handleJWTAuthError(c, "current account status could not be verified")
+			}
+			if user.Status != "APPROVED" || !strings.EqualFold(user.EthereumAddress, claimedAddress) {
+				a.logPrivilegedRoleRevalidationFailure(ctx, userID, "account_mismatch", nil)
 				return handleJWTAuthError(c, "current account status could not be verified")
 			}
 			c.Set("callerAddress", common.HexToAddress(user.EthereumAddress).Hex())
@@ -290,6 +292,26 @@ func (a *API) revalidatePrivilegedRole() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+func (a *API) logPrivilegedRoleRevalidationFailure(
+	ctx context.Context,
+	userID uint64,
+	reason string,
+	err error,
+) {
+	if a.logg == nil {
+		return
+	}
+	attrs := []any{
+		"event", "privileged_role_revalidation_failed",
+		"user_id", userID,
+		"reason", reason,
+	}
+	if err != nil {
+		attrs = append(attrs, "err", err)
+	}
+	a.logg.ErrorContext(ctx, "privileged role revalidation failed", attrs...)
 }
 
 // requireAdmin permits either administrative role.

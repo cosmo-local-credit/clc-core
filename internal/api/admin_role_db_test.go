@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 )
@@ -214,4 +216,122 @@ func TestAdminRoleManagementAndSessionRefreshDB(t *testing.T) {
 		t.Fatal("demoted session did not refresh its cookie")
 	}
 
+}
+
+func TestPrivilegedRoleRevalidationReleasesConnectionBeforeHandlerDB(t *testing.T) {
+	a, _ := newAdminAPI(t)
+	cleanupRoleTestUsers(t, a)
+	t.Cleanup(func() { cleanupRoleTestUsers(t, a) })
+
+	admin := seedRoleTestUser(
+		t,
+		a,
+		"0x6100000000000000000000000000000000000010",
+		"SUPERADMIN",
+		"APPROVED",
+	)
+	token, err := a.generateUserToken(admin)
+	if err != nil {
+		t.Fatalf("sign superadmin token: %v", err)
+	}
+
+	// Leave exactly one connection available. The role check must release it
+	// before resource-usage begins its own transaction. Keeping the middleware
+	// transaction open until next returns deadlocks this request until the API's
+	// deadline, which is the production Wallet regression this test guards.
+	pool := a.store.Pool()
+	held := make([]interface{ Release() }, 0, int(pool.Stat().MaxConns())-1)
+	for range int(pool.Stat().MaxConns()) - 1 {
+		conn, acquireErr := pool.Acquire(context.Background())
+		if acquireErr != nil {
+			t.Fatalf("reserve database connection: %v", acquireErr)
+		}
+		held = append(held, conn)
+	}
+	t.Cleanup(func() {
+		for _, conn := range held {
+			conn.Release()
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/users/me/resource-usage", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: userAuthCookieName, Value: token})
+	res := httptest.NewRecorder()
+	started := time.Now()
+	a.router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("resource usage status/body = %d %s", res.Code, res.Body.String())
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("privileged request held the only connection for %s", elapsed)
+	}
+	if got, want := pool.Stat().AcquiredConns(), int32(len(held)); got != want {
+		t.Fatalf("acquired connections after request = %d, want %d", got, want)
+	}
+}
+
+func TestPrivilegedWalletReadsCompleteConcurrentlyDB(t *testing.T) {
+	a, _ := newAdminAPI(t)
+	cleanupRoleTestUsers(t, a)
+	t.Cleanup(func() { cleanupRoleTestUsers(t, a) })
+
+	admin := seedRoleTestUser(
+		t,
+		a,
+		"0x6100000000000000000000000000000000000011",
+		"SUPERADMIN",
+		"APPROVED",
+	)
+	token, err := a.generateUserToken(admin)
+	if err != nil {
+		t.Fatalf("sign superadmin token: %v", err)
+	}
+
+	requests := []struct {
+		path       string
+		wantStatus int
+	}{
+		{"/api/v2/users/me/resource-usage", http.StatusOK},
+		{"/api/v2/users/me/catalogs", http.StatusOK},
+		{"/api/v2/users/me/wants", http.StatusOK},
+		{"/api/v2/users/me/owned-pools", http.StatusOK},
+		{"/api/v2/users/me/retirement-requests", http.StatusOK},
+		// The isolated core database has no federation source, so account-token
+		// reads return Not Found here. They still exercise privileged session
+		// revalidation concurrently and must complete before the deadline.
+		{"/api/v2/accounts/" + admin.EthereumAddress + "/tokens?perPage=20", http.StatusNotFound},
+		{"/api/v2/accounts/" + admin.EthereumAddress + "/tokens/issued?perPage=100", http.StatusNotFound},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	responses := make([]*httptest.ResponseRecorder, len(requests))
+	var wg sync.WaitGroup
+	for i, request := range requests {
+		wg.Go(func() {
+			req := httptest.NewRequest(http.MethodGet, request.path, nil).WithContext(ctx)
+			req.AddCookie(&http.Cookie{Name: userAuthCookieName, Value: token})
+			responses[i] = httptest.NewRecorder()
+			a.router.ServeHTTP(responses[i], req)
+		})
+	}
+	wg.Wait()
+
+	for i, response := range responses {
+		if response.Code != requests[i].wantStatus {
+			t.Errorf(
+				"%s status/body = %d %s, want %d",
+				requests[i].path,
+				response.Code,
+				response.Body.String(),
+				requests[i].wantStatus,
+			)
+		}
+	}
+	if acquired := a.store.Pool().Stat().AcquiredConns(); acquired != 0 {
+		t.Fatalf("acquired connections after concurrent Wallet reads = %d, want 0", acquired)
+	}
 }

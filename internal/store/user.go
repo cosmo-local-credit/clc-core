@@ -37,6 +37,15 @@ type (
 		UpdatedAt         time.Time `db:"updated_at"       json:"updatedAt"`
 	}
 
+	// UserAccess is the narrow authoritative account state needed by request
+	// middleware. It deliberately excludes profile and quota fields so the
+	// lookup can release its pooled connection before the handler starts.
+	UserAccess struct {
+		EthereumAddress string
+		Role            string
+		Status          string
+	}
+
 	UserProfileUpdate struct {
 		Address  string
 		Username *string
@@ -129,6 +138,16 @@ func (pg *Pg) GetUserByID(ctx context.Context, tx pgx.Tx, id uint64) (User, erro
 	}
 
 	return u, nil
+}
+
+func (pg *Pg) GetUserAccessByID(ctx context.Context, id uint64) (UserAccess, error) {
+	var access UserAccess
+	err := pg.db.QueryRow(ctx, pg.queries.GetUserAccessByID, id).Scan(
+		&access.EthereumAddress,
+		&access.Role,
+		&access.Status,
+	)
+	return access, err
 }
 
 func (pg *Pg) UpdateUserStatus(ctx context.Context, tx pgx.Tx, address string, status string) (User, error) {
