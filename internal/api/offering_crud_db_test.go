@@ -152,10 +152,13 @@ func offeringToken(t *testing.T, priv ed25519.PrivateKey, address, role string) 
 func offeringServiceToken(t *testing.T, priv ed25519.PrivateKey) string {
 	t.Helper()
 
-	signed, err := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{
-		"service": "indexer",
-		"iat":     time.Now().Unix(),
-		"exp":     time.Now().Add(time.Hour).Unix(),
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodEdDSA, JWTCustomClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+		PublicKey: "0x0000000000000000000000000000000000000001",
+		Service:   true,
 	}).SignedString(priv)
 	if err != nil {
 		t.Fatalf("sign service token: %v", err)

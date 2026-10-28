@@ -82,3 +82,46 @@ func TestSafeSignersOrderingAndAssetOwnership(t *testing.T) {
 }
 
 func lower(s string) string { return strings.ToLower(s) }
+
+func TestListSafesSignedByDB(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	first, second, other := randomAddress(t, tx), randomAddress(t, tx), randomAddress(t, tx)
+	me, colleague, stranger := randomAddress(t, tx), randomAddress(t, tx), randomAddress(t, tx)
+
+	_, err := pg.ReplaceSafeSigners(ctx, tx, 100, first, []string{me, colleague}, 2, 10, 0)
+	require.NoError(t, err)
+	_, err = pg.ReplaceSafeSigners(ctx, tx, 100, second, []string{me}, 0, 10, 1)
+	require.NoError(t, err)
+	_, err = pg.ReplaceSafeSigners(ctx, tx, 42220, other, []string{me}, 1, 10, 2)
+	require.NoError(t, err)
+
+	safes, err := pg.ListSafesSignedBy(ctx, tx, 100, strings.ToUpper(me))
+	require.NoError(t, err)
+	require.Len(t, safes, 2, "both Safes on this chain, matched case-insensitively")
+	byAddress := map[string]SafeState{}
+	for _, s := range safes {
+		byAddress[s.Address] = s
+	}
+	require.ElementsMatch(t, []string{lower(me), lower(colleague)}, byAddress[lower(first)].Signers, "the full signer set, not just the caller")
+	require.Equal(t, 2, byAddress[lower(first)].Threshold)
+	require.Equal(t, 0, byAddress[lower(second)].Threshold, "an unknown threshold reads as zero")
+
+	safes, err = pg.ListSafesSignedBy(ctx, tx, 100, colleague)
+	require.NoError(t, err)
+	require.Len(t, safes, 1)
+	require.Equal(t, lower(first), safes[0].Address)
+
+	safes, err = pg.ListSafesSignedBy(ctx, tx, 100, stranger)
+	require.NoError(t, err)
+	require.Empty(t, safes)
+
+	// A removed signer no longer sees the Safe.
+	_, err = pg.ReplaceSafeSigners(ctx, tx, 100, first, []string{colleague}, 1, 11, 0)
+	require.NoError(t, err)
+	safes, err = pg.ListSafesSignedBy(ctx, tx, 100, me)
+	require.NoError(t, err)
+	require.Len(t, safes, 1)
+	require.Equal(t, lower(second), safes[0].Address)
+}

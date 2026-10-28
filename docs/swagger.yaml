@@ -33,7 +33,7 @@ tags:
 - name: Current user
   description: Data that belongs to the signed-in user.
 - name: Admin
-  description: Superadmin routes for users, catalogs, moderation and statistics.
+  description: Administrative routes for users, catalogs, moderation and statistics. Role mutation requires SUPERADMIN.
 paths:
   /auth/nonce:
     post:
@@ -141,8 +141,8 @@ paths:
     post:
       tags:
       - Auth endpoints
-      summary: Sign in a registered user
-      description: 'Signs in a registered user. The response sets the session cookie. Access: Public.'
+      summary: Sign in, registering a new address
+      description: 'Signs in a user and registers the user if the address is new. A new address creates a user with the status APPROVED, the role USER, the name Sign-in card and a placeholder email of the form pending+<address without 0x>@clc.local. The caller can set real values with POST /auth/profile. The response sets the session cookie. Access: Public.'
       operationId: postAuthSignin
       requestBody:
         required: true
@@ -194,9 +194,9 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
           description: 'E10: The user status is PENDING or REJECTED.'
-        '404':
-          $ref: '#/components/responses/NotFound'
-          description: 'E03: The address is not registered. Call POST /auth/signup first.'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: 'E17: The placeholder email of the new address is linked to another user. The address is not registered.'
       security: []
   /auth/logout:
     post:
@@ -317,7 +317,7 @@ paths:
       tags:
       - Auth endpoints
       summary: Return the session of the caller
-      description: 'Returns the session of the caller. This response does not use the standard envelope. Access: Public. The route reads the ''__clc_auth'' cookie. It ignores the ''Authorization'' header.'
+      description: 'Returns the current database-backed session of the caller. When the stored role differs from the cookie claim, the response refreshes the cookie. This response does not use the standard envelope. Access: Public. The route reads the ''__clc_auth'' cookie. It ignores the ''Authorization'' header.'
       operationId: getAuthSession
       responses:
         '200':
@@ -336,6 +336,7 @@ paths:
                     type: string
                     enum:
                     - USER
+                    - ADMIN
                     - SUPERADMIN
                 required:
                 - address
@@ -1020,7 +1021,7 @@ paths:
       tags:
       - Vouchers and offerings
       summary: Retire a voucher
-      description: 'Retires a voucher. The server sets the voucher to inactive. The voucher then disappears from the public reads. The server keeps the voucher row, its offerings and its reports. The route takes no body. Access: User session. The caller must be the voucher owner or a superadmin.'
+      description: 'Retires a voucher. The server sets the voucher to inactive. The voucher then disappears from the public reads. The server keeps the voucher row, its offerings and its reports. The route takes no body. Access: User session. The caller must be the voucher owner or an administrator.'
       operationId: deleteVouchersByAddress
       parameters:
       - name: address
@@ -1058,7 +1059,7 @@ paths:
           description: 'E06: No valid session. E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token.'
+          description: 'E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The voucher does not exist.'
@@ -1135,7 +1136,7 @@ paths:
       tags:
       - Vouchers and offerings
       summary: Create an offering for a voucher
-      description: 'Creates an offering for a voucher. The server sets the seller. The seller is the voucher owner. When the voucher has no owner, only a superadmin can create the offering, and the seller is that superadmin. Access: User session. The caller must be the voucher owner or a superadmin.'
+      description: 'Creates an offering for a voucher. The server sets the seller. The seller is the voucher owner. When the voucher has no owner, only an administrator can create the offering, and the seller is that administrator. Access: User session. The caller must be the voucher owner or an administrator.'
       operationId: postVouchersByAddressOfferings
       parameters:
       - name: address
@@ -1205,7 +1206,7 @@ paths:
           description: 'E06: No valid session. E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token.'
+          description: 'E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The voucher does not exist.'
@@ -1214,7 +1215,7 @@ paths:
           description: 'E16: The voucher is retired.'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-          description: 'E11: The caller reached the offer limit of the account. The result has resource, used and limit. A superadmin has no limit.'
+          description: 'E11: The caller reached the offer limit of the account. The result has resource, used and limit. An administrator has no limit.'
       security:
       - cookieAuth: []
   /api/v2/vouchers/{address}/offerings/{id}:
@@ -1271,7 +1272,7 @@ paths:
       tags:
       - Vouchers and offerings
       summary: Replace the product fields of an offering
-      description: 'Replaces the product fields of an offering. The body is the same as for ''POST /api/v2/vouchers/:address/offerings''. Every field is written. A request without ''imageUrl'' removes the image. There is no partial update. Access: User session. The caller must be the voucher owner or a superadmin.'
+      description: 'Replaces the product fields of an offering. The body is the same as for ''POST /api/v2/vouchers/:address/offerings''. Every field is written. A request without ''imageUrl'' removes the image. There is no partial update. Access: User session. The caller must be the voucher owner or an administrator.'
       operationId: putVouchersByAddressOfferingsById
       parameters:
       - name: address
@@ -1347,7 +1348,7 @@ paths:
           description: 'E06: No valid session. E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token.'
+          description: 'E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The offering does not exist, belongs to another voucher, or is unlisted.'
@@ -1360,7 +1361,7 @@ paths:
       tags:
       - Vouchers and offerings
       summary: Unlist an offering
-      description: 'Unlists an offering. The server keeps the row and sets ''available'' to ''false''. The public routes no longer return it. The server does not delete the stored image. Access: User session. The caller must be the voucher owner or a superadmin.'
+      description: 'Unlists an offering. The server keeps the row and sets ''available'' to ''false''. The public routes no longer return it. The server does not delete the stored image. Access: User session. The caller must be the voucher owner or an administrator.'
       operationId: deleteVouchersByAddressOfferingsById
       parameters:
       - name: address
@@ -1652,7 +1653,7 @@ paths:
           minimum: 0
           maximum: 22
           default: 0
-        description: Map zoom. Its integer floor selects the server cluster bucket.
+        description: Map zoom. The server rounds down to a quarter-zoom bucket and clusters within a 30-pixel grid below zoom 20.
       - name: kinds
         in: query
         required: false
@@ -3413,7 +3414,7 @@ paths:
       tags:
       - Contracts, tracking and system
       summary: Queue a job that deploys a voucher (ERC-20 proxy)
-      description: 'Queues a job that deploys a voucher (ERC-20 proxy). Access: User or service token. A user caller counts against the voucher limit. A superadmin or service token has no limit.'
+      description: 'Queues a job that deploys a voucher (ERC-20 proxy). Access: User or service token. A user caller counts against the voucher limit. An administrator or service token has no limit.'
       operationId: postContractsToken
       requestBody:
         required: true
@@ -3558,7 +3559,7 @@ paths:
       tags:
       - Contracts, tracking and system
       summary: Queue a job that deploys a pool
-      description: 'Queues a job that deploys a pool. Access: User or service token. A user caller counts against the pool limit. A superadmin or service token has no limit.'
+      description: 'Queues a job that deploys a pool. Access: User or service token. A user caller counts against the pool limit. An administrator or service token has no limit.'
       operationId: postContractsPool
       requestBody:
         required: true
@@ -4569,7 +4570,7 @@ paths:
       tags:
       - Contracts, tracking and system
       summary: Return the OTX chain for a tracking ID
-      description: 'Returns the OTX chain for a tracking ID. Access: User or service token. A user caller who is not a superadmin can track only IDs that the API recorded for that user at deploy time.'
+      description: 'Returns the OTX chain for a tracking ID. Access: User or service token. A user caller who is not an administrator can track only IDs that the API recorded for that user at deploy time.'
       operationId: getOtxTrackByTrackingId
       parameters:
       - name: trackingId
@@ -4624,7 +4625,7 @@ paths:
           description: 'E06: No valid credential. E06: The credential is missing or not valid.'
         '404':
           $ref: '#/components/responses/NotFound'
-          description: 'E07: A user caller (not a superadmin) does not own the tracking ID.'
+          description: 'E07: A user caller (not an administrator) does not own the tracking ID.'
       security:
       - cookieAuth: []
       - bearerAuth: []
@@ -4633,7 +4634,7 @@ paths:
       tags:
       - Contracts, tracking and system
       summary: Return the contract that a deploy created
-      description: 'Returns the contract that a deploy created. The route looks for a voucher first, then for a pool. Access: User or service token. A user caller who is not a superadmin can read only IDs that the API recorded for that user at deploy time.'
+      description: 'Returns the contract that a deploy created. The route looks for a voucher first, then for a pool. Access: User or service token. A user caller who is not an administrator can read only IDs that the API recorded for that user at deploy time.'
       operationId: getOtxTrackByTrackingIdContract
       parameters:
       - name: trackingId
@@ -4685,7 +4686,7 @@ paths:
           description: 'E06: No valid credential. E06: The credential is missing or not valid.'
         '404':
           $ref: '#/components/responses/NotFound'
-          description: 'E07: A user caller (not a superadmin) does not own the tracking ID.'
+          description: 'E07: A user caller (not an administrator) does not own the tracking ID.'
         '500':
           $ref: '#/components/responses/InternalError'
           description: 'E01: A user caller sends a value that is not a UUID.'
@@ -4697,7 +4698,7 @@ paths:
       tags:
       - Contracts, tracking and system
       summary: List the OTX that a custodial account signed
-      description: 'Returns the OTX that a custodial signer account signed, newest first. Access: User or service token. ''address'' must be the caller''s own address, unless the caller is a service token or a superadmin.'
+      description: 'Returns the OTX that a custodial signer account signed, newest first. Access: User or service token. ''address'' must be the caller''s own address, unless the caller is a service token or an administrator.'
       operationId: getAccountOtxByAddress
       parameters:
       - name: address
@@ -5286,7 +5287,7 @@ paths:
       tags:
       - Posts
       summary: Replace a post
-      description: 'Replaces all editable fields and all five collections of a post. An omitted optional field is cleared. An omitted collection becomes empty. At least one voucher or pool is required. A failed request changes nothing. After an edit by the original author the status is APPROVED. After an edit by a superadmin the status does not change. Access: User session. The caller must be the original author or a superadmin.'
+      description: 'Replaces all editable fields and all five collections of a post. An omitted optional field is cleared. An omitted collection becomes empty. At least one voucher or pool is required. A failed request changes nothing. After an edit by the original author the status is APPROVED. After an edit by an administrator the status does not change. Access: User session. The caller must be the original author or an administrator.'
       operationId: putReportsById
       parameters:
       - name: id
@@ -5443,7 +5444,7 @@ paths:
           description: 'E06: The request has no valid session. E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not the author and not a superadmin. Or a service token. Or a regular caller links a voucher or pool that the caller does not own. E10:.'
+          description: 'E10: The caller is not the author and not an administrator. Or a service token. Or a regular caller links a voucher or pool that the caller does not own. E10:.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The post does not exist.'
@@ -5453,7 +5454,7 @@ paths:
       tags:
       - Posts
       summary: Delete a post
-      description: 'Deletes the post with its tags, voucher links, pool links, images, and attachments. An author cannot delete the own post. Status ''200''. ''description'' is ''Report deleted''. ''result'' is ''{"id": 4633}''. Access: Superadmin.'
+      description: 'Deletes the post with its tags, voucher links, pool links, images, and attachments. An author cannot delete the own post. Status ''200''. ''description'' is ''Report deleted''. ''result'' is ''{"id": 4633}''. Access: Administrative.'
       operationId: deleteReportsById
       parameters:
       - name: id
@@ -5495,7 +5496,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: a caller that is not a superadmin.'
+          description: 'E10: a caller that is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: the post does not exist.'
@@ -5506,7 +5507,7 @@ paths:
       tags:
       - Posts
       summary: Set the status of the post to APPROVED
-      description: 'Sets the status of the post to ''APPROVED''. The request has no body. The route changes nothing else. A post that is already ''APPROVED'' stays the same and returns ''200''. Status ''200''. ''description'' is ''Report approved''. ''result'' is ''{"report": <post>}''. Access: Superadmin.'
+      description: 'Sets the status of the post to ''APPROVED''. The request has no body. The route changes nothing else. A post that is already ''APPROVED'' stays the same and returns ''200''. Status ''200''. ''description'' is ''Report approved''. ''result'' is ''{"report": <post>}''. Access: Administrative.'
       operationId: putReportsByIdApprove
       parameters:
       - name: id
@@ -5543,7 +5544,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: a caller that is not a superadmin.'
+          description: 'E10: a caller that is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: the post does not exist.'
@@ -5554,7 +5555,7 @@ paths:
       tags:
       - Pools
       summary: Replace the off-chain profile of a pool
-      description: 'Replaces the off-chain profile of a pool. The route writes every field, so a request must send the full record. An omitted field is cleared. The fields ''displayName'', ''imageUrl'' and ''bannerUrl'' are the exception: an omitted field keeps its stored value, and an empty string clears it. The tags are always replaced. Access: User session. The caller must be the pool owner or a superadmin. A pool with no owner can only be changed by a superadmin. This route has no rate limit.'
+      description: 'Replaces the off-chain profile of a pool. The route writes every field, so a request must send the full record. An omitted field is cleared. The fields ''displayName'', ''imageUrl'' and ''bannerUrl'' are the exception: an omitted field keeps its stored value, and an empty string clears it. The tags are always replaced. Access: User session. The caller must be the pool owner or an administrator. A pool with no owner can only be changed by an administrator. This route has no rate limit.'
       operationId: putPoolsByAddressProfile
       parameters:
       - name: address
@@ -5648,7 +5649,7 @@ paths:
           description: 'E06: No valid session. E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller uses a service token, or is not the pool owner or a superadmin. E10: The caller uses a service token.'
+          description: 'E10: The caller uses a service token, or is not the pool owner or an administrator. E10: The caller uses a service token.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The pool does not exist.'
@@ -5665,7 +5666,7 @@ paths:
       tags:
       - Vouchers and offerings
       summary: Set the public name of a voucher
-      description: 'Sets the public name of a voucher. The contract name does not change. Access: User session. The caller must be the voucher owner or a superadmin.'
+      description: 'Sets the public name of a voucher. The contract name does not change. Access: User session. The caller must be the voucher owner or an administrator.'
       operationId: putVouchersByAddressDisplayName
       parameters:
       - name: address
@@ -5714,7 +5715,7 @@ paths:
           description: 'E06: No valid session. E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token.'
+          description: 'E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The voucher does not exist.'
@@ -5728,7 +5729,7 @@ paths:
       tags:
       - Vouchers and offerings
       summary: Replace the off-chain profile of a voucher
-      description: 'Replaces the off-chain profile of a voucher. The route writes every field, so a request must send the full record. An omitted field is cleared. The fields ''displayName'', ''iconUrl'', ''bannerUrl'', ''markerIcon'' and ''markerColor'' are the exception: an omitted field keeps its stored value, and an empty string clears it. The tags are always replaced. Access: User session. The caller must be the voucher owner or a superadmin.'
+      description: 'Replaces the off-chain profile of a voucher. The route writes every field, so a request must send the full record. An omitted field is cleared. The fields ''displayName'', ''iconUrl'', ''bannerUrl'', ''markerIcon'' and ''markerColor'' are the exception: an omitted field keeps its stored value, and an empty string clears it. The tags are always replaced. Access: User session. The caller must be the voucher owner or an administrator.'
       operationId: putVouchersByAddressProfile
       parameters:
       - name: address
@@ -5831,7 +5832,7 @@ paths:
           description: 'E06: No valid session. E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller uses a service token, or is not the owner or a superadmin. E10: The caller uses a service token.'
+          description: 'E10: The caller uses a service token, or is not the owner or an administrator. E10: The caller uses a service token.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The voucher does not exist.'
@@ -5845,7 +5846,7 @@ paths:
       tags:
       - Pretium
       summary: Start a fiat-to-crypto onramp
-      description: 'Starts a fiat-to-crypto onramp. Access: User or service token. ''address'' must be the caller''s own address, unless the caller is a service token or a superadmin.'
+      description: 'Starts a fiat-to-crypto onramp. Access: User or service token. ''address'' must be the caller''s own address, unless the caller is a service token or an administrator.'
       operationId: postPretiumTriggerOnramp
       requestBody:
         required: true
@@ -5928,7 +5929,7 @@ paths:
       tags:
       - Pretium
       summary: Link a public key to a phone number
-      description: 'Links a public key to a phone number. Access: User or service token. ''publicKey'' must be the caller''s own address, unless the caller is a service token or a superadmin.'
+      description: 'Links a public key to a phone number. Access: User or service token. ''publicKey'' must be the caller''s own address, unless the caller is a service token or an administrator.'
       operationId: postPretiumLink
       requestBody:
         required: true
@@ -5996,7 +5997,7 @@ paths:
       tags:
       - Pretium
       summary: Return the links of a phone number
-      description: 'Returns the links of a phone number. Access: Service token or superadmin.'
+      description: 'Returns the links of a phone number. Access: Service token or administrator.'
       operationId: getPretiumLinkByPhoneNumber
       parameters:
       - name: phoneNumber
@@ -6052,7 +6053,7 @@ paths:
       tags:
       - Pretium
       summary: Return the link of a wallet address
-      description: 'Returns the link of a wallet address. Access: User or service token. ''address'' must be the caller''s own address, unless the caller is a service token or a superadmin.'
+      description: 'Returns the link of a wallet address. Access: User or service token. ''address'' must be the caller''s own address, unless the caller is a service token or an administrator.'
       operationId: getPretiumLinkByAddressByAddress
       parameters:
       - name: address
@@ -6108,7 +6109,7 @@ paths:
       tags:
       - Pretium
       summary: Return the transactions of a phone number
-      description: 'Returns the transactions of a phone number. Access: Service token or superadmin.'
+      description: 'Returns the transactions of a phone number. Access: Service token or administrator.'
       operationId: getPretiumTransactionsByPhoneNumber
       parameters:
       - name: phoneNumber
@@ -6164,7 +6165,7 @@ paths:
       tags:
       - Pretium
       summary: Return the transactions of an address
-      description: 'Returns the transactions of an address. Access: User or service token. ''address'' must be the caller''s own address, unless the caller is a service token or a superadmin.'
+      description: 'Returns the transactions of an address. Access: User or service token. ''address'' must be the caller''s own address, unless the caller is a service token or an administrator.'
       operationId: getPretiumTransactionsByAddressByAddress
       parameters:
       - name: address
@@ -6220,7 +6221,7 @@ paths:
       tags:
       - Pretium
       summary: Return recent transactions
-      description: 'Returns recent transactions. The route has no parameters. The response is the upstream response. Access: Service token or superadmin.'
+      description: 'Returns recent transactions. The route has no parameters. The response is the upstream response. Access: Service token or administrator.'
       operationId: getPretiumTransactionsRecent
       responses:
         '200':
@@ -6936,7 +6937,7 @@ paths:
                             description: Profile fields. Not present if not set.
                           role:
                             type: string
-                            description: '''USER'' or ''SUPERADMIN''.'
+                            description: '''USER'', ''ADMIN'' or ''SUPERADMIN''.'
                           status:
                             type: string
                             description: '''PENDING'', ''APPROVED'' or ''REJECTED''.'
@@ -7014,7 +7015,7 @@ paths:
         required: false
         schema:
           type: string
-        description: Voucher address. Scopes offers usage to this voucher. The caller must own it unless the caller is a superadmin.
+        description: Voucher address. Scopes offers usage to this voucher. The caller must own it unless the caller is an administrator.
       responses:
         '200':
           description: Success
@@ -7354,7 +7355,7 @@ paths:
       tags:
       - Current user
       summary: Return one confirmed deployed voucher
-      description: 'Returns one confirmed deployed voucher. Access: User session. The caller must have started the deployment, or be a superadmin.'
+      description: 'Returns one confirmed deployed voucher. Access: User session. The caller must have started the deployment, or be an administrator.'
       operationId: getUsersMeTokensByAddress
       parameters:
       - name: address
@@ -7532,7 +7533,7 @@ paths:
       tags:
       - Current user
       summary: Return one confirmed deployed pool
-      description: 'Returns one confirmed deployed pool. Access: User session. The caller must have started the deployment, or be a superadmin.'
+      description: 'Returns one confirmed deployed pool. Access: User session. The caller must have started the deployment, or be an administrator.'
       operationId: getUsersMePoolsByAddress
       parameters:
       - name: address
@@ -8061,7 +8062,7 @@ paths:
       tags:
       - Admin
       summary: Return one page of the account directory
-      description: 'Return one page of the account directory. Rows are newest first. Access: Superadmin.'
+      description: 'Return one page of the account directory. Rows are newest first. Access: Administrative.'
       operationId: getAdminUsers
       parameters:
       - name: q
@@ -8076,6 +8077,12 @@ paths:
         schema:
           type: string
         description: Filter by approval status. Values are 'PENDING', 'APPROVED' and 'REJECTED'. The case does not matter.
+      - name: roles
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by USER, ADMIN, or SUPERADMIN. Repeat the parameter or use comma-separated values. Selected roles use OR semantics.
       - name: perPage
         in: query
         required: false
@@ -8143,13 +8150,80 @@ paths:
                   last: 4210
         '400':
           $ref: '#/components/responses/BadRequest'
-          description: 'E04: q is shorter than 2 or longer than 64 characters. E04: status is not one of the three values. The description is status must be "PENDING", "APPROVED" or "REJECTED".'
+          description: 'E04: q is shorter than 2 or longer than 64 characters. E04: status or roles contains an unknown value.'
         '401':
           $ref: '#/components/responses/Unauthorized'
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
+      security:
+      - cookieAuth: []
+  /api/v2/admin/users/{address}/role:
+    put:
+      tags:
+      - Admin
+      summary: Change a User to Admin or an Admin to User
+      description: 'Changes USER to ADMIN or ADMIN to USER without changing approval status. Existing SUPERADMIN records are immutable through this route. Access: Superadmin.'
+      operationId: putAdminUsersByAddressRole
+      parameters:
+      - name: address
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Account address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum:
+                  - USER
+                  - ADMIN
+              required:
+              - role
+            example:
+              role: ADMIN
+      responses:
+        '200':
+          description: User role updated or unchanged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  description:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                required:
+                - ok
+                - description
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          description: 'E02 or E04: The address, body, or role is invalid.'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+          description: 'E06: The credential is missing or not valid.'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: 'E10: The caller is not a current SUPERADMIN.'
+        '404':
+          $ref: '#/components/responses/NotFound'
+          description: 'E07: No user has this address.'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: 'E16: The target is a SUPERADMIN.'
       security:
       - cookieAuth: []
   /api/v2/admin/users/{address}/approve:
@@ -8157,7 +8231,7 @@ paths:
       tags:
       - Admin
       summary: Set the status of an account to APPROVED
-      description: 'Sets the status of an account to APPROVED. The route does not check the old status or the role of the account. Access: Superadmin.'
+      description: 'Sets the status of an account to APPROVED. The route does not check the old status or the role of the account. Access: Administrative.'
       operationId: putAdminUsersByAddressApprove
       parameters:
       - name: address
@@ -8209,7 +8283,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E07: No user has this address.'
@@ -8220,7 +8294,7 @@ paths:
       tags:
       - Admin
       summary: Set the status of an account to REJECTED
-      description: 'Sets the status of an account to REJECTED. The route does not check the old status or the role of the account. Access: Superadmin.'
+      description: 'Sets the status of an account to REJECTED. The route does not check the old status or the role of the account. Access: Administrative.'
       operationId: putAdminUsersByAddressReject
       parameters:
       - name: address
@@ -8272,7 +8346,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E07: No user has this address.'
@@ -8283,7 +8357,7 @@ paths:
       tags:
       - Admin
       summary: Change the creation limits of an account
-      description: 'Change the creation limits of an account. The server changes only the fields that you send. Access: Superadmin.'
+      description: 'Change the creation limits of an account. The server changes only the fields that you send. Access: Administrative.'
       operationId: putAdminUsersByAddressLimits
       parameters:
       - name: address
@@ -8342,7 +8416,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E07: No user has this address.'
@@ -8353,7 +8427,7 @@ paths:
       tags:
       - Admin
       summary: Replace the profile of an account
-      description: 'Correct the identity, contact details and preferences of another account. The route does not change the status, the role or the limits. Access: Superadmin.'
+      description: 'Correct the identity, contact details and preferences of another account. The route does not change the status, the role or the limits. Access: Administrative.'
       operationId: putAdminUsersByAddressProfile
       parameters:
       - name: address
@@ -8458,7 +8532,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: No user has this address. The description is user not found.'
@@ -8472,7 +8546,7 @@ paths:
       tags:
       - Admin
       summary: List the pools of an account
-      description: 'Return the pools to which an account belongs, with cursor pagination. The server derives the membership. An account belongs to each pool that allows a voucher that the account owns. Pool ownership and deployment history do not count. Access: Superadmin.'
+      description: 'Return the pools to which an account belongs, with cursor pagination. The server derives the membership. An account belongs to each pool that allows a voucher that the account owns. Pool ownership and deployment history do not count. Access: Administrative.'
       operationId: getAdminUsersByAddressPools
       parameters:
       - name: address
@@ -8533,7 +8607,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/users/{address}/stats:
@@ -8541,7 +8615,7 @@ paths:
       tags:
       - Admin
       summary: Return the counts for one account
-      description: 'Return the counts for one account. Access: Superadmin.'
+      description: 'Return the counts for one account. Access: Administrative.'
       operationId: getAdminUsersByAddressStats
       parameters:
       - name: address
@@ -8604,7 +8678,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/tokens:
@@ -8612,7 +8686,7 @@ paths:
       tags:
       - Admin
       summary: Return all confirmed voucher deployments of all users
-      description: 'Return all confirmed voucher deployments of all users. The list is not paginated. Rows are newest first by ''createdAt''. The name is the display name of the voucher when one exists. Access: Superadmin.'
+      description: 'Return all confirmed voucher deployments of all users. The list is not paginated. Rows are newest first by ''createdAt''. The name is the display name of the voucher when one exists. Access: Administrative.'
       operationId: getAdminTokens
       responses:
         '200':
@@ -8673,7 +8747,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/pools:
@@ -8681,7 +8755,7 @@ paths:
       tags:
       - Admin
       summary: Return all confirmed pool deployments of all users
-      description: 'Return all confirmed pool deployments of all users. The list is not paginated. Rows are newest first by ''createdAt''. Access: Superadmin.'
+      description: 'Return all confirmed pool deployments of all users. The list is not paginated. Rows are newest first by ''createdAt''. Access: Administrative.'
       operationId: getAdminPools
       responses:
         '200':
@@ -8748,7 +8822,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/pools/{address}/vouchers:
@@ -8756,7 +8830,7 @@ paths:
       tags:
       - Admin
       summary: Return the vouchers of one pool, with cursor pagination
-      description: 'Return the vouchers of one pool, with cursor pagination. Access: Superadmin.'
+      description: 'Return the vouchers of one pool, with cursor pagination. Access: Administrative.'
       operationId: getAdminPoolsByAddressVouchers
       parameters:
       - name: address
@@ -8840,7 +8914,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/pools/{address}/profile:
@@ -8848,7 +8922,7 @@ paths:
       tags:
       - Admin
       summary: Replace the off-chain record of a pool
-      description: 'Replace the off-chain record of a pool. The route changes catalog data only. It does not change the name, symbol, decimals or contract addresses, which are facts from the chain. The owner can use ''PUT /api/v2/pools/:address/profile'' with the same body. Access: Superadmin.'
+      description: 'Replace the off-chain record of a pool. The route changes catalog data only. It does not change the name, symbol, decimals or contract addresses, which are facts from the chain. The owner can use ''PUT /api/v2/pools/:address/profile'' with the same body. Access: Administrative.'
       operationId: putAdminPoolsByAddressProfile
       parameters:
       - name: address
@@ -8952,7 +9026,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The pool does not exist. The description is pool not found.'
@@ -8966,7 +9040,7 @@ paths:
       tags:
       - Admin
       summary: Replace the off-chain record of a voucher
-      description: 'Replace the off-chain record of a voucher. The route changes catalog data only. It does not change the contract name, symbol, decimals or owner. It does not retire or restore the voucher. The owner can use ''PUT /api/v2/vouchers/:address/profile'' with the same body. Access: Superadmin.'
+      description: 'Replace the off-chain record of a voucher. The route changes catalog data only. It does not change the contract name, symbol, decimals or owner. It does not retire or restore the voucher. The owner can use ''PUT /api/v2/vouchers/:address/profile'' with the same body. Access: Administrative.'
       operationId: putAdminVouchersByAddressProfile
       parameters:
       - name: address
@@ -9085,7 +9159,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The voucher does not exist, or the voucher is retired. The description is voucher not found.'
@@ -9099,7 +9173,7 @@ paths:
       tags:
       - Admin
       summary: List vouchers for the console
-      description: 'Return the voucher catalog for the console, with cursor pagination. This route shows all vouchers. Each row has the field ''active''. This route has no ''bbox'' parameter. Access: Superadmin.'
+      description: 'Return the voucher catalog for the console, with cursor pagination. This route shows all vouchers. Each row has the field ''active''. This route has no ''bbox'' parameter. Access: Administrative.'
       operationId: getAdminVouchers
       parameters:
       - name: q
@@ -9247,7 +9321,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/vouchers/{address}:
@@ -9255,7 +9329,7 @@ paths:
       tags:
       - Admin
       summary: Return one voucher, whatever its visibility
-      description: 'Return one voucher, whatever its visibility. The route has no ''active'' filter. A ''404'' means that the catalog does not hold the address. Access: Superadmin.'
+      description: 'Return one voucher, whatever its visibility. The route has no ''active'' filter. A ''404'' means that the catalog does not hold the address. Access: Administrative.'
       operationId: getAdminVouchersByAddress
       parameters:
       - name: address
@@ -9325,7 +9399,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E07: The catalog does not hold this address.'
@@ -9336,7 +9410,7 @@ paths:
       tags:
       - Admin
       summary: Return a retired voucher to the public catalog
-      description: 'Return a retired voucher to the public catalog. The route has no owner version. The request has no body. Access: Superadmin.'
+      description: 'Return a retired voucher to the public catalog. The route has no owner version. The request has no body. Access: Administrative.'
       operationId: putAdminVouchersByAddressRestore
       parameters:
       - name: address
@@ -9373,7 +9447,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E07: The catalog does not hold this address.'
@@ -9387,7 +9461,7 @@ paths:
       tags:
       - Admin
       summary: Return the deployment history of all users
-      description: 'Return the deployment history of all users. The list is not paginated. Rows are newest first by ''createdAt''. Access: Superadmin.'
+      description: 'Return the deployment history of all users. The list is not paginated. Rows are newest first by ''createdAt''. Access: Administrative.'
       operationId: getAdminDeployments
       responses:
         '200':
@@ -9444,7 +9518,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/vocabulary:
@@ -9452,7 +9526,7 @@ paths:
       tags:
       - Admin
       summary: List the shared vocabularies
-      description: 'Return all values of the three shared vocabularies: tags, offering units and units of account. The list includes built-in values and custom values. The response is not paginated. Access: Superadmin.'
+      description: 'Return all values of the three shared vocabularies: tags, offering units and units of account. The list includes built-in values and custom values. The response is not paginated. Access: Administrative.'
       operationId: getAdminVocabulary
       responses:
         '200':
@@ -9559,7 +9633,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/vocabulary/tags:
@@ -9567,7 +9641,7 @@ paths:
       tags:
       - Admin
       summary: Rename a tag
-      description: 'Renames a tag. All records that use the value follow the new name. Access: Superadmin.'
+      description: 'Renames a tag. All records that use the value follow the new name. Access: Administrative.'
       operationId: putAdminVocabularyTags
       requestBody:
         required: true
@@ -9622,7 +9696,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The value does not exist. The description is vocabulary value not found.'
@@ -9635,7 +9709,7 @@ paths:
       tags:
       - Admin
       summary: Delete a custom tag
-      description: 'Deletes a custom tag. The value is in the JSON body, not in the path. Access: Superadmin.'
+      description: 'Deletes a custom tag. The value is in the JSON body, not in the path. Access: Administrative.'
       operationId: deleteAdminVocabularyTags
       requestBody:
         required: true
@@ -9697,7 +9771,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The value does not exist. The description is vocabulary value not found.'
@@ -9711,7 +9785,7 @@ paths:
       tags:
       - Admin
       summary: Rename an offering unit
-      description: 'Renames an offering unit. All records that use the value follow the new name. Access: Superadmin.'
+      description: 'Renames an offering unit. All records that use the value follow the new name. Access: Administrative.'
       operationId: putAdminVocabularyUnits
       requestBody:
         required: true
@@ -9766,7 +9840,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The value does not exist. The description is vocabulary value not found.'
@@ -9779,7 +9853,7 @@ paths:
       tags:
       - Admin
       summary: Delete a custom offering unit
-      description: 'Deletes a custom offering unit. The value is in the JSON body, not in the path. Access: Superadmin.'
+      description: 'Deletes a custom offering unit. The value is in the JSON body, not in the path. Access: Administrative.'
       operationId: deleteAdminVocabularyUnits
       requestBody:
         required: true
@@ -9841,7 +9915,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The value does not exist. The description is vocabulary value not found.'
@@ -9855,7 +9929,7 @@ paths:
       tags:
       - Admin
       summary: Create a custom unit of account
-      description: 'Create a custom unit of account. This is the only vocabulary value that has a create route. The server creates tags and offering units when a write names them. Access: Superadmin.'
+      description: 'Create a custom unit of account. This is the only vocabulary value that has a create route. The server creates tags and offering units when a write names them. Access: Administrative.'
       operationId: postAdminVocabularyUnitsOfAccount
       requestBody:
         required: true
@@ -9903,7 +9977,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '409':
           $ref: '#/components/responses/Conflict'
           description: 'E16: The value exists as a built-in value. The description is unit of account already exists as a built-in value.'
@@ -9913,7 +9987,7 @@ paths:
       tags:
       - Admin
       summary: Rename a custom unit of account
-      description: 'Rename a custom unit of account. The new name applies to profiles, vouchers, pools and deployment data. It does not change the stored valuation snapshots of old transfers. Access: Superadmin.'
+      description: 'Rename a custom unit of account. The new name applies to profiles, vouchers, pools and deployment data. It does not change the stored valuation snapshots of old transfers. Access: Administrative.'
       operationId: putAdminVocabularyUnitsOfAccount
       requestBody:
         required: true
@@ -9965,7 +10039,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The value does not exist.'
@@ -9978,7 +10052,7 @@ paths:
       tags:
       - Admin
       summary: Delete a custom unit of account
-      description: 'Delete a custom unit of account. The route deletes the value only when no record uses it. Access: Superadmin.'
+      description: 'Delete a custom unit of account. The route deletes the value only when no record uses it. Access: Administrative.'
       operationId: deleteAdminVocabularyUnitsOfAccount
       requestBody:
         required: true
@@ -10047,7 +10121,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The value does not exist.'
@@ -10060,8 +10134,8 @@ paths:
     get:
       tags:
       - Admin
-      summary: Return the open flags on voucher reviews
-      description: 'Return the open flags on voucher reviews. An owner of a voucher makes a flag with ''POST /api/v2/vouchers/:address/reviews/:id/flag''. The list shows flags that nobody has resolved. Rows are newest first. A page has at most 20 rows. Access: Superadmin.'
+      summary: Return the open flags on Voucher and Pool reviews
+      description: 'Returns unresolved flags on Voucher and Pool reviews, newest first across both resource kinds. Each page has at most 20 rows. Access: Administrative.'
       operationId: getAdminReviewNotifications
       parameters:
       - name: before
@@ -10094,9 +10168,25 @@ paths:
                             reviewId:
                               type: integer
                               description: Review ID.
-                            voucherAddress:
+                            resourceKind:
                               type: string
-                              description: Voucher address.
+                              enum:
+                              - voucher
+                              - pool
+                              description: Kind of the reviewed resource.
+                            resourceAddress:
+                              type: string
+                              description: Address of the reviewed resource.
+                            voucherAddress:
+                              type:
+                              - string
+                              - 'null'
+                              description: Voucher address, retained for compatibility.
+                            poolAddress:
+                              type:
+                              - string
+                              - 'null'
+                              description: Pool address.
                             reason:
                               type: string
                               description: Reason from the owner.
@@ -10130,7 +10220,9 @@ paths:
                   notifications:
                   - id: 31
                     reviewId: 12
-                    voucherAddress: '0x1111111111111111111111111111111111111111'
+                    resourceKind: pool
+                    resourceAddress: '0x1111111111111111111111111111111111111111'
+                    poolAddress: '0x1111111111111111111111111111111111111111'
                     reason: Abusive language
                     stars: 1
                     comment: Bad comment
@@ -10146,7 +10238,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/review-notifications/{id}:
@@ -10154,7 +10246,7 @@ paths:
       tags:
       - Admin
       summary: Resolve a flag on a review
-      description: 'Resolve a flag on a review. Access: Superadmin.'
+      description: 'Resolve a flag on a review. Access: Administrative.'
       operationId: putAdminReviewNotificationsById
       parameters:
       - name: id
@@ -10209,7 +10301,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: The flag does not exist, or it is already resolved. The description is review or voucher not found, or action is no longer available.
@@ -10220,7 +10312,7 @@ paths:
       tags:
       - Admin
       summary: Return posts in all statuses from all authors
-      description: 'Return posts in all statuses from all authors. It orders posts by ''updatedAt'', newest first, with ''id'' as the tie-breaker. The cursor has two parts. Access: Superadmin.'
+      description: 'Return posts in all statuses from all authors. It orders posts by ''updatedAt'', newest first, with ''id'' as the tie-breaker. The cursor has two parts. Access: Administrative.'
       operationId: getAdminReports
       parameters:
       - name: perPage
@@ -10436,7 +10528,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/reports/{id}:
@@ -10444,7 +10536,7 @@ paths:
       tags:
       - Admin
       summary: Return one complete post in any status
-      description: 'Return one complete post in any status. Access: Superadmin.'
+      description: 'Return one complete post in any status. Access: Administrative.'
       operationId: getAdminReportsById
       parameters:
       - name: id
@@ -10481,7 +10573,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E03: The post does not exist. The description is report not found.'
@@ -10492,7 +10584,7 @@ paths:
       tags:
       - Admin
       summary: Get the totals and time series for the dashboard
-      description: 'Return the totals and the time series for the console dashboard. Access: Superadmin.'
+      description: 'Return the totals and the time series for the console dashboard. Access: Administrative.'
       operationId: getAdminDashboardStats
       parameters:
       - name: range
@@ -10628,7 +10720,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/admin/transactions/vouchers:
@@ -10636,7 +10728,7 @@ paths:
       tags:
       - Admin
       summary: List federation events for vouchers
-      description: 'Returns voucher movements from federation, with cursor pagination. Access: Superadmin.'
+      description: 'Returns voucher movements from federation, with cursor pagination. Access: Administrative.'
       operationId: getAdminTransactionsVouchers
       parameters:
       - name: type
@@ -10735,7 +10827,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
           description: Federation is not configured. The description is Federation is not configured. The code field is empty.
@@ -10746,7 +10838,7 @@ paths:
       tags:
       - Admin
       summary: List federation events for pools
-      description: 'Returns pool operations from federation, with cursor pagination. Access: Superadmin.'
+      description: 'Returns pool operations from federation, with cursor pagination. Access: Administrative.'
       operationId: getAdminTransactionsPools
       parameters:
       - name: type
@@ -10845,7 +10937,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
           description: Federation is not configured. The description is Federation is not configured. The code field is empty.
@@ -10856,7 +10948,7 @@ paths:
       tags:
       - Admin
       summary: List origin transactions that this service signed
-      description: 'Return the origin transactions that this service signed, with cursor pagination. The route reads only local data. It works when federation is not available. An origin transaction with the status ''REVERTED'' is not the same as a reverted transfer on the chain. Access: Superadmin.'
+      description: 'Return the origin transactions that this service signed, with cursor pagination. The route reads only local data. It works when federation is not available. An origin transaction with the status ''REVERTED'' is not the same as a reverted transfer on the chain. Access: Administrative.'
       operationId: getAdminTransactionsOtx
       parameters:
       - name: type
@@ -10978,7 +11070,7 @@ paths:
           description: 'E06: The credential is missing or not valid.'
         '403':
           $ref: '#/components/responses/Forbidden'
-          description: 'E10: The caller is not a superadmin.'
+          description: 'E10: The caller is not an administrator.'
       security:
       - cookieAuth: []
   /api/v2/federation/system:
@@ -11612,6 +11704,369 @@ paths:
           $ref: '#/components/responses/NotFound'
           description: 'E07: No active credential has this credentialId.'
       security: []
+  /api/v2/pools/{address}/reviews:
+    get:
+      tags:
+      - Pools
+      summary: Return the visible reviews of a pool, newest first
+      description: 'Returns the visible reviews of a pool, newest first. Each page has at most 20 reviews. Access: Public.'
+      operationId: getPoolsByAddressReviews
+      parameters:
+      - name: address
+        in: path
+        required: true
+        schema:
+          type: string
+        description: A hex address.
+      - name: stars
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 5
+        description: From 1 to 5. The filter applies to the list only. 'counts', 'total' and 'average' cover all visible reviews.
+      - name: before
+        in: query
+        required: false
+        schema:
+          type: integer
+        description: A review 'id'. Returns reviews with a lower 'id'. Use the 'next' value of the previous response.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      reviews:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Review'
+                        description: Review objects.
+                      counts:
+                        type: object
+                        properties:
+                          '1':
+                            type: integer
+                          '2':
+                            type: integer
+                          '3':
+                            type: integer
+                          '4':
+                            type: integer
+                          '5':
+                            type: integer
+                        description: The number of reviews for each star value. The keys are '"1"' to '"5"'.
+                      total:
+                        type: integer
+                      average:
+                        type: number
+                        description: '''0'' when there are no reviews.'
+                      next:
+                        type:
+                        - integer
+                        - 'null'
+                        description: The 'before' value for the next page.
+                required:
+                - ok
+              example:
+                ok: true
+                result:
+                  reviews:
+                  - id: 12
+                    stars: 5
+                    comment: Good service
+                    reply: null
+                  counts:
+                    '1': 0
+                    '2': 0
+                    '3': 0
+                    '4': 0
+                    '5': 1
+                  total: 1
+                  average: 5
+                  next: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          description: 'E04: address is not a valid hex address. stars is not an integer from 1 to 5, or before is not a valid number.'
+        '404':
+          $ref: '#/components/responses/NotFound'
+          description: The pool does not exist.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+          description: 'E11: The rate limit is exceeded.'
+      security: []
+  /api/v2/pools/{address}/reviews/me:
+    get:
+      tags:
+      - Pools
+      summary: Get the review rights of the caller for a pool
+      description: 'Returns what the caller can do with the reviews of this pool. Access: User session.'
+      operationId: getPoolsByAddressReviewsMe
+      parameters:
+      - name: address
+        in: path
+        required: true
+        schema:
+          type: string
+        description: A hex address.
+      responses:
+        '200':
+          description: What the caller can do with the reviews.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      isOwner:
+                        type: boolean
+                      editableUntil:
+                        oneOf:
+                        - type: string
+                          format: date-time
+                        - type: 'null'
+                      review:
+                        oneOf:
+                        - $ref: '#/components/schemas/Review'
+                        - type: 'null'
+                      hidden:
+                        type: boolean
+                      editableReplyIds:
+                        type: array
+                        items:
+                          type: integer
+                      flaggedReviewIds:
+                        type: array
+                        items:
+                          type: integer
+                required:
+                - ok
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          description: 'E04: address is not a valid hex address.'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+          description: 'E06: No valid session. E06: The credential is missing or not valid.'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: 'E10: The caller uses a service token.'
+        '404':
+          $ref: '#/components/responses/NotFound'
+          description: The pool does not exist.
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+          description: The pool is not on the configured chain, or the transfer index is not available.
+      security:
+      - cookieAuth: []
+    put:
+      tags:
+      - Pools
+      summary: Create or replace a review
+      description: 'Creates or replaces the review of the caller. Access: User session. The caller must be a reviewer with a swap in the last 7 days.'
+      operationId: putPoolsByAddressReviewsMe
+      parameters:
+      - name: address
+        in: path
+        required: true
+        schema:
+          type: string
+        description: A hex address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stars:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  description: From 1 to 5.
+                comment:
+                  type: string
+                  maxLength: 2000
+                  description: The server trims the value. At most 2000 characters.
+              required:
+              - stars
+      responses:
+        '200':
+          description: The review was saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      saved:
+                        type: boolean
+                required:
+                - ok
+              example:
+                ok: true
+                result:
+                  saved: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          description: 'E02: The body is not valid JSON. E04: address is not a valid hex address. stars or comment is outside the rules.'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+          description: 'E06: No valid session. E06: The credential is missing or not valid.'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: 'E10: The caller uses a service token, owns the pool, has a hidden review, has no swap in the last 7 days, or the edit window closed. E10: The caller uses a service token.'
+        '404':
+          $ref: '#/components/responses/NotFound'
+          description: The pool does not exist.
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+          description: The pool is not on the configured chain, or the transfer index is not available.
+      security:
+      - cookieAuth: []
+  /api/v2/pools/{address}/reviews/{id}/reply:
+    put:
+      tags:
+      - Pools
+      summary: Set the reply of the owner on a review
+      description: 'Sets the reply of the owner on a review. A new reply replaces the old reply of the same owner. Access: User session. The caller must be the current pool owner.'
+      operationId: putPoolsByAddressReviewsByIdReply
+      parameters:
+      - name: address
+        in: path
+        required: true
+        schema:
+          type: string
+        description: A hex address.
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: A positive review ID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reply:
+                  type: string
+                  description: Required. The server trims it. From 1 to 2000 characters.
+              required:
+              - reply
+      responses:
+        '200':
+          description: The reply was saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      saved:
+                        type: boolean
+                required:
+                - ok
+              example:
+                ok: true
+                result:
+                  saved: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          description: 'E02: The body is not valid JSON. E04: address is not a valid hex address. id is not valid, or reply is empty or too long.'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+          description: 'E06: No valid session. E06: The credential is missing or not valid.'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: 'E10: The caller is not the current pool owner, or uses a service token. E10: The caller uses a service token.'
+        '404':
+          $ref: '#/components/responses/NotFound'
+          description: The pool or the review does not exist, the review is hidden, or another account wrote the reply.
+      security:
+      - cookieAuth: []
+  /api/v2/pools/{address}/reviews/{id}/flag:
+    post:
+      tags:
+      - Pools
+      summary: Report a review to the moderators
+      description: 'Reports a review to the moderators. A second flag from the same owner on the same review has no effect and still returns success. Access: User session. The caller must be the current pool owner.'
+      operationId: postPoolsByAddressReviewsByIdFlag
+      parameters:
+      - name: address
+        in: path
+        required: true
+        schema:
+          type: string
+        description: A hex address.
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: A positive review ID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Required. The server trims it. From 1 to 500 characters.
+              required:
+              - reason
+      responses:
+        '200':
+          description: The flag was saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      saved:
+                        type: boolean
+                required:
+                - ok
+              example:
+                ok: true
+                result:
+                  saved: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+          description: 'E06: The credential is missing or not valid.'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: 'E10: The caller uses a service token.'
+      security:
+      - cookieAuth: []
 components:
   schemas:
     Authorization:
@@ -12538,7 +12993,7 @@ components:
           description: The limit of the user.
         unlimited:
           type: boolean
-          description: '''true'' for a ''SUPERADMIN'' user.'
+          description: '''true'' for an ''ADMIN'' or ''SUPERADMIN'' user.'
         canCreate:
           type: boolean
     Review:
@@ -12555,7 +13010,7 @@ components:
           type:
           - string
           - 'null'
-          description: The reply of the voucher owner.
+          description: The reply of the resource owner.
     SignedBatch:
       type: object
       properties:
@@ -12645,6 +13100,10 @@ components:
           description: Country code. The value is an empty string when the account has none.
         role:
           type: string
+          enum:
+          - USER
+          - ADMIN
+          - SUPERADMIN
           description: Role of the user.
         status:
           type: string

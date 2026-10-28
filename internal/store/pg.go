@@ -125,8 +125,11 @@ type (
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
 		GetUserByEmail                string `query:"get-user-by-email"`
+		IdentityAvailability          string `query:"identity-availability"`
 		GetUserByID                   string `query:"get-user-by-id"`
+		GetUserAccessByID             string `query:"get-user-access-by-id"`
 		UpdateUserStatus              string `query:"update-user-status"`
+		UpdateUserRole                string `query:"update-user-role"`
 		ApprovePendingUserByAddress   string `query:"approve-pending-user-by-address"`
 		UpdateUserLimits              string `query:"update-user-limits"`
 		UpdateUserProfile             string `query:"update-user-profile"`

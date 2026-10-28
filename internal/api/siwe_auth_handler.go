@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -88,8 +89,8 @@ func (a *API) signupHandler(c *echo.Context) error {
 	//    bound to another wallet as a duplicate-identity conflict.
 	if _, lookupErr := a.store.GetUserByEmail(ctx, tx, strings.ToLower(req.Email)); lookupErr == nil {
 		// Distinct code from the address-conflict branch above: the caller's
-		// address is not registered, so it must not attempt a SIWE sign-in as
-		// a recovery path (that would 404 — see ErrCodeNotFound on signin).
+		// address is not registered, so a SIWE sign-in is no recovery path. It
+		// would register the wallet under placeholders, not under this email.
 		return c.JSON(http.StatusConflict, apiresp.ErrResponse{
 			Ok:          false,
 			ErrCode:     apiresp.ErrCodeEmailConflict,
@@ -188,15 +189,20 @@ func (a *API) signinHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// 4. Look up the registered user.
+	// 4. Look up the user, registering a wallet that has no account yet. Any key
+	//    in the paper-wallet format must be able to sign in: a holder whose
+	//    signup failed after the wallet was saved would otherwise be left with a
+	//    working key and no way in.
 	user, err := a.store.GetUserByAddress(ctx, tx, signerAddr)
+	if errors.Is(err, pgx.ErrNoRows) {
+		user, err = a.registerPaperWallet(ctx, tx, signerAddr)
+		if err == nil {
+			a.logg.Info("registered wallet at sign-in", "address", signerAddr, "userId", user.ID)
+		}
+	}
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
-				Ok:          false,
-				ErrCode:     apiresp.ErrCodeNotFound,
-				Description: "address not registered, please sign up first",
-			})
+		if conflict, ok := userIdentityConflict(err); ok {
+			return c.JSON(http.StatusConflict, conflict)
 		}
 		return err
 	}
@@ -236,6 +242,52 @@ func (a *API) signinHandler(c *echo.Context) error {
 			"role":   user.Role,
 		},
 	})
+}
+
+const (
+	// paperWalletPlaceholderName is the name a sign-in registers a new wallet
+	// under. It is PAPER_WALLET_PLACEHOLDER_NAME in clc-app's @clc/core: the bulk
+	// sign-in card generator registers its cards with it too, and the app treats
+	// it, and the pendingSIWEEmail address, as details the holder has yet to give.
+	paperWalletPlaceholderName = "Sign-in card"
+)
+
+// registerPaperWallet creates the account for a wallet signing in without one.
+//
+// The insert runs in a savepoint. When a concurrent sign-in for the same wallet
+// commits first, the unique violation rolls back only the savepoint, and the
+// account the other request created is read back so both sign in to it. A
+// conflict that leaves no account for the address is someone else holding the
+// placeholder email, which is returned as the conflict it is.
+func (a *API) registerPaperWallet(ctx context.Context, tx pgx.Tx, address string) (store.User, error) {
+	savepoint, err := tx.Begin(ctx)
+	if err != nil {
+		return store.User{}, err
+	}
+	defer savepoint.Rollback(ctx)
+
+	user, err := a.store.InsertUser(ctx, savepoint, store.User{
+		EthereumAddress: address,
+		Name:            paperWalletPlaceholderName,
+		Email:           pendingSIWEEmail(address),
+		Role:            "USER",
+		Status:          "APPROVED",
+	})
+	if err == nil {
+		return user, savepoint.Commit(ctx)
+	}
+	if _, ok := userIdentityConflict(err); !ok {
+		return store.User{}, err
+	}
+	if rollbackErr := savepoint.Rollback(ctx); rollbackErr != nil {
+		return store.User{}, rollbackErr
+	}
+
+	existing, lookupErr := a.store.GetUserByAddress(ctx, tx, address)
+	if errors.Is(lookupErr, pgx.ErrNoRows) {
+		return store.User{}, err
+	}
+	return existing, lookupErr
 }
 
 func (a *API) logoutHandler(c *echo.Context) error {
@@ -374,15 +426,34 @@ func (a *API) sessionHandler(c *echo.Context) error {
 		return c.NoContent(http.StatusNoContent)
 	}
 
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	user, err := a.store.GetUserByID(ctx, tx, token.UserID)
+	if err != nil || user.Status != "APPROVED" || !strings.EqualFold(user.EthereumAddress, token.EthereumAddress) {
+		a.clearUserAuthCookie(c)
+		return c.NoContent(http.StatusNoContent)
+	}
+	if user.Role != token.Role {
+		refreshed, signErr := a.generateUserToken(user)
+		if signErr != nil {
+			return signErr
+		}
+		a.setUserAuthCookie(c, refreshed)
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		// Always emit the EIP-55 checksummed form, even for legacy lowercase
 		// tokens, so clients receive a consistent canonical address.
-		"address": common.HexToAddress(token.EthereumAddress).Hex(),
+		"address": common.HexToAddress(user.EthereumAddress).Hex(),
 		"chainId": a.chainID,
 		// The role the signin response already returns. Without it a client that
 		// gates on privilege has to re-derive it after every reload by probing an
 		// admin endpoint and reading the 403.
-		"role": token.Role,
+		"role": user.Role,
 	})
 }
 

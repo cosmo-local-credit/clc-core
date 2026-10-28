@@ -57,7 +57,7 @@ func (pg *Pg) GetUserResourceUsage(ctx context.Context, tx pgx.Tx, userID uint64
 		return usage, err
 	}
 	for _, quota := range []*ResourceQuota{&usage.Vouchers, &usage.Pools, &usage.Catalogs, &usage.Offers, &usage.Wants} {
-		quota.Unlimited = role == "SUPERADMIN"
+		quota.Unlimited = IsAdministrativeRole(role)
 		quota.CanCreate = quota.Unlimited || quota.Used < quota.Limit
 	}
 	return usage, nil
@@ -80,7 +80,7 @@ func voucherOfferingQuota(row pgx.Row) (ResourceQuota, error) {
 		return quota, err
 	}
 	quota.Used = int(used)
-	quota.Unlimited = role == "SUPERADMIN"
+	quota.Unlimited = IsAdministrativeRole(role)
 	quota.CanCreate = quota.Unlimited || quota.Used < quota.Limit
 	return quota, nil
 }

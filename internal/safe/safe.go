@@ -1,10 +1,14 @@
-// Package safe decodes and polices Safe (1.3.0 / 1.4.1) execution calls that
-// arrive through the Calibur relay.
+// Package safe decodes and polices Safe (1.3.0 / 1.4.1 / 1.5.0) execution calls
+// that arrive through the Calibur relay.
 //
 // /relayer/relay accepts any signed Calibur batch, so nothing stops a signer
 // from relaying Safe.execTransaction directly and skipping proposal-time
 // validation. Check is therefore the control: it runs on the relay path, and
 // everything it cannot positively identify is rejected.
+//
+// A Safe may call itself only to manage its owners and threshold; modules,
+// guards and the fallback handler can hand it to arbitrary code and stay
+// rejected.
 package safe
 
 import (
@@ -51,6 +55,24 @@ var (
 		"withdraw(address,uint256)",
 		"withdrawLiquidity(address,address,uint256)",
 	}
+
+	addOwnerSelector        = selector("addOwnerWithThreshold(address,uint256)")
+	removeOwnerSelector     = selector("removeOwner(address,address,uint256)")
+	swapOwnerSelector       = selector("swapOwner(address,address,address)")
+	changeThresholdSelector = selector("changeThreshold(uint256)")
+
+	// ownerChangeWords is the owner management a Safe may perform on itself,
+	// with the exact argument count each call carries.
+	ownerChangeWords = map[[4]byte]int{
+		addOwnerSelector:        2,
+		removeOwnerSelector:     3,
+		swapOwnerSelector:       3,
+		changeThresholdSelector: 1,
+	}
+
+	// sentinelOwner heads a Safe's owner list: valid as a prevOwner, never as
+	// an owner.
+	sentinelOwner = common.HexToAddress("0x0000000000000000000000000000000000000001")
 
 	ErrNotSafeCall   = errors.New("safe: batch is not a single execTransaction call")
 	ErrRejected      = errors.New("safe: transaction rejected by policy")
@@ -247,7 +269,7 @@ func (p *Policy) checkInner(ctx context.Context, safe, to common.Address, value 
 		return fmt.Errorf("%w: subcall value must be zero", ErrRejected)
 	}
 	if to == safe {
-		return fmt.Errorf("%w: a Safe may not call itself (owner and threshold changes)", ErrRejected)
+		return checkOwnerChange(safe, data)
 	}
 	if len(data) < 4 {
 		return fmt.Errorf("%w: subcall has no selector", ErrRejected)
@@ -263,6 +285,74 @@ func (p *Policy) checkInner(ctx context.Context, safe, to common.Address, value 
 		return fmt.Errorf("%w: %s is not an asset of this Safe", ErrRejected, to.Hex())
 	}
 	return nil
+}
+
+// checkOwnerChange admits the owner management a Safe performs on itself and
+// judges its calldata alone. Whether an owner is in the set, the prevOwner
+// link and the upper bound on the threshold are the Safe's own require checks,
+// and execution estimates gas before it sends, so a change the Safe refuses
+// never costs the relayer anything.
+func checkOwnerChange(safe common.Address, data []byte) error {
+	if len(data) < 4 {
+		return fmt.Errorf("%w: subcall has no selector", ErrRejected)
+	}
+	sel := [4]byte(data[:4])
+	words, ok := ownerChangeWords[sel]
+	if !ok {
+		return fmt.Errorf("%w: a Safe may call itself only to change its owners or threshold", ErrRejected)
+	}
+	args := data[4:]
+	if len(args) != words*32 {
+		return fmt.Errorf("%w: %w", ErrRejected, errMalformedData)
+	}
+	word := func(i int) []byte { return args[i*32 : (i+1)*32] }
+	address := func(i int) (common.Address, error) {
+		for _, b := range word(i)[:12] {
+			if b != 0 {
+				return common.Address{}, fmt.Errorf("%w: %w", ErrRejected, errMalformedData)
+			}
+		}
+		return common.BytesToAddress(word(i)[12:]), nil
+	}
+	owner := func(i int) (common.Address, error) {
+		a, err := address(i)
+		if err != nil {
+			return a, err
+		}
+		if a == (common.Address{}) || a == sentinelOwner || a == safe {
+			return a, fmt.Errorf("%w: %s cannot be a Safe owner", ErrRejected, a.Hex())
+		}
+		return a, nil
+	}
+	threshold := func(i int) error {
+		if new(big.Int).SetBytes(word(i)).Sign() == 0 {
+			return fmt.Errorf("%w: threshold must be at least 1", ErrRejected)
+		}
+		return nil
+	}
+
+	switch sel {
+	case addOwnerSelector:
+		_, err := owner(0)
+		return errors.Join(err, threshold(1))
+	case removeOwnerSelector:
+		_, prevErr := address(0)
+		_, err := owner(1)
+		return errors.Join(prevErr, err, threshold(2))
+	case swapOwnerSelector:
+		_, prevErr := address(0)
+		oldOwner, oldErr := owner(1)
+		newOwner, newErr := owner(2)
+		if err := errors.Join(prevErr, oldErr, newErr); err != nil {
+			return err
+		}
+		if oldOwner == newOwner {
+			return fmt.Errorf("%w: swapOwner must replace the owner with another", ErrRejected)
+		}
+		return nil
+	default:
+		return threshold(0)
+	}
 }
 
 // GasLimit budgets execution of a verified Safe call. The outer Calibur

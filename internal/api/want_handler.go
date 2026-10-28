@@ -91,9 +91,6 @@ func normalizeWantWrite(req wantWriteRequest) (store.WantWrite, error) {
 	if req.ContactText != nil && utf8.RuneCountInString(*req.ContactText) > 500 {
 		return store.WantWrite{}, errors.New("contactText must be 500 characters or fewer")
 	}
-	if !req.ShareEmail && !req.SharePhone && req.ContactText == nil {
-		return store.WantWrite{}, errors.New("choose email, phone, or enter contact instructions")
-	}
 	if !slices.Contains(wantMarkerIcons, req.MarkerIcon) {
 		return store.WantWrite{}, errors.New("markerIcon must be question, message, or request")
 	}

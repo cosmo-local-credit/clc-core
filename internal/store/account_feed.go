@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/georgysavva/scany/v2/pgxscan"
 )
 
@@ -133,4 +134,31 @@ func (s *FederationPg) ListUserActivity(
 		return nil, err
 	}
 	return rows, nil
+}
+
+// LatestPoolReviewSwap returns the most recent successful, positive swap the
+// account initiated through this pool. A multi-hop transaction contains one
+// indexed row per pool, so every pool that actually executed a leg qualifies.
+func (s *FederationPg) LatestPoolReviewSwap(
+	ctx context.Context,
+	poolAddress string,
+	reviewerAddress string,
+) (*time.Time, error) {
+	var latest *time.Time
+	err := s.db.QueryRow(
+		ctx,
+		s.queries.LatestPoolReviewSwap,
+		indexedAddressVariants(poolAddress),
+		indexedAddressVariants(reviewerAddress),
+	).Scan(&latest)
+	return latest, err
+}
+
+func indexedAddressVariants(address string) []string {
+	lower := strings.ToLower(address)
+	checksum := common.HexToAddress(address).Hex()
+	if checksum == lower {
+		return []string{lower}
+	}
+	return []string{lower, checksum}
 }

@@ -10,10 +10,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -69,15 +71,37 @@ func newAdminAPI(t *testing.T) (*API, string) {
 		VerifyingKey: pub,
 	})
 
-	return a, mintToken(t, priv, "SUPERADMIN")
+	operatorAddress := common.HexToAddress(accountAddress).Hex()
+	var id uint64
+	if err := pgStore.Pool().QueryRow(context.Background(), `
+		INSERT INTO users (blockchain_address, name, email, role, status)
+		VALUES ($1, 'Admin test operator', $2, 'SUPERADMIN', 'APPROVED')
+		ON CONFLICT (blockchain_address) DO UPDATE
+		SET role = 'SUPERADMIN', status = 'APPROVED'
+		RETURNING id`, operatorAddress, strings.ToLower(operatorAddress)+"@example.test").Scan(&id); err != nil {
+		t.Fatalf("seed test superadmin: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pgStore.Pool().Exec(context.Background(),
+			`DELETE FROM users WHERE blockchain_address = $1`, operatorAddress); err != nil {
+			t.Errorf("cleanup test superadmin: %v", err)
+		}
+	})
+
+	return a, mintTokenForUser(t, priv, id, operatorAddress, "SUPERADMIN")
 }
 
 func mintToken(t *testing.T, priv ed25519.PrivateKey, role string) string {
 	t.Helper()
+	return mintTokenForUser(t, priv, 1, accountAddress, role)
+}
+
+func mintTokenForUser(t *testing.T, priv ed25519.PrivateKey, userID uint64, address, role string) string {
+	t.Helper()
 
 	claims := UserJWTClaims{
-		UserID:          1,
-		EthereumAddress: accountAddress,
+		UserID:          userID,
+		EthereumAddress: address,
 		Role:            role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

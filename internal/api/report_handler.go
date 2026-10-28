@@ -237,7 +237,7 @@ func (a *API) reportByIDHandler(c *echo.Context) error {
 // authorAddress is never accepted from JSON: the JWT identity is the provenance
 // record, and allowing a caller to supply it would defeat the owner check on
 // later edits. Every post is published as it is created: there is no review
-// queue, and a superadmin's remaining levers are reject and delete.
+// queue, and an administrator's remaining levers are reject and delete.
 func (a *API) reportCreateHandler(c *echo.Context) error {
 	report, relations, handled, err := a.bindReportWrite(c)
 	if handled || err != nil {
@@ -284,7 +284,7 @@ func (a *API) reportCreateHandler(c *echo.Context) error {
 }
 
 // reportApproveHandler is the only path that promotes an existing post to
-// APPROVED, and the route is guarded by requireSuperAdmin. Content edits use a
+// APPROVED, and the route is guarded by requireAdmin. Content edits use a
 // different store statement that never assigns status, so authors can edit both
 // submitted and approved posts without changing their review state.
 func (a *API) reportApproveHandler(c *echo.Context) error {
@@ -327,10 +327,10 @@ func (a *API) reportApproveHandler(c *echo.Context) error {
 
 // reportUpdateHandler is assign-all PUT: scalars and all four relation sets are
 // one atomic replacement. The immutable original author may edit their own
-// post, and a superadmin may edit any post. LockReportAuthor makes that decision
+// post, and an administrator may edit any post. LockReportAuthor makes that decision
 // against the same row version the transaction updates.
 //
-// An author's edit publishes the post again; a superadmin's preserves its
+// An author's edit publishes the post again; an administrator's preserves its
 // status. See reportUpdateStatus for why.
 func (a *API) reportUpdateHandler(c *echo.Context) error {
 	id, handled, err := reportIDParam(c)
@@ -359,7 +359,7 @@ func (a *API) reportUpdateHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	if !canUpdateReport(callerAddress, callerRole, authorAddress) {
-		return handleForbiddenError(c, "only the original author or a superadmin may edit this report")
+		return handleForbiddenError(c, "only the original author or an administrator may edit this report")
 	}
 
 	// Database-backed relation validation follows authorization, so a caller
@@ -393,7 +393,7 @@ func (a *API) reportUpdateHandler(c *echo.Context) error {
 	})
 }
 
-// reportDeleteHandler is mounted behind requireSuperAdmin. Authors can correct
+// reportDeleteHandler is mounted behind requireAdmin. Authors can correct
 // their own post but cannot erase the catalog record; deletion is the one post
 // mutation reserved for operators and cascades to every report relation.
 func (a *API) reportDeleteHandler(c *echo.Context) error {
@@ -443,20 +443,20 @@ func reportNotFoundError(c *echo.Context) error {
 }
 
 func canUpdateReport(callerAddress, callerRole, authorAddress string) bool {
-	return callerRole == "SUPERADMIN" ||
+	return store.IsAdministrativeRole(callerRole) ||
 		(callerAddress != "" && strings.EqualFold(callerAddress, authorAddress))
 }
 
 // reportUpdateStatus decides what an authorized edit does to workflow state.
 //
-// A superadmin returns nil, which update-report's COALESCE reads as "keep the
+// An administrator returns nil, which update-report's COALESCE reads as "keep the
 // current status": a moderator's correction must not flip a rejected post back
 // to published. Any other authorized caller is the author, and posts are
 // auto-approved, so an author's edit publishes the result the same way their
 // create did — including a legacy SUBMITTED post, which would otherwise wait in
 // a queue nobody works any more.
 func reportUpdateStatus(callerRole string) *string {
-	if callerRole == "SUPERADMIN" {
+	if store.IsAdministrativeRole(callerRole) {
 		return nil
 	}
 	approved := store.ReportStatusApproved
@@ -711,7 +711,7 @@ func requiredHTTPURL(value, field string) (string, error) {
 }
 
 // resolveReportWriteRelations validates vocabulary-backed fields and turns the
-// write's voucher and pool references into the rows they name. A superadmin may
+// write's voucher and pool references into the rows they name. An administrator may
 // link any catalog resource; anyone else may link only resources they currently
 // own, so a post cannot speak for a voucher or pool its author does not own.
 // That rule lives here rather than in the client because the pickers are a
@@ -735,7 +735,7 @@ func (a *API) resolveReportWriteRelations(
 	if len(ids) != len(relations.vouchers) {
 		return true, respondCatalogSearchError(c, errUnknownVoucherRef)
 	}
-	if callerRole != "SUPERADMIN" {
+	if !store.IsAdministrativeRole(callerRole) {
 		owned, err := a.store.CountVouchersOwnedBy(c.Request().Context(), tx, ids, callerAddress)
 		if err != nil {
 			return true, handlePostgresError(c, err)
@@ -753,7 +753,7 @@ func (a *API) resolveReportWriteRelations(
 	if len(poolIDs) != len(relations.pools) {
 		return true, respondCatalogSearchError(c, errUnknownPoolRef)
 	}
-	if callerRole != "SUPERADMIN" {
+	if !store.IsAdministrativeRole(callerRole) {
 		owned, err := a.store.CountPoolsOwnedBy(c.Request().Context(), tx, poolIDs, callerAddress)
 		if err != nil {
 			return true, handlePostgresError(c, err)

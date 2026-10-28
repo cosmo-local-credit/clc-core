@@ -166,6 +166,10 @@ type (
 		// Status is derived from the route; no request body is required.
 	}
 
+	UpdateUserRoleRequest struct {
+		Role string `json:"role" validate:"required,oneof=ADMIN USER"`
+	}
+
 	UpdateUserLimitsRequest struct {
 		MaxPools    *int `json:"maxPools" validate:"omitempty,gte=0,lte=2147483647"`
 		MaxTokens   *int `json:"maxTokens" validate:"omitempty,gte=0,lte=2147483647"`

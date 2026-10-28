@@ -29,7 +29,7 @@ func reviewFailure(c *echo.Context, status int, message string) error {
 
 func reviewStoreError(c *echo.Context, err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
-		return reviewFailure(c, http.StatusNotFound, "review or voucher not found, or action is no longer available")
+		return reviewFailure(c, http.StatusNotFound, "review or resource not found, or action is no longer available")
 	}
 	return handlePostgresError(c, err)
 }

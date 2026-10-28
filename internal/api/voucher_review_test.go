@@ -40,6 +40,16 @@ func TestReviewDeadline(t *testing.T) {
 
 func (s reviewTestFederation) Pool() *pgxpool.Pool { return s.pool }
 
+func (s reviewTestFederation) LatestPoolReviewSwap(ctx context.Context, poolAddress, reviewerAddress string) (*time.Time, error) {
+	var latest *time.Time
+	err := s.pool.QueryRow(ctx, `SELECT max(tx.date_block AT TIME ZONE 'UTC')
+        FROM pool_swap ps JOIN tx ON tx.id=ps.tx_id
+        WHERE lower(ps.contract_address)=lower($1) AND lower(ps.initiator_address)=lower($2)
+        AND ps.in_value>0 AND ps.out_value>0 AND tx.success
+        AND tx.date_block <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')`, poolAddress, reviewerAddress).Scan(&latest)
+	return latest, err
+}
+
 func TestVoucherReviewsHTTP(t *testing.T) {
 	a, key := newOfferingAPI(t)
 	ctx := context.Background()
@@ -202,4 +212,192 @@ func TestVoucherReviewsHTTP(t *testing.T) {
 	require.Empty(t, page["reviews"])
 	request(http.MethodPut, root+"/me", userToken, write, http.StatusForbidden)
 	require.Empty(t, request(http.MethodGet, "/api/v2/admin/review-notifications", adminToken, nil, http.StatusOK)["notifications"])
+}
+
+func TestPoolReviewsHTTP(t *testing.T) {
+	a, key := newOfferingAPI(t)
+	ctx := context.Background()
+	a.chainID = 42220
+	db := a.store.Pool()
+	schema := fmt.Sprintf("pool_review_test_%d", time.Now().UnixNano())
+	_, err := db.Exec(ctx, "CREATE SCHEMA "+pgx.Identifier{schema}.Sanitize())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := db.Exec(ctx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE")
+		require.NoError(t, cleanupErr)
+	})
+	config, err := pgxpool.ParseConfig(os.Getenv("CORE_TEST_DSN"))
+	require.NoError(t, err)
+	config.ConnConfig.RuntimeParams["search_path"] = schema
+	fed, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	t.Cleanup(fed.Close)
+	_, err = fed.Exec(ctx, `CREATE TABLE tx (id bigint PRIMARY KEY, date_block timestamp NOT NULL, success boolean NOT NULL);
+        CREATE TABLE pool_swap (tx_id bigint NOT NULL, log_index bigint NOT NULL, contract_address text NOT NULL,
+        initiator_address text NOT NULL, in_value numeric NOT NULL, out_value numeric NOT NULL)`)
+	require.NoError(t, err)
+	a.federationStore = reviewTestFederation{pool: fed}
+
+	owner := strings.ToLower(offeringOwnerAddress)
+	reviewer := reportAuthorAddress
+	other := reportOtherAddress
+	var poolID, otherPoolID uint64
+	var address, otherAddress string
+	err = db.QueryRow(ctx, `INSERT INTO pools (chain_id,address,name,owner_address)
+        VALUES (42220,'0x'||substr(md5(random()::text)||md5(random()::text),1,40),'Review pool',$1) RETURNING id,address`, owner).Scan(&poolID, &address)
+	require.NoError(t, err)
+	err = db.QueryRow(ctx, `INSERT INTO pools (chain_id,address,name,owner_address)
+        VALUES (42220,'0x'||substr(md5(random()::text)||md5(random()::text),1,40),'Second review pool',$1) RETURNING id,address`, owner).Scan(&otherPoolID, &otherAddress)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := db.Exec(ctx, `DELETE FROM voucher_review_flags WHERE pool_review_id IN (SELECT id FROM pool_reviews WHERE pool_id=ANY($1))`, []uint64{poolID, otherPoolID})
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = db.Exec(ctx, `DELETE FROM pool_reviews WHERE pool_id=ANY($1)`, []uint64{poolID, otherPoolID})
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = db.Exec(ctx, `DELETE FROM pools WHERE id=ANY($1)`, []uint64{poolID, otherPoolID})
+		require.NoError(t, cleanupErr)
+	})
+
+	root := "/api/v2/pools/" + address + "/reviews"
+	otherRoot := "/api/v2/pools/" + otherAddress + "/reviews"
+	userToken := offeringToken(t, key, reviewer, "USER")
+	ownerToken := offeringToken(t, key, offeringOwnerAddress, "USER")
+	newOwnerToken := offeringToken(t, key, other, "USER")
+	adminToken := offeringToken(t, key, reportAdminAddress, "ADMIN")
+	request := func(method, path, token string, body map[string]any, want int) map[string]any {
+		t.Helper()
+		response, result := offeringRequest(t, a, method, path, token, body)
+		require.Equal(t, want, response.Code, response.Body.String())
+		return result
+	}
+	write := map[string]any{"stars": 5, "comment": "Reliable swaps", "reviewerAddress": owner}
+	request(http.MethodGet, root+"/me", "", nil, http.StatusUnauthorized)
+	request(http.MethodGet, root+"/me", offeringServiceToken(t, key), nil, http.StatusForbidden)
+	request(http.MethodPut, root+"/me", userToken, write, http.StatusForbidden)
+	request(http.MethodPut, root+"/me", ownerToken, write, http.StatusForbidden)
+
+	// Failed, zero-value, future, wrong-pool and wrong-initiator events do not qualify.
+	for id, row := range []struct {
+		pool, initiator string
+		in, out         int
+		success         bool
+		when            string
+	}{
+		{address, reviewer, 1, 1, false, "CURRENT_TIMESTAMP AT TIME ZONE 'UTC'"},
+		{address, reviewer, 0, 1, true, "CURRENT_TIMESTAMP AT TIME ZONE 'UTC'"},
+		{address, reviewer, 1, 0, true, "CURRENT_TIMESTAMP AT TIME ZONE 'UTC'"},
+		{address, other, 1, 1, true, "CURRENT_TIMESTAMP AT TIME ZONE 'UTC'"},
+		{otherAddress, reviewer, 1, 1, true, "CURRENT_TIMESTAMP AT TIME ZONE 'UTC'"},
+		{address, reviewer, 1, 1, true, "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + interval '1 day'"},
+	} {
+		txID := id + 1
+		_, err = fed.Exec(ctx, fmt.Sprintf(`INSERT INTO tx VALUES ($1,%s,$2)`, row.when), txID, row.success)
+		require.NoError(t, err)
+		_, err = fed.Exec(ctx, `INSERT INTO pool_swap VALUES ($1,1,$2,$3,$4,$5)`, txID, row.pool, row.initiator, row.in, row.out)
+		require.NoError(t, err)
+	}
+	request(http.MethodPut, root+"/me", userToken, write, http.StatusForbidden)
+
+	// One successful route uses both pools and grants access to each one.
+	_, err = fed.Exec(ctx, `INSERT INTO tx VALUES (20,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-interval '1 hour',true)`)
+	require.NoError(t, err)
+	_, err = fed.Exec(ctx, `INSERT INTO pool_swap VALUES (20,1,$1,$3,10,9),(20,2,$2,$3,9,8)`, address, otherAddress, reviewer)
+	require.NoError(t, err)
+	require.NotNil(t, request(http.MethodGet, root+"/me", userToken, nil, http.StatusOK)["editableUntil"])
+	require.NotNil(t, request(http.MethodGet, otherRoot+"/me", userToken, nil, http.StatusOK)["editableUntil"])
+	request(http.MethodPut, root+"/me", userToken, write, http.StatusOK)
+	request(http.MethodPut, root+"/me", userToken, map[string]any{"stars": 4, "comment": "Updated"}, http.StatusOK)
+
+	page := request(http.MethodGet, root, "", nil, http.StatusOK)
+	require.Equal(t, float64(1), page["total"])
+	require.Equal(t, float64(4), page["average"])
+	publicJSON, err := json.Marshal(page)
+	require.NoError(t, err)
+	for _, private := range []string{reviewer, owner, "reviewerAddress", "editableUntil", "dateBlock"} {
+		require.NotContains(t, string(publicJSON), private)
+	}
+	reviews, ok := page["reviews"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, reviews)
+	review, ok := reviews[0].(map[string]any)
+	require.True(t, ok)
+	reviewID, ok := review["id"].(float64)
+	require.True(t, ok)
+	id := uint64(reviewID)
+	reviewPath := fmt.Sprintf("%s/%d", root, id)
+	request(http.MethodPut, reviewPath+"/reply", adminToken, map[string]any{"reply": "Admin override"}, http.StatusForbidden)
+	request(http.MethodPut, reviewPath+"/reply", ownerToken, map[string]any{"reply": "Thank you"}, http.StatusOK)
+
+	// A persisted Safe signer may act for the Safe-owned Pool, while the Admin
+	// role alone grants no reply or report privilege.
+	const safeOwner = "0x7153330000000000000000000000000000000067"
+	var secondReviewID uint64
+	err = db.QueryRow(ctx, `INSERT INTO pool_reviews (pool_id,reviewer_address,stars,comment)
+		VALUES ($1,$2,3,'Second review') RETURNING id`, poolID, strings.ToLower(reportAdminAddress)).Scan(&secondReviewID)
+	require.NoError(t, err)
+	safeTx, err := db.Begin(ctx)
+	require.NoError(t, err)
+	_, err = a.store.ReplaceSafeSigners(ctx, safeTx, 42220, safeOwner, []string{other}, 1, 100, 1)
+	require.NoError(t, err)
+	require.NoError(t, safeTx.Commit(ctx))
+	t.Cleanup(func() {
+		_, _ = db.Exec(ctx, `DELETE FROM safe_state WHERE safe_address=$1`, strings.ToLower(safeOwner))
+	})
+	_, err = db.Exec(ctx, `UPDATE pools SET owner_address=$2 WHERE id=$1`, poolID, safeOwner)
+	require.NoError(t, err)
+	request(http.MethodPut, fmt.Sprintf("%s/%d/reply", root, secondReviewID), newOwnerToken, map[string]any{"reply": "Safe reply"}, http.StatusOK)
+
+	// Existing replies stay with their author after ownership changes.
+	_, err = db.Exec(ctx, `UPDATE pools SET owner_address=$2 WHERE id=$1`, poolID, other)
+	require.NoError(t, err)
+	request(http.MethodPut, reviewPath+"/reply", newOwnerToken, map[string]any{"reply": "Replacement"}, http.StatusNotFound)
+	request(http.MethodPut, reviewPath+"/reply", ownerToken, map[string]any{"reply": "Old owner"}, http.StatusForbidden)
+	_, err = db.Exec(ctx, `UPDATE pools SET owner_address=$2,active=false WHERE id=$1`, poolID, owner)
+	require.NoError(t, err)
+	require.Equal(t, float64(2), request(http.MethodGet, root, "", nil, http.StatusOK)["total"], "retired pool reviews stay public")
+
+	// A stale swap locks edits and a new successful swap reopens the same review.
+	_, err = fed.Exec(ctx, `UPDATE tx SET date_block=(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-interval '8 days' WHERE id=20`)
+	require.NoError(t, err)
+	request(http.MethodPut, root+"/me", userToken, write, http.StatusForbidden)
+	_, err = fed.Exec(ctx, `UPDATE tx SET date_block=(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')-interval '1 minute' WHERE id=20`)
+	require.NoError(t, err)
+	request(http.MethodPut, root+"/me", userToken, write, http.StatusOK)
+	updatedPage := request(http.MethodGet, root, "", nil, http.StatusOK)
+	updatedReviews, ok := updatedPage["reviews"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, updatedReviews)
+	foundOriginal := false
+	for _, rawReview := range updatedReviews {
+		updatedReview, reviewOK := rawReview.(map[string]any)
+		require.True(t, reviewOK)
+		if updatedReview["id"] == float64(id) {
+			foundOriginal = true
+		}
+	}
+	require.True(t, foundOriginal, "editing keeps the original review instead of creating another")
+
+	for range 2 {
+		request(http.MethodPost, reviewPath+"/flag", ownerToken, map[string]any{"reason": "Abuse"}, http.StatusOK)
+	}
+	inbox := request(http.MethodGet, "/api/v2/admin/review-notifications", adminToken, nil, http.StatusOK)
+	notifications, ok := inbox["notifications"].([]any)
+	require.True(t, ok)
+	require.Len(t, notifications, 1)
+	note, ok := notifications[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "pool", note["resourceKind"])
+	resourceAddress, ok := note["resourceAddress"].(string)
+	require.True(t, ok)
+	poolAddress, ok := note["poolAddress"].(string)
+	require.True(t, ok)
+	require.Equal(t, strings.ToLower(address), strings.ToLower(resourceAddress))
+	require.Equal(t, strings.ToLower(address), strings.ToLower(poolAddress))
+	require.NotContains(t, note, "voucherAddress")
+	noteID, ok := note["id"].(float64)
+	require.True(t, ok)
+	notificationID := uint64(noteID)
+	request(http.MethodPut, fmt.Sprintf("/api/v2/admin/review-notifications/%d", notificationID), adminToken, map[string]any{"action": "hide"}, http.StatusOK)
+	require.Equal(t, float64(1), request(http.MethodGet, root, "", nil, http.StatusOK)["total"])
+	request(http.MethodPut, root+"/me", userToken, write, http.StatusForbidden)
 }

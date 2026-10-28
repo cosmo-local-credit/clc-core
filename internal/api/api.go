@@ -49,6 +49,9 @@ type (
 		// not mounted.
 		SafeSTSURL string
 		SafeSTSKey string
+		// SafeAutoExecute has clc-core execute a proposal once its signers
+		// reach the threshold; the worker must run the matching executor.
+		SafeAutoExecute bool
 	}
 
 	API struct {
@@ -121,8 +124,10 @@ func New(o APIOpts) *API {
 		marketMapExecutor:     newMarketMapExecutor(),
 	}
 	a.safePolicy = a.newSafePolicy(o.SafeMultiSend)
+	var safeReader *safe.Reader
 	if o.ChainProvider != nil {
-		a.safeReader = safe.NewReader(o.ChainProvider)
+		safeReader = safe.NewReader(o.ChainProvider)
+		a.safeReader = safeReader
 		a.safeMisses = newSafeMissCache(time.Now)
 	}
 	if a.safePolicy != nil && o.SafeSTSURL != "" {
@@ -131,6 +136,13 @@ func New(o APIOpts) *API {
 			policy:  a.safePolicy,
 			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey),
 			signers: storeSafeSigners{a: a},
+		}
+		if safeReader != nil {
+			a.safeProxy.contracts = safeReader.ContractVerifierLatest
+		}
+		if o.SafeAutoExecute {
+			a.safeProxy.execute = a.queueSafeExecution
+			a.safeProxy.executing = a.safeExecutionsQueued
 		}
 	}
 	a.marketLimiter.startSweeper()
@@ -227,6 +239,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/pools/:address/reviews", a.poolReviewsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/offerings", a.offeringsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/wants", a.wantsListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/wants/:id", a.wantDetailHandler, a.marketRateLimitMiddleware())
@@ -257,6 +270,7 @@ func New(o APIOpts) *API {
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
+	apiGroup.Use(a.revalidatePrivilegedRole())
 	apiGroup.GET("/vouchers/:address/info", a.voucherInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/pools/:address/info", a.poolInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/wants/:id/contact", a.wantContactHandler, a.requireUserAuth())
@@ -265,6 +279,10 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/reviews/:id/reply", a.voucherReviewReplyHandler, a.requireUserAuth())
 	apiGroup.POST("/vouchers/:address/reviews/:id/flag", a.voucherReviewFlagHandler, a.requireUserAuth())
+	apiGroup.GET("/pools/:address/reviews/me", a.poolReviewAccessHandler, a.requireUserAuth())
+	apiGroup.PUT("/pools/:address/reviews/me", a.poolReviewSaveHandler, a.requireUserAuth())
+	apiGroup.PUT("/pools/:address/reviews/:id/reply", a.poolReviewReplyHandler, a.requireUserAuth())
+	apiGroup.POST("/pools/:address/reviews/:id/flag", a.poolReviewFlagHandler, a.requireUserAuth())
 	apiGroup.POST("/catalogs", a.curatedCatalogSaveHandler, a.requireUserAuth())
 	apiGroup.PUT("/catalogs/:id", a.curatedCatalogSaveHandler, a.requireUserAuth())
 	apiGroup.GET("/catalogs/:id/membership", a.curatedMembershipHandler, a.requireUserAuth())
@@ -286,6 +304,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/names", a.namesLookupHandler)
 	apiGroup.GET("/recipients", a.recipientSearchHandler, a.recipientRateLimitMiddleware())
 	router.GET(apiVersion+"/recipients/suggest", a.usernameSuggestHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/identity/availability", a.identityAvailabilityHandler, a.marketRateLimitMiddleware())
 	apiGroup.GET("/recipients/resolve", a.recipientResolveHandler, a.recipientRateLimitMiddleware())
 	apiGroup.GET("/recipients/resolve/:name", a.recipientResolveHandler, a.recipientRateLimitMiddleware())
 	apiGroup.GET("/recipients/reverse/:address", a.recipientReverseHandler, a.recipientRateLimitMiddleware())
@@ -301,14 +320,14 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/reports/:id", a.reportByIDHandler, a.marketRateLimitMiddleware())
 	apiGroup.POST("/reports", a.reportCreateHandler, a.requireUserAuth())
 	apiGroup.PUT("/reports/:id", a.reportUpdateHandler, a.requireUserAuth())
-	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireSuperAdmin())
-	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireSuperAdmin())
+	apiGroup.PUT("/reports/:id/approve", a.reportApproveHandler, a.requireAdmin())
+	apiGroup.DELETE("/reports/:id", a.reportDeleteHandler, a.requireAdmin())
 
 	// Owner catalog writes. On apiGroup with requireUserAuth, like report
 	// mutations: a normal pool or voucher owner needs these capabilities, so they
 	// are not admin-only routes.
 	// Mounting a second copy under /api/v2/admin would give the console its own
-	// handlers to drift from. Each owner/superadmin decision happens inside the
+	// handlers to drift from. Each owner/administrator decision happens inside the
 	// handler, from the catalog row it locks — middleware only establishes who is
 	// calling.
 	apiGroup.POST("/vouchers/:address/offerings", a.voucherOfferingCreateHandler, a.requireUserAuth())
@@ -318,7 +337,7 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/vouchers/:address/display-name", a.updateVoucherDisplayNameHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/profile", a.updateVoucherProfileHandler, a.requireUserAuth())
 	// The old immediate-retirement route now returns an upgrade error. Owners
-	// request retirement; superadmins decide and restore through the console.
+	// request retirement; administrators decide and restore through the console.
 	apiGroup.DELETE("/vouchers/:address", a.retireVoucherHandler, a.requireUserAuth())
 	apiGroup.GET("/vouchers/:address/retirement-preview", a.retirementPreviewHandler, a.requireUserAuth())
 	apiGroup.GET("/vouchers/:address/retirement-requests", a.retirementResourceHistoryHandler, a.requireUserAuth())
@@ -384,6 +403,7 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/owned-pools/:address/vouchers", a.ownerPoolVouchersListHandler)
 	userGroup.GET("/me/retirement-requests", a.ownRetirementRequestsHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
+	userGroup.GET("/me/safes", a.userSafesHandler)
 	userGroup.GET("/me/shares/eligibility/:address", a.userShareEligibilityHandler)
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
 	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)
@@ -394,9 +414,10 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/reports", a.userReportsListHandler)
 	userGroup.GET("/me/reports/:id", a.userReportByIDHandler)
 
-	// Superadmin-only routes
-	adminGroup := apiGroup.Group("/admin", a.requireSuperAdmin())
+	// Administrative routes. Role mutation adds a second, superadmin-only guard.
+	adminGroup := apiGroup.Group("/admin", a.requireAdmin())
 	adminGroup.GET("/users", a.adminListUsersHandler)
+	adminGroup.PUT("/users/:address/role", a.adminUpdateUserRoleHandler, a.requireSuperAdmin())
 	adminGroup.PUT("/users/:address/approve", a.adminApproveUserHandler)
 	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
 	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)

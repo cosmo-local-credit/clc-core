@@ -62,7 +62,8 @@ Each route in this document has one access level.
 | Public | No credential is required. |
 | User session | The caller must be a user. A service token is rejected with `E10`. |
 | User or service token | The caller must send a valid user or service credential. |
-| Superadmin | The caller must be a user with the role `SUPERADMIN`. |
+| Administrative | The caller must be a user with the role `ADMIN` or `SUPERADMIN`. |
+| Superadmin | The caller must be a user with the role `SUPERADMIN`; this level is reserved for role management. |
 
 Some routes add checks, for example "the caller must own the voucher".
 The route section lists these checks.
@@ -104,7 +105,7 @@ The token has these claims:
 |---|---|---|
 | `userId` | number | Internal user identifier. |
 | `ethereumAddress` | string | Address of the user. |
-| `role` | string | `USER` or `SUPERADMIN`. |
+| `role` | string | `USER`, `ADMIN` or `SUPERADMIN`. |
 | `iat`, `exp` | number | Issue and expiry time. |
 
 The service checks the cookie first. If the cookie is missing or invalid, the service checks the `Authorization` header.
@@ -144,10 +145,12 @@ Authorization: Bearer <token>
 | Role | Credential | Notes |
 |---|---|---|
 | `USER` | User JWT | Can use every user route. |
-| `SUPERADMIN` | User JWT | Can use every route, including `/api/v2/admin/*`. |
+| `ADMIN` | User JWT | Can use administrative routes, except changing account roles. |
+| `SUPERADMIN` | User JWT | Has administrative access and may change `USER` and `ADMIN` roles. |
 | `SERVICE` | Service JWT | Cannot use user-only routes. Gets `E10` there. |
 
 A route with the level "User session" rejects service tokens.
+A route with the level "Administrative" rejects every caller whose role is neither `ADMIN` nor `SUPERADMIN`.
 A route with the level "Superadmin" rejects every caller whose role is not `SUPERADMIN`.
 A missing or invalid credential on a protected route returns status 401 with code `E06`.
 
@@ -157,7 +160,7 @@ A missing or invalid credential on a protected route returns status 401 with cod
 2. Build an EIP-4361 message that contains the nonce. Sign the message with the wallet.
 3. Send the signed message to one of these routes:
    - `POST /auth/signup` creates an account and signs it in.
-   - `POST /auth/signin` signs in an existing approved account.
+   - `POST /auth/signin` signs in, and first registers an unknown address with placeholder details.
    - `POST /auth/siwe/verify` creates an account for an unknown address and signs in.
 4. On success, the service sets the `__clc_auth` cookie. The browser sends it with each later request.
 5. Send `POST /auth/logout` to clear the cookie.
@@ -274,7 +277,7 @@ The routes in this section are not under `/api/v2`. They use the `/auth` prefix.
 
 #### Account status
 
-A user has the status `PENDING`, `APPROVED` or `REJECTED`. A sign-in for a `PENDING` or `REJECTED` user returns `403` with `E10`. The sign-up and unified verify routes create new users as `APPROVED`. A superadmin can change the status later (see section 15, Admin).
+A user has the status `PENDING`, `APPROVED` or `REJECTED`. A sign-in for a `PENDING` or `REJECTED` user returns `403` with `E10`. The sign-up and unified verify routes create new users as `APPROVED`. An administrator can change the status later (see section 15, Admin).
 
 ### SIWE message construction
 
@@ -381,7 +384,9 @@ Errors:
 
 **Access:** Public.
 
-Signs in a registered user. The response sets the session cookie.
+Signs in a user. The response sets the session cookie.
+
+A new address is registered first, so any wallet that signs a valid message can sign in. The user gets the status `APPROVED`, the role `USER`, the name `Sign-in card` and the placeholder email `pending+<address without 0x>@clc.local`. The bulk sign-in card generator registers its cards with the same values. The caller can set real values with `POST /auth/profile`.
 
 Request body:
 
@@ -406,8 +411,8 @@ Errors:
 |---|---|---|
 | `400` | `E02` | The body is not valid JSON. |
 | `400` | `E04` | A field is missing, the signature is not valid, the signer does not match line 2, or the nonce is not valid or is expired. |
-| `404` | `E03` | The address is not registered. Call `POST /auth/signup` first. |
 | `403` | `E10` | The user status is `PENDING` or `REJECTED`. |
+| `409` | `E17` | The placeholder email of the new address is linked to another user. The address is not registered. |
 
 ### 4.4 `POST /auth/siwe/verify`
 
@@ -523,7 +528,10 @@ Response `200`:
 }
 ```
 
-`address` is in EIP-55 checksum form. `role` is `USER` or `SUPERADMIN`.
+`address` is in EIP-55 checksum form. `role` is `USER`, `ADMIN` or `SUPERADMIN`.
+The database role is authoritative. If it differs from the cookie claim, this
+route returns the current role and refreshes the cookie. An unapproved or
+rejected account receives `204` and its stale cookie is cleared.
 
 Response `204` with no body: the cookie is missing or is not valid.
 
@@ -1161,7 +1169,7 @@ An address with wrong letter case fails validation with code `E04`.
 
 ### 6.1 `POST /api/v2/contracts/token`
 
-**Access:** User or service token. A user caller counts against the voucher limit. A superadmin or service token has no limit.
+**Access:** User or service token. A user caller counts against the voucher limit. An administrator or service token has no limit.
 
 Queues a job that deploys a voucher (ERC-20 proxy).
 
@@ -1216,9 +1224,9 @@ A bad value makes the deploy job fail and the job is not retried.
 The voucher never appears in that case.
 
 **Limit.**
-For a user caller who is not a superadmin, the API checks the `maxTokens` limit before it queues the job.
+For a user caller who is not an administrator, the API checks the `maxTokens` limit before it queues the job.
 A new user starts with a limit of 1 voucher.
-A superadmin can change the limit.
+An administrator can change the limit.
 A voucher counts until its deploy fails on chain or the voucher is retired.
 
 **Response `200`:**
@@ -1249,7 +1257,7 @@ The user can then track it, and it shows in `GET /api/v2/users/me/deployments`.
 
 ### 6.2 `POST /api/v2/contracts/pool`
 
-**Access:** User or service token. A user caller counts against the pool limit. A superadmin or service token has no limit.
+**Access:** User or service token. A user caller counts against the pool limit. An administrator or service token has no limit.
 
 Queues a job that deploys a pool.
 
@@ -1301,7 +1309,7 @@ The API finds an existing unit with the same name (ignoring case) or creates a c
 A custom unit cannot be used with `quoterType` `oracle`.
 
 **Limit.**
-For a user caller who is not a superadmin, the API checks the `maxPools` limit before it queues the job.
+For a user caller who is not an administrator, the API checks the `maxPools` limit before it queues the job.
 A new user starts with a limit of 10 pools.
 
 **Response `200`:**
@@ -1473,7 +1481,7 @@ The result has no `trackingId`.
 
 ### 6.6 `GET /api/v2/otx/track/:trackingId`
 
-**Access:** User or service token. A user caller who is not a superadmin can track only IDs that the API recorded for that user at deploy time.
+**Access:** User or service token. A user caller who is not an administrator can track only IDs that the API recorded for that user at deploy time.
 
 Returns the OTX chain for a tracking ID.
 
@@ -1538,11 +1546,11 @@ If no OTX exists for the ID, `otx` is empty. A service caller can get `null` ins
 |---|---|---|
 | 400 | `E04` | `trackingId` is not a UUID. |
 | 401 | `E06` | No valid credential. |
-| 404 | `E07` | A user caller (not a superadmin) does not own the tracking ID. |
+| 404 | `E07` | A user caller (not an administrator) does not own the tracking ID. |
 
 ### 6.7 `GET /api/v2/otx/track/:trackingId/contract`
 
-**Access:** User or service token. A user caller who is not a superadmin can read only IDs that the API recorded for that user at deploy time.
+**Access:** User or service token. A user caller who is not an administrator can read only IDs that the API recorded for that user at deploy time.
 
 Returns the contract that a deploy created.
 The route looks for a voucher first, then for a pool.
@@ -1580,12 +1588,12 @@ A deploy that fails stays `204`. Check `GET /api/v2/otx/track/:trackingId` for t
 | Status | Code | When |
 |---|---|---|
 | 401 | `E06` | No valid credential. |
-| 404 | `E07` | A user caller (not a superadmin) does not own the tracking ID. |
+| 404 | `E07` | A user caller (not an administrator) does not own the tracking ID. |
 | 500 | `E01` | A user caller sends a value that is not a UUID. |
 
 ### 6.8 `GET /api/v2/account/otx/:address`
 
-**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or a superadmin.
+**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or an administrator.
 
 Returns the OTX that a custodial signer account signed, newest first.
 
@@ -2267,13 +2275,13 @@ Returns one bounded set of lightweight Marketplace markers and server clusters f
 | Parameter | Type | Default | Rules |
 |---|---|---|---|
 | `bbox` | string | Global | Repeat once for an antimeridian split. See section 7.1. |
-| `zoom` | number | `0` | Finite value from 0 through 22. The server uses its integer floor as the cluster bucket. |
+| `zoom` | number | `0` | Finite value from 0 through 22. The server rounds down to a quarter-zoom cluster bucket. |
 | `kinds` | string | all kinds | `voucher`, `want`, `pool`, `catalog`, or `post`. Repeat the parameter or use commas. |
 | `q` | string | none | Uses the search behavior of the selected resource kinds. |
 | `tags`, `tagMatch`, `facets` | | | See section 7.1. |
 | `creditablePools` | string | none | Verified pool references in `chainId:address` form. Repeat the parameter or use commas. |
 
-At wide zooms, resources in the same Web Mercator grid cell become one cluster. At close zooms, the response returns individual markers so coincident resources can be fanned out by the client. A response contains at most 2,000 features.
+Below zoom 20, resources in the same 30-pixel Web Mercator grid cell become one cluster. Quarter-zoom buckets keep that footprint close to the rendered scale. At zoom 20 the response returns individual markers so coincident resources can be fanned out by the client. A response contains at most 2,000 features.
 
 Marker fields are `type`, `id`, `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon`, and `markerColor`. Cluster fields are `type`, `id`, `lat`, `lng`, `count`, `kinds`, and `expansionZoom`. `kinds` contains the count for each represented resource kind. `tagFacets` is returned when `facets=true`.
 
@@ -2444,9 +2452,9 @@ Status `200`. The `result` is `{"saved": true}`. The errors are the same as in s
 
 ### 7.10 `POST /api/v2/vouchers/:address/offerings`
 
-**Access:** User session. The caller must be the voucher owner or a superadmin.
+**Access:** User session. The caller must be the voucher owner or an administrator.
 
-Creates an offering for a voucher. The server sets the seller. The seller is the voucher owner. When the voucher has no owner, only a superadmin can create the offering, and the seller is that superadmin.
+Creates an offering for a voucher. The server sets the seller. The seller is the voucher owner. When the voucher has no owner, only an administrator can create the offering, and the seller is that administrator.
 
 | Body field | Type | Required | Rules |
 |---|---|---|---|
@@ -2473,14 +2481,14 @@ Status `201`, description `Offering created`. The `result` is `{"offering": {...
 | 400 | `E02` | The body is not valid JSON. |
 | 400 | `E04` | `address` is not valid, or a body field is outside the rules. |
 | 401 | `E06` | No valid session. |
-| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or an administrator. |
 | 404 | `E03` | The voucher does not exist. |
 | 409 | `E16` | The voucher is retired. |
-| 429 | `E11` | The caller reached the offer limit of the account. The `result` has `resource`, `used` and `limit`. A superadmin has no limit. |
+| 429 | `E11` | The caller reached the offer limit of the account. The `result` has `resource`, `used` and `limit`. An administrator has no limit. |
 
 ### 7.11 `PUT /api/v2/vouchers/:address/offerings/:id`
 
-**Access:** User session. The caller must be the voucher owner or a superadmin.
+**Access:** User session. The caller must be the voucher owner or an administrator.
 
 Replaces the product fields of an offering. The body is the same as for `POST /api/v2/vouchers/:address/offerings`. Every field is written. A request without `imageUrl` removes the image. There is no partial update.
 
@@ -2491,13 +2499,13 @@ Status `200`, description `Offering updated`. The `result` is `{"offering": {...
 | 400 | `E02` | The body is not valid JSON. |
 | 400 | `E04` | `address` or `id` is not valid, or a body field is outside the rules. |
 | 401 | `E06` | No valid session. |
-| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or an administrator. |
 | 404 | `E03` | The offering does not exist, belongs to another voucher, or is unlisted. |
 | 409 | `E16` | The voucher is retired. |
 
 ### 7.12 `DELETE /api/v2/vouchers/:address/offerings/:id`
 
-**Access:** User session. The caller must be the voucher owner or a superadmin.
+**Access:** User session. The caller must be the voucher owner or an administrator.
 
 Unlists an offering. The server keeps the row and sets `available` to `false`. The public routes no longer return it. The server does not delete the stored image.
 
@@ -2507,7 +2515,7 @@ The errors are the same as for `PUT /api/v2/vouchers/:address/offerings/:id`, ex
 
 ### 7.13 `PUT /api/v2/vouchers/:address/display-name`
 
-**Access:** User session. The caller must be the voucher owner or a superadmin.
+**Access:** User session. The caller must be the voucher owner or an administrator.
 
 Sets the public name of a voucher. The contract name does not change.
 
@@ -2522,13 +2530,13 @@ Status `200`, description `Voucher display name updated`. The `result` is `{"vou
 | 400 | `E02` | The body is not valid JSON. |
 | 400 | `E04` | `address` is not valid, `displayName` is missing, blank or longer than 120 characters. |
 | 401 | `E06` | No valid session. |
-| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or an administrator. |
 | 404 | `E03` | The voucher does not exist. |
 | 409 | `E16` | The voucher is retired, or another voucher or pending token already uses the name. |
 
 ### 7.14 `PUT /api/v2/vouchers/:address/profile`
 
-**Access:** User session. The caller must be the voucher owner or a superadmin.
+**Access:** User session. The caller must be the voucher owner or an administrator.
 
 Replaces the off-chain profile of a voucher.
 The route writes every field, so a request must send the full record.
@@ -2561,20 +2569,20 @@ Status `200`, description `Voucher profile updated`. The `result` is `{"voucher"
 | 400 | `E02` | The body is not valid JSON. |
 | 400 | `E04` | `address` is not valid, a field is outside the rules, or only one of `geoLat` and `geoLng` is present. |
 | 401 | `E06` | No valid session. |
-| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or an administrator. |
 | 404 | `E03` | The voucher does not exist. |
 | 409 | `E16` | The voucher is retired, or another voucher or pending token already uses the display name. |
 
 ### 7.15 `DELETE /api/v2/vouchers/:address`
 
-**Access:** User session. The caller must be the voucher owner or a superadmin.
+**Access:** User session. The caller must be the voucher owner or an administrator.
 
 Retires a voucher.
 The server sets the voucher to inactive.
 The voucher then disappears from the public reads.
 The server keeps the voucher row, its offerings and its reports.
 The route takes no body.
-A superadmin restores a retired voucher with a route in section 15, Admin.
+An administrator restores a retired voucher with a route in section 15, Admin.
 
 Status `200`, description `Voucher retired`. The `result` is `null`. The response has `Cache-Control: no-store`.
 
@@ -2582,7 +2590,7 @@ Status `200`, description `Voucher retired`. The `result` is `null`. The respons
 |---|---|---|
 | 400 | `E04` | `address` is not a valid hex address. |
 | 401 | `E06` | No valid session. |
-| 403 | `E10` | The caller uses a service token, or is not the owner or a superadmin. |
+| 403 | `E10` | The caller uses a service token, or is not the owner or an administrator. |
 | 404 | `E03` | The voucher does not exist. |
 | 409 | `E16` | The voucher is already retired. The server checks this before the owner check. |
 
@@ -2811,7 +2819,7 @@ Status `200`, description `Offerings in pool <address>`. The `result` has `offer
 
 ### 8.6 `PUT /api/v2/pools/:address/profile`
 
-**Access:** User session. The caller must be the pool owner or a superadmin. A pool with no owner can only be changed by a superadmin. This route has no rate limit.
+**Access:** User session. The caller must be the pool owner or an administrator. A pool with no owner can only be changed by an administrator. This route has no rate limit.
 
 Replaces the off-chain profile of a pool.
 The route writes every field, so a request must send the full record.
@@ -2843,9 +2851,67 @@ Status `200`, description `Pool profile updated`. The `result` is `{"pool": {...
 | 400 | `E02` | The body is not valid JSON. |
 | 400 | `E04` | `address` is not a valid address, a field is outside the rules, or only one of `geoLat` and `geoLng` is present. |
 | 401 | `E06` | No valid session. |
-| 403 | `E10` | The caller uses a service token, or is not the pool owner or a superadmin. |
+| 403 | `E10` | The caller uses a service token, or is not the pool owner or an administrator. |
 | 404 | `E03` | The pool does not exist. |
 | 409 | `E16` | Another pool uses the display name, or the request changes the unit of account of an oracle pool. |
+
+### 8.7 Pool reviews
+
+Pool reviews use the public and authenticated response shapes, pagination,
+star filters, limits, owner replies, reporting, and moderation rules from
+section 7.9. They also remain available after a Pool is retired.
+
+A wallet may review a Pool after it initiates a successful swap through that
+Pool with positive input and output amounts. Every Pool leg of a multi-hop
+swap qualifies independently. The wallet may write or update its single review
+for seven days after its latest qualifying swap. A new qualifying swap reopens
+that edit window. The current Pool owner, including a projected Safe signer,
+may reply to or report a review; an administrative role alone does not grant
+that owner action.
+
+#### 8.7.1 `GET /api/v2/pools/:address/reviews`
+
+**Access:** Public, with the rate limit of section 8.1.
+
+Returns up to 20 visible reviews, newest first. `stars` accepts 1 through 5 and
+filters only the review list. `before` is the previous page's `next` review ID.
+The result contains `reviews`, `counts`, `total`, `average`, and `next`, as in
+section 7.9.1. The response has `Cache-Control: no-store`.
+
+#### 8.7.2 `GET /api/v2/pools/:address/reviews/me`
+
+**Access:** User session.
+
+Returns `isOwner`, `editableUntil`, `review`, `hidden`, `editableReplyIds`, and
+`flaggedReviewIds`, as in section 7.9.2. For a non-owner, `editableUntil` is
+seven days after the latest successful qualifying swap indexed for this wallet
+and Pool. Swap verification uses indexed data and performs no RPC lookup.
+
+#### 8.7.3 `PUT /api/v2/pools/:address/reviews/me`
+
+**Access:** User session. The caller must have a qualifying swap within seven
+days and must not be the current Pool owner.
+
+Creates or updates the caller's review. The body fields are `stars` (integer,
+1 through 5) and optional `comment` (trimmed, at most 2000 characters). The
+result is `{"saved": true}`. Hidden reviews cannot be changed.
+
+#### 8.7.4 `PUT /api/v2/pools/:address/reviews/:id/reply`
+
+**Access:** User session. The caller must be the current Pool owner or a
+projected signer of the owner Safe.
+
+Sets a trimmed `reply` from 1 through 2000 characters. A reply remains attached
+to its author after ownership changes; a later owner cannot overwrite it.
+
+#### 8.7.5 `POST /api/v2/pools/:address/reviews/:id/flag`
+
+**Access:** User session. The caller must be the current Pool owner or a
+projected signer of the owner Safe.
+
+Reports the review with a trimmed `reason` from 1 through 500 characters.
+Repeated reports by the same owner have no additional effect and still return
+success. The result is `{"saved": true}`.
 
 ---
 
@@ -2900,7 +2966,7 @@ The member lists return this object for a pool or a voucher.
 - The public reads use the market limit (section 7.1).
 - The `:id` path parameter must be a positive integer up to 2147483647. Other values return `400 E04` with the description `id must be a positive integer`.
 - A catalog that does not exist returns `404 E07`.
-- A caller that is not the owner of the catalog gets `403 E10`. A superadmin has no exception. Only the owner can change a catalog.
+- A caller that is neither the owner nor an administrator gets `403 E10`.
 - A malformed JSON body returns `400 E02`.
 
 #### Pagination
@@ -3093,7 +3159,7 @@ A quota error has this body. The `used` and `limit` values come from the account
 }
 ```
 
-A superadmin has no catalog limit. Section 14, Current user, shows the usage of the caller. Section 15, Admin, shows how a superadmin sets the limit.
+An administrator has no catalog limit. Section 14, Current user, shows the usage of the caller. Section 15, Admin, shows how an administrator sets the limit.
 
 ### 9.6 `GET /api/v2/users/me/catalogs`
 
@@ -3157,9 +3223,9 @@ The global admin reads (`GET /api/v2/admin/reports` and `GET /api/v2/admin/repor
 |---|---|
 | `GET /api/v2/reports` and `GET /api/v2/reports/:id` | Public. Shows only `APPROVED` posts. With `nearby=true`, a user session is required. |
 | `POST /api/v2/reports` | User session. |
-| `PUT /api/v2/reports/:id` | User session. The caller must be the author or a superadmin. |
-| `PUT /api/v2/reports/:id/approve` | Superadmin. |
-| `DELETE /api/v2/reports/:id` | Superadmin. |
+| `PUT /api/v2/reports/:id` | User session. The caller must be the author or an administrator. |
+| `PUT /api/v2/reports/:id/approve` | Administrative. |
+| `DELETE /api/v2/reports/:id` | Administrative. |
 | `GET /api/v2/users/me/reports` and `GET /api/v2/users/me/reports/:id` | User session. Shows the posts of the caller in every status. |
 
 ### 10.2 Post object
@@ -3324,7 +3390,7 @@ Each item of `attachments` has these fields.
 `byteSize` is an optional integer greater than 0.
 The same URL can appear twice when the two items have different `kind` values.
 
-A caller that is not a superadmin can link only vouchers and pools that the caller currently owns. Another account's resource returns `403 E10`. A superadmin can link any catalog voucher or pool. Existing links remain stored after an ownership transfer, but a regular author must remove any resource no longer owned before saving another edit.
+A caller that is not an administrator can link only vouchers and pools that the caller currently owns. Another account's resource returns `403 E10`. An administrator can link any catalog voucher or pool. Existing links remain stored after an ownership transfer, but a regular author must remove any resource no longer owned before saving another edit.
 
 ```json
 {
@@ -3370,14 +3436,14 @@ Creates a post. The status is `APPROVED` at once. There is no review queue. Stat
 
 ### 10.7 `PUT /api/v2/reports/:id`
 
-**Access:** User session. The caller must be the original author or a superadmin.
+**Access:** User session. The caller must be the original author or an administrator.
 
 Replaces the post with the body in section 10.5. Status `200`. `description` is `Report updated`. `result` is `{"report": <post>}`.
 
 | Caller | Status after the edit |
 |---|---|
 | Original author | `APPROVED` |
-| Superadmin | Unchanged |
+| Administrator | Unchanged |
 
 The body is validated first, then the author, then the tags, vouchers, and pools.
 
@@ -3386,24 +3452,24 @@ The body is validated first, then the author, then the tags, vouchers, and pools
 | `400` | `E02` | The body is not valid JSON. |
 | `400` | `E04` | `:id` is not a positive integer, or a field breaks a rule. |
 | `401` | `E06` | The request has no valid session. |
-| `403` | `E10` | The caller is not the author and not a superadmin. Or a service token. Or a voucher or pool that the caller does not own. |
+| `403` | `E10` | The caller is not the author and not an administrator. Or a service token. Or a voucher or pool that the caller does not own. |
 | `404` | `E03` | The post does not exist. |
 
 ### 10.8 `PUT /api/v2/reports/:id/approve`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Sets the status of the post to `APPROVED`. The request has no body. The route changes nothing else. A post that is already `APPROVED` stays the same and returns `200`. Status `200`. `description` is `Report approved`. `result` is `{"report": <post>}`.
 
-Errors: `400 E04` for a bad `:id`. `403 E10` for a caller that is not a superadmin. `404 E03` when the post does not exist.
+Errors: `400 E04` for a bad `:id`. `403 E10` for a caller that is not an administrator. `404 E03` when the post does not exist.
 
 ### 10.9 `DELETE /api/v2/reports/:id`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Deletes the post with its tags, voucher links, pool links, images, and attachments. An author cannot delete the own post. Status `200`. `description` is `Report deleted`. `result` is `{"id": 4633}`.
 
-Errors: `400 E04` for a bad `:id`. `403 E10` for a caller that is not a superadmin. `404 E03` when the post does not exist.
+Errors: `400 E04` for a bad `:id`. `403 E10` for a caller that is not an administrator. `404 E03` when the post does not exist.
 
 ### 10.10 `GET /api/v2/users/me/reports`
 
@@ -3480,7 +3546,7 @@ A request that fails leaves no value behind.
 | `POST /api/v2/catalogs` and `PUT /api/v2/catalogs/:id` | Each `tags` value. |
 | `POST /auth/profile` and `PUT /api/v2/admin/users/:address/profile` | The `preferredCurrency`. |
 
-An administrator can also create a custom unit of account with a route in section 15, Admin. That section also describes how a superadmin lists, renames, and deletes vocabulary values.
+An administrator can also create a custom unit of account with a route in section 15, Admin. That section also describes how an administrator lists, renames, and deletes vocabulary values.
 
 #### Rules for a value
 
@@ -4105,8 +4171,8 @@ The base URL must include the upstream `/api/v1` prefix.
 **Access** for all routes in this section: User or service token, with these limits:
 
 - A user can act only on the user's own address. A request for another address returns `403` with code `E10`.
-- The routes in sections 13.3, 13.5 and 13.7 are for a service token or a superadmin only. Any other caller gets `403` with code `E10`.
-- A service token or a superadmin can act on any address.
+- The routes in sections 13.3, 13.5 and 13.7 are for a service token or an administrator only. Any other caller gets `403` with code `E10`.
+- A service token or an administrator can act on any address.
 
 **Proxy behavior:**
 
@@ -4145,7 +4211,7 @@ The base URL must include the upstream `/api/v1` prefix.
 
 ### 13.1 `POST /api/v2/pretium/trigger-onramp`
 
-**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or a superadmin.
+**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or an administrator.
 
 Starts a fiat-to-crypto onramp.
 
@@ -4171,7 +4237,7 @@ The response is the upstream response.
 
 ### 13.2 `POST /api/v2/pretium/link`
 
-**Access:** User or service token. `publicKey` must be the caller's own address, unless the caller is a service token or a superadmin.
+**Access:** User or service token. `publicKey` must be the caller's own address, unless the caller is a service token or an administrator.
 
 Links a public key to a phone number.
 
@@ -4195,7 +4261,7 @@ This repository does not define them.
 
 ### 13.3 `GET /api/v2/pretium/link/:phoneNumber`
 
-**Access:** Service token or superadmin.
+**Access:** Service token or administrator.
 
 Returns the links of a phone number.
 
@@ -4207,7 +4273,7 @@ The response is the upstream response.
 
 ### 13.4 `GET /api/v2/pretium/link-by-address/:address`
 
-**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or a superadmin.
+**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or an administrator.
 
 Returns the link of a wallet address.
 
@@ -4219,7 +4285,7 @@ The response is the upstream response.
 
 ### 13.5 `GET /api/v2/pretium/transactions/:phoneNumber`
 
-**Access:** Service token or superadmin.
+**Access:** Service token or administrator.
 
 Returns the transactions of a phone number.
 
@@ -4231,7 +4297,7 @@ The response is the upstream response.
 
 ### 13.6 `GET /api/v2/pretium/transactions-by-address/:address`
 
-**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or a superadmin.
+**Access:** User or service token. `address` must be the caller's own address, unless the caller is a service token or an administrator.
 
 Returns the transactions of an address.
 
@@ -4243,7 +4309,7 @@ The response is the upstream response.
 
 ### 13.7 `GET /api/v2/pretium/transactions-recent`
 
-**Access:** Service token or superadmin.
+**Access:** Service token or administrator.
 
 Returns recent transactions. The route has no parameters.
 The response is the upstream response.
@@ -4270,7 +4336,7 @@ The response is the upstream response.
 All routes in this section need a user session.
 A service token returns `403` with code `E10`.
 A missing or invalid credential returns `401` with code `E06`.
-Both `USER` and `SUPERADMIN` callers can use these routes.
+`USER`, `ADMIN` and `SUPERADMIN` callers can use these routes.
 The user routes for posts and catalogs (`GET /api/v2/users/me/reports`, `GET /api/v2/users/me/catalogs`) are in other sections.
 
 **Cursor pagination** applies to `/me/vouchers`, `/me/tokens` and `/me/pools`.
@@ -4345,7 +4411,7 @@ Returns the profile of the caller.
 | `username` | string or `null` | Public user name. |
 | `name`, `email`, `phone`, `country` | string | Contact fields. Empty string if not set. |
 | `preferredCurrency`, `bio`, `website`, `locationName`, `geoLat`, `geoLng`, `avatarUrl` | mixed | Profile fields. Not present if not set. |
-| `role` | string | `USER` or `SUPERADMIN`. |
+| `role` | string | `USER`, `ADMIN` or `SUPERADMIN`. |
 | `status` | string | `PENDING`, `APPROVED` or `REJECTED`. |
 | `maxPools`, `maxTokens`, `maxCatalogs` | number | Limits for pools, vouchers and catalogs. |
 | `maxOffers` | number | Maximum available offerings on each voucher the user owns. |
@@ -4364,7 +4430,7 @@ Optional query parameter:
 
 | Parameter | Type | Meaning |
 |---|---|---|
-| `voucher` | address | Return `offers` usage for this voucher. The caller must own the voucher, unless the caller is a superadmin. Other resource counts remain the caller's normal aggregate counts. Without this parameter, `offers` retains the legacy account-wide aggregate for older clients. |
+| `voucher` | address | Return `offers` usage for this voucher. The caller must own the voucher, unless the caller is an administrator. Other resource counts remain the caller's normal aggregate counts. Without this parameter, `offers` retains the legacy account-wide aggregate for older clients. |
 
 **Response `200`:**
 
@@ -4388,13 +4454,13 @@ Optional query parameter:
 |---|---|---|
 | `used` | number | Current use. |
 | `limit` | number | The limit of the user. |
-| `unlimited` | boolean | `true` for a `SUPERADMIN` user. |
+| `unlimited` | boolean | `true` for an `ADMIN` or `SUPERADMIN` user. |
 | `canCreate` | boolean | `true` if the user is unlimited or `used` is below `limit`. |
 
 A voucher deploy counts until the deploy fails on chain or the voucher is retired.
 When `voucher` is supplied, an offering counts while it is available on that voucher. Each voucher receives the user's full `maxOffers` allowance independently. Unavailable offerings release their slot. Existing offerings remain visible and editable after an ownership transfer even when their count exceeds the new owner's allowance; only additional creation is blocked.
 
-**Errors:** `400` with code `E04` for a malformed voucher address, `403` with code `E10` when a non-superadmin does not own the voucher, and `404` with code `E07` when the voucher is unknown.
+**Errors:** `400` with code `E04` for a malformed voucher address, `403` with code `E10` when a non-administrator does not own the voucher, and `404` with code `E07` when the voucher is unknown.
 
 ### 14.3 `GET /api/v2/users/me/vouchers`
 
@@ -4488,7 +4554,7 @@ Use `GET /api/v2/users/me/tokens/:address` for the full record.
 
 ### 14.5 `GET /api/v2/users/me/tokens/:address`
 
-**Access:** User session. The caller must have started the deployment, or be a superadmin.
+**Access:** User session. The caller must have started the deployment, or be an administrator.
 
 Returns one confirmed deployed voucher.
 
@@ -4602,7 +4668,7 @@ Use `GET /api/v2/users/me/pools/:address` for the full record.
 
 ### 14.7 `GET /api/v2/users/me/pools/:address`
 
-**Access:** User session. The caller must have started the deployment, or be a superadmin.
+**Access:** User session. The caller must have started the deployment, or be an administrator.
 
 Returns one confirmed deployed pool.
 
@@ -4808,16 +4874,17 @@ The API reads the profile data from the current profile of the sender.
 
 ## 15. Admin
 
-This section describes all routes under `/api/v2/admin`. Only a superadmin can use them.
+This section describes all routes under `/api/v2/admin`. `ADMIN` and
+`SUPERADMIN` can use them. The role-mutation route is `SUPERADMIN` only.
 
 ### 15.1 Common rules
 
-**Access:** Superadmin.
+**Access:** Administrative, except where a route says Superadmin.
 
 #### Access control
 
-- The caller must have a user session with the role `SUPERADMIN`. See section 2.
-- A service token has the role `SERVICE`. A service token gets `403` with `E10` and the description `superadmin access required`.
+- The caller must have a user session with the role `ADMIN` or `SUPERADMIN`. See section 2.
+- A service token has the role `SERVICE`. A service token gets `403` with `E10` and the description `admin access required`.
 - A caller with the role `USER` also gets `403` with `E10`.
 - A request without valid credentials gets `401` with `E06`.
 - This section does not repeat these three errors for each route.
@@ -4870,7 +4937,7 @@ These routes use the same cursor pagination: `GET /api/v2/admin/users`, `GET /ap
 
 ### 15.2 `GET /api/v2/admin/users`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return one page of the account directory. Rows are newest first.
 
@@ -4880,6 +4947,7 @@ Return one page of the account directory. Rows are newest first.
 |---|---|---|---|
 | `q` | string | No | Search term. The server searches the name, email, phone and address of each account. It does not search country or role. See section 15.1. |
 | `status` | string | No | Filter by approval status. Values are `PENDING`, `APPROVED` and `REJECTED`. The case does not matter. |
+| `roles` | string | No | Filter by role. Send `USER`, `ADMIN`, or `SUPERADMIN` as a comma-separated value, repeat the parameter, or combine both forms. Unknown roles return `400`. Selected roles use OR semantics. |
 | `perPage`, `cursor`, `next` | | No | See section 15.1. |
 
 **Response 200**
@@ -4951,10 +5019,30 @@ The routes in sections 15.3, 15.4 and 15.5 return the same user object under `re
 |---|---|---|
 | `400` | `E04` | `q` is shorter than 2 or longer than 64 characters. |
 | `400` | `E04` | `status` is not one of the three values. The description is `status must be "PENDING", "APPROVED" or "REJECTED"`. |
+| `400` | `E04` | `roles` contains an unknown value. The description is `role must be "USER", "ADMIN" or "SUPERADMIN"`. |
+
+#### `PUT /api/v2/admin/users/:address/role`
+
+**Access:** Superadmin.
+
+Change a `USER` to `ADMIN`, or an `ADMIN` to `USER`. Approval status is not
+changed. Existing `SUPERADMIN` records cannot be changed through this route.
+
+```json
+{ "role": "ADMIN" }
+```
+
+The only accepted body values are `ADMIN` and `USER`. The response description
+is `User role updated` and `result.user` contains the updated account. Sending
+the existing role succeeds with `User role unchanged`.
+
+**Errors:** `400` for an invalid address, body, or unsupported role; `404` when
+the user does not exist; `409` when the target is a `SUPERADMIN`; and `403` when
+the caller is not a current `SUPERADMIN`.
 
 ### 15.3 `PUT /api/v2/admin/users/:address/approve` and `PUT /api/v2/admin/users/:address/reject`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Set the status of an account. `approve` sets `APPROVED`. `reject` sets `REJECTED`. The route does not check the old status or the role of the account.
 
@@ -4991,7 +5079,7 @@ The example shows only some fields of `user`.
 
 ### 15.4 `PUT /api/v2/admin/users/:address/limits`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Change the creation limits of an account. The server changes only the fields that you send.
 
@@ -5024,7 +5112,7 @@ The description is `User limits updated`. The result has the key `user`.
 
 ### 15.5 `PUT /api/v2/admin/users/:address/profile`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Correct the identity, contact details and preferences of another account.
 The route uses the same body, the same validation and the same store call as the self-service profile update (see section 14, Current user).
@@ -5090,7 +5178,7 @@ The description is `User profile updated`. The result has the key `user` with th
 
 ### 15.6 `GET /api/v2/admin/users/:address/pools`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return the pools to which an account belongs, with cursor pagination. The server derives the membership. An account belongs to each pool that allows a voucher that the account owns. Pool ownership and deployment history do not count.
 
@@ -5111,7 +5199,7 @@ The `first` and `last` values are pool IDs.
 
 ### 15.7 `GET /api/v2/admin/users/:address/stats`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return the counts for one account.
 
@@ -5156,7 +5244,7 @@ The description is `Account statistics`.
 
 ### 15.8 `GET /api/v2/admin/tokens`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return all confirmed voucher deployments of all users. The list is not paginated. Rows are newest first by `createdAt`. The name is the display name of the voucher when one exists.
 
@@ -5208,7 +5296,7 @@ The query for this route fills only these fields: `id`, `otxId`, `platformContra
 
 ### 15.9 `GET /api/v2/admin/pools`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return all confirmed pool deployments of all users. The list is not paginated. Rows are newest first by `createdAt`.
 
@@ -5268,7 +5356,7 @@ This pool object is the deployment record. The catalog pool object in sections 1
 
 ### 15.10 `GET /api/v2/admin/pools/:address/vouchers`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return the vouchers of one pool, with cursor pagination. Unlike the public route `GET /api/v2/pools/:address/vouchers` (see section 8, Pools), this route includes retired vouchers.
 
@@ -5355,7 +5443,7 @@ The example shows only some fields of a voucher.
 
 ### 15.11 `PUT /api/v2/admin/pools/:address/profile`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Replace the off-chain record of a pool. The route changes catalog data only. It does not change the name, symbol, decimals or contract addresses, which are facts from the chain. The owner can use `PUT /api/v2/pools/:address/profile` with the same body. See section 8, Pools.
 
@@ -5455,7 +5543,7 @@ The `pool` value is a catalog pool object:
 
 ### 15.12 `GET /api/v2/admin/deployments`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return the deployment history of all users. The list is not paginated. Rows are newest first by `createdAt`.
 
@@ -5485,7 +5573,7 @@ The description is `All deployment history`. The result has the key `deployments
 
 ### 15.13 `GET /api/v2/admin/vouchers`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return the voucher catalog for the console, with cursor pagination.
 The public list `GET /api/v2/vouchers` (see section 7, Vouchers and offerings) shows only active vouchers that have a location.
@@ -5558,7 +5646,7 @@ The description is `Vouchers`. The result has the keys `vouchers`, `first` and `
 
 ### 15.14 `GET /api/v2/admin/vouchers/:address`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return one voucher, whatever its visibility. The route has no `active` filter. A `404` means that the catalog does not hold the address.
 
@@ -5637,7 +5725,7 @@ The `voucher` object has these fields. The same object is the result of the rout
 
 ### 15.15 `PUT /api/v2/admin/vouchers/:address/profile`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Replace the off-chain record of a voucher.
 The route changes catalog data only.
@@ -5690,7 +5778,7 @@ The server reads the voucher back through the public query. This query hides a r
 
 ### 15.16 `PUT /api/v2/admin/vouchers/:address/restore`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return a retired voucher to the public catalog. The route has no owner version. The request has no body.
 
@@ -5720,7 +5808,7 @@ The description is `Voucher restored`. The result has the key `voucher` with the
 
 ### 15.17 `GET /api/v2/admin/vocabulary`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return all values of the three shared vocabularies: tags, offering units and units of account. The list includes built-in values and custom values. The response is not paginated.
 
@@ -5775,7 +5863,7 @@ The usage counts show what a rename or a delete reaches.
 
 ### 15.18 `PUT /api/v2/admin/vocabulary/tags` and `PUT /api/v2/admin/vocabulary/units`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Rename a tag or an offering unit. All records that use the value follow the new name.
 
@@ -5821,7 +5909,7 @@ The description is `Vocabulary value renamed`. The result has the key `value`, w
 
 ### 15.19 `PUT /api/v2/admin/vocabulary/units-of-account`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Rename a custom unit of account. The new name applies to profiles, vouchers, pools and deployment data. It does not change the stored valuation snapshots of old transfers.
 
@@ -5850,7 +5938,7 @@ The description is `Unit of account renamed`. The result has the key `value`, wh
 
 ### 15.20 `POST /api/v2/admin/vocabulary/units-of-account`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Create a custom unit of account. This is the only vocabulary value that has a create route. The server creates tags and offering units when a write names them.
 
@@ -5885,7 +5973,7 @@ The description is `Custom unit of account created`. The result has the key `val
 
 ### 15.21 `DELETE /api/v2/admin/vocabulary/tags` and `DELETE /api/v2/admin/vocabulary/units`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Delete a custom tag or a custom offering unit. The value is in the JSON body, not in the path.
 
@@ -5943,7 +6031,7 @@ For an offering unit, `usage` has the count `offerings`. `total` is equal to `of
 
 ### 15.22 `DELETE /api/v2/admin/vocabulary/units-of-account`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Delete a custom unit of account. The route deletes the value only when no record uses it.
 
@@ -5988,9 +6076,12 @@ The description is `Custom unit of account deleted`. The result has the keys `va
 
 ### 15.23 `GET /api/v2/admin/review-notifications`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
-Return the open flags on voucher reviews. An owner of a voucher makes a flag with `POST /api/v2/vouchers/:address/reviews/:id/flag`. The list shows flags that nobody has resolved. Rows are newest first. A page has at most 20 rows.
+Return the open flags on Voucher and Pool reviews. A current resource owner
+makes a flag through the corresponding review route. The list shows flags that
+nobody has resolved. Rows are newest first across both resource kinds. A page
+has at most 20 rows.
 
 **Query parameters**
 
@@ -6011,7 +6102,10 @@ This route does not send a `description`. The route sends `Cache-Control: no-sto
 |---|---|---|
 | `id` | integer | Flag ID. Use this ID in section 15.24. |
 | `reviewId` | integer | Review ID. |
-| `voucherAddress` | string | Voucher address. |
+| `resourceKind` | string | `voucher` or `pool`. |
+| `resourceAddress` | string | Address of the reviewed resource. |
+| `voucherAddress` | string or absent | Voucher address, retained for compatibility. |
+| `poolAddress` | string or absent | Pool address. |
 | `reason` | string | Reason from the owner. |
 | `stars` | integer | Current stars of the review. |
 | `comment` | string | Current comment of the review. |
@@ -6027,7 +6121,9 @@ This route does not send a `description`. The route sends `Cache-Control: no-sto
       {
         "id": 31,
         "reviewId": 12,
-        "voucherAddress": "0x1111111111111111111111111111111111111111",
+        "resourceKind": "pool",
+        "resourceAddress": "0x1111111111111111111111111111111111111111",
+        "poolAddress": "0x1111111111111111111111111111111111111111",
         "reason": "Abusive language",
         "stars": 1,
         "comment": "Bad comment",
@@ -6049,7 +6145,7 @@ This route does not send a `description`. The route sends `Cache-Control: no-sto
 
 ### 15.24 `PUT /api/v2/admin/review-notifications/:id`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Resolve a flag on a review.
 
@@ -6092,7 +6188,7 @@ These errors have an empty `code` field.
 
 ### 15.25 `GET /api/v2/admin/reports`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return posts in all statuses from all authors. The public list `GET /api/v2/reports` (see section 10, Posts) returns approved posts only.
 
@@ -6173,7 +6269,7 @@ A post summary has these fields: `id`, `title`, `description`, `imageUrl`, `geoL
 
 ### 15.26 `GET /api/v2/admin/reports/:id`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return one complete post in any status.
 
@@ -6207,7 +6303,7 @@ The `report` object has the fields of a post summary (section 15.25) and these f
 
 ### 15.27 `GET /api/v2/admin/dashboard/stats`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return the totals and the time series for the console dashboard.
 
@@ -6294,7 +6390,7 @@ There is no route `GET /api/v2/admin/dashboard/transactions`. Use the routes in 
 
 ### 15.28 `GET /api/v2/admin/transactions/vouchers` and `GET /api/v2/admin/transactions/pools`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return events from federation, with cursor pagination.
 `vouchers` returns the movements of vouchers. `pools` returns the operations of pools.
@@ -6394,7 +6490,7 @@ Fields of a pool transaction:
 
 ### 15.29 `GET /api/v2/admin/transactions/otx`
 
-**Access:** Superadmin.
+**Access:** Administrative.
 
 Return the origin transactions that this service signed, with cursor pagination.
 The route reads only local data. It works when federation is not available.
@@ -6501,10 +6597,15 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/pools/:address` | Public |
 | GET | `/api/v2/pools/:address/vouchers` | Public |
 | GET | `/api/v2/pools/:address/offerings` | Public |
+| GET | `/api/v2/pools/:address/reviews` | Public |
 | GET | `/api/v2/vouchers/:address/reviews/me` | User session |
 | PUT | `/api/v2/vouchers/:address/reviews/me` | User session |
 | PUT | `/api/v2/vouchers/:address/reviews/:id/reply` | User session |
 | POST | `/api/v2/vouchers/:address/reviews/:id/flag` | User session |
+| GET | `/api/v2/pools/:address/reviews/me` | User session |
+| PUT | `/api/v2/pools/:address/reviews/me` | User session |
+| PUT | `/api/v2/pools/:address/reviews/:id/reply` | User session |
+| POST | `/api/v2/pools/:address/reviews/:id/flag` | User session |
 | POST | `/api/v2/catalogs` | User session |
 | PUT | `/api/v2/catalogs/:id` | User session |
 | GET | `/api/v2/catalogs/:id/membership` | User session |
@@ -6515,8 +6616,8 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | POST | `/api/v2/contracts/token` | User or service token |
 | POST | `/api/v2/contracts/pool` | User or service token |
 | POST | `/api/v2/contracts/version` | Service token |
-| POST | `/api/v2/contracts/upgrade/token` | Service token |
-| POST | `/api/v2/contracts/upgrade/pool` | Service token |
+| POST | `/api/v2/contracts/upgrade/token` | Service token or administrator |
+| POST | `/api/v2/contracts/upgrade/pool` | Service token or administrator |
 | GET | `/api/v2/token-tags` | User or service token |
 | GET | `/api/v2/offering-units` | User or service token |
 | GET | `/api/v2/units-of-account` | User session |
@@ -6537,8 +6638,8 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/reports/:id` | Public |
 | POST | `/api/v2/reports` | User session |
 | PUT | `/api/v2/reports/:id` | User session |
-| PUT | `/api/v2/reports/:id/approve` | Superadmin |
-| DELETE | `/api/v2/reports/:id` | Superadmin |
+| PUT | `/api/v2/reports/:id/approve` | Administrative |
+| DELETE | `/api/v2/reports/:id` | Administrative |
 | POST | `/api/v2/vouchers/:address/offerings` | User session |
 | PUT | `/api/v2/vouchers/:address/offerings/:id` | User session |
 | DELETE | `/api/v2/vouchers/:address/offerings/:id` | User session |
@@ -6548,11 +6649,11 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | DELETE | `/api/v2/vouchers/:address` | User session |
 | POST | `/api/v2/pretium/trigger-onramp`* | User or service token |
 | POST | `/api/v2/pretium/link`* | User or service token |
-| GET | `/api/v2/pretium/link/:phoneNumber`* | Service token or superadmin |
+| GET | `/api/v2/pretium/link/:phoneNumber`* | Service token or administrator |
 | GET | `/api/v2/pretium/link-by-address/:address`* | User or service token |
-| GET | `/api/v2/pretium/transactions/:phoneNumber`* | Service token or superadmin |
+| GET | `/api/v2/pretium/transactions/:phoneNumber`* | Service token or administrator |
 | GET | `/api/v2/pretium/transactions-by-address/:address`* | User or service token |
-| GET | `/api/v2/pretium/transactions-recent`* | Service token or superadmin |
+| GET | `/api/v2/pretium/transactions-recent`* | Service token or administrator |
 | GET | `/api/v2/pretium/rates`* | User or service token |
 | GET | `/api/v2/accounts/:address/tokens/latest`* | User or service token |
 | GET | `/api/v2/accounts/:address/tokens/issued`* | User or service token |
@@ -6573,38 +6674,39 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/users/me/shares/:txHash` | User session |
 | GET | `/api/v2/users/me/reports` | User session |
 | GET | `/api/v2/users/me/reports/:id` | User session |
-| GET | `/api/v2/admin/users` | Superadmin |
-| PUT | `/api/v2/admin/users/:address/approve` | Superadmin |
-| PUT | `/api/v2/admin/users/:address/reject` | Superadmin |
-| PUT | `/api/v2/admin/users/:address/limits` | Superadmin |
-| PUT | `/api/v2/admin/users/:address/profile` | Superadmin |
-| GET | `/api/v2/admin/users/:address/pools` | Superadmin |
-| GET | `/api/v2/admin/users/:address/stats` | Superadmin |
-| GET | `/api/v2/admin/tokens` | Superadmin |
-| GET | `/api/v2/admin/pools` | Superadmin |
-| GET | `/api/v2/admin/pools/:address/vouchers` | Superadmin |
-| PUT | `/api/v2/admin/pools/:address/profile` | Superadmin |
-| PUT | `/api/v2/admin/vouchers/:address/profile` | Superadmin |
-| GET | `/api/v2/admin/vouchers` | Superadmin |
-| GET | `/api/v2/admin/vouchers/:address` | Superadmin |
-| PUT | `/api/v2/admin/vouchers/:address/restore` | Superadmin |
-| GET | `/api/v2/admin/deployments` | Superadmin |
-| GET | `/api/v2/admin/vocabulary` | Superadmin |
-| PUT | `/api/v2/admin/vocabulary/tags` | Superadmin |
-| PUT | `/api/v2/admin/vocabulary/units` | Superadmin |
-| POST | `/api/v2/admin/vocabulary/units-of-account` | Superadmin |
-| PUT | `/api/v2/admin/vocabulary/units-of-account` | Superadmin |
-| DELETE | `/api/v2/admin/vocabulary/tags` | Superadmin |
-| DELETE | `/api/v2/admin/vocabulary/units` | Superadmin |
-| DELETE | `/api/v2/admin/vocabulary/units-of-account` | Superadmin |
-| GET | `/api/v2/admin/review-notifications` | Superadmin |
-| PUT | `/api/v2/admin/review-notifications/:id` | Superadmin |
-| GET | `/api/v2/admin/reports` | Superadmin |
-| GET | `/api/v2/admin/reports/:id` | Superadmin |
-| GET | `/api/v2/admin/dashboard/stats` | Superadmin |
-| GET | `/api/v2/admin/transactions/vouchers` | Superadmin |
-| GET | `/api/v2/admin/transactions/pools` | Superadmin |
-| GET | `/api/v2/admin/transactions/otx` | Superadmin |
+| GET | `/api/v2/admin/users` | Administrative |
+| PUT | `/api/v2/admin/users/:address/role` | Superadmin |
+| PUT | `/api/v2/admin/users/:address/approve` | Administrative |
+| PUT | `/api/v2/admin/users/:address/reject` | Administrative |
+| PUT | `/api/v2/admin/users/:address/limits` | Administrative |
+| PUT | `/api/v2/admin/users/:address/profile` | Administrative |
+| GET | `/api/v2/admin/users/:address/pools` | Administrative |
+| GET | `/api/v2/admin/users/:address/stats` | Administrative |
+| GET | `/api/v2/admin/tokens` | Administrative |
+| GET | `/api/v2/admin/pools` | Administrative |
+| GET | `/api/v2/admin/pools/:address/vouchers` | Administrative |
+| PUT | `/api/v2/admin/pools/:address/profile` | Administrative |
+| PUT | `/api/v2/admin/vouchers/:address/profile` | Administrative |
+| GET | `/api/v2/admin/vouchers` | Administrative |
+| GET | `/api/v2/admin/vouchers/:address` | Administrative |
+| PUT | `/api/v2/admin/vouchers/:address/restore` | Administrative |
+| GET | `/api/v2/admin/deployments` | Administrative |
+| GET | `/api/v2/admin/vocabulary` | Administrative |
+| PUT | `/api/v2/admin/vocabulary/tags` | Administrative |
+| PUT | `/api/v2/admin/vocabulary/units` | Administrative |
+| POST | `/api/v2/admin/vocabulary/units-of-account` | Administrative |
+| PUT | `/api/v2/admin/vocabulary/units-of-account` | Administrative |
+| DELETE | `/api/v2/admin/vocabulary/tags` | Administrative |
+| DELETE | `/api/v2/admin/vocabulary/units` | Administrative |
+| DELETE | `/api/v2/admin/vocabulary/units-of-account` | Administrative |
+| GET | `/api/v2/admin/review-notifications` | Administrative |
+| PUT | `/api/v2/admin/review-notifications/:id` | Administrative |
+| GET | `/api/v2/admin/reports` | Administrative |
+| GET | `/api/v2/admin/reports/:id` | Administrative |
+| GET | `/api/v2/admin/dashboard/stats` | Administrative |
+| GET | `/api/v2/admin/transactions/vouchers` | Administrative |
+| GET | `/api/v2/admin/transactions/pools` | Administrative |
+| GET | `/api/v2/admin/transactions/otx` | Administrative |
 | GET | `/api/v2/federation/system`* | User or service token |
 | GET | `/api/v2/relayer/health` | Public |
 | GET | `/api/v2/relayer/nonce/:address` | Public |

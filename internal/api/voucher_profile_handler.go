@@ -19,7 +19,7 @@ import (
 // label that overrides a chain value, and only for catalog reads.
 //
 // Authorization is the offering rule: the locked voucher row's current owner,
-// or a superadmin. Locking and writing in one transaction means an ownership
+// or an administrator. Locking and writing in one transaction means an ownership
 // correction landing mid-request cannot leave a stale owner authorized.
 func (a *API) updateVoucherProfileHandler(c *echo.Context) error {
 	address, handled, err := offeringVoucherParam(c)
@@ -54,7 +54,7 @@ func (a *API) updateVoucherProfileHandler(c *echo.Context) error {
 		return handleConflictError(c, "voucher is retired and its details cannot be changed")
 	}
 	if !a.callerMayManageRecord(ctx, tx, callerAddress, callerRole, voucher.OwnerAddress) {
-		return handleForbiddenError(c, "only the voucher owner or a superadmin may change this voucher's details")
+		return handleForbiddenError(c, "only the voucher owner or an administrator may change this voucher's details")
 	}
 
 	saved, handled, err := a.saveVoucherProfile(c, ctx, tx, address, req)

@@ -25,6 +25,10 @@ var (
 	marketMapKinds = []string{"catalog", "pool", "post", "voucher", "want"}
 )
 
+const (
+	marketMapZoomStep = 0.25
+)
+
 type (
 	marketMapRateLimitError struct {
 		retryAfter time.Duration
@@ -106,7 +110,7 @@ func parseMarketMapZoom(c *echo.Context) (float64, error) {
 	if err != nil || math.IsNaN(zoom) || math.IsInf(zoom, 0) || zoom < 0 || zoom > 22 {
 		return 0, errors.New("zoom must be between 0 and 22")
 	}
-	return math.Floor(zoom), nil
+	return math.Floor((zoom+1e-9)/marketMapZoomStep) * marketMapZoomStep, nil
 }
 
 func marketMapKey(search catalogSearchRequest, kinds []string, zoom float64) string {

@@ -128,13 +128,13 @@ func TestReportManagementRoutesEnforceCredentialKinds(t *testing.T) {
 		}
 	}
 
-	// Past the middleware, the handlers validate before touching the store, so
-	// these reach a 400 rather than the nil store behind this API.
-	if status := get("/api/v2/admin/reports/not-an-id", adminToken); status != http.StatusBadRequest {
-		t.Fatalf("admin detail with a bad id = %d, want 400", status)
+	// A privileged JWT is not authoritative by itself. This deliberately
+	// store-less API must fail closed before its handlers run.
+	if status := get("/api/v2/admin/reports/not-an-id", adminToken); status != http.StatusUnauthorized {
+		t.Fatalf("unverifiable admin detail = %d, want 401", status)
 	}
-	if status := get("/api/v2/admin/reports?perPage=many", adminToken); status != http.StatusBadRequest {
-		t.Fatalf("admin list with a bad perPage = %d, want 400", status)
+	if status := get("/api/v2/admin/reports?perPage=many", adminToken); status != http.StatusUnauthorized {
+		t.Fatalf("unverifiable admin list = %d, want 401", status)
 	}
 	if status := get("/api/v2/users/me/reports?next=true", userToken); status != http.StatusBadRequest {
 		t.Fatalf("own list with next and no cursor = %d, want 400", status)

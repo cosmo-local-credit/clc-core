@@ -763,15 +763,49 @@ SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(emai
 FROM users
 WHERE id = $1;
 
+--name: get-user-access-by-id
+SELECT blockchain_address, role, status
+FROM users
+WHERE id = $1;
+
 --name: get-user-by-email
 SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at
 FROM users
 WHERE email = $1;
 
+--name: identity-availability
+-- NULL skips that identity. Email and phone match users_email_unique and
+-- users_phone_unique exactly; the handler lowercases email first, the same way
+-- signup does. Username matches normalize_identity_name in the recipient
+-- namespace, so a pool display name collides with a username. $4 is the
+-- signed-in caller's lowercased address, or NULL: what that user already holds
+-- is not taken, keyed the way identity_claims keys a user.
+SELECT
+    (CASE WHEN $1::text IS NULL THEN NULL ELSE EXISTS (
+        SELECT 1 FROM users
+        WHERE email = $1::text AND lower(blockchain_address) IS DISTINCT FROM $4::text
+    ) END)::boolean,
+    (CASE WHEN $2::text IS NULL THEN NULL ELSE EXISTS (
+        SELECT 1 FROM users
+        WHERE phone = $2::text AND lower(blockchain_address) IS DISTINCT FROM $4::text
+    ) END)::boolean,
+    (CASE WHEN $3::text IS NULL THEN NULL ELSE EXISTS (
+        SELECT 1 FROM identity_claims
+        WHERE namespace = 'recipient' AND name = normalize_identity_name($3::text)
+        AND (owner_kind, owner_key) IS DISTINCT FROM ('user', $4::text)
+    ) END)::boolean;
+
 --name: update-user-status
 UPDATE users
 SET status = $2::user_status
-WHERE blockchain_address = $1
+WHERE lower(blockchain_address) = lower($1)
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
+
+--name: update-user-role
+UPDATE users
+SET role = $2::user_role
+WHERE lower(blockchain_address) = lower($1)
+  AND role IN ('USER', 'ADMIN')
 RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
 
 --name: approve-pending-user-by-address
@@ -1346,7 +1380,7 @@ WHERE lower(p.address) = lower($1)
 GROUP BY p.id;
 
 -- The owner profile route authorizes from this row and writes it in the same
--- transaction. Imported pools may have no owner; only a superadmin may manage
+-- transaction. Imported pools may have no owner; only an administrator may manage
 -- those through the admin route.
 --name: lock-pool-for-profile-update
 SELECT id, owner_address
@@ -1402,7 +1436,7 @@ DELETE FROM pool_tags WHERE pool_id = $1;
 INSERT INTO pool_tags (pool_id, tag_value) VALUES ($1, $2)
 ON CONFLICT (pool_id, tag_value) DO NOTHING;
 
--- A superadmin's edits to a voucher's off-chain record.
+-- An administrator's edits to a voucher's off-chain record.
 --
 -- display_name is deliberately separate from name: it is a public catalog
 -- label, while name continues to mirror the deployed ERC20. Symbol, decimals
@@ -2146,7 +2180,7 @@ FOR UPDATE OF o;
 -- import columns still require. quantity is 1 because the column is NOT NULL and
 -- this product does not manage stock -- it must never be rendered as "1
 -- available". seller_address is server-selected from the locked voucher owner (or
--- the authenticated superadmin for an ownerless voucher) and never read from JSON.
+-- the authenticated administrator for an ownerless voucher) and never read from JSON.
 --name: create-offering
 INSERT INTO offerings (
     voucher_id, seller_address, commodity_name, description,
@@ -2301,7 +2335,7 @@ WHERE lower(v.address) = lower($1) AND v.active;
 -- `v.active` predicate: a retired voucher is invisible to every public
 -- statement, so without this an operator could retire one and then have no
 -- screen left to restore it from. Mounted under /api/v2/admin, where
--- requireSuperAdmin has already decided the caller may see it.
+-- requireAdmin has already decided the caller may see it.
 --name: admin-get-voucher-by-address
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
     v.name AS contract_name, v.symbol, v.decimals, v.owner_address,
@@ -2469,7 +2503,7 @@ WHERE r.id = $1 AND ($2 OR r.status = 'APPROVED');
 -- on a caller property would give one cache identity two meanings. This one is
 -- served no-store.
 --
--- $2 is the author constraint — NULL for a superadmin read, an address for
+-- $2 is the author constraint — NULL for an administrator read, an address for
 -- /users/me/reports/:id. A row owned by someone else returns nothing, which the
 -- handler answers as 404 rather than 403.
 --
@@ -2530,8 +2564,8 @@ WHERE r.id = $1
 
 -- Report writes. author_address is set only by the insert and never appears in
 -- the update statement: the wallet that created a post remains its original
--- author even when a superadmin later corrects it. A normal user's post starts
--- SUBMITTED; a superadmin may create it already APPROVED because that caller
+-- author even when an administrator later corrects it. A normal user's post starts
+-- SUBMITTED; an administrator may create it already APPROVED because that caller
 -- has the same authority as the explicit approval endpoint.
 --name: create-report
 INSERT INTO reports (
@@ -2554,7 +2588,7 @@ FOR UPDATE;
 -- Assign-all editing. source_id, author_address and created_at are deliberately
 -- absent: they are provenance, not post content.
 --
--- status is a conditional write. $16 is NULL for a superadmin edit, so COALESCE
+-- status is a conditional write. $16 is NULL for an administrator edit, so COALESCE
 -- keeps the row's current state; an author's edit passes 'SUBMITTED' so
 -- replacement content goes back through review. Assigning it here keeps the
 -- authorization decision, the content write and the workflow write inside the
@@ -2580,7 +2614,7 @@ WHERE id = $1;
 
 -- Approval is separate from content editing. Neither an author edit nor an
 -- admin correction touches status, so an approved post stays approved and a
--- submitted post stays submitted until a superadmin explicitly approves it.
+-- submitted post stays submitted until an administrator explicitly approves it.
 --name: approve-report
 UPDATE reports
 SET status = 'APPROVED', modifier_address = $2
@@ -2678,7 +2712,7 @@ WHERE p.active
 ORDER BY p.id;
 
 -- How many of the given voucher ids belong to one address. Posts link vouchers
--- by id after resolve-voucher-refs, and a non-superadmin author may only link
+-- by id after resolve-voucher-refs, and a non-administrator author may only link
 -- vouchers they own; comparing the count against the number of ids is the
 -- whole check. A voucher with no recorded owner is owned by nobody here.
 --name: count-vouchers-owned-by
@@ -3741,13 +3775,13 @@ WITH raw AS MATERIALIZED (
         ((geo_lng+180.0)/360.0) AS world_x,
         ((1.0-ln(tan(radians(least(85.05112878,greatest(-85.05112878,geo_lat))))+
             1.0/cos(radians(least(85.05112878,greatest(-85.05112878,geo_lat)))))/pi())/2.0) AS world_y,
-        CASE WHEN $7::FLOAT8>=16 THEN kind||':'||id::TEXT
+        CASE WHEN $7::FLOAT8>=20 THEN kind||':'||id::TEXT
              ELSE concat(
-                floor((((geo_lng+180.0)/360.0)*256.0*power(2.0,floor($7::FLOAT8)))/60.0)::BIGINT,
+                floor((((geo_lng+180.0)/360.0)*256.0*power(2.0,$7::FLOAT8))/30.0)::BIGINT,
                 ':',
                 floor(((1.0-ln(tan(radians(least(85.05112878,greatest(-85.05112878,geo_lat))))+
                     1.0/cos(radians(least(85.05112878,greatest(-85.05112878,geo_lat)))))/pi())/2.0*
-                    256.0*power(2.0,floor($7::FLOAT8)))/60.0)::BIGINT
+                    256.0*power(2.0,$7::FLOAT8))/30.0)::BIGINT
              ) END AS bucket_key
     FROM filtered
 ), grouped AS MATERIALIZED (
@@ -3770,7 +3804,7 @@ WITH raw AS MATERIALIZED (
 ), features AS (
     SELECT CASE WHEN g.feature_count=1 THEN 'marker' ELSE 'cluster' END AS feature_type,
         CASE WHEN g.feature_count=1 THEN 'marker:'||g.kind||':'||g.resource_id
-             ELSE 'cluster:'||floor($7::FLOAT8)::TEXT||':'||g.bucket_key END AS feature_id,
+             ELSE 'cluster:'||$7::FLOAT8::TEXT||':'||g.bucket_key END AS feature_id,
         CASE WHEN g.feature_count=1 THEN g.kind END AS kind,
         CASE WHEN g.feature_count=1 THEN g.resource_id END AS resource_id,
         CASE WHEN g.feature_count=1 THEN g.name END AS name,
@@ -3778,11 +3812,11 @@ WITH raw AS MATERIALIZED (
         CASE WHEN g.feature_count=1 THEN g.marker_icon END AS marker_icon,
         CASE WHEN g.feature_count=1 THEN g.marker_color END AS marker_color,
         g.feature_count,k.kinds,
-        CASE WHEN g.feature_count>1 THEN least(16.0,greatest(
-            floor($7::FLOAT8)+1.0,
-            COALESCE(ceil(ln(60.0/NULLIF(
-                greatest(g.max_world_x-g.min_world_x,g.max_world_y-g.min_world_y)*256.0,0.0
-            ))/ln(2.0)),16.0)
+        CASE WHEN g.feature_count>1 THEN least(20.0,greatest(
+            $7::FLOAT8+0.25,
+            COALESCE(ceil((ln(30.0/NULLIF(
+                sqrt(power(g.max_world_x-g.min_world_x,2)+power(g.max_world_y-g.min_world_y,2))*256.0,0.0
+            ))/ln(2.0))*4.0)/4.0,20.0)
         )) ELSE 0.0 END AS expansion_zoom
     FROM grouped g JOIN kind_json k USING(bucket_key)
     ORDER BY g.feature_count DESC,g.bucket_key
@@ -3893,7 +3927,7 @@ FROM users u
 WHERE u.id = $1;
 
 -- Scoped offering usage is authorization-sensitive: an owner sees their own
--- voucher and a superadmin may inspect any voucher they can manage. The count
+-- voucher and an administrator may inspect any voucher they can manage. The count
 -- belongs to the voucher, not to historical seller rows, so ownership transfer
 -- immediately applies the new owner's per-voucher allowance.
 --name: get-voucher-offering-quota
@@ -3902,7 +3936,7 @@ FROM users u
 JOIN vouchers voucher ON lower(voucher.address)=lower($2)
 LEFT JOIN offerings offer ON offer.voucher_id=voucher.id AND offer.available
 WHERE u.id=$1
-  AND (u.role='SUPERADMIN' OR lower(voucher.owner_address)=lower(u.blockchain_address)
+  AND (u.role IN ('ADMIN','SUPERADMIN') OR lower(voucher.owner_address)=lower(u.blockchain_address)
     OR EXISTS (SELECT 1 FROM safe_signers ss WHERE ss.chain_id=voucher.chain_id
         AND ss.safe_address=lower(voucher.owner_address) AND ss.signer=lower(u.blockchain_address)))
 GROUP BY u.id,voucher.id;
@@ -3916,7 +3950,7 @@ FROM users u
 JOIN vouchers voucher ON voucher.id=$2
 LEFT JOIN offerings offer ON offer.voucher_id=voucher.id AND offer.available
 WHERE u.id=$1
-  AND (u.role='SUPERADMIN' OR lower(voucher.owner_address)=lower(u.blockchain_address)
+  AND (u.role IN ('ADMIN','SUPERADMIN') OR lower(voucher.owner_address)=lower(u.blockchain_address)
     OR EXISTS (SELECT 1 FROM safe_signers ss WHERE ss.chain_id=voucher.chain_id
         AND ss.safe_address=lower(voucher.owner_address) AND ss.signer=lower(u.blockchain_address)))
 GROUP BY u.id,voucher.id;

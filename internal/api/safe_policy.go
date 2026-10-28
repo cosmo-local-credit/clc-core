@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
+	"github.com/cosmo-local-credit/clc-core/internal/store"
+	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
@@ -100,16 +102,16 @@ func (a *API) enforceSafePolicy(c *echo.Context, req apiresp.RelayRequest) (hand
 // Off-chain catalog edits never pass the Safe's threshold, so any single signer
 // of a multi-signer Safe can act alone here, including retirement.
 func (a *API) callerMayManageRecord(ctx context.Context, tx pgx.Tx, callerAddress, callerRole string, ownerAddress *string) bool {
-	if callerRole == "SUPERADMIN" {
+	if store.IsAdministrativeRole(callerRole) {
 		return true // as canManageCatalogRecord, without a signer lookup
 	}
 	return canManageCatalogRecord(a.actingOwner(ctx, tx, callerAddress, ownerAddress), callerRole, ownerAddress)
 }
 
-// actingOwnerFor is actingOwner for the pure owner rules, which a superadmin
+// actingOwnerFor is actingOwner for the pure owner rules, which an administrator
 // passes whatever address it is judged by: no signer lookup is needed.
 func (a *API) actingOwnerFor(ctx context.Context, tx pgx.Tx, callerAddress, callerRole string, ownerAddress *string) string {
-	if callerRole == "SUPERADMIN" {
+	if store.IsAdministrativeRole(callerRole) {
 		return callerAddress
 	}
 	return a.actingOwner(ctx, tx, callerAddress, ownerAddress)
@@ -135,4 +137,27 @@ func (a *API) actingOwner(ctx context.Context, tx pgx.Tx, callerAddress string, 
 		}
 	}
 	return callerAddress
+}
+
+func (a *API) queueSafeExecution(ctx context.Context, safeAddress, safeTxHash string) bool {
+	if err := worker.EnqueueSafeExecution(ctx, a.queueClient, safeAddress, safeTxHash); err != nil {
+		a.logg.Error("could not queue Safe execution", "safeTxHash", safeTxHash, "err", err)
+		return false
+	}
+	return true
+}
+
+func (a *API) safeExecutionsQueued(ctx context.Context, safeTxHashes []string) map[string]bool {
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		a.logg.Error("could not read Safe executions", "err", err)
+		return nil
+	}
+	defer tx.Rollback(ctx)
+	queued, err := a.store.SafeExecutionsQueued(ctx, tx, safeTxHashes)
+	if err != nil {
+		a.logg.Error("could not read Safe executions", "err", err)
+		return nil
+	}
+	return queued
 }

@@ -49,6 +49,14 @@ type (
 		policy  *safe.Policy
 		sts     safeSTSClient
 		signers safeSignerSource
+		// execute queues clc-core's execution of a confirmed transaction and
+		// executing reports which are queued; both nil leaves execution to
+		// the Safe app.
+		execute   func(ctx context.Context, safe, safeTxHash string) bool
+		executing func(ctx context.Context, safeTxHashes []string) map[string]bool
+		// contracts verifies contract (v 0) signatures against a Safe at the
+		// latest block; nil rejects them.
+		contracts func(safe common.Address) safe.ContractVerifier
 	}
 
 	safeProposalRequest struct {
@@ -156,6 +164,40 @@ func recoverFrom(hash common.Hash, signature string) (common.Address, error) {
 	return signer, nil
 }
 
+// signerOf returns the owner a signature speaks for. An ECDSA signature is
+// recovered. A contract signature names its owner and is checked through that
+// owner's isValidSignature, which a Safe calls that way only from 1.5.0 on.
+func (s *safeService) signerOf(ctx context.Context, safeAddress common.Address, hash common.Hash, signature string) (common.Address, error) {
+	raw, err := hexutil.Decode(signature)
+	if err != nil {
+		return common.Address{}, badRequest("invalid signature")
+	}
+	if s.contracts == nil || !safe.IsContractSignature(raw) {
+		return recoverFrom(hash, signature)
+	}
+	parsed, err := safe.ParseContractSignature(raw)
+	if err != nil {
+		return common.Address{}, badRequest("invalid contract signature")
+	}
+	unavailable := &proxyError{http.StatusServiceUnavailable, apiresp.ErrCodeInternalServerError, "could not verify signature"}
+	verifier := s.contracts(safeAddress)
+	accepts, err := verifier.Accepts(ctx)
+	if err != nil {
+		return common.Address{}, unavailable
+	}
+	if !accepts {
+		return common.Address{}, forbidden("this Safe accepts contract signatures from version 1.5.0")
+	}
+	ok, err := verifier.Valid(ctx, parsed.Owner, hash, parsed.Data)
+	if err != nil {
+		return common.Address{}, unavailable
+	}
+	if !ok {
+		return common.Address{}, badRequest("contract signature is not valid for its owner")
+	}
+	return parsed.Owner, nil
+}
+
 func (s *safeService) propose(ctx context.Context, caller string, req safeProposalRequest) (*safe.Transaction, error) {
 	if !common.IsHexAddress(req.Safe) || !common.IsHexAddress(req.Sender) || !safeTxHashPattern.MatchString(req.SafeTxHash) {
 		return nil, badRequest("invalid safe, sender or safeTxHash")
@@ -171,7 +213,7 @@ func (s *safeService) propose(ctx context.Context, caller string, req safePropos
 	if err != nil {
 		return nil, err
 	}
-	signer, err := recoverFrom(hash, req.Signature)
+	signer, err := s.signerOf(ctx, safeAddress, hash, req.Signature)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +227,33 @@ func (s *safeService) propose(ctx context.Context, caller string, req safePropos
 	if err != nil {
 		return nil, upstreamError(err)
 	}
+	s.queueExecution(ctx, tx)
 	return tx, nil
+}
+
+// queueExecution hands a transaction that has just reached its threshold to
+// clc-core's executor. The caller's signature is recorded either way; a failed
+// enqueue leaves execution to the Safe app.
+func (s *safeService) queueExecution(ctx context.Context, tx *safe.Transaction) {
+	if s.execute == nil || tx.IsExecuted || tx.ConfirmationsRequired < 1 ||
+		len(tx.Confirmations) < tx.ConfirmationsRequired {
+		return
+	}
+	tx.Executing = s.execute(ctx, tx.Safe, tx.SafeTxHash)
+}
+
+func (s *safeService) markExecuting(ctx context.Context, txs []safe.Transaction) {
+	if s.executing == nil || len(txs) == 0 {
+		return
+	}
+	hashes := make([]string, len(txs))
+	for i, tx := range txs {
+		hashes[i] = strings.ToLower(tx.SafeTxHash)
+	}
+	queued := s.executing(ctx, hashes)
+	for i := range txs {
+		txs[i].Executing = queued[hashes[i]]
+	}
 }
 
 func (s *safeService) confirm(ctx context.Context, caller string, req safeConfirmationRequest) (*safe.Transaction, error) {
@@ -210,7 +278,7 @@ func (s *safeService) confirm(ctx context.Context, caller string, req safeConfir
 	if err != nil {
 		return nil, err
 	}
-	signer, err := recoverFrom(hash, req.Signature)
+	signer, err := s.signerOf(ctx, safeAddress, hash, req.Signature)
 	if err != nil {
 		return nil, err
 	}
@@ -224,6 +292,7 @@ func (s *safeService) confirm(ctx context.Context, caller string, req safeConfir
 	if err != nil {
 		return nil, upstreamError(err)
 	}
+	s.queueExecution(ctx, updated)
 	return updated, nil
 }
 
@@ -249,6 +318,7 @@ func (s *safeService) pending(ctx context.Context, caller, safeAddress string) (
 			results = append(results, tx)
 		}
 	}
+	s.markExecuting(ctx, results)
 	return results, nil
 }
 
@@ -266,7 +336,9 @@ func (s *safeService) transaction(ctx context.Context, caller, safeTxHash string
 	if err := s.requireSigner(ctx, caller, common.HexToAddress(tx.Safe)); err != nil {
 		return nil, err
 	}
-	return tx, nil
+	single := []safe.Transaction{*tx}
+	s.markExecuting(ctx, single)
+	return &single[0], nil
 }
 
 func (s storeSafeSigners) Signers(ctx context.Context, safeAddress common.Address) ([]string, bool, error) {
@@ -371,6 +443,35 @@ func (a *API) safeOwnerHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 	return a.writeProxyResult(c, "Multisig ownership", result)
+}
+
+// userSafesHandler lists the multisigs the caller signs for, each in the shape
+// /owners/:address answers for a Safe, so the app manages their signers from
+// the same projection that authorizes its writes.
+func (a *API) userSafesHandler(c *echo.Context) error {
+	_, address, _ := getUserClaims(c)
+	c.Response().Header().Set("Cache-Control", "no-store")
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	defer tx.Rollback(ctx)
+	states, err := a.store.ListSafesSignedBy(ctx, tx, a.chainID, address)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	safes := make([]map[string]any, len(states))
+	for i, state := range states {
+		var threshold *int
+		if state.Threshold > 0 {
+			threshold = &state.Threshold
+		}
+		safes[i] = map[string]any{"kind": "safe", "owner": state.Address, "signers": state.Signers, "threshold": threshold}
+	}
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Multisigs you sign for", Result: map[string]any{"safes": safes},
+	})
 }
 
 func (a *API) writeProxyError(c *echo.Context, err error) error {

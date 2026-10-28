@@ -80,7 +80,7 @@ func TestMarketMapMixedMarkersClustersFacetsAndCreditDB(t *testing.T) {
 	filter, err = filter.WithPoolIDsMatch([]uint64{poolID}, TagMatchAny)
 	require.NoError(t, err)
 
-	markers, err := pg.ListMarketMap(ctx, tx, filter, []string{"catalog", "pool", "post", "voucher", "want"}, 16, true)
+	markers, err := pg.ListMarketMap(ctx, tx, filter, []string{"catalog", "pool", "post", "voucher", "want"}, 20, true)
 	require.NoError(t, err)
 	require.Len(t, markers.Features, 5)
 	kinds := map[string]bool{}
@@ -198,6 +198,33 @@ func TestMarketMapAntimeridianBoundsExecuteDB(t *testing.T) {
 	}}
 	_, err := pg.ListMarketMap(context.Background(), tx, filter, []string{"voucher"}, 4, false)
 	require.NoError(t, err)
+}
+
+func TestMarketMapFeatureLimitAtMaximumZoomDB(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	const term = "Zqvxmaplimit"
+
+	_, err := tx.Exec(ctx, `
+		INSERT INTO vouchers(chain_id,address,name,geo_lat,geo_lng)
+		SELECT 100,
+			'0x'||lpad(to_hex(900000000000000000+series),40,'0'),
+			$1||series::text,
+			-4.0+(series::FLOAT8/100000.0),
+			39.0+(series::FLOAT8/100000.0)
+		FROM generate_series(1,2005) series`, term)
+	require.NoError(t, err)
+
+	filter, err := NewCatalogFilter(term, nil, TagMatchAny)
+	require.NoError(t, err)
+	filter.Bounds = []CatalogBounds{{MinLng: 38.9, MinLat: -4.1, MaxLng: 39.1, MaxLat: -3.9}}
+	result, err := pg.ListMarketMap(ctx, tx, filter, []string{"voucher"}, 20, false)
+	require.NoError(t, err)
+	require.Len(t, result.Features, MarketMapMaxFeatures)
+	for _, feature := range result.Features {
+		require.Equal(t, "marker", feature.Type)
+	}
 }
 
 func TestMarketMapFractionalAntimeridianBoundsDB(t *testing.T) {

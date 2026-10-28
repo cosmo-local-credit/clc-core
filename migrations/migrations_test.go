@@ -74,6 +74,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "037_deploy_name_occupancy_indexes.sql")
 	assert.Contains(t, sqlFiles, "038_webauthn_credential_state.sql")
 	assert.Contains(t, sqlFiles, "039_voucher_reviews.sql")
+	assert.Contains(t, sqlFiles, "067_pool_reviews.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -94,6 +95,9 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "059_viewport_spatial_indexes.sql")
 	assert.Contains(t, sqlFiles, "060_report_marker_style.sql")
 	assert.Contains(t, sqlFiles, "061_retirement_requests.sql")
+	assert.Contains(t, sqlFiles, "064_admin_role.sql")
+	assert.Contains(t, sqlFiles, "065_admin_role_index.sql")
+	assert.Contains(t, sqlFiles, "066_optional_want_contact.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -157,7 +161,12 @@ func TestMigrationFiles(t *testing.T) {
 				name == "059_viewport_spatial_indexes.sql" ||
 				name == "060_report_marker_style.sql" ||
 				name == "061_retirement_requests.sql" ||
-				name == "062_safe_signers.sql",
+				name == "062_safe_signers.sql" ||
+				name == "063_safe_execute_otx.sql" ||
+				name == "064_admin_role.sql" ||
+				name == "065_admin_role_index.sql" ||
+				name == "066_optional_want_contact.sql" ||
+				name == "067_pool_reviews.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -229,7 +238,33 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"060_report_marker_style.sql",
 		"061_retirement_requests.sql",
 		"062_safe_signers.sql",
+		"063_safe_execute_otx.sql",
+		"064_admin_role.sql",
+		"065_admin_role_index.sql",
+		"066_optional_want_contact.sql",
+		"067_pool_reviews.sql",
 	}, files)
+}
+
+func TestOptionalWantContactMigration(t *testing.T) {
+	content, err := os.ReadFile("066_optional_want_contact.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "DROP CONSTRAINT IF EXISTS wants_has_contact")
+	assert.NotContains(t, strings.Split(s, "---- create above / drop below ----")[0], "DROP CONSTRAINT wants_contact_permissions_known")
+	assert.NotContains(t, strings.Split(s, "---- create above / drop below ----")[0], "DROP CONSTRAINT wants_contact_text_length")
+}
+
+func TestAdminRoleMigrationsStayInSeparateTransactions(t *testing.T) {
+	role, err := os.ReadFile("064_admin_role.sql")
+	require.NoError(t, err)
+	index, err := os.ReadFile("065_admin_role_index.sql")
+	require.NoError(t, err)
+	assert.Contains(t, string(role), "ADD VALUE 'ADMIN'")
+	assert.NotContains(t, string(role), "CREATE INDEX")
+	assert.Contains(t, string(index), "users_role_id_idx")
+	assert.Contains(t, string(index), "(id DESC)")
+	assert.Contains(t, string(index), "WHERE role IN ('ADMIN', 'SUPERADMIN')")
 }
 
 func TestUnitOfAccountVocabularyMigration(t *testing.T) {

@@ -300,7 +300,7 @@ func (a *API) curatedCatalogSaveHandler(c *echo.Context) error {
 		}
 		if id == 0 {
 			owner, _, role := getUserClaims(c)
-			if role != "SUPERADMIN" {
+			if !store.IsAdministrativeRole(role) {
 				if err := a.store.CheckUserResourceLimit(ctx, tx, owner, "catalogs"); err != nil {
 					return nil, err
 				}

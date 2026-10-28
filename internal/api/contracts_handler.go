@@ -126,10 +126,10 @@ func (a *API) deployPoolHandler(c *echo.Context) error {
 	}
 	req.UnitOfAccount = unitOfAccount.Value
 
-	// Service tokens and superadmins retain their deployment exemption.
+	// Service tokens and administrators retain their deployment exemption.
 	if callerType == "user" {
 		callerRole, _ := c.Get("callerRole").(string)
-		if callerRole != "SUPERADMIN" {
+		if !store.IsAdministrativeRole(callerRole) {
 			if err := a.store.CheckUserResourceLimit(ctx, tx, callerUserID, "pools"); err != nil {
 				return handleResourceLimitError(c, err)
 			}
@@ -305,10 +305,10 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		req.VoucherUoa = unitOfAccount.Value
 	}
 
-	// Service tokens and superadmins retain their deployment exemption.
+	// Service tokens and administrators retain their deployment exemption.
 	if callerType == "user" {
 		callerRole, _ := c.Get("callerRole").(string)
-		if callerRole != "SUPERADMIN" {
+		if !store.IsAdministrativeRole(callerRole) {
 			if err := a.store.CheckUserResourceLimit(ctx, tx, callerUserID, "vouchers"); err != nil {
 				return handleResourceLimitError(c, err)
 			}

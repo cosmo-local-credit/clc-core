@@ -64,6 +64,8 @@ type (
 		Term string
 		// Status narrows to one approval state. Empty means every state.
 		Status UserStatus
+		// Roles narrows to any of the selected roles. Empty means every role.
+		Roles []UserRole
 	}
 )
 
@@ -89,7 +91,7 @@ SELECT u.id, u.blockchain_address AS ethereum_address, u.username, u.name,
     COALESCE(u.country, '') AS country,
     u.preferred_currency, u.bio, u.website,
     u.location_name, u.geo_lat, u.geo_lng, u.avatar_url, u.role, u.status,
-    u.max_pools, u.max_tokens, u.max_catalogs, u.max_offers, u.created_at, u.updated_at
+    u.max_pools, u.max_tokens, u.max_catalogs, u.max_offers, u.max_wants, u.created_at, u.updated_at
 FROM page
 INNER JOIN users u ON u.id = page.id
 ORDER BY u.id DESC;`
@@ -111,7 +113,7 @@ var (
 // same minimum, the same maximum and the same error text, and the shared
 // frontend normalization in @clc/core already holds a term back until it is
 // searchable rather than sending one the backend will reject.
-func NewUserFilter(rawTerm, rawStatus string) (UserFilter, error) {
+func NewUserFilter(rawTerm, rawStatus string, rawRoles ...string) (UserFilter, error) {
 	filter := UserFilter{Term: NormalizeCatalogTerm(rawTerm)}
 
 	if err := validateTermLength(filter.Term); err != nil {
@@ -123,6 +125,11 @@ func NewUserFilter(rawTerm, rawStatus string) (UserFilter, error) {
 		return UserFilter{}, err
 	}
 	filter.Status = status
+	roles, err := ParseUserRoles(rawRoles)
+	if err != nil {
+		return UserFilter{}, err
+	}
+	filter.Roles = roles
 
 	return filter, nil
 }
@@ -169,6 +176,7 @@ func composeUserPage(filter UserFilter, page CatalogPage, cursor, limit uint64) 
 			"    FROM users u" +
 			whereClause(
 				userStatusPredicate(args, filter),
+				userRolesPredicate(args, filter),
 				cursorPredicate(args, "u.id", page, cursor),
 			) +
 			"\n    ORDER BY u.id " + pageOrder(page) +
@@ -183,6 +191,7 @@ func composeUserPage(filter UserFilter, page CatalogPage, cursor, limit uint64) 
 		whereClause(
 			userSearchPredicate(args, filter),
 			userStatusPredicate(args, filter),
+			userRolesPredicate(args, filter),
 		) +
 		"\n),\npage AS MATERIALIZED (\n" +
 		"    SELECT m.id\n" +
@@ -251,6 +260,32 @@ func userStatusPredicate(args *sqlArgs, filter UserFilter) string {
 		return ""
 	}
 	return "u.status = " + args.bind(string(filter.Status)) + "::user_status"
+}
+
+func userRolesPredicate(args *sqlArgs, filter UserFilter) string {
+	if len(filter.Roles) == 0 {
+		return ""
+	}
+	// The console's Admins filter is a stable product concept rather than an
+	// arbitrary pair of request strings. Keep its predicate literal so
+	// PostgreSQL can prove it satisfies users_role_id_idx even for a generic
+	// prepared plan. Validated single-role and other combinations remain bound.
+	if len(filter.Roles) == 2 {
+		hasAdmin := false
+		hasSuperadmin := false
+		for _, role := range filter.Roles {
+			hasAdmin = hasAdmin || role == UserRoleAdmin
+			hasSuperadmin = hasSuperadmin || role == UserRoleSuperadmin
+		}
+		if hasAdmin && hasSuperadmin {
+			return "u.role IN ('ADMIN'::user_role, 'SUPERADMIN'::user_role)"
+		}
+	}
+	values := make([]string, 0, len(filter.Roles))
+	for _, role := range filter.Roles {
+		values = append(values, args.bind(string(role))+"::user_role")
+	}
+	return "u.role IN (" + strings.Join(values, ", ") + ")"
 }
 
 // ListUsersFiltered returns one page of the account directory under the given

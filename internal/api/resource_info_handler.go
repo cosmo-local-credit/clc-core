@@ -15,7 +15,7 @@ func setPrivateNoStore(c *echo.Context) {
 
 // voucherInfoHandler returns contact-bearing voucher metadata only after the
 // caller has established a user session. Active vouchers are available to any
-// signed-in user; retired rows retain their owner-or-superadmin boundary.
+// signed-in user; retired rows retain their owner-or-administrator boundary.
 func (a *API) voucherInfoHandler(c *echo.Context) error {
 	address, handled, err := adminUserAddress(c)
 	if handled || err != nil {

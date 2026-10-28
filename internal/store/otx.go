@@ -41,6 +41,10 @@ const (
 	RELAY_EXEC          = "RELAY_EXEC"          // DynamicFeeTx executing a signed batch on an already-delegated user.
 	RELAY_DELEGATE_EXEC = "RELAY_DELEGATE_EXEC" // SetCodeTx that delegates *and* executes in a single tx (first relay).
 	ACCOUNT_REGISTER    = "ACCOUNT_REGISTER"    // AccountIndex.add(userAddress) — onchain user registration on wallet activation.
+
+	// SAFE_EXECUTE is the system signer submitting a Safe's execTransaction
+	// once its signers have confirmed it.
+	SAFE_EXECUTE = "SAFE_EXECUTE"
 )
 
 func (pg *Pg) InsertOTX(ctx context.Context, tx pgx.Tx, otx OTX) (uint64, error) {

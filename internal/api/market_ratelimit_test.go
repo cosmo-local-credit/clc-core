@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -268,5 +269,82 @@ func TestClientIPFallsBackToThePeerWhenTrustedProxySendsNoHeader(t *testing.T) {
 
 	if got := marketClientIP(req, true); got != "10.0.0.2" {
 		t.Fatalf("clientIP = %q, want the peer 10.0.0.2", got)
+	}
+}
+
+func TestClientIPGroupsForwardedIPv6ByItsSlash64(t *testing.T) {
+	keys := make(map[string]bool)
+	for _, address := range []string{
+		"2001:db8:1:2::1",
+		"2001:db8:1:2:a:b:c:d",
+		"2001:0DB8:0001:0002:ffff:ffff:ffff:ffff",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers", nil)
+		req.RemoteAddr = "127.0.0.1:54321"
+		req.Header.Set("X-Forwarded-For", address)
+		keys[marketClientIP(req, true)] = true
+	}
+
+	if len(keys) != 1 || !keys["2001:db8:1:2::/64"] {
+		t.Fatalf("keys = %v, want one 2001:db8:1:2::/64 bucket for every address in the /64", keys)
+	}
+}
+
+func TestClientIPSeparatesNeighbouringIPv6Slash64s(t *testing.T) {
+	first := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers", nil)
+	first.RemoteAddr = "127.0.0.1:54321"
+	first.Header.Set("X-Forwarded-For", "2001:db8:1:2::1")
+	second := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers", nil)
+	second.RemoteAddr = "127.0.0.1:54321"
+	second.Header.Set("X-Forwarded-For", "2001:db8:1:3::1")
+
+	if a, b := marketClientIP(first, true), marketClientIP(second, true); a == b {
+		t.Fatalf("neighbouring /64s share the key %q", a)
+	}
+}
+
+func TestClientIPGroupsADirectIPv6PeerByItsSlash64(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers", nil)
+	req.RemoteAddr = "[2001:db8:1:2::99]:54321"
+
+	if got := marketClientIP(req, false); got != "2001:db8:1:2::/64" {
+		t.Fatalf("clientIP = %q, want the direct peer's /64", got)
+	}
+}
+
+func TestClientIPKeepsIPv4AndUnmapsIPv4MappedAddresses(t *testing.T) {
+	for _, tc := range []struct{ forwarded, want string }{
+		{"198.51.100.7", "198.51.100.7"},
+		{"::ffff:198.51.100.7", "198.51.100.7"},
+		{" 198.51.100.7 ", "198.51.100.7"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers", nil)
+		req.RemoteAddr = "127.0.0.1:54321"
+		req.Header.Set("X-Forwarded-For", tc.forwarded)
+
+		if got := marketClientIP(req, true); got != tc.want {
+			t.Fatalf("clientIP(%q) = %q, want %q", tc.forwarded, got, tc.want)
+		}
+	}
+}
+
+func TestMarketLimiterSharesOneBudgetAcrossASlash64(t *testing.T) {
+	clock := newFakeClock()
+	limiter := newMarketRateLimiter(marketRateLimit, marketRateBurst, clock.Now)
+
+	for i := range marketRateBurst {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers", nil)
+		req.RemoteAddr = "127.0.0.1:54321"
+		req.Header.Set("X-Forwarded-For", "2001:db8:1:2::"+strconv.FormatInt(int64(i+1), 16))
+		if allowed, _ := limiter.allow(marketClientIP(req, true)); !allowed {
+			t.Fatalf("request %d inside the burst was rejected", i+1)
+		}
+	}
+
+	rotated := httptest.NewRequest(http.MethodGet, "/api/v2/vouchers", nil)
+	rotated.RemoteAddr = "127.0.0.1:54321"
+	rotated.Header.Set("X-Forwarded-For", "2001:db8:1:2:dead:beef:0:1")
+	if allowed, _ := limiter.allow(marketClientIP(rotated, true)); allowed {
+		t.Fatal("rotating to a fresh address inside the same /64 earned a fresh budget")
 	}
 }

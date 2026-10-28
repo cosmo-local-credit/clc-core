@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -165,7 +166,7 @@ func (a *API) storageTokenHandler(c *echo.Context) error {
 //	"callerType"    → "user" or "service"
 //	"callerUserID"  → uint64 user id (user callers only)
 //	"callerAddress" → lowercase Ethereum address
-//	"callerRole"    → "USER", "SUPERADMIN", or "SERVICE"
+//	"callerRole"    → "USER", "ADMIN", "SUPERADMIN", or "SERVICE"
 func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -242,7 +243,7 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 }
 
 // requireUserAuth rejects requests that arrived via a service JWT.
-// Both USER and SUPERADMIN callers pass this guard.
+// USER, ADMIN, and SUPERADMIN callers pass this guard.
 func (a *API) requireUserAuth() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -254,11 +255,82 @@ func (a *API) requireUserAuth() echo.MiddlewareFunc {
 	}
 }
 
+// revalidatePrivilegedRole makes the database authoritative for long-lived
+// administrative sessions. A stale ADMIN/SUPERADMIN JWT is never enough to
+// authorize a protected request after the account has been demoted or rejected.
+// The access lookup owns no transaction beyond its Scan: holding a connection
+// while next runs can starve handlers that need another pooled connection when
+// several administrative reads arrive together.
+func (a *API) revalidatePrivilegedRole() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if callerType, _ := c.Get("callerType").(string); callerType != "user" {
+				return next(c)
+			}
+			role, _ := c.Get("callerRole").(string)
+			if !store.IsAdministrativeRole(role) {
+				return next(c)
+			}
+			if a.store == nil {
+				return handleJWTAuthError(c, "current account status could not be verified")
+			}
+
+			userID, _ := c.Get("callerUserID").(uint64)
+			ctx := c.Request().Context()
+			user, err := a.store.GetUserAccessByID(ctx, userID)
+			claimedAddress, _ := c.Get("callerAddress").(string)
+			if err != nil {
+				a.logPrivilegedRoleRevalidationFailure(ctx, userID, "lookup_failed", err)
+				return handleJWTAuthError(c, "current account status could not be verified")
+			}
+			if user.Status != "APPROVED" || !strings.EqualFold(user.EthereumAddress, claimedAddress) {
+				a.logPrivilegedRoleRevalidationFailure(ctx, userID, "account_mismatch", nil)
+				return handleJWTAuthError(c, "current account status could not be verified")
+			}
+			c.Set("callerAddress", common.HexToAddress(user.EthereumAddress).Hex())
+			c.Set("callerRole", user.Role)
+			return next(c)
+		}
+	}
+}
+
+func (a *API) logPrivilegedRoleRevalidationFailure(
+	ctx context.Context,
+	userID uint64,
+	reason string,
+	err error,
+) {
+	if a.logg == nil {
+		return
+	}
+	attrs := []any{
+		"event", "privileged_role_revalidation_failed",
+		"user_id", userID,
+		"reason", reason,
+	}
+	if err != nil {
+		attrs = append(attrs, "err", err)
+	}
+	a.logg.ErrorContext(ctx, "privileged role revalidation failed", attrs...)
+}
+
+// requireAdmin permits either administrative role.
+func (a *API) requireAdmin() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if role, _ := c.Get("callerRole").(string); !store.IsAdministrativeRole(role) {
+				return handleForbiddenError(c, "admin access required")
+			}
+			return next(c)
+		}
+	}
+}
+
 // requireSuperAdmin rejects any caller whose role is not SUPERADMIN.
 func (a *API) requireSuperAdmin() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if callerRole, _ := c.Get("callerRole").(string); callerRole != "SUPERADMIN" {
+			if callerRole, _ := c.Get("callerRole").(string); !store.IsSuperadminRole(callerRole) {
 				return handleForbiddenError(c, "superadmin access required")
 			}
 			return next(c)

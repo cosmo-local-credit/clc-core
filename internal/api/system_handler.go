@@ -75,8 +75,8 @@ func (a *API) trackOTXHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Non-superadmin user callers may only fetch tracking IDs they own.
-	if callerType == "user" && callerRole != "SUPERADMIN" {
+	// Non-administrator user callers may only fetch tracking IDs they own.
+	if callerType == "user" && !store.IsAdministrativeRole(callerRole) {
 		_, ownerErr := a.store.GetUserDeploymentByTrackingID(ctx, tx, trackingID, callerUserID)
 		if ownerErr != nil {
 			return handlePostgresError(c, ownerErr)
@@ -117,8 +117,8 @@ func (a *API) trackContractHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Non-superadmin user callers may only fetch tracking IDs they own.
-	if callerType == "user" && callerRole != "SUPERADMIN" {
+	// Non-administrator user callers may only fetch tracking IDs they own.
+	if callerType == "user" && !store.IsAdministrativeRole(callerRole) {
 		_, ownerErr := a.store.GetUserDeploymentByTrackingID(ctx, tx, trackingID, callerUserID)
 		if ownerErr != nil {
 			return handlePostgresError(c, ownerErr)
