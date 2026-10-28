@@ -309,6 +309,17 @@ SELECT * FROM (
 ORDER BY id DESC;
 
 -- Logical account activity --------------------------------------------------
+--name: latest-pool-review-swap
+SELECT max(tx.date_block AT TIME ZONE 'UTC')
+FROM pool_swap ps
+JOIN tx ON tx.id = ps.tx_id
+WHERE ps.contract_address = ANY($1::text[])
+  AND ps.initiator_address = ANY($2::text[])
+  AND ps.in_value > 0
+  AND ps.out_value > 0
+  AND tx.success
+  AND tx.date_block <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC');
+
 -- Unlike transfer history, this feed returns one row per user-visible action.
 -- All pool_swap rows initiated by the account in one transaction are one route:
 -- the first input and final output are what the user sent and received. Direct

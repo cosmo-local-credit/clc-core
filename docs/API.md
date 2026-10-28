@@ -2853,6 +2853,64 @@ Status `200`, description `Pool profile updated`. The `result` is `{"pool": {...
 | 404 | `E03` | The pool does not exist. |
 | 409 | `E16` | Another pool uses the display name, or the request changes the unit of account of an oracle pool. |
 
+### 8.7 Pool reviews
+
+Pool reviews use the public and authenticated response shapes, pagination,
+star filters, limits, owner replies, reporting, and moderation rules from
+section 7.9. They also remain available after a Pool is retired.
+
+A wallet may review a Pool after it initiates a successful swap through that
+Pool with positive input and output amounts. Every Pool leg of a multi-hop
+swap qualifies independently. The wallet may write or update its single review
+for seven days after its latest qualifying swap. A new qualifying swap reopens
+that edit window. The current Pool owner, including a projected Safe signer,
+may reply to or report a review; an administrative role alone does not grant
+that owner action.
+
+#### 8.7.1 `GET /api/v2/pools/:address/reviews`
+
+**Access:** Public, with the rate limit of section 8.1.
+
+Returns up to 20 visible reviews, newest first. `stars` accepts 1 through 5 and
+filters only the review list. `before` is the previous page's `next` review ID.
+The result contains `reviews`, `counts`, `total`, `average`, and `next`, as in
+section 7.9.1. The response has `Cache-Control: no-store`.
+
+#### 8.7.2 `GET /api/v2/pools/:address/reviews/me`
+
+**Access:** User session.
+
+Returns `isOwner`, `editableUntil`, `review`, `hidden`, `editableReplyIds`, and
+`flaggedReviewIds`, as in section 7.9.2. For a non-owner, `editableUntil` is
+seven days after the latest successful qualifying swap indexed for this wallet
+and Pool. Swap verification uses indexed data and performs no RPC lookup.
+
+#### 8.7.3 `PUT /api/v2/pools/:address/reviews/me`
+
+**Access:** User session. The caller must have a qualifying swap within seven
+days and must not be the current Pool owner.
+
+Creates or updates the caller's review. The body fields are `stars` (integer,
+1 through 5) and optional `comment` (trimmed, at most 2000 characters). The
+result is `{"saved": true}`. Hidden reviews cannot be changed.
+
+#### 8.7.4 `PUT /api/v2/pools/:address/reviews/:id/reply`
+
+**Access:** User session. The caller must be the current Pool owner or a
+projected signer of the owner Safe.
+
+Sets a trimmed `reply` from 1 through 2000 characters. A reply remains attached
+to its author after ownership changes; a later owner cannot overwrite it.
+
+#### 8.7.5 `POST /api/v2/pools/:address/reviews/:id/flag`
+
+**Access:** User session. The caller must be the current Pool owner or a
+projected signer of the owner Safe.
+
+Reports the review with a trimmed `reason` from 1 through 500 characters.
+Repeated reports by the same owner have no additional effect and still return
+success. The result is `{"saved": true}`.
+
 ---
 
 ## 9. Curated catalogs
@@ -6018,7 +6076,10 @@ The description is `Custom unit of account deleted`. The result has the keys `va
 
 **Access:** Administrative.
 
-Return the open flags on voucher reviews. An owner of a voucher makes a flag with `POST /api/v2/vouchers/:address/reviews/:id/flag`. The list shows flags that nobody has resolved. Rows are newest first. A page has at most 20 rows.
+Return the open flags on Voucher and Pool reviews. A current resource owner
+makes a flag through the corresponding review route. The list shows flags that
+nobody has resolved. Rows are newest first across both resource kinds. A page
+has at most 20 rows.
 
 **Query parameters**
 
@@ -6039,7 +6100,10 @@ This route does not send a `description`. The route sends `Cache-Control: no-sto
 |---|---|---|
 | `id` | integer | Flag ID. Use this ID in section 15.24. |
 | `reviewId` | integer | Review ID. |
-| `voucherAddress` | string | Voucher address. |
+| `resourceKind` | string | `voucher` or `pool`. |
+| `resourceAddress` | string | Address of the reviewed resource. |
+| `voucherAddress` | string or absent | Voucher address, retained for compatibility. |
+| `poolAddress` | string or absent | Pool address. |
 | `reason` | string | Reason from the owner. |
 | `stars` | integer | Current stars of the review. |
 | `comment` | string | Current comment of the review. |
@@ -6055,7 +6119,9 @@ This route does not send a `description`. The route sends `Cache-Control: no-sto
       {
         "id": 31,
         "reviewId": 12,
-        "voucherAddress": "0x1111111111111111111111111111111111111111",
+        "resourceKind": "pool",
+        "resourceAddress": "0x1111111111111111111111111111111111111111",
+        "poolAddress": "0x1111111111111111111111111111111111111111",
         "reason": "Abusive language",
         "stars": 1,
         "comment": "Bad comment",
@@ -6529,10 +6595,15 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/pools/:address` | Public |
 | GET | `/api/v2/pools/:address/vouchers` | Public |
 | GET | `/api/v2/pools/:address/offerings` | Public |
+| GET | `/api/v2/pools/:address/reviews` | Public |
 | GET | `/api/v2/vouchers/:address/reviews/me` | User session |
 | PUT | `/api/v2/vouchers/:address/reviews/me` | User session |
 | PUT | `/api/v2/vouchers/:address/reviews/:id/reply` | User session |
 | POST | `/api/v2/vouchers/:address/reviews/:id/flag` | User session |
+| GET | `/api/v2/pools/:address/reviews/me` | User session |
+| PUT | `/api/v2/pools/:address/reviews/me` | User session |
+| PUT | `/api/v2/pools/:address/reviews/:id/reply` | User session |
+| POST | `/api/v2/pools/:address/reviews/:id/flag` | User session |
 | POST | `/api/v2/catalogs` | User session |
 | PUT | `/api/v2/catalogs/:id` | User session |
 | GET | `/api/v2/catalogs/:id/membership` | User session |

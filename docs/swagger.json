@@ -14979,8 +14979,8 @@
         "tags": [
           "Admin"
         ],
-        "summary": "Return the open flags on voucher reviews",
-        "description": "Return the open flags on voucher reviews. An owner of a voucher makes a flag with 'POST /api/v2/vouchers/:address/reviews/:id/flag'. The list shows flags that nobody has resolved. Rows are newest first. A page has at most 20 rows. Access: Administrative.",
+        "summary": "Return the open flags on Voucher and Pool reviews",
+        "description": "Returns unresolved flags on Voucher and Pool reviews, newest first across both resource kinds. Each page has at most 20 rows. Access: Administrative.",
         "operationId": "getAdminReviewNotifications",
         "parameters": [
           {
@@ -15020,9 +15020,31 @@
                                 "type": "integer",
                                 "description": "Review ID."
                               },
-                              "voucherAddress": {
+                              "resourceKind": {
                                 "type": "string",
-                                "description": "Voucher address."
+                                "enum": [
+                                  "voucher",
+                                  "pool"
+                                ],
+                                "description": "Kind of the reviewed resource."
+                              },
+                              "resourceAddress": {
+                                "type": "string",
+                                "description": "Address of the reviewed resource."
+                              },
+                              "voucherAddress": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "description": "Voucher address, retained for compatibility."
+                              },
+                              "poolAddress": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "description": "Pool address."
                               },
                               "reason": {
                                 "type": "string",
@@ -15074,13 +15096,15 @@
                       {
                         "id": 31,
                         "reviewId": 12,
-                        "voucherAddress": "0x1111111111111111111111111111111111111111",
                         "reason": "Abusive language",
                         "stars": 1,
                         "comment": "Bad comment",
                         "reportedStars": 1,
                         "reportedComment": "Bad comment",
-                        "createdAt": "2026-08-12T10:00:00Z"
+                        "createdAt": "2026-08-12T10:00:00Z",
+                        "resourceKind": "pool",
+                        "resourceAddress": "0x1111111111111111111111111111111111111111",
+                        "poolAddress": "0x1111111111111111111111111111111111111111"
                       }
                     ],
                     "next": null
@@ -17266,6 +17290,564 @@
         },
         "security": []
       }
+    },
+    "/api/v2/pools/{address}/reviews": {
+      "get": {
+        "tags": [
+          "Pools"
+        ],
+        "summary": "Return the visible reviews of a pool, newest first",
+        "description": "Returns the visible reviews of a pool, newest first. Each page has at most 20 reviews. Access: Public.",
+        "operationId": "getPoolsByAddressReviews",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A hex address."
+          },
+          {
+            "name": "stars",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "description": "From 1 to 5. The filter applies to the list only. 'counts', 'total' and 'average' cover all visible reviews."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A review 'id'. Returns reviews with a lower 'id'. Use the 'next' value of the previous response."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "reviews": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Review"
+                          },
+                          "description": "Review objects."
+                        },
+                        "counts": {
+                          "type": "object",
+                          "properties": {
+                            "1": {
+                              "type": "integer"
+                            },
+                            "2": {
+                              "type": "integer"
+                            },
+                            "3": {
+                              "type": "integer"
+                            },
+                            "4": {
+                              "type": "integer"
+                            },
+                            "5": {
+                              "type": "integer"
+                            }
+                          },
+                          "description": "The number of reviews for each star value. The keys are '\"1\"' to '\"5\"'."
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "average": {
+                          "type": "number",
+                          "description": "'0' when there are no reviews."
+                        },
+                        "next": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "description": "The 'before' value for the next page."
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                },
+                "example": {
+                  "ok": true,
+                  "result": {
+                    "reviews": [
+                      {
+                        "id": 12,
+                        "stars": 5,
+                        "comment": "Good service",
+                        "reply": null
+                      }
+                    ],
+                    "counts": {
+                      "1": 0,
+                      "2": 0,
+                      "3": 0,
+                      "4": 0,
+                      "5": 1
+                    },
+                    "total": 1,
+                    "average": 5,
+                    "next": null
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E04: address is not a valid hex address. stars is not an integer from 1 to 5, or before is not a valid number."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "The pool does not exist."
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests",
+            "description": "E11: The rate limit is exceeded."
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v2/pools/{address}/reviews/me": {
+      "get": {
+        "tags": [
+          "Pools"
+        ],
+        "summary": "Get the review rights of the caller for a pool",
+        "description": "Returns what the caller can do with the reviews of this pool. Access: User session.",
+        "operationId": "getPoolsByAddressReviewsMe",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A hex address."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the caller can do with the reviews.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "isOwner": {
+                          "type": "boolean"
+                        },
+                        "editableUntil": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "review": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/Review"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hidden": {
+                          "type": "boolean"
+                        },
+                        "editableReplyIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
+                          }
+                        },
+                        "flaggedReviewIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E04: address is not a valid hex address."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: No valid session. E06: The credential is missing or not valid."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: The caller uses a service token."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "The pool does not exist."
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable",
+            "description": "The pool is not on the configured chain, or the transfer index is not available."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Pools"
+        ],
+        "summary": "Create or replace a review",
+        "description": "Creates or replaces the review of the caller. Access: User session. The caller must be a reviewer with a swap in the last 7 days.",
+        "operationId": "putPoolsByAddressReviewsMe",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A hex address."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "stars": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "description": "From 1 to 5."
+                  },
+                  "comment": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "description": "The server trims the value. At most 2000 characters."
+                  }
+                },
+                "required": [
+                  "stars"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The review was saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "saved": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                },
+                "example": {
+                  "ok": true,
+                  "result": {
+                    "saved": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E02: The body is not valid JSON. E04: address is not a valid hex address. stars or comment is outside the rules."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: No valid session. E06: The credential is missing or not valid."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: The caller uses a service token, owns the pool, has a hidden review, has no swap in the last 7 days, or the edit window closed. E10: The caller uses a service token."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "The pool does not exist."
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable",
+            "description": "The pool is not on the configured chain, or the transfer index is not available."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/pools/{address}/reviews/{id}/reply": {
+      "put": {
+        "tags": [
+          "Pools"
+        ],
+        "summary": "Set the reply of the owner on a review",
+        "description": "Sets the reply of the owner on a review. A new reply replaces the old reply of the same owner. Access: User session. The caller must be the current pool owner.",
+        "operationId": "putPoolsByAddressReviewsByIdReply",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A hex address."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A positive review ID."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reply": {
+                    "type": "string",
+                    "description": "Required. The server trims it. From 1 to 2000 characters."
+                  }
+                },
+                "required": [
+                  "reply"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The reply was saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "saved": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                },
+                "example": {
+                  "ok": true,
+                  "result": {
+                    "saved": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E02: The body is not valid JSON. E04: address is not a valid hex address. id is not valid, or reply is empty or too long."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: No valid session. E06: The credential is missing or not valid."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: The caller is not the current pool owner, or uses a service token. E10: The caller uses a service token."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "The pool or the review does not exist, the review is hidden, or another account wrote the reply."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/pools/{address}/reviews/{id}/flag": {
+      "post": {
+        "tags": [
+          "Pools"
+        ],
+        "summary": "Report a review to the moderators",
+        "description": "Reports a review to the moderators. A second flag from the same owner on the same review has no effect and still returns success. Access: User session. The caller must be the current pool owner.",
+        "operationId": "postPoolsByAddressReviewsByIdFlag",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A hex address."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A positive review ID."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "Required. The server trims it. From 1 to 500 characters."
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The flag was saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "saved": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                },
+                "example": {
+                  "ok": true,
+                  "result": {
+                    "saved": true
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: The credential is missing or not valid."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: The caller uses a service token."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -18606,7 +19188,7 @@
               "string",
               "null"
             ],
-            "description": "The reply of the voucher owner."
+            "description": "The reply of the resource owner."
           }
         }
       },

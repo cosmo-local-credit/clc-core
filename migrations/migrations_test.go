@@ -74,6 +74,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "037_deploy_name_occupancy_indexes.sql")
 	assert.Contains(t, sqlFiles, "038_webauthn_credential_state.sql")
 	assert.Contains(t, sqlFiles, "039_voucher_reviews.sql")
+	assert.Contains(t, sqlFiles, "067_pool_reviews.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -164,7 +165,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "063_safe_execute_otx.sql" ||
 				name == "064_admin_role.sql" ||
 				name == "065_admin_role_index.sql" ||
-				name == "066_optional_want_contact.sql",
+				name == "066_optional_want_contact.sql" ||
+				name == "067_pool_reviews.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -240,6 +242,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"064_admin_role.sql",
 		"065_admin_role_index.sql",
 		"066_optional_want_contact.sql",
+		"067_pool_reviews.sql",
 	}, files)
 }
 
