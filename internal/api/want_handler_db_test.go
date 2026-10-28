@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,6 +148,10 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	require.Equal(t, "active", active.State)
 	require.Equal(t, []string{"Bicycle Help"}, active.Tags)
 	require.Equal(t, 1, active.ContactPermission)
+	_, err := a.store.Pool().Exec(ctx, `UPDATE wants SET contact_permission=4 WHERE id=$1`, active.ID)
+	require.Error(t, err)
+	_, err = a.store.Pool().Exec(ctx, `UPDATE wants SET contact_text=$2 WHERE id=$1`, active.ID, strings.Repeat("x", 501))
+	require.Error(t, err)
 
 	publicResponse := curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d", active.ID), "", "")
 	public := wantResult(t, publicResponse, http.StatusOK).Want
@@ -223,6 +228,21 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	public = wantResult(t, curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d", active.ID), "", ""), http.StatusOK).Want
 	require.Equal(t, explicitWantImage, *public.ImageURL)
 
+	clearContactResponse := curatedRequest(a, http.MethodPut, fmt.Sprintf("/api/v2/users/me/wants/%d", active.ID), token,
+		wantBody(t, "Bicycle repair", now.Add(-time.Hour), nil, "", false, false))
+	cleared := wantResult(t, clearContactResponse, http.StatusOK).Want
+	require.Zero(t, cleared.ContactPermission)
+	require.Nil(t, cleared.ContactText)
+	var emptyContactEnvelope struct {
+		Result struct {
+			Contact *wantContactResponse `json:"contact"`
+		} `json:"result"`
+	}
+	emptyContactResponse := curatedRequest(a, http.MethodGet, fmt.Sprintf("/api/v2/wants/%d/contact", active.ID), token, "")
+	require.Equal(t, http.StatusOK, emptyContactResponse.Code, emptyContactResponse.Body.String())
+	require.NoError(t, json.Unmarshal(emptyContactResponse.Body.Bytes(), &emptyContactEnvelope))
+	require.Nil(t, emptyContactEnvelope.Result.Contact)
+
 	scheduled := wantResult(t, curatedRequest(a, http.MethodPost, "/api/v2/users/me/wants", token,
 		wantBody(t, "Scheduled request", now.Add(time.Hour), nil, "Text me later", false, true)), http.StatusCreated).Want
 	require.Equal(t, "scheduled", scheduled.State)
@@ -244,8 +264,10 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	closeResponse := curatedRequest(a, http.MethodPost, fmt.Sprintf("/api/v2/users/me/wants/%d/close", active.ID), token, "")
 	wantResult(t, closeResponse, http.StatusOK)
 	fourth := wantResult(t, curatedRequest(a, http.MethodPost, "/api/v2/users/me/wants", token,
-		wantBody(t, "Freed slot", now.Add(-time.Hour), nil, "Email first", true, false)), http.StatusCreated).Want
+		wantBody(t, "Freed slot", now.Add(-time.Hour), nil, "", false, false)), http.StatusCreated).Want
 	require.NotZero(t, fourth.ID)
+	require.Zero(t, fourth.ContactPermission)
+	require.Nil(t, fourth.ContactText)
 	reopen := curatedRequest(a, http.MethodPost, fmt.Sprintf("/api/v2/users/me/wants/%d/reopen", active.ID), token,
 		wantBody(t, "Bicycle repair", now.Add(-time.Hour), nil, "Meet by the market", true, false))
 	require.Equal(t, http.StatusTooManyRequests, reopen.Code, reopen.Body.String())
@@ -255,10 +277,12 @@ func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 		wantBody(t, "Bicycle repair", now.Add(-time.Hour), &pastExpiry, "Meet by the market", true, false))
 	require.Equal(t, http.StatusBadRequest, expiredReopen.Code, expiredReopen.Body.String())
 	reopenResponse := curatedRequest(a, http.MethodPost, fmt.Sprintf("/api/v2/users/me/wants/%d/reopen", active.ID), token,
-		wantBody(t, "Bicycle repair", now.Add(-time.Hour), nil, "Meet by the market", true, false))
+		wantBody(t, "Bicycle repair", now.Add(-time.Hour), nil, "", false, false))
 	reopened := wantResult(t, reopenResponse, http.StatusOK).Want
 	requireWantPrivacyBoundary(t, reopenResponse, "want")
 	require.Equal(t, store.WantStatusOpen, reopened.Status)
+	require.Zero(t, reopened.ContactPermission)
+	require.Nil(t, reopened.ContactText)
 
 	var voucherID, secondVoucherID, poolID, unrelatedPoolID uint64
 	var poolAddress string

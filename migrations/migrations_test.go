@@ -96,6 +96,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "061_retirement_requests.sql")
 	assert.Contains(t, sqlFiles, "064_admin_role.sql")
 	assert.Contains(t, sqlFiles, "065_admin_role_index.sql")
+	assert.Contains(t, sqlFiles, "066_optional_want_contact.sql")
 	for _, name := range sqlFiles {
 		assert.True(t,
 			name == "001_init.sql" ||
@@ -162,7 +163,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "062_safe_signers.sql" ||
 				name == "063_safe_execute_otx.sql" ||
 				name == "064_admin_role.sql" ||
-				name == "065_admin_role_index.sql",
+				name == "065_admin_role_index.sql" ||
+				name == "066_optional_want_contact.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -237,7 +239,17 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"063_safe_execute_otx.sql",
 		"064_admin_role.sql",
 		"065_admin_role_index.sql",
+		"066_optional_want_contact.sql",
 	}, files)
+}
+
+func TestOptionalWantContactMigration(t *testing.T) {
+	content, err := os.ReadFile("066_optional_want_contact.sql")
+	require.NoError(t, err)
+	s := string(content)
+	assert.Contains(t, s, "DROP CONSTRAINT IF EXISTS wants_has_contact")
+	assert.NotContains(t, strings.Split(s, "---- create above / drop below ----")[0], "DROP CONSTRAINT wants_contact_permissions_known")
+	assert.NotContains(t, strings.Split(s, "---- create above / drop below ----")[0], "DROP CONSTRAINT wants_contact_text_length")
 }
 
 func TestAdminRoleMigrationsStayInSeparateTransactions(t *testing.T) {
