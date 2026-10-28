@@ -23,10 +23,10 @@ func TestMarketMapFractionalViewportEndpointDB(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	for i, id := range ids {
-		lat, lng := -3.68, 39.83
+		lat, lng := -3.6884991293904363, 39.830381973540625
 		switch i {
 		case 1:
-			lat, lng = -3.6801, 39.8301
+			lat, lng = -3.689533599376162, 39.82907096058713
 		case 2:
 			lat, lng = -3.72, 39.87
 		}
@@ -62,7 +62,21 @@ func TestMarketMapFractionalViewportEndpointDB(t *testing.T) {
 		return res, envelope.Result.Features
 	}
 
-	const bounds = "39.82,-3.69,39.84,-3.67"
+	const bounds = "39.82,-3.70,39.84,-3.67"
+	_, overlapping := get(bounds, "14.25")
+	require.Len(t, overlapping, 1)
+	require.Equal(t, "cluster", overlapping[0].Type)
+	require.EqualValues(t, 2, overlapping[0].Count)
+	require.Equal(t, map[string]int{"voucher": 2}, overlapping[0].Kinds)
+	require.Greater(t, overlapping[0].ExpansionZoom, 14.25)
+	require.LessOrEqual(t, overlapping[0].ExpansionZoom, 14.75)
+
+	_, separated := get(bounds, "14.75")
+	require.Len(t, separated, 2, "the real Want/Catalog separation must split before zoom 16")
+	for _, feature := range separated {
+		require.Equal(t, "marker", feature.Type)
+	}
+
 	initial, markers := get(bounds, "16")
 	require.Len(t, markers, 2, "fractional bounds must not truncate to an empty latitude line")
 	names := make([]string, 0, len(markers))
@@ -74,8 +88,16 @@ func TestMarketMapFractionalViewportEndpointDB(t *testing.T) {
 		require.NotEmpty(t, *feature.ResourceID)
 		require.NotNil(t, feature.Name)
 		names = append(names, *feature.Name)
-		require.InDelta(t, -3.68, feature.GeoLat, 0.0002)
-		require.InDelta(t, 39.83, feature.GeoLng, 0.0002)
+		switch *feature.Name {
+		case marker + " First":
+			require.InDelta(t, -3.6884991293904363, feature.GeoLat, 0.0000001)
+			require.InDelta(t, 39.830381973540625, feature.GeoLng, 0.0000001)
+		case marker + " Second":
+			require.InDelta(t, -3.689533599376162, feature.GeoLat, 0.0000001)
+			require.InDelta(t, 39.82907096058713, feature.GeoLng, 0.0000001)
+		default:
+			t.Fatalf("unexpected marker %q", *feature.Name)
+		}
 	}
 	require.ElementsMatch(t, []string{marker + " First", marker + " Second"}, names)
 
@@ -85,7 +107,7 @@ func TestMarketMapFractionalViewportEndpointDB(t *testing.T) {
 	require.EqualValues(t, 2, clusters[0].Count)
 	require.Equal(t, map[string]int{"voucher": 2}, clusters[0].Kinds)
 	require.Greater(t, clusters[0].ExpansionZoom, 1.0)
-	require.LessOrEqual(t, clusters[0].ExpansionZoom, 16.0)
+	require.LessOrEqual(t, clusters[0].ExpansionZoom, 20.0)
 
 	_, empty := get("39.90,-3.90,39.92,-3.88", "16")
 	require.Empty(t, empty, "a different viewport must have a separate cache entry")

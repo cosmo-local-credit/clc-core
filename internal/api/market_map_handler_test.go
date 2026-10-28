@@ -36,14 +36,26 @@ func TestParseMarketMapKindsRejectsUnknownKind(t *testing.T) {
 	}
 }
 
-func TestParseMarketMapZoomUsesStableBucket(t *testing.T) {
-	c := marketMapTestContext("/api/v2/market-map?zoom=12.9")
-	zoom, err := parseMarketMapZoom(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if zoom != 12 {
-		t.Fatalf("zoom = %v, want 12", zoom)
+func TestParseMarketMapZoomUsesStableQuarterBuckets(t *testing.T) {
+	for _, test := range []struct {
+		raw  string
+		want float64
+	}{
+		{"12.9", 12.75},
+		{"14.74", 14.5},
+		{"14.75", 14.75},
+		{"20.99", 20.75},
+	} {
+		t.Run(test.raw, func(t *testing.T) {
+			c := marketMapTestContext("/api/v2/market-map?zoom=" + test.raw)
+			zoom, err := parseMarketMapZoom(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if zoom != test.want {
+				t.Fatalf("zoom = %v, want %v", zoom, test.want)
+			}
+		})
 	}
 }
 

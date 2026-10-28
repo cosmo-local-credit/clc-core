@@ -1653,7 +1653,7 @@ paths:
           minimum: 0
           maximum: 22
           default: 0
-        description: Map zoom. Its integer floor selects the server cluster bucket.
+        description: Map zoom. The server rounds down to a quarter-zoom bucket and clusters within a 30-pixel grid below zoom 20.
       - name: kinds
         in: query
         required: false

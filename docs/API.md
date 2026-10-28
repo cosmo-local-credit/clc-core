@@ -2273,13 +2273,13 @@ Returns one bounded set of lightweight Marketplace markers and server clusters f
 | Parameter | Type | Default | Rules |
 |---|---|---|---|
 | `bbox` | string | Global | Repeat once for an antimeridian split. See section 7.1. |
-| `zoom` | number | `0` | Finite value from 0 through 22. The server uses its integer floor as the cluster bucket. |
+| `zoom` | number | `0` | Finite value from 0 through 22. The server rounds down to a quarter-zoom cluster bucket. |
 | `kinds` | string | all kinds | `voucher`, `want`, `pool`, `catalog`, or `post`. Repeat the parameter or use commas. |
 | `q` | string | none | Uses the search behavior of the selected resource kinds. |
 | `tags`, `tagMatch`, `facets` | | | See section 7.1. |
 | `creditablePools` | string | none | Verified pool references in `chainId:address` form. Repeat the parameter or use commas. |
 
-At wide zooms, resources in the same Web Mercator grid cell become one cluster. At close zooms, the response returns individual markers so coincident resources can be fanned out by the client. A response contains at most 2,000 features.
+Below zoom 20, resources in the same 30-pixel Web Mercator grid cell become one cluster. Quarter-zoom buckets keep that footprint close to the rendered scale. At zoom 20 the response returns individual markers so coincident resources can be fanned out by the client. A response contains at most 2,000 features.
 
 Marker fields are `type`, `id`, `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon`, and `markerColor`. Cluster fields are `type`, `id`, `lat`, `lng`, `count`, `kinds`, and `expansionZoom`. `kinds` contains the count for each represented resource kind. `tagFacets` is returned when `facets=true`.
 
