@@ -5,6 +5,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -280,11 +281,32 @@ func marketClientIP(r *http.Request, trustProxy bool) string {
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 			parts := strings.Split(forwarded, ",")
 			if candidate := strings.TrimSpace(parts[len(parts)-1]); candidate != "" {
-				return candidate
+				return clientKey(candidate)
 			}
 		}
 	}
-	return peer
+	return clientKey(peer)
+}
+
+// clientKey buckets an IPv6 caller by its /64. One subscriber is normally
+// delegated at least a /64 and can rotate through it freely, so keying the full
+// address would hand every rotation a fresh budget. IPv4, including the
+// IPv4-mapped form, stays keyed by the single address. A value that does not
+// parse is kept as it was, as before.
+func clientKey(address string) string {
+	ip, err := netip.ParseAddr(address)
+	if err != nil {
+		return address
+	}
+	ip = ip.Unmap()
+	if ip.Is4() {
+		return ip.String()
+	}
+	prefix, err := ip.Prefix(64)
+	if err != nil {
+		return address
+	}
+	return prefix.String()
 }
 
 func directPeerIP(remoteAddress string) string {
