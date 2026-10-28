@@ -299,6 +299,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/names", a.namesLookupHandler)
 	apiGroup.GET("/recipients", a.recipientSearchHandler, a.recipientRateLimitMiddleware())
 	router.GET(apiVersion+"/recipients/suggest", a.usernameSuggestHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/identity/availability", a.identityAvailabilityHandler, a.marketRateLimitMiddleware())
 	apiGroup.GET("/recipients/resolve", a.recipientResolveHandler, a.recipientRateLimitMiddleware())
 	apiGroup.GET("/recipients/resolve/:name", a.recipientResolveHandler, a.recipientRateLimitMiddleware())
 	apiGroup.GET("/recipients/reverse/:address", a.recipientReverseHandler, a.recipientRateLimitMiddleware())

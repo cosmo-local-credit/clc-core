@@ -768,6 +768,19 @@ SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(emai
 FROM users
 WHERE email = $1;
 
+--name: identity-availability
+-- NULL skips that identity. Email and phone match users_email_unique and
+-- users_phone_unique exactly; the handler lowercases email first, the same way
+-- signup does. Username matches normalize_identity_name in the recipient
+-- namespace, so a pool display name collides with a username.
+SELECT
+    (CASE WHEN $1::text IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM users WHERE email = $1::text) END)::boolean,
+    (CASE WHEN $2::text IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM users WHERE phone = $2::text) END)::boolean,
+    (CASE WHEN $3::text IS NULL THEN NULL ELSE EXISTS (
+        SELECT 1 FROM identity_claims
+        WHERE namespace = 'recipient' AND name = normalize_identity_name($3::text)
+    ) END)::boolean;
+
 --name: update-user-status
 UPDATE users
 SET status = $2::user_status

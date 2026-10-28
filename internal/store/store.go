@@ -108,6 +108,7 @@ type (
 		InsertUser(context.Context, pgx.Tx, User) (User, error)
 		GetUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		GetUserByEmail(context.Context, pgx.Tx, string) (User, error)
+		IdentityAvailability(context.Context, pgx.Tx, *string, *string, *string) (IdentityTaken, error)
 		GetUserByID(context.Context, pgx.Tx, uint64) (User, error)
 		UpdateUserStatus(context.Context, pgx.Tx, string, string) (User, error)
 		UpdateUserRole(context.Context, pgx.Tx, string, string) (User, error)
