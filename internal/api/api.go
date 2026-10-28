@@ -397,6 +397,7 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/owned-pools/:address/vouchers", a.ownerPoolVouchersListHandler)
 	userGroup.GET("/me/retirement-requests", a.ownRetirementRequestsHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
+	userGroup.GET("/me/safes", a.userSafesHandler)
 	userGroup.GET("/me/shares/eligibility/:address", a.userShareEligibilityHandler)
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
 	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)

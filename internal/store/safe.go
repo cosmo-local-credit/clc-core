@@ -110,6 +110,39 @@ SELECT signer FROM safe_signers WHERE chain_id = $1 AND safe_address = $2 ORDER 
 	return state, rows.Err()
 }
 
+// ListSafesSignedBy returns every projected Safe that lists signer, each with
+// its full signer set, in address order. It reads the same projection that
+// authorizes Safe writes, so a Safe appears here exactly when its signers may
+// act for it.
+func (pg *Pg) ListSafesSignedBy(ctx context.Context, tx pgx.Tx, chainID int64, signer string) ([]SafeState, error) {
+	rows, err := tx.Query(ctx, `
+SELECT s.safe_address, COALESCE(s.threshold, 0), s.block_number, s.refreshed_at,
+       array_agg(member.signer ORDER BY member.signer)
+FROM safe_signers me
+JOIN safe_state s ON s.chain_id = me.chain_id AND s.safe_address = me.safe_address
+JOIN safe_signers member ON member.chain_id = s.chain_id AND member.safe_address = s.safe_address
+WHERE me.chain_id = $1 AND me.signer = lower($2)
+GROUP BY s.safe_address, s.threshold, s.block_number, s.refreshed_at
+ORDER BY s.safe_address`, chainID, signer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var states []SafeState
+	for rows.Next() {
+		var (
+			state SafeState
+			block int64
+		)
+		if err := rows.Scan(&state.Address, &state.Threshold, &block, &state.RefreshedAt, &state.Signers); err != nil {
+			return nil, err
+		}
+		state.Block = uint64(block)
+		states = append(states, state)
+	}
+	return states, rows.Err()
+}
+
 // CatalogHasOwner limits sponsored index registration to real catalog owners.
 func (pg *Pg) CatalogHasOwner(ctx context.Context, tx pgx.Tx, chainID int64, owner string) (bool, error) {
 	var found bool

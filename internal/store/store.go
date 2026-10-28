@@ -82,6 +82,7 @@ type (
 		ProjectCatalogOwnership(context.Context, pgx.Tx, int64, string, string, uint64, uint64) (int64, error)
 		ReplaceSafeSigners(context.Context, pgx.Tx, int64, string, []string, int, uint64, uint64) (bool, error)
 		GetSafeState(context.Context, pgx.Tx, int64, string) (SafeState, error)
+		ListSafesSignedBy(context.Context, pgx.Tx, int64, string) ([]SafeState, error)
 		CatalogHasOwner(context.Context, pgx.Tx, int64, string) (bool, error)
 		SafeManagesAsset(context.Context, pgx.Tx, int64, string, string) (bool, error)
 		SafeExecutionsQueued(context.Context, pgx.Tx, []string) (map[string]bool, error)

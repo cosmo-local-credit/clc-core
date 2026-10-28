@@ -445,6 +445,35 @@ func (a *API) safeOwnerHandler(c *echo.Context) error {
 	return a.writeProxyResult(c, "Multisig ownership", result)
 }
 
+// userSafesHandler lists the multisigs the caller signs for, each in the shape
+// /owners/:address answers for a Safe, so the app manages their signers from
+// the same projection that authorizes its writes.
+func (a *API) userSafesHandler(c *echo.Context) error {
+	_, address, _ := getUserClaims(c)
+	c.Response().Header().Set("Cache-Control", "no-store")
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	defer tx.Rollback(ctx)
+	states, err := a.store.ListSafesSignedBy(ctx, tx, a.chainID, address)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	safes := make([]map[string]any, len(states))
+	for i, state := range states {
+		var threshold *int
+		if state.Threshold > 0 {
+			threshold = &state.Threshold
+		}
+		safes[i] = map[string]any{"kind": "safe", "owner": state.Address, "signers": state.Signers, "threshold": threshold}
+	}
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Multisigs you sign for", Result: map[string]any{"safes": safes},
+	})
+}
+
 func (a *API) writeProxyError(c *echo.Context, err error) error {
 	var pErr *proxyError
 	if !errors.As(err, &pErr) {
