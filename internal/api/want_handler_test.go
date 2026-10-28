@@ -27,12 +27,21 @@ func TestNormalizeWantWrite(t *testing.T) {
 	require.Equal(t, "https://storage.example/want.webp", *write.ImageURL)
 	require.Equal(t, []string{"Repair"}, write.Tags)
 
+	withoutContact, err := normalizeWantWrite(wantWriteRequest{
+		Name: "Need", Description: "Something", LocationName: "Nairobi",
+		GeoLat: 0, GeoLng: 0, StartsAt: now,
+		MarkerIcon: "question", MarkerColor: "orange",
+	})
+	require.NoError(t, err)
+	require.Zero(t, withoutContact.ContactPermission)
+	require.Nil(t, withoutContact.ContactText)
+
 	for name, mutate := range map[string]func(*wantWriteRequest){
-		"missing contact": func(req *wantWriteRequest) { req.ContactText = nil },
-		"bad marker":      func(req *wantWriteRequest) { req.MarkerIcon = "voucher" },
-		"bad color":       func(req *wantWriteRequest) { req.MarkerColor = "black" },
-		"bad location":    func(req *wantWriteRequest) { req.GeoLat = 91 },
-		"bad image":       func(req *wantWriteRequest) { value := "javascript:alert(1)"; req.ImageURL = &value },
+		"bad marker":   func(req *wantWriteRequest) { req.MarkerIcon = "voucher" },
+		"bad color":    func(req *wantWriteRequest) { req.MarkerColor = "black" },
+		"bad location": func(req *wantWriteRequest) { req.GeoLat = 91 },
+		"bad image":    func(req *wantWriteRequest) { value := "javascript:alert(1)"; req.ImageURL = &value },
+		"long contact": func(req *wantWriteRequest) { value := strings.Repeat("x", 501); req.ContactText = &value },
 		"bad expiry": func(req *wantWriteRequest) {
 			expires := now
 			req.ExpiresAt = &expires
