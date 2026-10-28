@@ -160,7 +160,7 @@ A missing or invalid credential on a protected route returns status 401 with cod
 2. Build an EIP-4361 message that contains the nonce. Sign the message with the wallet.
 3. Send the signed message to one of these routes:
    - `POST /auth/signup` creates an account and signs it in.
-   - `POST /auth/signin` signs in an existing approved account.
+   - `POST /auth/signin` signs in, and first registers an unknown address with placeholder details.
    - `POST /auth/siwe/verify` creates an account for an unknown address and signs in.
 4. On success, the service sets the `__clc_auth` cookie. The browser sends it with each later request.
 5. Send `POST /auth/logout` to clear the cookie.
@@ -384,7 +384,9 @@ Errors:
 
 **Access:** Public.
 
-Signs in a registered user. The response sets the session cookie.
+Signs in a user. The response sets the session cookie.
+
+A new address is registered first, so any wallet that signs a valid message can sign in. The user gets the status `APPROVED`, the role `USER`, the name `Sign-in card` and the placeholder email `pending+<address without 0x>@clc.local`. The bulk sign-in card generator registers its cards with the same values. The caller can set real values with `POST /auth/profile`.
 
 Request body:
 
@@ -409,8 +411,8 @@ Errors:
 |---|---|---|
 | `400` | `E02` | The body is not valid JSON. |
 | `400` | `E04` | A field is missing, the signature is not valid, the signer does not match line 2, or the nonce is not valid or is expired. |
-| `404` | `E03` | The address is not registered. Call `POST /auth/signup` first. |
 | `403` | `E10` | The user status is `PENDING` or `REJECTED`. |
+| `409` | `E17` | The placeholder email of the new address is linked to another user. The address is not registered. |
 
 ### 4.4 `POST /auth/siwe/verify`
 
