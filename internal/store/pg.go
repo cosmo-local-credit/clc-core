@@ -125,6 +125,7 @@ type (
 		InsertUser                    string `query:"insert-user"`
 		GetUserByAddress              string `query:"get-user-by-address"`
 		GetUserByEmail                string `query:"get-user-by-email"`
+		IdentityAvailability          string `query:"identity-availability"`
 		GetUserByID                   string `query:"get-user-by-id"`
 		UpdateUserStatus              string `query:"update-user-status"`
 		UpdateUserRole                string `query:"update-user-role"`
