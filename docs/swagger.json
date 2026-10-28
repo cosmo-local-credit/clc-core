@@ -221,8 +221,8 @@
         "tags": [
           "Auth endpoints"
         ],
-        "summary": "Sign in a registered user",
-        "description": "Signs in a registered user. The response sets the session cookie. Access: Public.",
+        "summary": "Sign in, registering a new address",
+        "description": "Signs in a user and registers the user if the address is new. A new address creates a user with the status APPROVED, the role USER, the name Sign-in card and a placeholder email of the form pending+<address without 0x>@clc.local. The caller can set real values with POST /auth/profile. The response sets the session cookie. Access: Public.",
         "operationId": "postAuthSignin",
         "requestBody": {
           "required": true,
@@ -298,9 +298,9 @@
             "$ref": "#/components/responses/Forbidden",
             "description": "E10: The user status is PENDING or REJECTED."
           },
-          "404": {
-            "$ref": "#/components/responses/NotFound",
-            "description": "E03: The address is not registered. Call POST /auth/signup first."
+          "409": {
+            "$ref": "#/components/responses/Conflict",
+            "description": "E17: The placeholder email of the new address is linked to another user. The address is not registered."
           }
         },
         "security": []
