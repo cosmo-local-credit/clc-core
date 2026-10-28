@@ -155,7 +155,7 @@ func TestCheckRejectsHostileBatches(t *testing.T) {
 
 	cases := map[string][]Call{
 		"stranger asset":            execCall(encodeExec(t, strangerAddr, big.NewInt(0), transferOwnership(holder), 0, big.NewInt(0), sigs(1))),
-		"self call changes owners":  execCall(encodeExec(t, safeAddr, big.NewInt(0), ownerChange, 0, big.NewInt(0), sigs(1))),
+		"self call adds zero owner": execCall(encodeExec(t, safeAddr, big.NewInt(0), ownerChange, 0, big.NewInt(0), sigs(1))),
 		"delegatecall to arbitrary": execCall(encodeExec(t, strangerAddr, big.NewInt(0), transferOwnership(holder), 1, big.NewInt(0), sigs(1))),
 		"multisend with stranger":   execCall(encodeExec(t, multiSendAt, big.NewInt(0), evilMulti, 1, big.NewInt(0), sigs(1))),
 		"delegate subcall":          execCall(encodeExec(t, multiSendAt, big.NewInt(0), delegateInSend, 1, big.NewInt(0), sigs(1))),
@@ -183,6 +183,121 @@ func TestCheckRejectsHostileBatches(t *testing.T) {
 			}
 		})
 	}
+}
+
+func selfCall(signature string, words ...[]byte) []byte {
+	sel := selector(signature)
+	data := append([]byte{}, sel[:]...)
+	for _, w := range words {
+		data = append(data, common.LeftPadBytes(w, 32)...)
+	}
+	return data
+}
+
+func addOwner(o common.Address, threshold int64) []byte {
+	return selfCall("addOwnerWithThreshold(address,uint256)", o.Bytes(), big.NewInt(threshold).Bytes())
+}
+
+func removeOwner(prev, o common.Address, threshold int64) []byte {
+	return selfCall("removeOwner(address,address,uint256)", prev.Bytes(), o.Bytes(), big.NewInt(threshold).Bytes())
+}
+
+func swapOwner(prev, oldOwner, newOwner common.Address) []byte {
+	return selfCall("swapOwner(address,address,address)", prev.Bytes(), oldOwner.Bytes(), newOwner.Bytes())
+}
+
+func changeThreshold(threshold int64) []byte {
+	return selfCall("changeThreshold(uint256)", big.NewInt(threshold).Bytes())
+}
+
+func TestCheckAcceptsOwnerChanges(t *testing.T) {
+	changes := map[string][]byte{
+		"add owner":        addOwner(holder, 2),
+		"remove owner":     removeOwner(sentinelOwner, holder, 1),
+		"swap owner":       swapOwner(strangerAddr, holder, assetAddr),
+		"change threshold": changeThreshold(3),
+	}
+	for name, data := range changes {
+		t.Run(name, func(t *testing.T) {
+			exec := encodeExec(t, safeAddr, big.NewInt(0), data, 0, big.NewInt(0), sigs(2))
+			v, err := newPolicy().Check(context.Background(), execCall(exec))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if v.Subcalls != 1 {
+				t.Fatalf("verdict %+v", v)
+			}
+		})
+	}
+
+	t.Run("batched with an asset action", func(t *testing.T) {
+		inner := encodeMultiSend(t,
+			packSub(0, safeAddr, big.NewInt(0), addOwner(holder, 2)),
+			packSub(0, safeAddr, big.NewInt(0), changeThreshold(3)),
+			packSub(0, assetAddr, big.NewInt(0), transferOwnership(holder)),
+		)
+		exec := encodeExec(t, multiSendAt, big.NewInt(0), inner, 1, big.NewInt(0), sigs(2))
+		v, err := newPolicy().Check(context.Background(), execCall(exec))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v.Subcalls != 3 {
+			t.Fatalf("verdict %+v", v)
+		}
+	})
+
+	t.Run("a proposal is judged the same way", func(t *testing.T) {
+		tx, err := DecodeExec(encodeExec(t, safeAddr, big.NewInt(0), addOwner(holder, 2), 0, big.NewInt(0), nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := newPolicy().CheckTransaction(context.Background(), safeAddr, tx); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestCheckRejectsSelfCallsBeyondOwnerChanges(t *testing.T) {
+	dirty := addOwner(holder, 1)
+	dirty[4] = 0xff // a non-zero byte above the 20-byte address
+	cases := map[string][]byte{
+		"adds the sentinel":          addOwner(sentinelOwner, 1),
+		"adds the Safe itself":       addOwner(safeAddr, 1),
+		"adds with zero threshold":   addOwner(holder, 0),
+		"removes the sentinel":       removeOwner(holder, sentinelOwner, 1),
+		"removes with zero":          removeOwner(sentinelOwner, holder, 0),
+		"swaps in the zero address":  swapOwner(sentinelOwner, holder, common.Address{}),
+		"swaps an owner for itself":  swapOwner(sentinelOwner, holder, holder),
+		"zero threshold":             changeThreshold(0),
+		"truncated":                  addOwner(holder, 1)[:40],
+		"trailing bytes":             append(changeThreshold(1), 0),
+		"dirty address word":         dirty,
+		"enables a module":           selfCall("enableModule(address)", holder.Bytes()),
+		"sets a guard":               selfCall("setGuard(address)", holder.Bytes()),
+		"sets the fallback handler":  selfCall("setFallbackHandler(address)", holder.Bytes()),
+		"sets a module guard (1.5)":  selfCall("setModuleGuard(address)", holder.Bytes()),
+		"approves a hash for itself": selfCall("approveHash(bytes32)", bytes.Repeat([]byte{1}, 32)),
+	}
+	for name, data := range cases {
+		t.Run(name, func(t *testing.T) {
+			single := encodeExec(t, safeAddr, big.NewInt(0), data, 0, big.NewInt(0), sigs(1))
+			if v, err := newPolicy().Check(context.Background(), execCall(single)); !errors.Is(err, ErrRejected) || v != nil {
+				t.Fatalf("single call: got %v, %v; want ErrRejected", v, err)
+			}
+			inner := encodeMultiSend(t, packSub(0, safeAddr, big.NewInt(0), data))
+			batched := encodeExec(t, multiSendAt, big.NewInt(0), inner, 1, big.NewInt(0), sigs(1))
+			if v, err := newPolicy().Check(context.Background(), execCall(batched)); !errors.Is(err, ErrRejected) || v != nil {
+				t.Fatalf("in a multisend: got %v, %v; want ErrRejected", v, err)
+			}
+		})
+	}
+
+	t.Run("owner change carrying value", func(t *testing.T) {
+		exec := encodeExec(t, safeAddr, big.NewInt(1), changeThreshold(1), 0, big.NewInt(0), sigs(1))
+		if v, err := newPolicy().Check(context.Background(), execCall(exec)); !errors.Is(err, ErrRejected) || v != nil {
+			t.Fatalf("got %v, %v; want ErrRejected", v, err)
+		}
+	})
 }
 
 func TestCheckFailsClosedOnResolverError(t *testing.T) {

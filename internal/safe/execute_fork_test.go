@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -160,6 +161,151 @@ func TestPasskeyContractSignatureAgainstRealSafes(t *testing.T) {
 			t.Logf("passkey contract signature executed with %d gas", receipt.GasUsed)
 		})
 	}
+}
+
+// Owner management passes the policy and executes on real Safes: an owner is
+// added, swapped and removed and the threshold changed, each signed by the
+// owners of the moment.
+func TestOwnerChangesAgainstRealSafes(t *testing.T) {
+	rpcURL := os.Getenv("SAFE_FORK_RPC")
+	if rpcURL == "" {
+		t.Skip("SAFE_FORK_RPC not set; run anvil --fork-url <gnosis rpc>")
+	}
+	ctx := context.Background()
+	client, err := ethclient.Dial(rpcURL)
+	require.NoError(t, err)
+	payer, err := crypto.HexToECDSA(anvilFirstAccount)
+	require.NoError(t, err)
+
+	for _, version := range forkSafeVersions {
+		t.Run(version.name, func(t *testing.T) {
+			keys := newOwners(t, 5)
+			founders, newcomer, replacement := keys[:3], keys[3], keys[4]
+			proxy := deployForkSafe(t, client, payer, version, addresses(founders), 2)
+			policy := NewPolicy(fakeResolver{safes: map[common.Address]bool{proxy: true}}, nil, DefaultAllowedSignatures)
+			byAddress := map[common.Address]owner{}
+			for _, k := range keys {
+				byAddress[k.addr] = k
+			}
+
+			steps := []struct {
+				name      string
+				data      func(state *State) []byte
+				owners    int
+				threshold int
+			}{
+				{"add an owner and raise the threshold", func(*State) []byte { return addOwner(newcomer.addr, 3) }, 4, 3},
+				{"swap a founder for a replacement", func(s *State) []byte {
+					return swapOwner(prevOwner(t, s, founders[0].addr), founders[0].addr, replacement.addr)
+				}, 4, 3},
+				{"remove the newcomer and lower the threshold", func(s *State) []byte {
+					return removeOwner(prevOwner(t, s, newcomer.addr), newcomer.addr, 2)
+				}, 3, 2},
+				{"change the threshold", func(*State) []byte { return changeThreshold(3) }, 3, 3},
+			}
+			for nonce, step := range steps {
+				state := forkSafeState(t, client, proxy)
+				fields := forkNoopFields(proxy)
+				fields.Data = hexutil.Encode(step.data(state))
+				fields.Nonce = fmt.Sprint(nonce)
+				hash, err := SafeTxHash(100, proxy, fields)
+				require.NoError(t, err)
+				exec, err := fields.Exec()
+				require.NoError(t, err)
+				require.NoError(t, policy.CheckTransaction(ctx, proxy, exec), step.name)
+
+				var confirmations []Confirmation
+				for _, a := range state.Owners[:state.Threshold] {
+					confirmations = append(confirmations, typedSig(t, byAddress[a], hash))
+				}
+				exec.Signatures, err = PackSignatures(ctx, hash, confirmations, state.Owners, state.Threshold, nil)
+				require.NoError(t, err)
+				calldata, err := EncodeExecTransaction(exec)
+				require.NoError(t, err)
+				_, err = policy.Check(ctx, []Call{{To: proxy, Value: big.NewInt(0), Data: calldata}})
+				require.NoError(t, err, "the relay accepts %s", step.name)
+				receipt := sendFork(t, client, payer, proxy, calldata)
+				require.EqualValues(t, types.ReceiptStatusSuccessful, receipt.Status, step.name)
+
+				after := forkSafeState(t, client, proxy)
+				require.Len(t, after.Owners, step.owners, step.name)
+				require.Equal(t, step.threshold, after.Threshold, step.name)
+			}
+			final := forkSafeState(t, client, proxy)
+			require.ElementsMatch(t, []common.Address{replacement.addr, founders[1].addr, founders[2].addr}, final.Owners)
+		})
+	}
+}
+
+// A passkey holder co-signs an owner change on Safe 1.5.0 with a contract
+// signature, as clc-app's confirm sends it.
+func TestPasskeyApprovesOwnerChangeAgainstRealSafe(t *testing.T) {
+	rpcURL := os.Getenv("SAFE_FORK_RPC")
+	if rpcURL == "" {
+		t.Skip("SAFE_FORK_RPC not set; run anvil --fork-url <gnosis rpc> --hardfork prague")
+	}
+	ctx := context.Background()
+	client, err := ethclient.Dial(rpcURL)
+	require.NoError(t, err)
+	payer, err := crypto.HexToECDSA(anvilFirstAccount)
+	require.NoError(t, err)
+
+	account, passkey := delegatedPasskeyAccount(t, client)
+	call := func(ctx context.Context, to common.Address, data []byte) ([]byte, error) {
+		return client.CallContract(ctx, ethereum.CallMsg{To: &to, Data: data}, nil)
+	}
+	out, err := call(ctx, account, crypto.Keccak256([]byte("domainSeparator()"))[:4])
+	require.NoError(t, err)
+	domainSeparator := common.BytesToHash(out)
+
+	keys := newOwners(t, 2)
+	ecdsaOwner, newcomer := keys[0], keys[1]
+	owners := []common.Address{ecdsaOwner.addr, account}
+	proxy := deployForkSafe(t, client, payer, forkSafeVersions[1], owners, 2)
+	policy := NewPolicy(fakeResolver{safes: map[common.Address]bool{proxy: true}}, nil, DefaultAllowedSignatures)
+
+	fields := forkNoopFields(proxy)
+	fields.Data = hexutil.Encode(addOwner(newcomer.addr, 2))
+	hash, err := SafeTxHash(100, proxy, fields)
+	require.NoError(t, err)
+	exec, err := fields.Exec()
+	require.NoError(t, err)
+	require.NoError(t, policy.CheckTransaction(ctx, proxy, exec))
+
+	digest := nestedPersonalSignDigest(domainSeparator, hash)
+	payload := gocalibur.WrapSignatureWithKeyHash(passkeyKeyHash(passkey), signDigestWithPasskey(t, passkey, digest), nil)
+	confirmations := []Confirmation{typedSig(t, ecdsaOwner, hash), contractConfirmation(account, payload)}
+	exec.Signatures, err = PackSignatures(ctx, hash, confirmations, owners, 2, NewContractVerifier(proxy, call))
+	require.NoError(t, err)
+	calldata, err := EncodeExecTransaction(exec)
+	require.NoError(t, err)
+	receipt := sendFork(t, client, payer, proxy, calldata)
+	require.EqualValues(t, types.ReceiptStatusSuccessful, receipt.Status)
+
+	after := forkSafeState(t, client, proxy)
+	require.Contains(t, after.Owners, newcomer.addr, "the passkey holder's approval added the owner")
+	require.Equal(t, 2, after.Threshold)
+}
+
+func forkSafeState(t *testing.T, client *ethclient.Client, proxy common.Address) *State {
+	t.Helper()
+	state, err := ReadSafeVia(context.Background(), proxy, func(ctx context.Context, to common.Address, data []byte) ([]byte, error) {
+		return client.CallContract(ctx, ethereum.CallMsg{To: &to, Data: data}, nil)
+	})
+	require.NoError(t, err)
+	return state
+}
+
+// prevOwner is the entry before o in the Safe's owner list, which getOwners
+// returns in list order; the first owner follows the sentinel.
+func prevOwner(t *testing.T, state *State, o common.Address) common.Address {
+	t.Helper()
+	i := slices.Index(state.Owners, o)
+	require.GreaterOrEqual(t, i, 0, "%s is an owner", o.Hex())
+	if i == 0 {
+		return sentinelOwner
+	}
+	return state.Owners[i-1]
 }
 
 type (
