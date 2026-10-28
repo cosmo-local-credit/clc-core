@@ -3748,13 +3748,13 @@ WITH raw AS MATERIALIZED (
         ((geo_lng+180.0)/360.0) AS world_x,
         ((1.0-ln(tan(radians(least(85.05112878,greatest(-85.05112878,geo_lat))))+
             1.0/cos(radians(least(85.05112878,greatest(-85.05112878,geo_lat)))))/pi())/2.0) AS world_y,
-        CASE WHEN $7::FLOAT8>=16 THEN kind||':'||id::TEXT
+        CASE WHEN $7::FLOAT8>=20 THEN kind||':'||id::TEXT
              ELSE concat(
-                floor((((geo_lng+180.0)/360.0)*256.0*power(2.0,floor($7::FLOAT8)))/60.0)::BIGINT,
+                floor((((geo_lng+180.0)/360.0)*256.0*power(2.0,$7::FLOAT8))/30.0)::BIGINT,
                 ':',
                 floor(((1.0-ln(tan(radians(least(85.05112878,greatest(-85.05112878,geo_lat))))+
                     1.0/cos(radians(least(85.05112878,greatest(-85.05112878,geo_lat)))))/pi())/2.0*
-                    256.0*power(2.0,floor($7::FLOAT8)))/60.0)::BIGINT
+                    256.0*power(2.0,$7::FLOAT8))/30.0)::BIGINT
              ) END AS bucket_key
     FROM filtered
 ), grouped AS MATERIALIZED (
@@ -3777,7 +3777,7 @@ WITH raw AS MATERIALIZED (
 ), features AS (
     SELECT CASE WHEN g.feature_count=1 THEN 'marker' ELSE 'cluster' END AS feature_type,
         CASE WHEN g.feature_count=1 THEN 'marker:'||g.kind||':'||g.resource_id
-             ELSE 'cluster:'||floor($7::FLOAT8)::TEXT||':'||g.bucket_key END AS feature_id,
+             ELSE 'cluster:'||$7::FLOAT8::TEXT||':'||g.bucket_key END AS feature_id,
         CASE WHEN g.feature_count=1 THEN g.kind END AS kind,
         CASE WHEN g.feature_count=1 THEN g.resource_id END AS resource_id,
         CASE WHEN g.feature_count=1 THEN g.name END AS name,
@@ -3785,11 +3785,11 @@ WITH raw AS MATERIALIZED (
         CASE WHEN g.feature_count=1 THEN g.marker_icon END AS marker_icon,
         CASE WHEN g.feature_count=1 THEN g.marker_color END AS marker_color,
         g.feature_count,k.kinds,
-        CASE WHEN g.feature_count>1 THEN least(16.0,greatest(
-            floor($7::FLOAT8)+1.0,
-            COALESCE(ceil(ln(60.0/NULLIF(
-                greatest(g.max_world_x-g.min_world_x,g.max_world_y-g.min_world_y)*256.0,0.0
-            ))/ln(2.0)),16.0)
+        CASE WHEN g.feature_count>1 THEN least(20.0,greatest(
+            $7::FLOAT8+0.25,
+            COALESCE(ceil((ln(30.0/NULLIF(
+                sqrt(power(g.max_world_x-g.min_world_x,2)+power(g.max_world_y-g.min_world_y,2))*256.0,0.0
+            ))/ln(2.0))*4.0)/4.0,20.0)
         )) ELSE 0.0 END AS expansion_zoom
     FROM grouped g JOIN kind_json k USING(bucket_key)
     ORDER BY g.feature_count DESC,g.bucket_key
