@@ -28,7 +28,7 @@ func TestAccountActivityQueryGroupsAndFiltersBeforePaging(t *testing.T) {
 	require.NoError(t, err)
 	query := queries.ListUserActivity
 	for _, fragment := range []string{
-		"WITH swap_routes AS",
+		"swap_routes AS",
 		"ARRAY_AGG(ps.token_in_address ORDER BY ps.log_index ASC)",
 		"ARRAY_AGG(ps.token_out_address ORDER BY ps.log_index DESC)",
 		"cardinality($2::text[]) = 0 OR e.kind = ANY($2::text[])",
@@ -138,6 +138,9 @@ func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.
 	require.NoError(t, err)
 
 	_, err = tx.Exec(ctx, `
+        CREATE TEMP TABLE pools(contract_address TEXT) ON COMMIT DROP;
+        CREATE TEMP TABLE pool_withdrawal(id BIGINT, tx_id BIGINT, contract_address TEXT, kind TEXT,
+            initiator_address TEXT, token_address TEXT, recipient_address TEXT, amount NUMERIC, log_index BIGINT) ON COMMIT DROP;
         CREATE TEMP TABLE tx(
             id BIGINT, tx_hash TEXT, success BOOLEAN, date_block TIMESTAMP
         ) ON COMMIT DROP;
@@ -175,7 +178,7 @@ func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.
 		var rows []FederationAccountActivity
 		require.NoError(t, pgxscan.Select(
 			ctx, tx, &rows, queries.ListUserActivity,
-			"user", kinds, tokens, term, cursor, next, limit,
+			"user", kinds, tokens, term, cursor, next, limit, []string{}, nil,
 		))
 		return rows
 	}
@@ -208,9 +211,15 @@ func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.
 	}
 
 	_, err = tx.Exec(ctx, `
-        CREATE INDEX activity_transfer_recipient_idx ON token_transfer(recipient_address);
-        CREATE INDEX activity_transfer_sender_idx ON token_transfer(sender_address);
-        CREATE INDEX activity_swap_initiator_idx ON pool_swap(initiator_address);
+        -- Sparse-account fixture: prove lookup behavior with unrelated history,
+        -- rather than forcing a particular index on a two-row source table.
+        INSERT INTO pool_swap(tx_id,log_index,contract_address,initiator_address,token_in_address,token_out_address,in_value,out_value,fee) SELECT n,1,'unrelated-pool','other-'||n,'other-in','other-out',1,1,0
+            FROM generate_series(1000,21000) n;
+        CREATE INDEX activity_transfer_recipient_idx ON token_transfer(lower(recipient_address));
+        CREATE INDEX activity_transfer_sender_idx ON token_transfer(lower(sender_address));
+        CREATE INDEX activity_swap_initiator_idx ON pool_swap(lower(initiator_address));
+        CREATE INDEX activity_swap_contract_idx ON pool_swap(lower(contract_address));
+        CREATE INDEX activity_swap_tx_idx ON pool_swap(tx_id);
         ANALYZE token_transfer;
         ANALYZE pool_swap;
         SET LOCAL enable_seqscan = off;
@@ -219,7 +228,7 @@ func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.
 	planRows, err := tx.Query(
 		ctx,
 		"EXPLAIN (COSTS OFF) "+queries.ListUserActivity,
-		"user", []string{}, []string{}, "", nil, true, 20,
+		"user", []string{}, []string{}, "", nil, true, 20, []string{}, nil,
 	)
 	require.NoError(t, err)
 	defer planRows.Close()

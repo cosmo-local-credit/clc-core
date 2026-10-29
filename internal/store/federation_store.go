@@ -25,6 +25,7 @@ type (
 		ListUserTransferHistoryNext         string `query:"list-user-transfer-history-next"`
 		ListUserTransferHistoryPrevious     string `query:"list-user-transfer-history-prev"`
 		ListUserActivity                    string `query:"list-user-activity"`
+		ListAccountActivityTransactions     string `query:"list-account-activity-transactions"`
 		LatestPoolReviewSwap                string `query:"latest-pool-review-swap"`
 		DashboardTransactionSeries          string `query:"dashboard-transaction-series"`
 	}
