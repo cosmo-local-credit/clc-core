@@ -101,6 +101,19 @@ func TestAccountTransferSearchEndpointDB(t *testing.T) {
 
 func TestAccountActivitySearchAndTypesEndpointDB(t *testing.T) {
 	a, token := newReportSearchAPI(t)
+	a.chainID = 100
+	poolAddresses := []string{}
+	t.Cleanup(func() {
+		_, err := a.store.Pool().Exec(context.Background(), `DELETE FROM pools WHERE address=ANY($1::text[])`, poolAddresses)
+		require.NoError(t, err)
+	})
+	for _, chain := range []int{100, 1} {
+		var address string
+		err := a.store.Pool().QueryRow(context.Background(), `INSERT INTO pools(chain_id,address,name)
+            VALUES ($1,'0x'||substr(md5(random()::text)||md5(random()::text),1,40),'Activity pool '||substr(md5(random()::text),1,16)) RETURNING address`, chain).Scan(&address)
+		require.NoError(t, err)
+		poolAddresses = append(poolAddresses, address)
+	}
 	_, voucher, cleanup := seedReportVoucher(t, a, "Xhqz logical activity voucher", "LAV")
 	defer cleanup()
 	fed := &activitySearchFederation{}
@@ -131,6 +144,8 @@ func TestAccountActivitySearchAndTypesEndpointDB(t *testing.T) {
 	require.Nil(t, fed.cursor)
 	require.EqualValues(t, 2, fed.limit)
 	require.True(t, fed.next)
+	require.Contains(t, fed.filter.KnownPoolAddresses, poolAddresses[0])
+	require.NotContains(t, fed.filter.KnownPoolAddresses, poolAddresses[1], "only Gnosis pools classify this chain's transfers")
 
 	require.Equal(t, http.StatusOK, get("?types=received&cursor=8000001&next=false", true))
 	require.Equal(t, []string{"received"}, fed.filter.Kinds)

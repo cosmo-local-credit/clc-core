@@ -218,6 +218,7 @@ func activityTokenAddresses(items []store.FederationAccountActivity) []string {
 		add(items[i].TokenAddress)
 		add(items[i].TokenInAddress)
 		add(items[i].TokenOutAddress)
+		add(items[i].FeeTokenAddress)
 	}
 	return addresses
 }
@@ -274,8 +275,35 @@ func (a *API) enrichAccountActivity(
 	if err != nil {
 		return err
 	}
+
+	poolAddresses := []string{}
+	for _, item := range items {
+		poolAddresses = append(poolAddresses, item.PoolAddresses...)
+	}
+	poolNames := map[string]string{}
+	if len(poolAddresses) > 0 {
+		rows, err := a.store.Pool().Query(ctx, `SELECT lower(address), COALESCE(NULLIF(display_name,''), name) FROM pools WHERE lower(address)=ANY($1::text[]) AND chain_id=$2`, lowerAddressValues(poolAddresses), a.chainID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var address, name string
+			if err := rows.Scan(&address, &name); err != nil {
+				rows.Close()
+				return err
+			}
+			poolNames[address] = name
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
 	for i := range items {
 		item := &items[i]
+		if len(item.PoolAddresses) > 0 {
+			item.PoolName = poolNames[strings.ToLower(item.PoolAddresses[0])]
+		}
 		if item.Kind != store.AccountActivitySwapped {
 			hasNote := noted[strings.ToLower(item.TxHash)]
 			item.HasNote = &hasNote
@@ -296,7 +324,11 @@ func (a *API) enrichAccountActivity(
 		if item.Fee != nil {
 			feeValue := new(big.Int)
 			if _, valid := feeValue.SetString(*item.Fee, 10); valid && feeValue.Sign() > 0 {
-				fee := activityLeg(*item.TokenOutAddress, *item.Fee, meta, valuations, item.TxHash)
+				feeToken := *item.TokenOutAddress
+				if item.FeeTokenAddress != nil {
+					feeToken = *item.FeeTokenAddress
+				}
+				fee := activityLeg(feeToken, *item.Fee, meta, valuations, item.TxHash)
 				item.ProtocolFee = &fee
 			}
 		}
@@ -661,6 +693,23 @@ func (a *API) accountActivityHandler(c *echo.Context) error {
 	}
 
 	activityFilter := store.AccountActivityFilter{Kinds: kinds, Search: filter}
+	poolRows, err := a.store.Pool().Query(c.Request().Context(), `SELECT address FROM pools WHERE chain_id=$1`, a.chainID)
+	if err != nil {
+		return err
+	}
+	for poolRows.Next() {
+		var address string
+		if err := poolRows.Scan(&address); err != nil {
+			poolRows.Close()
+			return err
+		}
+		activityFilter.KnownPoolAddresses = append(activityFilter.KnownPoolAddresses, address)
+	}
+	poolRows.Close()
+	if err := poolRows.Err(); err != nil {
+		return err
+	}
+
 	if filter.Term != "" {
 		ctx := c.Request().Context()
 		tx, err := a.store.Pool().Begin(ctx)
@@ -708,4 +757,12 @@ func (a *API) accountActivityHandler(c *echo.Context) error {
 		fmt.Sprintf("Activity for %s", req.Address),
 		func(item store.FederationAccountActivity) uint64 { return item.ID },
 	)
+}
+
+func lowerAddressValues(addresses []string) []string {
+	result := make([]string, len(addresses))
+	for i, address := range addresses {
+		result[i] = strings.ToLower(address)
+	}
+	return result
 }

@@ -6715,7 +6715,7 @@ paths:
       tags:
       - Account data
       summary: Return the activity feed of an account
-      description: 'Returns the activity feed of an account. The feed has one row for each action that a user sees. The user can see creation, sent, received and swapped actions. All swap events that the account started in one transaction form one ''swapped'' row. The transfers that belong to a swap are not shown again as ''sent'' or ''received''. Other transfers in the same transaction stay visible. Use ''GET /api/v2/accounts/:address/transfers'' for the raw transfers. The route sorts rows by ''id'', highest first. The ''id'' is an opaque number. Use it only as a cursor. Access: User or service token.'
+      description: 'Returns classified activity before filtering and pagination. Includes creation, sent, received, swapped, deposited, withdrawn, fee_withdrawn and pool_payout. The App labels pool outflows Pay Out; verified withdrawals retain their subtype. User swap routes form one row per transaction; pool feeds keep each swap operation. Matched transfer legs are not duplicated. Unrelated batch transfers stay visible. A pool-to-pool send is a payout for the source and a deposit for the destination. Legacy outflows without operation evidence remain pool_payout. Use the transfers endpoint for raw transfers. Rows sort by opaque cursor id descending. Access: User or service token.'
       operationId: getAccountsByAddressActivity
       parameters:
       - name: address
@@ -6740,7 +6740,7 @@ paths:
           - sent
           - received
           - swapped
-        description: 'Optional filter. Values: ''creation'', ''sent'', ''received'', ''swapped''. Send a comma-separated list, repeat the parameter, or both. The comparison ignores case. No value means all types.'
+        description: 'Optional comma-separated or repeated filter: creation, sent, received, swapped, deposited, withdrawn, fee_withdrawn, pool_payout. Case-insensitive. pool_payout also includes withdrawn and fee_withdrawn. Empty means all types.'
       - name: perPage
         in: query
         required: false
@@ -6788,7 +6788,16 @@ paths:
                                 description: Cursor value.
                               kind:
                                 type: string
-                                description: '''creation'', ''sent'', ''received'' or ''swapped''. ''creation'' is a transfer from the zero address.'
+                                description: Operation classification. creation means a transfer from the zero address.
+                                enum:
+                                - creation
+                                - sent
+                                - received
+                                - swapped
+                                - deposited
+                                - withdrawn
+                                - fee_withdrawn
+                                - pool_payout
                               txHash:
                                 type: string
                                 description: Transaction hash.
@@ -6829,6 +6838,24 @@ paths:
                                 description: The token leg.
                               hasNote:
                                 type: boolean
+                              direction:
+                                type: string
+                                enum:
+                                - IN
+                                - OUT
+                                - NONE
+                                description: Direct-operation direction relative to the viewed account. NONE is an initiator action without a balance change.
+                              initiatorAddress:
+                                type: string
+                                description: Observed caller, when known; may differ from recipient. Fee collection does not supply this field.
+                              poolName:
+                                type: string
+                                description: Current name of the first related pool on the configured chain, when known.
+                              poolAddresses:
+                                type: array
+                                items:
+                                  type: string
+                                description: Related pools; route order for swaps.
                 required:
                 - ok
                 - description

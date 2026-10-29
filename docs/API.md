@@ -4082,8 +4082,12 @@ For a service token, `hasNote` is always `false`.
 
 Returns the activity feed of an account.
 The feed has one row for each action that a user sees.
-The user can see creation, sent, received and swapped actions.
-All swap events that the account started in one transaction form one `swapped` row.
+The feed includes creation, sent, received, swapped, deposited, withdrawn, fee_withdrawn and pool_payout actions.
+The App labels pool outflows **Pay Out**. Verified withdrawals also show their withdrawal type.
+A direct pool-to-pool send is a payout for the source and a deposit for the destination.
+Old outflows without withdrawal event evidence remain pool_payout.
+For a user, swap events that the account started in one transaction form one `swapped` row.
+For a pool, each swap operation is a separate row with amounts relative to the pool.
 The transfers that belong to a swap are not shown again as `sent` or `received`.
 Other transfers in the same transaction stay visible.
 Use `GET /api/v2/accounts/:address/transfers` for the raw transfers.
@@ -4097,7 +4101,7 @@ The `id` is an opaque number. Use it only as a cursor.
 | Name | Type | Rules |
 |---|---|---|
 | `q` | string | Optional search text. Same rules as for `/transfers`. It also matches pool addresses. |
-| `types` | string | Optional filter. Values: `creation`, `sent`, `received`, `swapped`. Send a comma-separated list, repeat the parameter, or both. The comparison ignores case. No value means all types. |
+| `types` | string | Optional filter. Values: `creation`, `sent`, `received`, `swapped`, `deposited`, `withdrawn`, `fee_withdrawn`, `pool_payout`. The `pool_payout` filter includes `withdrawn` and `fee_withdrawn`. Send a comma-separated list, repeat the parameter, or both. The comparison ignores case. No value means all types. |
 
 An unknown `types` value returns `400` with code `E04` and the description `types contains an unsupported activity type`.
 
@@ -4139,17 +4143,20 @@ An unknown `types` value returns `400` with code `E04` and the description `type
 | Field | Type | Present | Meaning |
 |---|---|---|---|
 | `id` | number | Always | Cursor value. |
-| `kind` | string | Always | `creation`, `sent`, `received` or `swapped`. `creation` is a transfer from the zero address. |
+| `kind` | string | Always | `creation`, `sent`, `received`, `swapped`, `deposited`, `withdrawn`, `fee_withdrawn` or `pool_payout`. `creation` is a transfer from the zero address. |
 | `txHash` | string | Always | Transaction hash. |
 | `dateBlock` | string | Always | Block time. |
 | `success` | boolean | Always | `false` if the transaction reverted. |
 | `counterpartyAddress`, `senderAddress`, `recipientAddress` | string | Not for `swapped` | The parties. |
 | `transfer` | object | Not for `swapped` | The token leg. |
 | `hasNote` | boolean | Not for `swapped` | Same meaning as in `/transfers`. |
-| `poolAddresses` | array of string | `swapped` | The pools on the route, in order. |
-| `sent` | object | `swapped` | The first input of the route. |
-| `received` | object | `swapped` | The last output of the route. |
-| `protocolFee` | object | `swapped`, if the fee is above 0 | The fee, in the output token. |
+| `poolAddresses` | array of string | Pool operations | Related pool addresses; route order for swaps. |
+| `poolName` | string | If catalog metadata exists | Current name of the first related pool on the configured chain. |
+| `direction` | string | Direct operations | `IN`, `OUT` or `NONE`, relative to the viewed account. `NONE` means the initiator sent pool funds to someone else without changing their own balance. |
+| `initiatorAddress` | string | If known | Observed operation caller. It can differ from the recipient; fee collection does not supply it. |
+| `sent` | object | `swapped` | Voucher sent by the viewed account; route input for a user, pool output for a pool. |
+| `received` | object | `swapped` | Voucher received by the viewed account; route output for a user, pool input for a pool. |
+| `protocolFee` | object | `swapped`, if the fee is above 0 | Matched protocol transfer amount and its token, not the retained pool fee. |
 
 **Leg fields** (`transfer`, `sent`, `received`, `protocolFee`):
 
