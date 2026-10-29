@@ -113,7 +113,7 @@ func TestPoolActivityFDW(t *testing.T) {
 	require.NoError(t, err)
 	var raw []byte
 	require.NoError(t, tx.QueryRow(ctx, "EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) "+queries.ListUserActivity,
-		"user", []string{}, []string{}, "", nil, true, 20, []string{"pool"}).Scan(&raw))
+		"user", []string{}, []string{}, "", nil, true, 20, []string{"pool"}, []int64{100001, 100002, 100003}).Scan(&raw))
 	var plan []map[string]any
 	require.NoError(t, json.Unmarshal(raw, &plan))
 	t.Logf("FDW activity execution: %v ms", plan[0]["Execution Time"])
@@ -149,6 +149,46 @@ func TestPoolActivityFDW(t *testing.T) {
 	inspect(root)
 	require.Positive(t, scans)
 	require.NoError(t, tx.Rollback(ctx))
+	// A busy pool is different from a sparse account surrounded by unrelated
+	// history. A first page must not classify all 5,000 of its transactions.
+	_, err = source.Exec(ctx, strings.ReplaceAll(`
+        INSERT INTO SOURCE.tx SELECT n,'busy-'||n,'2026-10-29',true FROM generate_series(120000,124999) n;
+        INSERT INTO SOURCE.token_transfer SELECT n*3,n,1,'input',100,'trader-'||n,'pool' FROM generate_series(120000,124999) n;
+        INSERT INTO SOURCE.token_transfer SELECT n*3+1,n,2,'output',99,'pool','trader-'||n FROM generate_series(120000,124999) n;
+        INSERT INTO SOURCE.pool_swap(id,tx_id,log_index,contract_address,initiator_address,token_in_address,token_out_address,in_value,out_value,fee)
+            SELECT n,n,3,'pool','trader-'||n,'input','output',100,99,0 FROM generate_series(120000,124999) n;
+        INSERT INTO SOURCE.token_transfer VALUES (500000,124850,4,'input',7,'donor','pool');
+        ANALYZE SOURCE.tx; ANALYZE SOURCE.token_transfer; ANALYZE SOURCE.pool_swap;
+    `, "SOURCE", identifier(src)))
+	require.NoError(t, err)
+	started := time.Now()
+	first, err := federation.ListUserActivity(ctx, "pool", filter, nil, 20, true)
+	require.NoError(t, err)
+	require.Len(t, first, 20)
+	t.Logf("Busy pool first page (5,000 swaps): %s", time.Since(started))
+	cursor := first[len(first)-1].ID
+	second, err := federation.ListUserActivity(ctx, "pool", filter, &cursor, 20, true)
+	require.NoError(t, err)
+	require.Len(t, second, 20)
+	require.Less(t, second[0].ID, cursor)
+	cursor = second[0].ID
+	previous, err := federation.ListUserActivity(ctx, "pool", filter, &cursor, 20, false)
+	require.NoError(t, err)
+	require.Equal(t, first, previous)
+	// A filter may match nothing in the first batch. Continue until a match,
+	// rather than presenting a false empty page or truncating a transaction.
+	deposits, err := federation.ListUserActivity(ctx, "pool", AccountActivityFilter{Kinds: []string{"deposited"}, KnownPoolAddresses: []string{"pool"}}, nil, 1, true)
+	require.NoError(t, err)
+	require.Len(t, deposits, 1)
+	require.Equal(t, "busy-124850", deposits[0].TxHash)
+	require.Equal(t, "7", *deposits[0].Amount)
+	// The cursor can fall inside a transaction with both a swap and a deposit.
+	cursor = deposits[0].ID
+	sameTx, err := federation.ListUserActivity(ctx, "pool", filter, &cursor, 1, true)
+	require.NoError(t, err)
+	require.Len(t, sameTx, 1)
+	require.Equal(t, "busy-124850", sameTx[0].TxHash)
+	require.Equal(t, "swapped", sameTx[0].Kind)
 	// Both success and failure must return scoped settings to their prior value.
 	_, err = pool.Exec(ctx, "ALTER FOREIGN TABLE "+identifier(foreign)+".tx OPTIONS (SET table_name 'missing_tx')")
 	require.NoError(t, err)

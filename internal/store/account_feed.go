@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -75,6 +76,7 @@ type (
 		Direction           *string             `db:"direction" json:"direction,omitempty"`
 		InitiatorAddress    *string             `db:"initiator_address" json:"initiatorAddress,omitempty"`
 		PoolName            string              `db:"-" json:"poolName,omitempty"`
+		NominalAmount       *string             `db:"nominal_amount" json:"nominalAmount,omitempty"`
 		HasNote             *bool               `db:"-" json:"hasNote,omitempty"`
 	}
 )
@@ -144,23 +146,33 @@ func (s *FederationPg) ListUserActivity(
 	if cursor != nil {
 		cursorArg = int64(*cursor)
 	}
-	var rows []FederationAccountActivity
-	if err := pgxscan.Select(
-		ctx,
-		tx,
-		&rows,
-		s.queries.ListUserActivity,
-		address,
-		kinds,
-		tokens,
-		filter.Search.Term,
-		cursorArg,
-		next,
-		limit,
-		knownPools,
-	); err != nil {
-		return nil, err
+	// Classify bounded batches of complete transactions. Sparse filters may
+	// require several batches; never return a false empty page after one batch.
+	const batchSize = 128
+	var boundary any
+	if cursor != nil {
+		boundary = int64(*cursor / 1000000)
 	}
+	inclusive := true
+	var rows []FederationAccountActivity
+	for uint64(len(rows)) < limit {
+		var ids []int64
+		if err := pgxscan.Select(ctx, tx, &ids, s.queries.ListAccountActivityTransactions,
+			address, boundary, next, batchSize, inclusive); err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			break
+		}
+		var batch []FederationAccountActivity
+		if err := pgxscan.Select(ctx, tx, &batch, s.queries.ListUserActivity,
+			address, kinds, tokens, filter.Search.Term, cursorArg, next, limit-uint64(len(rows)), knownPools, ids); err != nil {
+			return nil, err
+		}
+		rows = append(rows, batch...)
+		boundary, inclusive = ids[len(ids)-1], false
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].ID > rows[j].ID })
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

@@ -328,19 +328,39 @@ WHERE ps.contract_address = ANY($1::text[])
 --
 -- $1 account, $2 selected kinds (empty = all), $3 voucher addresses matching q,
 -- $4 normalized q, $5 optional cursor, $6 next direction, $7 page size.
+--name: list-account-activity-transactions
+-- Find transaction candidates, not event rows: never split an operation or route.
+SELECT tx_id FROM (
+(SELECT tx_id FROM token_transfer WHERE lower(sender_address)=lower($1) AND ($2::bigint IS NULL OR ($3 AND tx_id<$2) OR (NOT $3 AND tx_id>$2) OR ($5 AND tx_id=$2))
+    GROUP BY tx_id ORDER BY CASE WHEN $3 THEN tx_id END DESC, CASE WHEN NOT $3 THEN tx_id END ASC LIMIT $4)
+UNION
+(SELECT tx_id FROM token_transfer WHERE lower(recipient_address)=lower($1) AND ($2::bigint IS NULL OR ($3 AND tx_id<$2) OR (NOT $3 AND tx_id>$2) OR ($5 AND tx_id=$2))
+    GROUP BY tx_id ORDER BY CASE WHEN $3 THEN tx_id END DESC, CASE WHEN NOT $3 THEN tx_id END ASC LIMIT $4)
+UNION
+(SELECT tx_id FROM pool_swap WHERE lower(initiator_address)=lower($1) AND ($2::bigint IS NULL OR ($3 AND tx_id<$2) OR (NOT $3 AND tx_id>$2) OR ($5 AND tx_id=$2))
+    GROUP BY tx_id ORDER BY CASE WHEN $3 THEN tx_id END DESC, CASE WHEN NOT $3 THEN tx_id END ASC LIMIT $4)
+UNION
+(SELECT tx_id FROM pool_swap WHERE lower(contract_address)=lower($1) AND ($2::bigint IS NULL OR ($3 AND tx_id<$2) OR (NOT $3 AND tx_id>$2) OR ($5 AND tx_id=$2))
+    GROUP BY tx_id ORDER BY CASE WHEN $3 THEN tx_id END DESC, CASE WHEN NOT $3 THEN tx_id END ASC LIMIT $4)
+UNION
+(SELECT tx_id FROM pool_withdrawal WHERE lower(initiator_address)=lower($1) AND ($2::bigint IS NULL OR ($3 AND tx_id<$2) OR (NOT $3 AND tx_id>$2) OR ($5 AND tx_id=$2))
+    GROUP BY tx_id ORDER BY CASE WHEN $3 THEN tx_id END DESC, CASE WHEN NOT $3 THEN tx_id END ASC LIMIT $4)
+) candidates ORDER BY CASE WHEN $3 THEN tx_id END DESC, CASE WHEN NOT $3 THEN tx_id END ASC LIMIT $4;
+
 --name: list-user-activity
--- $8 includes Core catalog pools, including those with no indexed operation yet.
+-- $8: known catalog pools. $9: complete transaction batch (NULL for diagnostic queries).
 WITH account_transfers AS MATERIALIZED (
     SELECT tt.* FROM token_transfer tt
-    WHERE lower(tt.sender_address)=lower($1) OR lower(tt.recipient_address)=lower($1)
+    WHERE (lower(tt.sender_address)=lower($1) OR lower(tt.recipient_address)=lower($1))
+      AND ($9::bigint[] IS NULL OR tt.tx_id=ANY($9::bigint[]))
 ), known_pools AS (
     SELECT lower(contract_address) AS address FROM pools
     UNION SELECT lower(unnest($8::text[]))
 ), operations AS (
     SELECT ps.* FROM pool_swap ps
-    WHERE lower(ps.initiator_address)=lower($1)
+    WHERE lower(ps.initiator_address)=lower($1) AND ($9::bigint[] IS NULL OR ps.tx_id=ANY($9::bigint[]))
     UNION
-    SELECT ps.* FROM pool_swap ps WHERE lower(ps.contract_address)=lower($1)
+    SELECT ps.* FROM pool_swap ps WHERE lower(ps.contract_address)=lower($1) AND ($9::bigint[] IS NULL OR ps.tx_id=ANY($9::bigint[]))
     UNION
     -- OFFSET 0 keeps these FDW lookups parameterized by the account's tx IDs.
     SELECT ps.* FROM (SELECT DISTINCT tx_id FROM account_transfers) a
@@ -350,7 +370,7 @@ WITH account_transfers AS MATERIALIZED (
     -- of the same token in a batch. Custom output recipients are supported.
     SELECT ps.tx_id, ps.log_index AS operation_log, ps.initiator_address, ps.contract_address,
         input.log_index AS input_log, output.log_index AS output_log,
-        protocol.log_index AS protocol_log, protocol.transfer_value::text AS protocol_fee,
+        auxiliary.logs AS auxiliary_logs,
         output.recipient_address AS output_recipient
     FROM operations ps
     LEFT JOIN LATERAL (
@@ -370,12 +390,20 @@ WITH account_transfers AS MATERIALIZED (
         ORDER BY t.log_index DESC LIMIT 1
     ) output ON true
     LEFT JOIN LATERAL (
-        SELECT t.log_index, t.transfer_value FROM token_transfer t
+        SELECT array_agg(t.log_index) AS logs
+        FROM token_transfer t
         WHERE t.tx_id=ps.tx_id AND t.log_index>input.log_index AND t.log_index<output.log_index
           AND lower(t.sender_address)=lower(ps.contract_address)
           AND lower(t.contract_address)=lower(ps.token_out_address)
-        ORDER BY t.log_index DESC LIMIT 1
-    ) protocol ON true
+    ) auxiliary ON true
+), swap_transfer_keys AS (
+    SELECT sm.tx_id, logs.log_index,
+        bool_or(lower(sm.initiator_address)=lower($1) OR lower(sm.contract_address)=lower($1)) AS represented
+    FROM swap_matches sm
+    CROSS JOIN LATERAL unnest(array_prepend(sm.input_log,
+        array_prepend(sm.output_log, COALESCE(sm.auxiliary_logs, ARRAY[]::bigint[])))) logs(log_index)
+    WHERE logs.log_index IS NOT NULL
+    GROUP BY sm.tx_id, logs.log_index
 ), swap_routes AS (
     SELECT ps.tx_id,
         (tx.id::bigint*1000000+MIN(ps.log_index)::bigint) AS id,
@@ -384,7 +412,9 @@ WITH account_transfers AS MATERIALIZED (
         (ARRAY_AGG(ps.in_value::text ORDER BY ps.log_index ASC))[1] AS amount_in,
         (ARRAY_AGG(ps.token_out_address ORDER BY ps.log_index DESC))[1] AS token_out_address,
         (ARRAY_AGG(ps.out_value::text ORDER BY ps.log_index DESC))[1] AS amount_out,
-        (ARRAY_AGG(sm.protocol_fee ORDER BY ps.log_index DESC))[1] AS fee,
+        -- The existing indexer schema does not retain the protocol charge.
+        -- Auxiliary transfers may be token tax; ps.fee is the retained pool fee.
+        NULL::text AS fee,
         ARRAY_AGG(ps.contract_address ORDER BY ps.log_index ASC) AS pool_addresses,
         bool_or(lower(ps.contract_address)=lower($1)) AS is_pool,
         MIN(ps.initiator_address) AS initiator,
@@ -396,7 +426,7 @@ WITH account_transfers AS MATERIALIZED (
     GROUP BY ps.tx_id, tx.id, tx.tx_hash, tx.date_block, tx.success,
         CASE WHEN lower(ps.contract_address)=lower($1) THEN ps.log_index ELSE -1 END
 ), withdrawal_candidates AS (
-    SELECT w.* FROM pool_withdrawal w WHERE lower(w.initiator_address)=lower($1)
+    SELECT w.* FROM pool_withdrawal w WHERE lower(w.initiator_address)=lower($1) AND ($9::bigint[] IS NULL OR w.tx_id=ANY($9::bigint[]))
     UNION
     SELECT w.* FROM (SELECT DISTINCT tx_id FROM account_transfers) a
     CROSS JOIN LATERAL (SELECT * FROM pool_withdrawal WHERE tx_id=a.tx_id OFFSET 0) w
@@ -404,20 +434,37 @@ WITH account_transfers AS MATERIALIZED (
     SELECT w.*, movement.log_index AS transfer_log
     FROM withdrawal_candidates w
     LEFT JOIN LATERAL (
-        SELECT t.log_index FROM token_transfer t
-        WHERE t.tx_id=w.tx_id AND t.log_index<w.log_index
-          AND lower(t.sender_address)=lower(w.contract_address)
-          AND lower(t.recipient_address)=lower(w.recipient_address)
-          AND lower(t.contract_address)=lower(w.token_address)
-          AND t.transfer_value=w.amount
-        ORDER BY t.log_index DESC LIMIT 1
+        -- A suffix of pool outflows must account for the full nominal debit.
+        -- This admits split tax + recipient logs without treating an arbitrary
+        -- smaller earlier transfer as a withdrawal. Never cross an earlier
+        -- operation for the same pool in this transaction.
+        SELECT max(t.log_index) FILTER (WHERE lower(t.recipient_address)=lower(w.recipient_address)) AS log_index
+        FROM (
+            SELECT t.log_index, t.recipient_address,
+                sum(t.transfer_value) OVER (ORDER BY t.log_index DESC) AS debit
+            FROM token_transfer t
+            WHERE t.tx_id=w.tx_id AND t.log_index<w.log_index
+              AND lower(t.sender_address)=lower(w.contract_address)
+              AND lower(t.contract_address)=lower(w.token_address)
+              AND t.log_index>COALESCE((
+                  SELECT max(boundary.log_index) FROM (
+                      SELECT log_index FROM pool_withdrawal
+                      WHERE tx_id=w.tx_id AND lower(contract_address)=lower(w.contract_address) AND log_index<w.log_index
+                      UNION ALL
+                      SELECT log_index FROM pool_swap
+                      WHERE tx_id=w.tx_id AND lower(contract_address)=lower(w.contract_address) AND log_index<w.log_index
+                  ) boundary
+              ), -1)
+        ) t
+        WHERE t.debit<=w.amount
+        HAVING max(t.debit)=w.amount
     ) movement ON true
 ), direct_events AS (
     SELECT (tx.id::bigint*1000000+tt.log_index::bigint) AS id,
         CASE
             WHEN tt.sender_address='0x0000000000000000000000000000000000000000' THEN 'creation'
             WHEN lower(tt.sender_address)=lower(tt.recipient_address) THEN 'received'
-            WHEN sm.operation_log IS NOT NULL THEN CASE WHEN lower(tt.recipient_address)=lower($1) THEN 'received' ELSE 'sent' END
+            WHEN sm.log_index IS NOT NULL THEN CASE WHEN lower(tt.recipient_address)=lower($1) THEN 'received' ELSE 'sent' END
             WHEN kp_in.address IS NOT NULL AND lower(tt.recipient_address)=lower($1)
                 AND tt.transfer_value>0 THEN 'deposited'
             WHEN w.kind='liquidity' THEN 'withdrawn'
@@ -438,20 +485,14 @@ WITH account_transfers AS MATERIALIZED (
              WHEN kp_in.address IS NOT NULL THEN ARRAY[tt.recipient_address]
              WHEN kp_out.address IS NOT NULL THEN ARRAY[tt.sender_address] ELSE NULL::text[] END AS pool_addresses,
         CASE WHEN lower(tt.recipient_address)=lower($1) THEN 'IN' ELSE 'OUT' END AS direction,
-        w.initiator_address, NULL::text AS fee_token_address
+        w.initiator_address, NULL::text AS fee_token_address, w.amount::text AS nominal_amount
     FROM account_transfers tt
     JOIN LATERAL (SELECT * FROM tx WHERE id=tt.tx_id OFFSET 0) tx ON true
     LEFT JOIN known_pools kp_in ON kp_in.address=lower(tt.recipient_address)
     LEFT JOIN known_pools kp_out ON kp_out.address=lower(tt.sender_address)
     LEFT JOIN withdrawal_movements w ON w.tx_id=tt.tx_id AND w.transfer_log=tt.log_index
-    LEFT JOIN LATERAL (
-        SELECT candidate.* FROM swap_matches candidate
-        WHERE candidate.tx_id=tt.tx_id AND tt.log_index IN (candidate.input_log,candidate.output_log,candidate.protocol_log)
-        ORDER BY (lower(candidate.initiator_address)=lower($1) OR lower(candidate.contract_address)=lower($1)) DESC
-        LIMIT 1
-    ) sm ON true
-    WHERE sm.operation_log IS NULL
-       OR NOT (lower(sm.initiator_address)=lower($1) OR lower(sm.contract_address)=lower($1))
+    LEFT JOIN swap_transfer_keys sm ON sm.tx_id=tt.tx_id AND sm.log_index=tt.log_index
+    WHERE sm.log_index IS NULL OR NOT sm.represented
 ), swap_events AS (
     SELECT sr.id, 'swapped'::text AS kind, sr.tx_hash, sr.date_block, sr.success,
         CASE WHEN sr.is_pool THEN sr.initiator ELSE NULL::text END AS counterparty_address,
@@ -461,7 +502,7 @@ WITH account_transfers AS MATERIALIZED (
         CASE WHEN sr.is_pool THEN sr.amount_out ELSE sr.amount_in END AS amount_in,
         CASE WHEN sr.is_pool THEN sr.token_in_address ELSE sr.token_out_address END AS token_out_address,
         CASE WHEN sr.is_pool THEN sr.amount_in ELSE sr.amount_out END AS amount_out,
-        sr.fee, sr.pool_addresses, NULL::text AS direction, sr.initiator AS initiator_address, sr.token_out_address AS fee_token_address
+        sr.fee, sr.pool_addresses, NULL::text AS direction, sr.initiator AS initiator_address, sr.token_out_address AS fee_token_address, NULL::text AS nominal_amount
     FROM swap_routes sr
 ), owner_withdrawals AS (
     -- An owner can send liquidity to a third party without moving their own tokens.
@@ -470,7 +511,7 @@ WITH account_transfers AS MATERIALIZED (
         w.contract_address AS sender_address,w.recipient_address,w.token_address,w.amount::text,
         NULL::text AS token_in_address,NULL::text AS amount_in,NULL::text AS token_out_address,
         NULL::text AS amount_out,NULL::text AS fee,ARRAY[w.contract_address] AS pool_addresses,
-        'NONE'::text AS direction,w.initiator_address,NULL::text AS fee_token_address
+        'NONE'::text AS direction,w.initiator_address,NULL::text AS fee_token_address,w.amount::text AS nominal_amount
     FROM withdrawal_movements w
     JOIN LATERAL (SELECT * FROM tx WHERE id=w.tx_id OFFSET 0) tx ON true
     WHERE lower(w.initiator_address)=lower($1) AND lower(w.recipient_address)<>lower($1)

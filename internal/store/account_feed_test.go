@@ -178,7 +178,7 @@ func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.
 		var rows []FederationAccountActivity
 		require.NoError(t, pgxscan.Select(
 			ctx, tx, &rows, queries.ListUserActivity,
-			"user", kinds, tokens, term, cursor, next, limit, []string{},
+			"user", kinds, tokens, term, cursor, next, limit, []string{}, nil,
 		))
 		return rows
 	}
@@ -213,7 +213,7 @@ func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.
 	_, err = tx.Exec(ctx, `
         -- Sparse-account fixture: prove lookup behavior with unrelated history,
         -- rather than forcing a particular index on a two-row source table.
-        INSERT INTO pool_swap SELECT n,1,'unrelated-pool','other-'||n,'other-in','other-out',1,1,0
+        INSERT INTO pool_swap(tx_id,log_index,contract_address,initiator_address,token_in_address,token_out_address,in_value,out_value,fee) SELECT n,1,'unrelated-pool','other-'||n,'other-in','other-out',1,1,0
             FROM generate_series(1000,21000) n;
         CREATE INDEX activity_transfer_recipient_idx ON token_transfer(lower(recipient_address));
         CREATE INDEX activity_transfer_sender_idx ON token_transfer(lower(sender_address));
@@ -228,7 +228,7 @@ func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.
 	planRows, err := tx.Query(
 		ctx,
 		"EXPLAIN (COSTS OFF) "+queries.ListUserActivity,
-		"user", []string{}, []string{}, "", nil, true, 20, []string{},
+		"user", []string{}, []string{}, "", nil, true, 20, []string{}, nil,
 	)
 	require.NoError(t, err)
 	defer planRows.Close()

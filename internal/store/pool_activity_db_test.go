@@ -62,7 +62,7 @@ func TestPoolActivityDirectionsAndKindsDB(t *testing.T) {
 	query := func(account string, kinds []string, cursor any, limit int) []FederationAccountActivity {
 		t.Helper()
 		var rows []FederationAccountActivity
-		require.NoError(t, pgxscan.Select(ctx, tx, &rows, queries.ListUserActivity, account, kinds, []string{}, "", cursor, true, limit, []string{"pool", "pool-two"}))
+		require.NoError(t, pgxscan.Select(ctx, tx, &rows, queries.ListUserActivity, account, kinds, []string{}, "", cursor, true, limit, []string{"pool", "pool-two"}, nil))
 		return rows
 	}
 	deposits := query("user", []string{"deposited"}, nil, 20)
@@ -99,7 +99,7 @@ func TestPoolActivityDirectionsAndKindsDB(t *testing.T) {
 	require.Equal(t, "9", *swap.AmountIn)
 	require.Equal(t, "in", *swap.TokenOutAddress, "the pool receives the input voucher")
 	require.Equal(t, "10", *swap.AmountOut)
-	require.Equal(t, "1", *swap.Fee, "the observed protocol transfer differs from the stored pool fee")
+	require.Nil(t, swap.Fee, "existing data cannot distinguish a protocol charge from token tax")
 	require.Equal(t, "out", *swap.FeeTokenAddress)
 	require.Len(t, query("pool", []string{"deposited"}, nil, 20), 4, "includes the other trader's deposit only when outside swaps")
 	require.Len(t, query("pool", []string{"withdrawn"}, nil, 20), 3)

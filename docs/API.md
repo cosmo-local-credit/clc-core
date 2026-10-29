@@ -4095,6 +4095,8 @@ Use `GET /api/v2/accounts/:address/transfers` for the raw transfers.
 The route uses cursor pagination (see the start of this section).
 The route sorts rows by `id`, highest first.
 The `id` is an opaque number. Use it only as a cursor.
+Activity reads process bounded batches of complete transactions. Filters apply to
+classified operations; an empty batch does not end a filtered search.
 
 **Extra query parameters:**
 
@@ -4156,7 +4158,8 @@ An unknown `types` value returns `400` with code `E04` and the description `type
 | `initiatorAddress` | string | If known | Observed operation caller. It can differ from the recipient; fee collection does not supply it. |
 | `sent` | object | `swapped` | Voucher sent by the viewed account; route input for a user, pool output for a pool. |
 | `received` | object | `swapped` | Voucher received by the viewed account; route output for a user, pool input for a pool. |
-| `protocolFee` | object | `swapped`, if the fee is above 0 | Matched protocol transfer amount and its token, not the retained pool fee. |
+| `protocolFee` | object | Omitted with the current indexer schema | The stored swap fee is the retained pool fee. Transfers alone cannot distinguish protocol fees from token tax, so the protocol fee stays unknown. Omission does not mean zero. |
+| `nominalAmount` | string | Verified withdrawal or fee collection | Raw nominal amount from the operation event. `transfer.amount` is the matched recipient transfer amount and can be smaller after token tax. For an initiator-only `NONE` row, `transfer.amount` is nominal, not a claim that the initiator received it. |
 
 **Leg fields** (`transfer`, `sent`, `received`, `protocolFee`):
 
