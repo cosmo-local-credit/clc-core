@@ -9949,7 +9949,7 @@
           "Account data"
         ],
         "summary": "Return the activity feed of an account",
-        "description": "Returns the activity feed of an account. The feed has one row for each action that a user sees. The user can see creation, sent, received and swapped actions. All swap events that the account started in one transaction form one 'swapped' row. The transfers that belong to a swap are not shown again as 'sent' or 'received'. Other transfers in the same transaction stay visible. Use 'GET /api/v2/accounts/:address/transfers' for the raw transfers. The route sorts rows by 'id', highest first. The 'id' is an opaque number. Use it only as a cursor. Access: User or service token.",
+        "description": "Returns classified activity before filtering and pagination. Includes creation, sent, received, swapped, deposited, withdrawn, fee_withdrawn and pool_payout. The App labels pool outflows Pay Out; verified withdrawals retain their subtype. User swap routes form one row per transaction; pool feeds keep each swap operation. Matched transfer legs are not duplicated. Unrelated batch transfers stay visible. A pool-to-pool send is a payout for the source and a deposit for the destination. Legacy outflows without operation evidence remain pool_payout. Use the transfers endpoint for raw transfers. Rows sort by opaque cursor id descending. Access: User or service token. Reads bounded batches of complete transactions until the requested filtered page is filled or candidates are exhausted. The existing indexer schema does not retain protocol fees. The protocolFee field is omitted rather than inferred from pool fees or token-tax movements; omission does not mean zero. Withdrawals retain nominalAmount separately from the matched transfer amount.",
         "operationId": "getAccountsByAddressActivity",
         "parameters": [
           {
@@ -9983,7 +9983,7 @@
                 "swapped"
               ]
             },
-            "description": "Optional filter. Values: 'creation', 'sent', 'received', 'swapped'. Send a comma-separated list, repeat the parameter, or both. The comparison ignores case. No value means all types."
+            "description": "Optional comma-separated or repeated filter: creation, sent, received, swapped, deposited, withdrawn, fee_withdrawn, pool_payout. Case-insensitive. pool_payout also includes withdrawn and fee_withdrawn. Empty means all types."
           },
           {
             "name": "perPage",
@@ -10048,7 +10048,17 @@
                                   },
                                   "kind": {
                                     "type": "string",
-                                    "description": "'creation', 'sent', 'received' or 'swapped'. 'creation' is a transfer from the zero address."
+                                    "description": "Operation classification. creation means a transfer from the zero address.",
+                                    "enum": [
+                                      "creation",
+                                      "sent",
+                                      "received",
+                                      "swapped",
+                                      "deposited",
+                                      "withdrawn",
+                                      "fee_withdrawn",
+                                      "pool_payout"
+                                    ]
                                   },
                                   "txHash": {
                                     "type": "string",
@@ -10103,6 +10113,60 @@
                                   },
                                   "hasNote": {
                                     "type": "boolean"
+                                  },
+                                  "direction": {
+                                    "type": "string",
+                                    "enum": [
+                                      "IN",
+                                      "OUT",
+                                      "NONE"
+                                    ],
+                                    "description": "Direct-operation direction relative to the viewed account. NONE is an initiator action without a balance change."
+                                  },
+                                  "initiatorAddress": {
+                                    "type": "string",
+                                    "description": "Observed caller, when known; may differ from recipient. Fee collection does not supply this field."
+                                  },
+                                  "poolName": {
+                                    "type": "string",
+                                    "description": "Current name of the first related pool on the configured chain, when known."
+                                  },
+                                  "poolAddresses": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "Related pools; route order for swaps."
+                                  },
+                                  "nominalAmount": {
+                                    "type": "string",
+                                    "description": "Nominal raw withdrawal/collection amount from the operation event. transfer.amount is the matched recipient transfer and may be smaller after token tax. For NONE direction the transfer amount is nominal, not received."
+                                  },
+                                  "protocolFee": {
+                                    "type": "object",
+                                    "properties": {
+                                      "tokenAddress": {
+                                        "type": "string",
+                                        "description": "Token contract address."
+                                      },
+                                      "tokenName": {
+                                        "type": "string",
+                                        "description": "From the catalog."
+                                      },
+                                      "tokenSymbol": {
+                                        "type": "string",
+                                        "description": "From the catalog."
+                                      },
+                                      "tokenDecimals": {
+                                        "type": "number",
+                                        "description": "From the catalog."
+                                      },
+                                      "amount": {
+                                        "type": "string",
+                                        "description": "Raw units."
+                                      }
+                                    },
+                                    "description": "Omitted with the current indexer schema: the stored fee is the retained pool fee, and transfers cannot distinguish protocol fees from token tax. Omission means unknown, not zero."
                                   }
                                 }
                               }

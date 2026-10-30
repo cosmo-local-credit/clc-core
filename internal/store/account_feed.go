@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,10 +12,14 @@ import (
 )
 
 const (
-	AccountActivityCreation = "creation"
-	AccountActivitySent     = "sent"
-	AccountActivityReceived = "received"
-	AccountActivitySwapped  = "swapped"
+	AccountActivityCreation     = "creation"
+	AccountActivitySent         = "sent"
+	AccountActivityReceived     = "received"
+	AccountActivitySwapped      = "swapped"
+	AccountActivityDeposited    = "deposited"
+	AccountActivityWithdrawn    = "withdrawn"
+	AccountActivityFeeWithdrawn = "fee_withdrawn"
+	AccountActivityPoolPayout   = "pool_payout"
 )
 
 var (
@@ -22,15 +27,16 @@ var (
 		AccountActivityCreation,
 		AccountActivitySent,
 		AccountActivityReceived,
-		AccountActivitySwapped,
+		AccountActivitySwapped, AccountActivityDeposited, AccountActivityWithdrawn, AccountActivityFeeWithdrawn, AccountActivityPoolPayout,
 	}
 )
 
 type (
 	AccountActivityFilter struct {
-		Kinds          []string
-		Search         CatalogFilter
-		TokenAddresses []string
+		Kinds              []string
+		Search             CatalogFilter
+		TokenAddresses     []string
+		KnownPoolAddresses []string
 	}
 
 	AccountActivityLeg struct {
@@ -66,6 +72,11 @@ type (
 		Sent                *AccountActivityLeg `db:"-" json:"sent,omitempty"`
 		Received            *AccountActivityLeg `db:"-" json:"received,omitempty"`
 		ProtocolFee         *AccountActivityLeg `db:"-" json:"protocolFee,omitempty"`
+		FeeTokenAddress     *string             `db:"fee_token_address" json:"-"`
+		Direction           *string             `db:"direction" json:"direction,omitempty"`
+		InitiatorAddress    *string             `db:"initiator_address" json:"initiatorAddress,omitempty"`
+		PoolName            string              `db:"-" json:"poolName,omitempty"`
+		NominalAmount       *string             `db:"nominal_amount" json:"nominalAmount,omitempty"`
 		HasNote             *bool               `db:"-" json:"hasNote,omitempty"`
 	}
 )
@@ -81,7 +92,7 @@ func NormalizeAccountActivityKinds(values []string) ([]string, error) {
 				continue
 			}
 			switch kind {
-			case AccountActivityCreation, AccountActivitySent, AccountActivityReceived, AccountActivitySwapped:
+			case AccountActivityCreation, AccountActivitySent, AccountActivityReceived, AccountActivitySwapped, AccountActivityDeposited, AccountActivityWithdrawn, AccountActivityFeeWithdrawn, AccountActivityPoolPayout:
 				requested[kind] = true
 			default:
 				return nil, errors.New("types contains an unsupported activity type")
@@ -105,6 +116,20 @@ func (s *FederationPg) ListUserActivity(
 	limit uint64,
 	next bool,
 ) ([]FederationAccountActivity, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	// Generic prepared plans keep lower($1) local in postgres_fdw. A scoped
+	// custom plan ships account predicates to the indexer instead of fetching
+	// unrelated history. The setting resets when this transaction ends.
+	if _, err := tx.Exec(ctx, "SET LOCAL plan_cache_mode = force_custom_plan"); err != nil {
+		return nil, err
+	}
 	tokens := filter.TokenAddresses
 	if tokens == nil {
 		tokens = []string{}
@@ -113,24 +138,42 @@ func (s *FederationPg) ListUserActivity(
 	if kinds == nil {
 		kinds = []string{}
 	}
+	knownPools := filter.KnownPoolAddresses
+	if knownPools == nil {
+		knownPools = []string{}
+	}
 	var cursorArg any
 	if cursor != nil {
 		cursorArg = int64(*cursor)
 	}
+	// Classify bounded batches of complete transactions. Sparse filters may
+	// require several batches; never return a false empty page after one batch.
+	const batchSize = 128
+	var boundary any
+	if cursor != nil {
+		boundary = int64(*cursor / 1000000)
+	}
+	inclusive := true
 	var rows []FederationAccountActivity
-	if err := pgxscan.Select(
-		ctx,
-		s.db,
-		&rows,
-		s.queries.ListUserActivity,
-		address,
-		kinds,
-		tokens,
-		filter.Search.Term,
-		cursorArg,
-		next,
-		limit,
-	); err != nil {
+	for uint64(len(rows)) < limit {
+		var ids []int64
+		if err := pgxscan.Select(ctx, tx, &ids, s.queries.ListAccountActivityTransactions,
+			address, boundary, next, batchSize, inclusive); err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			break
+		}
+		var batch []FederationAccountActivity
+		if err := pgxscan.Select(ctx, tx, &batch, s.queries.ListUserActivity,
+			address, kinds, tokens, filter.Search.Term, cursorArg, next, limit-uint64(len(rows)), knownPools, ids); err != nil {
+			return nil, err
+		}
+		rows = append(rows, batch...)
+		boundary, inclusive = ids[len(ids)-1], false
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].ID > rows[j].ID })
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return rows, nil
