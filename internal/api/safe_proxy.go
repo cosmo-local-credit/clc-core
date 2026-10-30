@@ -319,6 +319,13 @@ func (s *safeService) pending(ctx context.Context, caller, safeAddress string) (
 		}
 	}
 	s.markExecuting(ctx, results)
+	// A transaction can reach its threshold while execution is off, or before
+	// clc-core could queue it. Listing queues it; the job coalesces per hash.
+	for i := range results {
+		if !results[i].Executing {
+			s.queueExecution(ctx, &results[i])
+		}
+	}
 	return results, nil
 }
 
