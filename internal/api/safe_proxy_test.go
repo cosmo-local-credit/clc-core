@@ -399,6 +399,39 @@ func TestProposalOfAThresholdOneSafeQueuesExecution(t *testing.T) {
 	}
 }
 
+// A transaction confirmed while execution was off is picked up when listed.
+func TestPendingQueuesExecutionForTransactionsAlreadyAtTheirThreshold(t *testing.T) {
+	f := newProxyFixture(t, true)
+	ready := storedFor(t, txFor(proxyAsset, ownershipCall()))
+	ready.ConfirmationsRequired = 2
+	ready.Confirmations = make([]safe.Confirmation, 2)
+	short := storedFor(t, func() safe.TxFields { tx := txFor(proxyAsset, ownershipCall()); tx.Nonce = "5"; return tx }())
+	short.ConfirmationsRequired = 2
+	short.Confirmations = make([]safe.Confirmation, 1)
+	queuedAlready := storedFor(t, func() safe.TxFields { tx := txFor(proxyAsset, ownershipCall()); tx.Nonce = "6"; return tx }())
+	queuedAlready.ConfirmationsRequired = 2
+	queuedAlready.Confirmations = make([]safe.Confirmation, 2)
+	f.sts.queued = []safe.Transaction{*ready, *short, *queuedAlready}
+	f.svc.executing = func(_ context.Context, hashes []string) map[string]bool {
+		return map[string]bool{hashes[2]: true}
+	}
+	var calls []string
+	f.svc.execute = func(_ context.Context, _, safeTxHash string) bool {
+		calls = append(calls, safeTxHash)
+		return true
+	}
+	got, err := f.svc.pending(context.Background(), f.key, proxySafe.Hex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || calls[0] != ready.SafeTxHash {
+		t.Fatalf("queued %v, want only %s", calls, ready.SafeTxHash)
+	}
+	if !got[0].Executing || got[1].Executing || !got[2].Executing {
+		t.Fatalf("executing flags %v %v %v", got[0].Executing, got[1].Executing, got[2].Executing)
+	}
+}
+
 func TestPendingReportsWhichTransactionsAreExecuting(t *testing.T) {
 	f := newProxyFixture(t, true)
 	a := storedFor(t, txFor(proxyAsset, ownershipCall()))
