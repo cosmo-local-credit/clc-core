@@ -282,7 +282,7 @@ func (a *API) enrichAccountActivity(
 	}
 	poolNames := map[string]string{}
 	if len(poolAddresses) > 0 {
-		rows, err := a.store.Pool().Query(ctx, `SELECT lower(address), COALESCE(NULLIF(display_name,''), name) FROM pools WHERE lower(address)=ANY($1::text[]) AND chain_id=$2`, lowerAddressValues(poolAddresses), a.chainID)
+		rows, err := a.store.Pool().Query(ctx, `SELECT lower(address), COALESCE(NULLIF(display_name,''), name, '') FROM pools WHERE lower(address)=ANY($1::text[]) AND chain_id=$2`, lowerAddressValues(poolAddresses), a.chainID)
 		if err != nil {
 			return err
 		}
