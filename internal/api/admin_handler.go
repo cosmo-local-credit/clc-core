@@ -14,7 +14,7 @@ import (
 
 // adminListUsersHandler serves the account directory: one cursor page of
 // accounts, newest first, narrowed by an optional approval `status` and an
-// optional `q` over name, email, phone and address.
+// optional `q` over name, username, email, phone and address.
 //
 // It used to answer with the whole table and no search, which left the console
 // downloading every account to filter in the browser. Both jobs are the

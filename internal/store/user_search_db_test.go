@@ -90,6 +90,85 @@ func TestListUsersFilteredMatchesIdentityAndContact(t *testing.T) {
 	assert.ElementsMatch(t, ids, userIDs(upperFound), "search must be case-insensitive")
 }
 
+func TestListUsersFilteredMatchesAUsername(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// The marker lives only in the username. The display name, email and phone
+	// are deliberately free of it, so a hit can only come from that column.
+	named := seedDirectoryUser(t, tx, pg, "Handle Owner", "handle-owner@example.test", "+254700000151", "APPROVED")
+	other := seedDirectoryUser(t, tx, pg, "Other Person", "other-person@example.test", "+254700000152", "PENDING")
+	handle := "zqhandle"
+	renamed, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: named.EthereumAddress, Name: named.Name, Email: named.Email, Phone: named.Phone,
+		Country: "KE", Username: &handle,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, renamed.Username)
+	require.Equal(t, handle, *renamed.Username)
+
+	filter, err := NewUserFilter("zqhandle", "")
+	require.NoError(t, err)
+	found, err := pg.ListUsersFiltered(ctx, tx, filter, CatalogFirstPage, 0, 100)
+	require.NoError(t, err)
+	ids := userIDs(found)
+	assert.Contains(t, ids, named.ID, "a username must be searched")
+	assert.NotContains(t, ids, other.ID, "an account whose username does not match must not be returned")
+
+	// A pending account is still in the directory. The username index is not
+	// limited to APPROVED rows, and neither is the predicate.
+	pendingHandle := "zqpending"
+	pending, err := pg.UpdateUserProfile(ctx, tx, UserProfileUpdate{
+		Address: other.EthereumAddress, Name: other.Name, Email: other.Email, Phone: other.Phone,
+		Country: "KE", Username: &pendingHandle,
+	})
+	require.NoError(t, err)
+	pendingFilter, err := NewUserFilter("zqpending", "PENDING")
+	require.NoError(t, err)
+	pendingFound, err := pg.ListUsersFiltered(ctx, tx, pendingFilter, CatalogFirstPage, 0, 100)
+	require.NoError(t, err)
+	assert.Contains(t, userIDs(pendingFound), pending.ID, "a pending username must be searchable")
+
+	upper, err := NewUserFilter("ZQHANDLE", "")
+	require.NoError(t, err)
+	upperFound, err := pg.ListUsersFiltered(ctx, tx, upper, CatalogFirstPage, 0, 100)
+	require.NoError(t, err)
+	assert.Contains(t, userIDs(upperFound), named.ID, "username search must be case-insensitive")
+}
+
+func TestListUsersFilteredUsernameUsesTheTrigramIndex(t *testing.T) {
+	_, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// The directory is small, so a sequential scan is the planner's honest
+	// choice. Forcing it off is how 018 checked that the indexed expression is
+	// the one the predicate asks for.
+	_, err := tx.Exec(ctx, `
+		CREATE INDEX IF NOT EXISTS users_username_trgm_idx
+		    ON users USING gin (lower(username) gin_trgm_ops);
+		ANALYZE users;
+		SET LOCAL enable_seqscan = off`)
+	require.NoError(t, err)
+
+	filter, err := NewUserFilter("zqhandle", "")
+	require.NoError(t, err)
+	query := composeUserPage(filter, CatalogFirstPage, 0, 25)
+	rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+query.sql, query.args...)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var plan []string
+	for rows.Next() {
+		var line string
+		require.NoError(t, rows.Scan(&line))
+		plan = append(plan, line)
+	}
+	require.NoError(t, rows.Err())
+	assert.Contains(t, strings.Join(plan, "\n"), "users_username_trgm_idx")
+}
+
 func TestListUsersFilteredMatchesAPastedAddress(t *testing.T) {
 	pg, tx, cleanup := newMarketTestPg(t)
 	defer cleanup()

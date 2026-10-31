@@ -8119,7 +8119,7 @@ paths:
         required: false
         schema:
           type: string
-        description: Search term. The server searches the name, email, phone and address of each account. It does not search country or role.
+        description: Search term. The server searches the name, username, email, phone and address of each account. It does not search country or role.
       - name: status
         in: query
         required: false

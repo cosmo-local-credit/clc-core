@@ -75,6 +75,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "038_webauthn_credential_state.sql")
 	assert.Contains(t, sqlFiles, "039_voucher_reviews.sql")
 	assert.Contains(t, sqlFiles, "067_pool_reviews.sql")
+	assert.Contains(t, sqlFiles, "068_admin_username_search_index.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -166,7 +167,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "064_admin_role.sql" ||
 				name == "065_admin_role_index.sql" ||
 				name == "066_optional_want_contact.sql" ||
-				name == "067_pool_reviews.sql",
+				name == "067_pool_reviews.sql" ||
+				name == "068_admin_username_search_index.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -243,7 +245,21 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"065_admin_role_index.sql",
 		"066_optional_want_contact.sql",
 		"067_pool_reviews.sql",
+		"068_admin_username_search_index.sql",
 	}, files)
+}
+
+func TestAdminUsernameSearchIndexMigration(t *testing.T) {
+	content, err := os.ReadFile("068_admin_username_search_index.sql")
+	require.NoError(t, err)
+
+	s := string(content)
+	// The indexed expression must be the one userSearchPredicate emits.
+	assert.Contains(t, s, "ON users USING gin (lower(username) gin_trgm_ops)")
+	// A partial index would hide pending and rejected accounts from search.
+	assert.NotContains(t, strings.Split(s, "---- create above / drop below ----")[0], "WHERE")
+	assert.Contains(t, s, "ANALYZE users;")
+	assert.Contains(t, s, "DROP INDEX IF EXISTS users_username_trgm_idx;")
 }
 
 func TestOptionalWantContactMigration(t *testing.T) {
