@@ -183,15 +183,19 @@ func TestComposeUserPageEveryComposition(t *testing.T) {
 			if !strings.Contains(query.sql, `ESCAPE '\'`) {
 				t.Errorf("%s: every LIKE must declare its escape character:\n%s", name, query.sql)
 			}
-			// All four identity and contact columns are searched, and nothing else.
+			// Identity and contact columns are searched, and nothing else.
 			for _, column := range []string{
-				"lower(u.name)", "lower(u.email)", "lower(u.phone)", "lower(u.blockchain_address)",
+				"lower(u.name)",
+				"lower(u.username)",
+				"lower(u.email)",
+				"lower(u.phone)",
+				"lower(u.blockchain_address)",
 			} {
 				if !strings.Contains(query.sql, column) {
 					t.Errorf("%s: search must match %s:\n%s", name, column, query.sql)
 				}
 			}
-			if got := strings.Count(query.sql, "LIKE"); got != 4 {
+			if got := strings.Count(query.sql, "LIKE"); got != 5 {
 				t.Errorf("%s: want one LIKE per searched column, got %d:\n%s", name, got, query.sql)
 			}
 			for _, forbidden := range []string{"lower(u.country)", "lower(u.role)"} {
@@ -204,6 +208,7 @@ func TestComposeUserPageEveryComposition(t *testing.T) {
 		// The projection is the shared account shape, whatever narrowed it.
 		for _, column := range []string{
 			"blockchain_address AS ethereum_address",
+			"u.username",
 			`COALESCE(u.email, '') AS email`,
 			"u.max_pools",
 			"u.created_at",
@@ -216,7 +221,7 @@ func TestComposeUserPageEveryComposition(t *testing.T) {
 }
 
 func TestComposeUserPageBindsOneTermForEveryColumn(t *testing.T) {
-	// Four columns match one term. Binding it per column would make the argument
+	// Five columns match one term. Binding it per column would make the argument
 	// list vary with the column count, and every extra copy is another value the
 	// statement cache has to carry.
 	query := composeUserPage(UserFilter{Term: "ada"}, CatalogFirstPage, 0, 25)
@@ -230,8 +235,8 @@ func TestComposeUserPageBindsOneTermForEveryColumn(t *testing.T) {
 	if terms != 1 {
 		t.Errorf("term bound %d times, want once: %#v", terms, query.args)
 	}
-	if got := strings.Count(query.sql, "$1"); got != 4 {
-		t.Errorf("term placeholder referenced %d times, want 4:\n%s", got, query.sql)
+	if got := strings.Count(query.sql, "$1"); got != 5 {
+		t.Errorf("term placeholder referenced %d times, want 5:\n%s", got, query.sql)
 	}
 }
 

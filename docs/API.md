@@ -4955,7 +4955,7 @@ Return one page of the account directory. Rows are newest first.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `q` | string | No | Search term. The server searches the name, email, phone and address of each account. It does not search country or role. See section 15.1. |
+| `q` | string | No | Search term. The server searches the name, username, email, phone and address of each account. It does not search country or role. See section 15.1. |
 | `status` | string | No | Filter by approval status. Values are `PENDING`, `APPROVED` and `REJECTED`. The case does not matter. |
 | `roles` | string | No | Filter by role. Send `USER`, `ADMIN`, or `SUPERADMIN` as a comma-separated value, repeat the parameter, or combine both forms. Unknown roles return `400`. Selected roles use OR semantics. |
 | `perPage`, `cursor`, `next` | | No | See section 15.1. |
