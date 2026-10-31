@@ -78,20 +78,29 @@ type (
 		ResourceType string
 		OwnerAddress string
 		Resource     *RetirementResource
-		Before       uint64
-		Limit        uint64
 	}
 )
 
 const (
-	retirementRequestSelect = `SELECT r.id,r.voucher_id,r.pool_id,
+	retirementRequestColumns = `SELECT r.id,r.voucher_id,r.pool_id,
     CASE WHEN r.voucher_id IS NOT NULL THEN 'voucher' ELSE 'pool' END AS resource_type,
     COALESCE(v.address,p.address) AS resource_address,
     COALESCE(v.display_name,v.name,p.display_name,p.name,'') AS resource_name,
     COALESCE(v.symbol,p.symbol,'') AS symbol,COALESCE(v.chain_id,p.chain_id) AS chain_id,
     r.requester_address,r.owner_address,r.reason,r.status,r.snapshot,r.requested_at,
-    r.decision_at,r.decision_by,r.decision_reason,r.decision_snapshot
-    FROM retirement_requests r LEFT JOIN vouchers v ON v.id=r.voucher_id LEFT JOIN pools p ON p.id=r.pool_id`
+    r.decision_at,r.decision_by,r.decision_reason,r.decision_snapshot`
+
+	retirementRequestSelect = retirementRequestColumns +
+		` FROM retirement_requests r LEFT JOIN vouchers v ON v.id=r.voucher_id LEFT JOIN pools p ON p.id=r.pool_id`
+
+	// The page of ids is chosen first. A previous page scans ascending so the
+	// nearest newer rows are kept, and this outer query restores newest-first.
+	retirementAdminPageProjection = "\n" + retirementRequestColumns + `
+FROM page
+INNER JOIN retirement_requests r ON r.id = page.id
+LEFT JOIN vouchers v ON v.id = r.voucher_id
+LEFT JOIN pools p ON p.id = r.pool_id
+ORDER BY r.id DESC`
 )
 
 var (
@@ -167,15 +176,49 @@ func ListRetirementRequests(ctx context.Context, tx pgx.Tx, f RetirementFilter) 
 		}
 		conditions = append(conditions, "r."+column+"="+args.bind(f.Resource.ID))
 	}
-	if f.Before > 0 {
-		conditions = append(conditions, "r.id<"+args.bind(f.Before))
-	}
 	query := retirementRequestSelect + " WHERE " + strings.Join(conditions, " AND ") + " ORDER BY r.id DESC"
-	if f.Limit > 0 {
-		query += " LIMIT " + args.bind(f.Limit)
-	}
 	result := []RetirementRequest{}
 	err := pgxscan.Select(ctx, tx, &result, query, args.values...)
+	return result, err
+}
+
+// composeRetirementAdminPage is the admin queue's keyset page. Direction comes
+// from CatalogPage, the same contract as the voucher list: next is older
+// (id < cursor), previous is newer (id > cursor), and a full page is not proof
+// that another page exists.
+func composeRetirementAdminPage(status, resourceType string, page CatalogPage, cursor, limit uint64) (composed, error) {
+	args := &sqlArgs{}
+	predicates := make([]string, 0, 3)
+	if status != "" && status != "all" {
+		predicates = append(predicates, "r.status="+args.bind(status))
+	}
+	if resourceType != "" {
+		_, column, err := retirementTable(resourceType)
+		if err != nil {
+			return composed{}, err
+		}
+		predicates = append(predicates, "r."+column+" IS NOT NULL")
+	}
+	if cursorSQL := cursorPredicate(args, "r.id", page, cursor); cursorSQL != "" {
+		predicates = append(predicates, cursorSQL)
+	}
+	body := "WITH page AS MATERIALIZED (\n" +
+		"    SELECT r.id\n" +
+		"    FROM retirement_requests r" +
+		whereClause(predicates...) +
+		"\n    ORDER BY r.id " + pageOrder(page) +
+		"\n    LIMIT " + args.bind(limit) +
+		"\n)"
+	return composed{sql: body + retirementAdminPageProjection, args: args.values}, nil
+}
+
+func ListRetirementAdminPage(ctx context.Context, tx pgx.Tx, status, resourceType string, page CatalogPage, cursor, limit uint64) ([]RetirementRequest, error) {
+	query, err := composeRetirementAdminPage(status, resourceType, page, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := []RetirementRequest{}
+	err = pgxscan.Select(ctx, tx, &result, query.sql, query.args...)
 	return result, err
 }
 

@@ -215,19 +215,21 @@ func (a *API) adminRetirementRequestsHandler(c *echo.Context) error {
 	if kind != "" && kind != "voucher" && kind != "pool" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid resource type")
 	}
-	limit := uint64(25)
-	before := uint64(0)
-	var err error
-	if c.QueryParam("perPage") != "" {
-		limit, err = strconv.ParseUint(c.QueryParam("perPage"), 10, 64)
-		if err != nil || limit < 1 || limit > 100 {
-			return echo.NewHTTPError(http.StatusBadRequest, "perPage must be between 1 and 100")
-		}
+	// Same keyset as the voucher list. `next=true` walks older ids; a cursor
+	// without it walks newer ones. The page reports first and last. A full page
+	// might have another, so this no longer proves one with an extra row.
+	req := apiresp.CursorPaginationRequest{}
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
 	}
-	if c.QueryParam("cursor") != "" {
-		before, err = strconv.ParseUint(c.QueryParam("cursor"), 10, 64)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "Invalid cursor")
+	pagination := normalizePagination(req)
+	page := store.CatalogFirstPage
+	cursor := uint64(0)
+	if !pagination.FirstPage {
+		cursor = pagination.Cursor
+		page = store.CatalogNextPage
+		if !pagination.Next {
+			page = store.CatalogPrevPage
 		}
 	}
 	ctx := c.Request().Context()
@@ -236,21 +238,25 @@ func (a *API) adminRetirementRequestsHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	requests, err := store.ListRetirementRequests(ctx, tx, store.RetirementFilter{Status: status, ResourceType: kind, Before: before, Limit: limit + 1})
+	requests, err := store.ListRetirementAdminPage(ctx, tx, status, kind, page, cursor, pagination.PerPage)
 	if err != nil {
 		return err
 	}
-	var next *uint64
-	if uint64(len(requests)) > limit {
-		requests = requests[:limit]
-		id := requests[len(requests)-1].ID
-		next = &id
+	var first, last uint64
+	if len(requests) > 0 {
+		first = requests[0].ID
+		last = requests[len(requests)-1].ID
 	}
 	var pendingCount uint64
 	if err = tx.QueryRow(ctx, "SELECT count(*) FROM retirement_requests WHERE status='pending'").Scan(&pendingCount); err != nil {
 		return err
 	}
-	return retirementOK(c, map[string]any{"requests": requests, "pendingCount": pendingCount, "nextCursor": next})
+	return retirementOK(c, map[string]any{
+		"requests":     requests,
+		"pendingCount": pendingCount,
+		"first":        first,
+		"last":         last,
+	})
 }
 
 func (a *API) adminRetirementRequestHandler(c *echo.Context) error {
