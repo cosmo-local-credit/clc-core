@@ -89,7 +89,7 @@ func (a *API) keyRotationHandler(c *echo.Context) error {
 	}
 
 	if req.Old.WebAuthn != nil {
-		if err := a.verifyKeyRotationPasskey(ctx, tx, *req.Old.WebAuthn, addresses); err != nil {
+		if err := a.verifyKeyRotationPasskey(ctx, tx, *req.Old.WebAuthn, req.Old.Nonce, addresses); err != nil {
 			return keyRotationProofRejected(c, "the passkey could not confirm this replacement")
 		}
 	} else {
@@ -276,8 +276,20 @@ func (a *API) verifyKeyRotationSIWE(
 
 // verifyKeyRotationPasskey accepts an assertion by a passkey confirmed on the
 // old wallet, or — for a retry of a rotation that already committed — by the
-// same passkey now waiting on the new one.
-func (a *API) verifyKeyRotationPasskey(ctx context.Context, tx pgx.Tx, proof apiresp.WebAuthnRecoverRequest, addresses keyRotationAddresses) error {
+// same passkey now waiting on the new one. The assertion must sign the
+// challenge derived from this rotation's statement and nonce: one made to sign
+// in, or to confirm a move to another card, is refused. The nonce is spent
+// only once the assertion verifies.
+func (a *API) verifyKeyRotationPasskey(
+	ctx context.Context,
+	tx pgx.Tx,
+	proof apiresp.WebAuthnRecoverRequest,
+	nonce string,
+	addresses keyRotationAddresses,
+) error {
+	if nonce == "" {
+		return errKeyRotationProof
+	}
 	cred, err := a.store.GetWebAuthnCredential(ctx, tx, proof.CredentialID)
 	if err != nil {
 		return err
@@ -288,13 +300,20 @@ func (a *API) verifyKeyRotationPasskey(ctx context.Context, tx pgx.Tx, proof api
 	if !current && !retried {
 		return errKeyRotationProof
 	}
-	return a.relayer.VerifyAssertion(ctx, relayer.VerifyAssertionArgs{
+	challenge := util.KeyRotationPasskeyChallenge(util.KeyRotationStatement(addresses.Old, addresses.New), nonce)
+	if err := a.relayer.VerifyAssertionFor(ctx, relayer.VerifyAssertionArgs{
 		AuthenticatorData: proof.AuthenticatorData,
 		ClientDataJSON:    proof.ClientDataJSON,
 		Signature:         proof.Signature,
 		PublicKeyX:        cred.PublicKeyX,
 		PublicKeyY:        cred.PublicKeyY,
-	})
+	}, challenge); err != nil {
+		return err
+	}
+	if !a.siweNonces.Consume(nonce) {
+		return errKeyRotationProof
+	}
+	return nil
 }
 
 // keyRotationAccount finds the account a rotation applies to: the one on the

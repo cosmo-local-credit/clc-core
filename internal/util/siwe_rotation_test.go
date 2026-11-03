@@ -28,6 +28,12 @@ func TestKeyRotationStatementRoundTrips(t *testing.T) {
 	assert.Equal(t, uint64(100), chainID)
 }
 
+func TestKeyRotationPasskeyChallengeMatchesClcApp(t *testing.T) {
+	statement := "Replace sign-in card 0x6a347bA6B1eC10348478377c5fCeE7Ceb6921A69 with 0xf4e5A91e30903F508735943a78Fe382dfB18Da22"
+	// keyRotationPasskeyChallenge in clc-app's @clc/core pins the same vector.
+	assert.Equal(t, "81nFFKgfqdSng7C5HyqExTO9Yz3y397Yh3GtRCQwWhw", KeyRotationPasskeyChallenge(statement, "rotationnonce1"))
+}
+
 func TestKeyRotationStatementRejectsLookalikes(t *testing.T) {
 	for name, statement := range map[string]string{
 		"sign-in":       "Sign in to CLC App",

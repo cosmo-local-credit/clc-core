@@ -112,7 +112,30 @@ func (r *Relayer) IssueChallenge(ctx context.Context) (string, error) {
 // failed call can't be retried with the same challenge.
 func (r *Relayer) VerifyAssertion(ctx context.Context, args VerifyAssertionArgs) error {
 	_ = ctx
+	return r.verifyAssertion(args, func(challenge string) error {
+		if !r.challenges.take(challenge) {
+			return errors.New("webauthn: challenge unknown, expired, or already consumed")
+		}
+		return nil
+	})
+}
 
+// VerifyAssertionFor runs the same checks against a challenge the caller
+// derived, rather than one issued by IssueChallenge. It binds an assertion to
+// one specific action: the challenge commits to what is being confirmed, so an
+// assertion made for anything else — a sign-in included — cannot stand in for
+// it. Single use is the caller's to enforce on whatever the challenge commits to.
+func (r *Relayer) VerifyAssertionFor(ctx context.Context, args VerifyAssertionArgs, challenge string) error {
+	_ = ctx
+	return r.verifyAssertion(args, func(got string) error {
+		if got != challenge {
+			return errors.New("webauthn: assertion was made for another challenge")
+		}
+		return nil
+	})
+}
+
+func (r *Relayer) verifyAssertion(args VerifyAssertionArgs, acceptChallenge func(string) error) error {
 	authData, err := base64.RawURLEncoding.DecodeString(args.AuthenticatorData)
 	if err != nil {
 		// Some clients pad — try padded form too.
@@ -153,9 +176,10 @@ func (r *Relayer) VerifyAssertion(ctx context.Context, args VerifyAssertionArgs)
 		return fmt.Errorf("webauthn: origin %q not allowed", cd.Origin)
 	}
 
-	// Consume challenge first so a failed verification cannot be retried.
-	if !r.challenges.take(cd.Challenge) {
-		return errors.New("webauthn: challenge unknown, expired, or already consumed")
+	// Accept (for an issued challenge: consume) the challenge first, so a failed
+	// verification cannot be retried.
+	if err := acceptChallenge(cd.Challenge); err != nil {
+		return err
 	}
 
 	// authData[32] flags: bit 0 = UP (User Present), bit 2 = UV (User Verified).

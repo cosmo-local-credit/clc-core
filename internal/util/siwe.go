@@ -1,6 +1,8 @@
 package util
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -119,6 +121,17 @@ const (
 // oldAddress to newAddress. Both are written checksummed.
 func KeyRotationStatement(oldAddress, newAddress common.Address) string {
 	return keyRotationStatementPrefix + oldAddress.Hex() + " with " + newAddress.Hex()
+}
+
+// KeyRotationPasskeyChallenge is the WebAuthn challenge a passkey signs to
+// confirm a key rotation: base64url (unpadded) of
+// sha256(statement + "\n" + nonce). It commits to both addresses through the
+// statement and is single use through the SIWE nonce, so neither a sign-in
+// assertion nor one made for another destination can confirm this rotation.
+// clc-app's keyRotationPasskeyChallenge in @clc/core computes the same bytes.
+func KeyRotationPasskeyChallenge(statement, nonce string) string {
+	digest := sha256.Sum256([]byte(statement + "\n" + nonce))
+	return base64.RawURLEncoding.EncodeToString(digest[:])
 }
 
 // ParseKeyRotationStatement reads the old and new addresses from a key

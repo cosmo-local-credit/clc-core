@@ -225,11 +225,31 @@ func seedRotationPasskey(t *testing.T, a *API, address common.Address) (*ecdsa.P
 	return key, credentialID
 }
 
-// passkeyAssertion answers a fresh challenge the way a browser does.
+// passkeyAssertion answers a fresh sign-in challenge the way a browser does.
 func passkeyAssertion(t *testing.T, a *API, key *ecdsa.PrivateKey, credentialID string) *apiresp.WebAuthnRecoverRequest {
 	t.Helper()
 	challenge, err := a.relayer.IssueChallenge(context.Background())
 	require.NoError(t, err)
+	return assertChallenge(t, key, credentialID, challenge)
+}
+
+// rotationPasskeyProof confirms old→new with a passkey the way clc-app does:
+// over the challenge derived from that rotation's statement and a fresh nonce.
+func rotationPasskeyProof(
+	t *testing.T,
+	a *API,
+	key *ecdsa.PrivateKey,
+	credentialID string,
+	oldAddress, newAddress common.Address,
+) apiresp.KeyRotationOldProof {
+	t.Helper()
+	nonce := rotationNonce(t, a)
+	challenge := util.KeyRotationPasskeyChallenge(util.KeyRotationStatement(oldAddress, newAddress), nonce)
+	return apiresp.KeyRotationOldProof{WebAuthn: assertChallenge(t, key, credentialID, challenge), Nonce: nonce}
+}
+
+func assertChallenge(t *testing.T, key *ecdsa.PrivateKey, credentialID, challenge string) *apiresp.WebAuthnRecoverRequest {
+	t.Helper()
 	clientData, err := json.Marshal(map[string]string{
 		"type": "webauthn.get", "challenge": challenge, "origin": rotationTestOrigin,
 	})
@@ -336,8 +356,24 @@ func TestKeyRotationNeedsThePasskeyWhenTheAccountHasOne(t *testing.T) {
 	assert.True(t, decodeRotation(t, refused).Result.PasskeyRequired)
 
 	statement := util.KeyRotationStatement(oldAddress, newAddress)
+
+	// A sign-in assertion, or one made to confirm a move to another card,
+	// cannot confirm this one.
+	_, otherAddress := rotationCard(t, a)
+	for name, old := range map[string]apiresp.KeyRotationOldProof{
+		"sign-in assertion": {WebAuthn: passkeyAssertion(t, a, passkey, credentialID), Nonce: rotationNonce(t, a)},
+		"another card":      rotationPasskeyProof(t, a, passkey, credentialID, oldAddress, otherAddress),
+		"no nonce":          {WebAuthn: rotationPasskeyProof(t, a, passkey, credentialID, oldAddress, newAddress).WebAuthn},
+	} {
+		refused := postRotation(t, a, "/auth/key-rotation", apiresp.KeyRotationRequest{
+			Old: old,
+			New: rotationSIWE(t, a, newKey, statement, 100),
+		}, nil)
+		require.Equal(t, http.StatusBadRequest, refused.Code, "%s: %s", name, refused.Body.String())
+	}
+
 	res := postRotation(t, a, "/auth/key-rotation", apiresp.KeyRotationRequest{
-		Old: apiresp.KeyRotationOldProof{WebAuthn: passkeyAssertion(t, a, passkey, credentialID)},
+		Old: rotationPasskeyProof(t, a, passkey, credentialID, oldAddress, newAddress),
 		New: rotationSIWE(t, a, newKey, statement, 100),
 	}, nil)
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
@@ -360,7 +396,7 @@ func TestKeyRotationNeedsThePasskeyWhenTheAccountHasOne(t *testing.T) {
 	// A retry signed by the same passkey, now waiting on the new wallet, is
 	// answered from the committed rotation.
 	retry := postRotation(t, a, "/auth/key-rotation", apiresp.KeyRotationRequest{
-		Old: apiresp.KeyRotationOldProof{WebAuthn: passkeyAssertion(t, a, passkey, credentialID)},
+		Old: rotationPasskeyProof(t, a, passkey, credentialID, oldAddress, newAddress),
 		New: rotationSIWE(t, a, newKey, statement, 100),
 	}, nil)
 	require.Equal(t, http.StatusOK, retry.Code, retry.Body.String())

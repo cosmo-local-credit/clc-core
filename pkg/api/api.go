@@ -284,10 +284,13 @@ type (
 
 	// KeyRotationOldProof proves control of the address being replaced: a
 	// passkey assertion when the account has an active passkey, otherwise a
-	// SIWE signature by the old card. Exactly one is set.
+	// SIWE signature by the old card. Exactly one is set. A passkey signs
+	// util.KeyRotationPasskeyChallenge(statement, Nonce), with Nonce from
+	// POST /auth/nonce, never an issued sign-in challenge.
 	KeyRotationOldProof struct {
 		SIWE     *KeyRotationSIWEProof   `json:"siwe,omitempty"`
 		WebAuthn *WebAuthnRecoverRequest `json:"webauthn,omitempty"`
+		Nonce    string                  `json:"nonce,omitempty"`
 	}
 
 	// KeyRotationRequest moves the caller's account to the new card's address.
