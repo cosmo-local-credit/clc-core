@@ -221,9 +221,12 @@ paths:
                   properties:
                     siwe:
                       $ref: '#/components/schemas/KeyRotationSIWEProof'
+                    nonce:
+                      type: string
+                      description: With webauthn. A fresh nonce from POST /auth/nonce, spent when the assertion verifies.
                     webauthn:
                       type: object
-                      description: A WebAuthn assertion by an active passkey of the old address, in the body shape of POST /auth/webauthn/verify.
+                      description: 'A WebAuthn assertion by an active passkey of the old address, in the body shape of POST /auth/webauthn/verify. Its challenge is base64url (unpadded) of sha256(statement + "\n" + nonce); a sign-in challenge is refused.'
                       properties:
                         credentialId:
                           type: string

@@ -731,7 +731,8 @@ Request:
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `old.siwe` | object | One of `old.siwe` or `old.webauthn` | SIWE message and signature from the old address. |
-| `old.webauthn` | object | One of `old.siwe` or `old.webauthn` | A WebAuthn assertion, in the body shape of `POST /auth/webauthn/verify`, by an `active` passkey of the old address. Get the challenge from `GET /api/v2/relayer/webauthn/challenge`. |
+| `old.webauthn` | object | One of `old.siwe` or `old.webauthn` | A WebAuthn assertion, in the body shape of `POST /auth/webauthn/verify`, by an `active` passkey of the old address. Its challenge is base64url (unpadded) of `sha256(statement + "\n" + old.nonce)`. A sign-in challenge from `GET /api/v2/relayer/webauthn/challenge` is refused. |
+| `old.nonce` | string | With `old.webauthn` | A fresh nonce from `POST /auth/nonce`. It is spent when the assertion verifies. |
 | `new` | object | Yes | SIWE message and signature from the new address. |
 
 If the old address has an `active` passkey, the service refuses `old.siwe`. The passkey must confirm the rotation. A person who copied the card does not hold the passkey.
@@ -765,7 +766,9 @@ Response `200`:
 }
 ```
 
-A request for a rotation that already committed, with fresh proofs, returns the same result with `"replayed": true` and a new cookie. A client that lost the response can retry this way.
+A request for a rotation that already committed, with fresh proofs, returns the same result with `"replayed": true` and a new cookie, while the account still holds that rotation's new address. A client that lost the response can retry this way. Once the new address was itself replaced, the retry returns `410`.
+
+`moved` passkeys move again when the account replaces its card again before registering them.
 
 Errors:
 
@@ -4985,7 +4988,7 @@ Success: `result` is `{"rotations": [<rotation>]}`.
 | `adminUserId` | number | The superadmin who moved the account. Only for `admin`. |
 | `createdAt` | string | RFC 3339 time. |
 
-`GET /api/v2/users/me/owned-pools?owner=<oldAddress>` lists the pools that one of these old addresses still owns. Any other `owner` returns `403`.
+`GET /api/v2/users/me/owned-pools?owner=<oldAddress>` lists the pools that one of these old addresses still owns, and `GET /api/v2/users/me/vouchers?owner=<oldAddress>` the vouchers, retired ones included and Safe-owned ones not. Any other `owner` returns `403`.
 
 ---
 
