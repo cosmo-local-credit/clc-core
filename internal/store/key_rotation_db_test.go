@@ -309,3 +309,37 @@ func TestAddressRotationLookupsUseTheOldAddressIndex(t *testing.T) {
 		})
 	}
 }
+
+// A→B, then B→C: a late retry of A→B must not answer for the account at C,
+// and a passkey still waiting to be registered on B must follow it to C.
+func TestRotationAfterRotation(t *testing.T) {
+	env, cleanup := newWebAuthnTestEnv(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	a, b, c := rotationTestAddress(t), rotationTestAddress(t), rotationTestAddress(t)
+	user := insertRotationTestUser(t, env.pg, env.tx, a)
+	tracking := uuid.NewString()
+	require.NoError(t, env.pg.RecordWebAuthnRegistration(ctx, env.tx, webAuthnTestCred("rotation-twice", a, tracking)))
+	env.setStatus(env.relay(tracking, IN_NETWORK), SUCCESS)
+
+	_, err := env.pg.RotateUserAddress(ctx, env.tx, AddressRotationRequest{
+		UserID: user.ID, OldAddress: a, NewAddress: b, InitiatedBy: RotationByUser,
+	})
+	require.NoError(t, err)
+	second, err := env.pg.RotateUserAddress(ctx, env.tx, AddressRotationRequest{
+		UserID: user.ID, OldAddress: b, NewAddress: c, InitiatedBy: RotationByUser,
+	})
+	require.NoError(t, err)
+	require.Len(t, second.MovedPasskeys, 1, "a passkey moved to B and not yet registered there follows to C")
+
+	cred, err := env.pg.GetWebAuthnCredential(ctx, env.tx, "rotation-twice")
+	require.NoError(t, err)
+	assert.Equal(t, c, cred.Address)
+	assert.Equal(t, WebAuthnMoved, cred.State)
+
+	_, err = env.pg.RotateUserAddress(ctx, env.tx, AddressRotationRequest{
+		UserID: user.ID, OldAddress: a, NewAddress: b, InitiatedBy: RotationByUser,
+	})
+	assert.ErrorIs(t, err, ErrAddressRetired, "a superseded retry must not return the account at C")
+}

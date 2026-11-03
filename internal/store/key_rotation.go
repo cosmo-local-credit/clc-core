@@ -67,7 +67,8 @@ var (
 // re-points passkeys as 'moved' and retires the old address for good.
 //
 // An identical rotation that already committed is answered as Replayed so a
-// client that lost the response can retry with fresh proofs.
+// client that lost the response can retry with fresh proofs — but only while
+// the account still holds that rotation's new address.
 func (pg *Pg) RotateUserAddress(ctx context.Context, tx pgx.Tx, req AddressRotationRequest) (AddressRotationResult, error) {
 	var result AddressRotationResult
 
@@ -91,6 +92,11 @@ func (pg *Pg) RotateUserAddress(ctx context.Context, tx pgx.Tx, req AddressRotat
 		user, err := pg.GetUserByID(ctx, tx, req.UserID)
 		if err != nil {
 			return result, err
+		}
+		// A retry of A→B after B was itself replaced must not answer for the
+		// account's current card: proofs for A and B say nothing about C.
+		if !strings.EqualFold(user.EthereumAddress, req.NewAddress) {
+			return result, ErrAddressRetired
 		}
 		moved, err := pg.listWebAuthn(ctx, tx, pg.queries.ListMovedWebAuthn, req.NewAddress)
 		if err != nil {

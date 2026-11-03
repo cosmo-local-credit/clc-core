@@ -871,12 +871,13 @@ SELECT
     + (SELECT COUNT(*) FROM moved_pool_reviews) + (SELECT COUNT(*) FROM moved_flags)
     + (SELECT COUNT(*) FROM moved_retirements) AS rewritten;
 
--- A passkey that could sign in, or was about to, moves with the account as
+-- A passkey that could sign in, was about to, or was itself carried here by an
+-- earlier rotation and not yet re-registered moves with the account as
 -- 'moved'. Failed and unverified rows never worked and stay behind.
 --name: move-rotated-webauthn-credentials
 UPDATE webauthn_credentials
 SET address = $2::TEXT, state = 'moved', tracking_id = NULL
-WHERE address = $1::TEXT AND state IN ('active', 'pending', 'legacy')
+WHERE address = $1::TEXT AND state IN ('active', 'pending', 'legacy', 'moved')
 RETURNING credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
     tracking_id::TEXT AS tracking_id, state, created_at;
 
