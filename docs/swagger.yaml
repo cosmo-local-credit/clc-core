@@ -197,6 +197,69 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
           description: 'E17: The placeholder email of the new address is linked to another user. The address is not registered.'
+        '410':
+          $ref: '#/components/responses/Gone'
+          description: 'E20: The address is a replaced sign-in card. The service does not register it again.'
+      security: []
+  /auth/key-rotation:
+    post:
+      tags:
+      - Auth endpoints
+      summary: Replace a compromised sign-in card
+      description: 'Moves the account from the old sign-in card to a new one. Both proofs sign a SIWE message whose statement is exactly "Replace sign-in card <old address> with <new address>", with checksummed addresses, its own nonce and the service chain id. If the old address has an active passkey, the old proof must be a passkey assertion. The account keeps its user id; posts, offerings, reviews, flags and retirement requests follow the address; passkeys move as ''moved''; the old address can never sign in or register again; the new address is queued for the AccountIndex. Catalog ownership changes only when the chain does. The response sets the session cookie for the new address, and a session for the old address stops working. A retry of a committed rotation with fresh proofs returns ''replayed: true''. Access: Public. The route checks proofs, not the session cookie.'
+      operationId: postAuthKeyRotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                old:
+                  type: object
+                  description: Exactly one of siwe or webauthn.
+                  properties:
+                    siwe:
+                      $ref: '#/components/schemas/KeyRotationSIWEProof'
+                    webauthn:
+                      type: object
+                      description: A WebAuthn assertion by an active passkey of the old address, in the body shape of POST /auth/webauthn/verify.
+                      properties:
+                        credentialId:
+                          type: string
+                        authenticatorData:
+                          type: string
+                        clientDataJSON:
+                          type: string
+                        signature:
+                          type: string
+                new:
+                  $ref: '#/components/schemas/KeyRotationSIWEProof'
+              required:
+              - old
+              - new
+      responses:
+        '200':
+          description: Sign-in card replaced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyRotationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          description: 'E02 or E04: The body is not valid, a proof is missing, both old proofs are set, or a proof does not match the statement, signer, chain or nonce.'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: 'E10: The account is not APPROVED, or the old address has an active passkey and the request sent old.siwe (result.passkeyRequired is true).'
+        '404':
+          $ref: '#/components/responses/NotFound'
+          description: 'E07: No account holds the old or the new address.'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: 'E16: The account no longer holds the old address, the new address already has an account, or a deployment of the account is in flight.'
+        '410':
+          $ref: '#/components/responses/Gone'
+          description: 'E20: The old address was already replaced with a different address.'
       security: []
   /auth/logout:
     post:
@@ -385,7 +448,7 @@ paths:
                               description: The credential ID.
                             state:
                               type: string
-                              description: '''pending'', ''active'', ''failed'', ''legacy'' or ''unverified''.'
+                              description: '''pending'', ''active'', ''failed'', ''legacy'', ''unverified'' or ''moved''. A moved credential came with the account in a key rotation and signs in once the new wallet registers it.'
                             createdAt:
                               type: string
                               format: date-time
@@ -395,6 +458,12 @@ paths:
                               - string
                               - 'null'
                               description: Set only while 'state' is 'pending'. Use it with 'GET /api/v2/relayer/track/:trackingId'.
+                            publicKeyX:
+                              type: string
+                              description: P-256 public key X as a decimal string. Needed to register a moved passkey on the new wallet.
+                            publicKeyY:
+                              type: string
+                              description: P-256 public key Y as a decimal string.
                 required:
                 - ok
                 - description
@@ -7736,6 +7805,62 @@ paths:
           description: 'E10: The caller uses a service token.'
       security:
       - cookieAuth: []
+  /api/v2/users/me/key-rotations:
+    get:
+      tags:
+      - Current user
+      summary: List the sign-in cards this account replaced
+      description: 'Lists the sign-in cards the account replaced, newest first, so the app can move what is left on an old card. GET /api/v2/users/me/owned-pools?owner=<oldAddress> lists the pools an old address still owns. Access: User session.'
+      operationId: getUsersMeKeyRotations
+      responses:
+        '200':
+          description: Replaced sign-in cards
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  description:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      rotations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                            userId:
+                              type: integer
+                            oldAddress:
+                              type: string
+                            newAddress:
+                              type: string
+                            initiatedBy:
+                              type: string
+                              enum:
+                              - user
+                              - admin
+                            adminUserId:
+                              type: integer
+                            createdAt:
+                              type: string
+                              format: date-time
+                required:
+                - ok
+                - description
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+          description: 'E06: No valid credential.'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: 'E10: The caller is a service token.'
+      security:
+      - cookieAuth: []
   /api/v2/users/me/shares/{txHash}:
     post:
       tags:
@@ -8273,6 +8398,58 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
           description: 'E16: The target is a SUPERADMIN.'
+      security:
+      - cookieAuth: []
+  /api/v2/admin/users/{address}/key-rotation:
+    post:
+      tags:
+      - Admin
+      summary: Move an account to a new sign-in card
+      description: 'Moves the account at the address to a new sign-in card without proof from the old card, for a forgotten password with no passkey. The old wallet''s assets stay on chain. The new card signs a SIWE message with the statement "Replace sign-in card <address> with <new address>". Sets no cookie. Not allowed for the caller''s own account or a SUPERADMIN. Access: Superadmin.'
+      operationId: postAdminUsersByAddressKeyRotation
+      parameters:
+      - name: address
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The account's current address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new:
+                  $ref: '#/components/schemas/KeyRotationSIWEProof'
+              required:
+              - new
+      responses:
+        '200':
+          description: Sign-in card replaced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyRotationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          description: 'E02 or E04: The address or the proof is not valid.'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+          description: 'E06: The credential is missing or not valid.'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: 'E10: The caller is not a current SUPERADMIN, the target is the caller, or the target is a SUPERADMIN.'
+        '404':
+          $ref: '#/components/responses/NotFound'
+          description: 'E07: No account holds the address.'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: 'E16: As for POST /auth/key-rotation.'
+        '410':
+          $ref: '#/components/responses/Gone'
+          description: 'E20: The address was already replaced with a different address.'
       security:
       - cookieAuth: []
   /api/v2/admin/users/{address}/approve:
@@ -12402,6 +12579,53 @@ components:
         updatedAt:
           type: string
           format: date-time
+    KeyRotationSIWEProof:
+      type: object
+      properties:
+        message:
+          type: string
+          description: SIWE message whose statement is "Replace sign-in card <old address> with <new address>".
+        signature:
+          type: string
+          description: SIWE signature.
+      required:
+      - message
+      - signature
+    KeyRotationResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        description:
+          type: string
+        result:
+          type: object
+          properties:
+            userId:
+              type: integer
+            role:
+              type: string
+            address:
+              type: string
+              description: The account's new address.
+            oldAddress:
+              type: string
+            movedPasskeys:
+              type: array
+              items:
+                type: object
+                properties:
+                  credentialId:
+                    type: string
+                  publicKeyX:
+                    type: string
+                  publicKeyY:
+                    type: string
+            replayed:
+              type: boolean
+      required:
+      - ok
+      - description
     ErrorResponse:
       type: object
       description: Body of every error response.
@@ -12415,7 +12639,7 @@ components:
           description: Message for people. Do not parse it.
         code:
           type: string
-          description: Error code. Use it with the HTTP status. Some review routes send an empty string. E01 Internal error. E02 The body is not valid JSON or has the wrong shape. E03 The route does not exist. E04 Validation failed. E05 The method is not allowed. E06 Authentication failed. E07 No record found. E08 The body is too large. E09 The request timed out. E10 The caller is not allowed to do this. E11 A rate limit or quota is exceeded. E12 The relayer is disabled. E13 An EIP-7702 authorization is required. E14 The relayer executor does not match. E15 WebAuthn verification failed. E16 The request conflicts with existing data. E17 The email is linked to another account. E18 The phone number is linked to another account. E19 A private share or a confirmed send is not available.
+          description: Error code. Use it with the HTTP status. Some review routes send an empty string. E01 Internal error. E02 The body is not valid JSON or has the wrong shape. E03 The route does not exist. E04 Validation failed. E05 The method is not allowed. E06 Authentication failed. E07 No record found. E08 The body is too large. E09 The request timed out. E10 The caller is not allowed to do this. E11 A rate limit or quota is exceeded. E12 The relayer is disabled. E13 An EIP-7702 authorization is required. E14 The relayer executor does not match. E15 WebAuthn verification failed. E16 The request conflicts with existing data. E17 The email is linked to another account. E18 The phone number is linked to another account. E19 A private share or a confirmed send is not available. E20 The sign-in card was replaced. E21 The passkey waits for the new card to register it.
         result:
           type: object
           additionalProperties: true
@@ -13309,6 +13533,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     Conflict:
       description: The request conflicts with existing data.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Gone:
+      description: The sign-in card was replaced by a key rotation (E20).
       content:
         application/json:
           schema:
