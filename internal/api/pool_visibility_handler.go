@@ -17,12 +17,46 @@ func (a *API) adminPoolCatalogHandler(c *echo.Context) error {
 	return a.managedPoolsList(c, "")
 }
 
+// ownerPoolsListHandler lists the caller's pools. ?owner= may name one of the
+// caller's replaced sign-in cards instead, so the app can find pools still
+// owned on chain by the old wallet after a key rotation.
 func (a *API) ownerPoolsListHandler(c *echo.Context) error {
-	_, owner, _ := getUserClaims(c)
+	userID, owner, _ := getUserClaims(c)
 	if !common.IsHexAddress(owner) || common.HexToAddress(owner) == (common.Address{}) {
 		return handleForbiddenError(c, "a wallet user session is required")
 	}
+	if previous := c.QueryParam("owner"); previous != "" && !strings.EqualFold(previous, owner) {
+		allowed, err := a.isCallersRetiredAddress(c.Request().Context(), userID, previous)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return handleForbiddenError(c, "owner must be your own current or replaced sign-in card")
+		}
+		owner = common.HexToAddress(previous).Hex()
+	}
 	return a.managedPoolsList(c, owner)
+}
+
+func (a *API) isCallersRetiredAddress(ctx context.Context, userID uint64, address string) (bool, error) {
+	if !common.IsHexAddress(address) {
+		return false, nil
+	}
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	rotations, err := a.store.ListAddressRotationsByUser(ctx, tx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, rotation := range rotations {
+		if strings.EqualFold(rotation.OldAddress, address) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (a *API) managedPoolsList(c *echo.Context, owner string) error {

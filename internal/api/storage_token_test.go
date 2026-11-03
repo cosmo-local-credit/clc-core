@@ -23,7 +23,7 @@ func newStorageTokenRouter(t *testing.T) (*echo.Echo, *API) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &API{signingKey: priv, verifyingKey: pub}
+	a := &API{signingKey: priv, verifyingKey: pub, store: sessionFixtureAccounts()}
 
 	e := echo.New()
 	group := e.Group("/auth", a.flexibleAuthMiddleware(), a.requireUserAuth())

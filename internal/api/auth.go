@@ -11,6 +11,7 @@ import (
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
 
@@ -185,7 +186,7 @@ func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 func (a *API) authenticateCaller(c *echo.Context) bool {
 	// 1. Try user JWT from __clc_auth cookie.
 	if cookie, err := c.Cookie(userAuthCookieName); err == nil && cookie.Value != "" {
-		if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil {
+		if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil && a.userSessionCurrent(c, claims) {
 			c.Set("callerType", "user")
 			c.Set("callerUserID", claims.UserID)
 			c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
@@ -231,7 +232,7 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 	}
 
 	// 2b. Fall back to user JWT — allows clients to send Bearer <user-jwt>.
-	if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
+	if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil && a.userSessionCurrent(c, claims) {
 		c.Set("callerType", "user")
 		c.Set("callerUserID", claims.UserID)
 		c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
@@ -240,6 +241,27 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 	}
 
 	return false
+}
+
+// userSessionCurrent reports whether a user JWT still names the address its
+// account holds. Replacing a sign-in card moves the account to a new address in
+// place, keeping its user id, so a token issued for the old address — including
+// any copy held by whoever compromised that card — must stop authenticating the
+// moment the rotation commits. It is one primary-key lookup per request; a
+// failed lookup counts as signed out rather than trusting the token.
+func (a *API) userSessionCurrent(c *echo.Context, claims *UserJWTClaims) bool {
+	if a.store == nil {
+		return false
+	}
+	ctx := c.Request().Context()
+	access, err := a.store.GetUserAccessByID(ctx, claims.UserID)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) && a.logg != nil {
+			a.logg.ErrorContext(ctx, "user session lookup failed", "user_id", claims.UserID, "err", err)
+		}
+		return false
+	}
+	return strings.EqualFold(access.EthereumAddress, claims.EthereumAddress)
 }
 
 // requireUserAuth rejects requests that arrived via a service JWT.

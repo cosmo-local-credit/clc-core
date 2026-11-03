@@ -110,6 +110,8 @@ The token has these claims:
 
 The service checks the cookie first. If the cookie is missing or invalid, the service checks the `Authorization` header.
 
+On every request the service also compares `ethereumAddress` with the address that the account holds now. A token for an address that the account moved off with a key rotation (section 4.11) counts as no credential. A failed lookup also counts as no credential.
+
 #### Service JWT
 
 A service JWT is for server-to-server calls. An operator creates it with the `gen-service-token` command.
@@ -232,6 +234,8 @@ Use the HTTP status and the `code` field in client logic.
 | `E17` | The email is linked to another account. |
 | `E18` | The phone number is linked to another account. |
 | `E19` | A private share or a confirmed send is not available. |
+| `E20` | The sign-in card was replaced by a key rotation. The address can never sign in or register again. |
+| `E21` | The passkey belongs to an account that replaced its sign-in card. Sign in with the new card to register the passkey on the new wallet. |
 
 ### 3.4 Common statuses
 
@@ -244,7 +248,8 @@ Use the HTTP status and the `code` field in client logic.
 | 401 | Authentication is missing or invalid (`E06`). |
 | 403 | The caller lacks the right role or ownership (`E10`). |
 | 404 | The route or the record does not exist (`E03`, `E07`). |
-| 409 | The request conflicts with existing data (`E16`, `E17`, `E18`). |
+| 409 | The request conflicts with existing data (`E16`, `E17`, `E18`, `E21`). |
+| 410 | The sign-in card was replaced (`E20`). |
 | 413 | The body is larger than 1 MB (`E08`). |
 | 429 | A rate limit is exceeded (`E11`). |
 | 500 | An internal error occurred (`E01`). |
@@ -413,6 +418,7 @@ Errors:
 | `400` | `E04` | A field is missing, the signature is not valid, the signer does not match line 2, or the nonce is not valid or is expired. |
 | `403` | `E10` | The user status is `PENDING` or `REJECTED`. |
 | `409` | `E17` | The placeholder email of the new address is linked to another user. The address is not registered. |
+| `410` | `E20` | The address is a replaced sign-in card. The service does not register it again. |
 
 ### 4.4 `POST /auth/siwe/verify`
 
@@ -508,6 +514,7 @@ Errors:
 |---|---|---|
 | `400` | `E02` or `E04` | The body is not valid JSON, or a field is missing. |
 | `404` | `E07` | No active credential has this `credentialId`. |
+| `409` | `E21` | The credential is `moved` and the assertion is valid. The account replaced its sign-in card and the new wallet has not registered the passkey yet. |
 | `401` | `E15` | The assertion is not valid. The challenge can be unknown, expired or used. The origin can be wrong. The signature can be wrong. |
 | `404` | `E03` | The credential address has no user. |
 | `403` | `E10` | The user status is `PENDING` or `REJECTED`. |
@@ -554,7 +561,9 @@ Response `200`:
         "credentialId": "abc",
         "state": "pending",
         "createdAt": "2026-01-01T00:00:00Z",
-        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        "trackingId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "publicKeyX": "1",
+        "publicKeyY": "2"
       }
     ]
   }
@@ -564,9 +573,14 @@ Response `200`:
 | Field | Type | Description |
 |---|---|---|
 | `credentialId` | string | The credential ID. |
-| `state` | string | `pending`, `active`, `failed`, `legacy` or `unverified`. |
+| `state` | string | `pending`, `active`, `failed`, `legacy`, `unverified` or `moved`. |
 | `createdAt` | string | RFC 3339 time. |
 | `trackingId` | string or null | Set only while `state` is `pending`. Use it with `GET /api/v2/relayer/track/:trackingId`. |
+| `publicKeyX`, `publicKeyY` | string | The P-256 public key as decimal strings. A client needs them to register a `moved` passkey on the new wallet. |
+
+A `moved` credential came with the account in a key rotation (section 4.11). It does not sign in until the new wallet's root key registers the same key with `POST /api/v2/relayer/relay`, which makes it `pending` again. If that registration reverts, the credential returns to `moved`, not `failed`, so the account can retry it and a later key rotation carries it on.
+
+The route compares the token's address with the account's current address. A token for a replaced sign-in card returns `401`.
 
 A credential is `pending` until the registration transaction is confirmed. It becomes `active` on success and `failed` on a revert. Only `active` credentials work with `POST /auth/webauthn/verify` and `POST /api/v2/relayer/webauthn/recover`.
 
@@ -690,6 +704,81 @@ Errors:
 | `401` | `E06` | The caller has no valid credential. |
 | `403` | `E10` | The caller uses a service token. |
 | `401` | `E06` | The credential is not a user token that the route can read. |
+
+### 4.11 `POST /auth/key-rotation`
+
+**Access:** Public. The route checks proofs, not the session cookie.
+
+Moves the account from a replaced sign-in card (the old address) to a new card (the new address). A Calibur root key cannot be revoked, so the account changes address. The user id stays the same, so everything stored by user id stays with the account. The client moves the old wallet's vouchers, pools and balances afterwards, signing with the old key.
+
+Both proofs sign a SIWE message (section 4) whose statement is exactly:
+
+```text
+Replace sign-in card <old address> with <new address>
+```
+
+Both addresses are EIP-55 checksummed. Each SIWE message needs its own nonce from `POST /auth/nonce`, and its `Chain ID` must be the service's chain.
+
+Request:
+
+```json
+{
+  "old": { "siwe": { "message": "<SIWE message>", "signature": "0x..." } },
+  "new": { "message": "<SIWE message>", "signature": "0x..." }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `old.siwe` | object | One of `old.siwe` or `old.webauthn` | SIWE message and signature from the old address. |
+| `old.webauthn` | object | One of `old.siwe` or `old.webauthn` | A WebAuthn assertion, in the body shape of `POST /auth/webauthn/verify`, by an `active` passkey of the old address. Its challenge is base64url (unpadded) of `sha256(statement + "\n" + old.nonce)`. A sign-in challenge from `GET /api/v2/relayer/webauthn/challenge` is refused. |
+| `old.nonce` | string | With `old.webauthn` | A fresh nonce from `POST /auth/nonce`. It is spent when the assertion verifies. |
+| `new` | object | Yes | SIWE message and signature from the new address. |
+
+If the old address has an `active` passkey, the service refuses `old.siwe`. The passkey must confirm the rotation. A person who copied the card does not hold the passkey.
+
+In one transaction the service:
+
+- changes the account's address, and the username follows it;
+- rewrites the old address to the new one in posts, post verifiers, offerings, voucher and pool reviews and replies, review flags, and retirement requests;
+- moves the `active`, `pending` and `legacy` passkeys to the new address as `moved`;
+- records the old address as replaced, so it can never sign in or register again;
+- queues the new address for the AccountIndex.
+
+The service does not change catalog ownership. The chain changes it when the client's `transferOwnership` calls are indexed.
+
+The response sets the session cookie for the new address. A session for the old address stops working at once.
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "description": "Sign-in card replaced",
+  "result": {
+    "userId": 123,
+    "role": "USER",
+    "address": "0x2222222222222222222222222222222222222222",
+    "oldAddress": "0x1111111111111111111111111111111111111111",
+    "movedPasskeys": [{ "credentialId": "abc", "publicKeyX": "1", "publicKeyY": "2" }],
+    "replayed": false
+  }
+}
+```
+
+A request for a rotation that already committed, with fresh proofs, returns the same result with `"replayed": true` and a new cookie, while the account still holds that rotation's new address. A client that lost the response can retry this way. Once the new address was itself replaced, the retry returns `410`.
+
+`moved` passkeys move again when the account replaces its card again before registering them.
+
+Errors:
+
+| Status | Code | Condition |
+|---|---|---|
+| `400` | `E02` or `E04` | The body is not valid, a proof is missing, both old proofs are set, or a proof does not match the statement, signer, chain or nonce. A passkey assertion that does not verify also returns `400`. |
+| `403` | `E10` | The account is not `APPROVED`. Or the old address has an active passkey and the request sent `old.siwe`; then `result.passkeyRequired` is `true`. |
+| `404` | `E07` | No account holds the old or the new address. |
+| `409` | `E16` | The account no longer holds the old address, the new address already has an account, or a pool or voucher deployment of the account is still in flight. |
+| `410` | `E20` | The old address was already replaced with a different address. |
 
 ## 5. Relayer
 
@@ -1753,7 +1842,7 @@ The body has `ok` set to `false`, the description `Federation DB unreachable`, a
 
 A voucher is a token issued by an account. An offering is a product or service that the voucher owner publishes against a voucher. This section covers the public market reads, the review routes, and the owner writes for vouchers and offerings.
 
-All paths in this section start with `/api/v2`. The error envelope and the codes `E01` to `E19` are defined in section 3.
+All paths in this section start with `/api/v2`. The error envelope and the codes `E01` to `E21` are defined in section 3.
 
 ### 7.1 Shared behavior of the market reads
 
@@ -3767,6 +3856,7 @@ Success: `result` is `{"recipient": <recipient>}`.
 | `400` | `E02` | `:address` is not a hex address. |
 | `404` | `E07` | No recipient has this address. |
 | `409` | `E16` | More than one recipient matches. |
+| `410` | `E20` | The address is a replaced sign-in card. Do not send to it: whoever compromised the card can spend what arrives. The response does not name the new address. |
 
 #### `GET /api/v2/recipients/suggest`
 
@@ -4880,6 +4970,26 @@ The API reads the profile data from the current profile of the sender.
 | 403 | `E10` | The caller is a service token. |
 | 404 | `E03` | No attachment exists, or the caller is not the sender or the recipient. |
 
+### 14.12 `GET /api/v2/users/me/key-rotations`
+
+**Access:** User session.
+
+Lists the sign-in cards that the caller's account replaced (section 4.11), newest first. The app uses it to move what is left on an old card. The response has the header `Cache-Control: no-store`.
+
+Success: `result` is `{"rotations": [<rotation>]}`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | number | Rotation id. |
+| `userId` | number | The account. |
+| `oldAddress` | string | The replaced address. |
+| `newAddress` | string | The address the account moved to. |
+| `initiatedBy` | string | `user` or `admin`. |
+| `adminUserId` | number | The superadmin who moved the account. Only for `admin`. |
+| `createdAt` | string | RFC 3339 time. |
+
+`GET /api/v2/users/me/owned-pools?owner=<oldAddress>` lists the pools that one of these old addresses still owns, and `GET /api/v2/users/me/vouchers?owner=<oldAddress>` the vouchers, retired ones included and Safe-owned ones not. Any other `owner` returns `403`.
+
 ---
 
 ## 15. Admin
@@ -5049,6 +5159,22 @@ the existing role succeeds with `User role unchanged`.
 **Errors:** `400` for an invalid address, body, or unsupported role; `404` when
 the user does not exist; `409` when the target is a `SUPERADMIN`; and `403` when
 the caller is not a current `SUPERADMIN`.
+
+#### `POST /api/v2/admin/users/:address/key-rotation`
+
+**Access:** Superadmin.
+
+Moves the account at `:address` to a new sign-in card when nothing can sign for the old one, for example a forgotten password with no passkey. It runs the same move as `POST /auth/key-rotation` (section 4.11) but needs no proof from the old card. The old wallet's vouchers, pools and balances stay on chain until the old card is found.
+
+```json
+{ "new": { "message": "<SIWE message>", "signature": "0x..." } }
+```
+
+`new` is a SIWE message by the new address with the statement `Replace sign-in card <:address> with <new address>`.
+
+The response has the shape of section 4.11 and sets no cookie. The rotation is recorded with `initiatedBy: "admin"` and the operator's id.
+
+**Errors:** `400` for an invalid address or proof; `403` when the caller is not a current `SUPERADMIN`, when the target is the caller, or when the target is a `SUPERADMIN`; `404` when no account holds the address; `409` and `410` as in section 4.11.
 
 ### 15.3 `PUT /api/v2/admin/users/:address/approve` and `PUT /api/v2/admin/users/:address/reject`
 
@@ -6584,6 +6710,7 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | POST | `/auth/signin` | Public |
 | POST | `/auth/logout` | Public |
 | POST | `/auth/webauthn/verify` | Public |
+| POST | `/auth/key-rotation` | Public (the route checks both proofs) |
 | GET | `/auth/session` | Public (the route checks the session cookie) |
 | GET | `/auth/webauthn/credentials` | Public (the route checks the session cookie) |
 | POST | `/auth/siwe/nonce` | Public |
@@ -6682,10 +6809,12 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/users/me/shares/eligibility/:address` | User session |
 | POST | `/api/v2/users/me/shares/:txHash` | User session |
 | GET | `/api/v2/users/me/shares/:txHash` | User session |
+| GET | `/api/v2/users/me/key-rotations` | User session |
 | GET | `/api/v2/users/me/reports` | User session |
 | GET | `/api/v2/users/me/reports/:id` | User session |
 | GET | `/api/v2/admin/users` | Administrative |
 | PUT | `/api/v2/admin/users/:address/role` | Superadmin |
+| POST | `/api/v2/admin/users/:address/key-rotation` | Superadmin |
 | PUT | `/api/v2/admin/users/:address/approve` | Administrative |
 | PUT | `/api/v2/admin/users/:address/reject` | Administrative |
 | PUT | `/api/v2/admin/users/:address/limits` | Administrative |

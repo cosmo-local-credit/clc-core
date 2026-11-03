@@ -24,6 +24,9 @@ func (a *API) recipientRead(c *echo.Context, read func(pgx.Tx) (any, error)) err
 		if errors.Is(err, store.ErrAmbiguousRecipient) {
 			return handleConflictError(c, err.Error())
 		}
+		if errors.Is(err, store.ErrAddressRetired) {
+			return addressRetired(c)
+		}
 		return handlePostgresError(c, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -75,7 +78,22 @@ func (a *API) recipientReverseHandler(c *echo.Context) error {
 		return handleBindError(c, &echo.HTTPError{Message: "invalid address"})
 	}
 	return a.recipientRead(c, func(tx pgx.Tx) (any, error) {
-		return a.store.ResolveRecipient(c.Request().Context(), tx, address, a.chainID, true)
+		ctx := c.Request().Context()
+		recipient, err := a.store.ResolveRecipient(ctx, tx, address, a.chainID, true)
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return recipient, err
+		}
+		// A replaced sign-in card is still a valid address, and whoever
+		// compromised it can spend what arrives there. Say so, without
+		// pointing at the account's new address.
+		retired, retiredErr := a.store.AddressIsRetired(ctx, tx, address)
+		if retiredErr != nil {
+			return nil, retiredErr
+		}
+		if retired {
+			return nil, store.ErrAddressRetired
+		}
+		return recipient, err
 	})
 }
 
