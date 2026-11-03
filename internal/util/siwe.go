@@ -82,3 +82,62 @@ func VerifySIWESignature(message, signature string) (string, error) {
 	// compare with strings.EqualFold and lookups are case-insensitive.
 	return addr.Hex(), nil
 }
+
+// ParseSIWEStatement returns the optional EIP-4361 statement: the line after
+// the blank line that follows the address. A message without one returns "".
+func ParseSIWEStatement(message string) string {
+	lines := strings.Split(message, "\n")
+	if len(lines) < 5 || strings.TrimSpace(lines[2]) != "" || strings.TrimSpace(lines[4]) != "" {
+		return ""
+	}
+	return strings.TrimSpace(lines[3])
+}
+
+// ParseSIWEChainID returns the "Chain ID: " field of an EIP-4361 message.
+func ParseSIWEChainID(message string) (uint64, error) {
+	const prefix = "Chain ID: "
+	for line := range strings.SplitSeq(message, "\n") {
+		if after, ok := strings.CutPrefix(line, prefix); ok {
+			var chainID uint64
+			if _, err := fmt.Sscan(strings.TrimSpace(after), &chainID); err != nil {
+				return 0, fmt.Errorf("siwe: invalid chain id: %w", err)
+			}
+			return chainID, nil
+		}
+	}
+	return 0, fmt.Errorf("siwe: chain id field not found in message")
+}
+
+// keyRotationStatementPrefix starts the statement every proof for one key
+// rotation carries, so a signature made to sign in can never move an account.
+// clc-app's buildKeyRotationStatement in @clc/core writes the same text.
+const (
+	keyRotationStatementPrefix = "Replace sign-in card "
+)
+
+// KeyRotationStatement is the SIWE statement for moving an account from
+// oldAddress to newAddress. Both are written checksummed.
+func KeyRotationStatement(oldAddress, newAddress common.Address) string {
+	return keyRotationStatementPrefix + oldAddress.Hex() + " with " + newAddress.Hex()
+}
+
+// ParseKeyRotationStatement reads the old and new addresses from a key
+// rotation statement written by KeyRotationStatement.
+func ParseKeyRotationStatement(statement string) (oldAddress, newAddress common.Address, err error) {
+	rest, ok := strings.CutPrefix(statement, keyRotationStatementPrefix)
+	if !ok {
+		return oldAddress, newAddress, fmt.Errorf("siwe: not a key rotation statement")
+	}
+	oldRaw, newRaw, ok := strings.Cut(rest, " with ")
+	if !ok || !common.IsHexAddress(oldRaw) || !common.IsHexAddress(newRaw) {
+		return oldAddress, newAddress, fmt.Errorf("siwe: malformed key rotation statement")
+	}
+	oldAddress, newAddress = common.HexToAddress(oldRaw), common.HexToAddress(newRaw)
+	if KeyRotationStatement(oldAddress, newAddress) != statement {
+		return oldAddress, newAddress, fmt.Errorf("siwe: key rotation statement is not canonical")
+	}
+	if oldAddress == newAddress {
+		return oldAddress, newAddress, fmt.Errorf("siwe: key rotation must change the address")
+	}
+	return oldAddress, newAddress, nil
+}

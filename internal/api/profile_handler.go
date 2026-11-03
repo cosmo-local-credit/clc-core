@@ -146,6 +146,9 @@ func (a *API) siweVerifyHandler(c *echo.Context) error {
 		// admin or asynchronously after checking the legacy federation DB.
 		user, err = a.store.InsertUser(ctx, tx, newPendingSIWEUser(signerAddr))
 		if err != nil {
+			if isRetiredAddressError(err) {
+				return addressRetired(c)
+			}
 			return err
 		}
 		enqueueLegacyApproval = true

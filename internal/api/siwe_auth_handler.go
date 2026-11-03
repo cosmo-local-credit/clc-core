@@ -114,6 +114,9 @@ func (a *API) signupHandler(c *echo.Context) error {
 		Status:          "APPROVED",
 	})
 	if err != nil {
+		if isRetiredAddressError(err) {
+			return addressRetired(c)
+		}
 		if conflict, ok := userIdentityConflict(err); ok {
 			return c.JSON(http.StatusConflict, conflict)
 		}
@@ -201,6 +204,9 @@ func (a *API) signinHandler(c *echo.Context) error {
 		}
 	}
 	if err != nil {
+		if isRetiredAddressError(err) {
+			return addressRetired(c)
+		}
 		if conflict, ok := userIdentityConflict(err); ok {
 			return c.JSON(http.StatusConflict, conflict)
 		}
@@ -328,6 +334,16 @@ func (a *API) webAuthnSigninHandler(c *echo.Context) error {
 	cred, err := a.store.GetActiveWebAuthnCredential(ctx, tx, req.CredentialID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			if moved, movedErr := a.movedPasskeySignin(ctx, tx, req); moved || movedErr != nil {
+				if movedErr != nil {
+					return movedErr
+				}
+				return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+					Ok:          false,
+					ErrCode:     apiresp.ErrCodePasskeyMoved,
+					Description: "sign in with your new sign-in card to finish moving this passkey",
+				})
+			}
 			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
 				Ok:          false,
 				ErrCode:     apiresp.ErrNoRecordFound,
@@ -413,6 +429,30 @@ func (a *API) webAuthnSigninHandler(c *echo.Context) error {
 	})
 }
 
+// movedPasskeySignin reports whether req is a valid assertion by a passkey a
+// key rotation moved to a new account that has not re-registered it yet. The
+// assertion is verified first, so the answer reveals nothing to a caller who
+// does not hold the passkey.
+func (a *API) movedPasskeySignin(ctx context.Context, tx pgx.Tx, req apiresp.WebAuthnRecoverRequest) (bool, error) {
+	cred, err := a.store.GetWebAuthnCredential(ctx, tx, req.CredentialID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if cred.State != store.WebAuthnMoved {
+		return false, nil
+	}
+	return a.relayer.VerifyAssertion(ctx, relayer.VerifyAssertionArgs{
+		AuthenticatorData: req.AuthenticatorData,
+		ClientDataJSON:    req.ClientDataJSON,
+		Signature:         req.Signature,
+		PublicKeyX:        cred.PublicKeyX,
+		PublicKeyY:        cred.PublicKeyY,
+	}) == nil, nil
+}
+
 // sessionHandler returns the current session's address, chainId and role.
 // Returns 204 No Content when no valid session cookie is present.
 func (a *API) sessionHandler(c *echo.Context) error {
@@ -478,7 +518,6 @@ func (a *API) webAuthnCredentialsHandler(c *echo.Context) error {
 	if err != nil || !common.IsHexAddress(token.EthereumAddress) {
 		return webAuthnCredentialsUnauthorized(c)
 	}
-	address := common.HexToAddress(token.EthereumAddress).Hex()
 
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
@@ -486,6 +525,17 @@ func (a *API) webAuthnCredentialsHandler(c *echo.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// The token's address is only a claim: after a key rotation the account
+	// holds another one, and the old token must not read the moved passkeys.
+	user, err := a.store.GetUserByID(ctx, tx, token.UserID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !strings.EqualFold(user.EthereumAddress, token.EthereumAddress)) {
+		return webAuthnCredentialsUnauthorized(c)
+	}
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	address := common.HexToAddress(user.EthereumAddress).Hex()
 
 	creds, err := a.store.ListWebAuthnCredentialsByAddress(ctx, tx, address)
 	if err != nil {
@@ -513,6 +563,10 @@ type (
 		State        string    `json:"state"`
 		CreatedAt    time.Time `json:"createdAt"`
 		TrackingID   *string   `json:"trackingId"`
+		// The public key lets a rotated account re-register a 'moved' passkey
+		// from any device, not only the one that created it.
+		PublicKeyX string `json:"publicKeyX"`
+		PublicKeyY string `json:"publicKeyY"`
 	}
 )
 
@@ -523,6 +577,8 @@ func webAuthnCredentialSummaries(creds []store.WebAuthnCredential) []webAuthnCre
 			CredentialID: cred.CredentialID,
 			State:        cred.State,
 			CreatedAt:    cred.CreatedAt,
+			PublicKeyX:   cred.PublicKeyX,
+			PublicKeyY:   cred.PublicKeyY,
 		}
 		if cred.State == store.WebAuthnPending {
 			summary.TrackingID = cred.TrackingID
