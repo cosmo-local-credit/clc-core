@@ -118,6 +118,13 @@ func rotationCard(t *testing.T, a *API) (*ecdsa.PrivateKey, common.Address) {
 	return key, address
 }
 
+func mustKey(t *testing.T) *ecdsa.PrivateKey {
+	t.Helper()
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	return key
+}
+
 func rotationNonce(t *testing.T, a *API) string {
 	t.Helper()
 	res := httptest.NewRecorder()
@@ -322,6 +329,22 @@ func TestKeyRotationMovesTheAccountAndRetiresTheOldCard(t *testing.T) {
 	_, strangerAddress := rotationCard(t, a)
 	ownedByStranger := getWithCookie(a, "/api/v2/users/me/owned-pools?owner="+strangerAddress.Hex(), newSession)
 	assert.Equal(t, http.StatusForbidden, ownedByStranger.Code, ownedByStranger.Body.String())
+	vouchersOfStranger := getWithCookie(a, "/api/v2/users/me/vouchers?owner="+strangerAddress.Hex(), newSession)
+	assert.Equal(t, http.StatusForbidden, vouchersOfStranger.Code, vouchersOfStranger.Body.String())
+
+	// A retired voucher is hidden from discovery but its ownership still has to
+	// move, so the old card's list includes it.
+	var retiredVoucher string
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `
+		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, active, owner_address)
+		VALUES (100, $1, 'Retired voucher', 'ZQRET', 6, false, $2) RETURNING address`,
+		crypto.PubkeyToAddress(mustKey(t).PublicKey).Hex(), oldAddress.Hex()).Scan(&retiredVoucher))
+	t.Cleanup(func() {
+		_, _ = a.store.Pool().Exec(context.Background(), `DELETE FROM vouchers WHERE address = $1`, retiredVoucher)
+	})
+	vouchersOfOld := getWithCookie(a, "/api/v2/users/me/vouchers?owner="+oldAddress.Hex(), newSession)
+	require.Equal(t, http.StatusOK, vouchersOfOld.Code, vouchersOfOld.Body.String())
+	assert.Contains(t, vouchersOfOld.Body.String(), retiredVoucher)
 
 	history := getWithCookie(a, "/api/v2/users/me/key-rotations", newSession)
 	require.Equal(t, http.StatusOK, history.Code, history.Body.String())

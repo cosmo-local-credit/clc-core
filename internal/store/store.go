@@ -147,6 +147,7 @@ type (
 		ListOwnedVouchers(context.Context, pgx.Tx, uint64, uint64) ([]OwnedVoucher, error)
 		ListOwnedVouchersNext(context.Context, pgx.Tx, uint64, uint64, uint64) ([]OwnedVoucher, error)
 		ListOwnedVouchersPrevious(context.Context, pgx.Tx, uint64, uint64, uint64) ([]OwnedVoucher, error)
+		ListVouchersOwnedByAddress(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]OwnedVoucher, error)
 		ListPoolsByUser(context.Context, pgx.Tx, uint64, uint64) ([]DeployedPool, error)
 		ListPoolsByUserNext(context.Context, pgx.Tx, uint64, uint64, uint64) ([]DeployedPool, error)
 		ListPoolsByUserPrevious(context.Context, pgx.Tx, uint64, uint64, uint64) ([]DeployedPool, error)

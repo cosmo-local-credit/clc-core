@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -125,9 +127,34 @@ func (a *API) userTokensHandler(c *echo.Context) error {
 		func(t store.DeployedToken) uint64 { return t.ID })
 }
 
+// userOwnedVouchersHandler lists the caller's vouchers. ?owner= may name one
+// of the caller's replaced sign-in cards instead, to find the vouchers — retired
+// ones included — its old wallet still owns on chain.
 func (a *API) userOwnedVouchersHandler(c *echo.Context) error {
-	userID, _, _ := getUserClaims(c)
+	userID, current, _ := getUserClaims(c)
 	c.Response().Header().Set("Cache-Control", "no-store")
+	if previous := c.QueryParam("owner"); previous != "" && !strings.EqualFold(previous, current) {
+		allowed, err := a.isCallersRetiredAddress(c.Request().Context(), userID, previous)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return handleForbiddenError(c, "owner must be your own current or replaced sign-in card")
+		}
+		owner := common.HexToAddress(previous).Hex()
+		return cursorPaginatedList(a, c, paginatedListCallbacks[store.OwnedVoucher]{
+			firstPage: func(ctx context.Context, tx pgx.Tx, _ uint64, limit uint64) ([]store.OwnedVoucher, error) {
+				return a.store.ListVouchersOwnedByAddress(ctx, tx, owner, store.CatalogFirstPage, 0, limit)
+			},
+			nextPage: func(ctx context.Context, tx pgx.Tx, _ uint64, cursor, limit uint64) ([]store.OwnedVoucher, error) {
+				return a.store.ListVouchersOwnedByAddress(ctx, tx, owner, store.CatalogNextPage, cursor, limit)
+			},
+			prevPage: func(ctx context.Context, tx pgx.Tx, _ uint64, cursor, limit uint64) ([]store.OwnedVoucher, error) {
+				return a.store.ListVouchersOwnedByAddress(ctx, tx, owner, store.CatalogPrevPage, cursor, limit)
+			},
+		}, userID, "vouchers", fmt.Sprintf("Vouchers still owned by replaced card %s", owner),
+			func(v store.OwnedVoucher) uint64 { return v.ID })
+	}
 	return cursorPaginatedList(a, c, paginatedListCallbacks[store.OwnedVoucher]{
 		firstPage: a.store.ListOwnedVouchers,
 		nextPage:  a.store.ListOwnedVouchersNext,

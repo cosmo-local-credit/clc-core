@@ -1165,6 +1165,40 @@ SELECT * FROM (
 ) page
 ORDER BY page.id DESC;
 
+-- Vouchers one address owns directly, retired ones included: a replaced sign-in
+-- card's vouchers, still owned on chain by the old wallet, that the account
+-- must move to its new card. No Safe-owned rows: a multisig's assets are not
+-- the card's to move.
+--name: list-vouchers-owned-by-address
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    v.decimals, v.icon_url, v.owner_address, v.active
+FROM vouchers v
+WHERE lower(v.owner_address) = lower($1::TEXT)
+ORDER BY v.id DESC
+LIMIT $2;
+
+--name: list-vouchers-owned-by-address-next
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    v.decimals, v.icon_url, v.owner_address, v.active
+FROM vouchers v
+WHERE lower(v.owner_address) = lower($1::TEXT) AND v.id < $2
+ORDER BY v.id DESC
+LIMIT $3;
+
+--name: list-vouchers-owned-by-address-prev
+SELECT * FROM (
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    v.decimals, v.icon_url, v.owner_address, v.active
+FROM vouchers v
+    WHERE lower(v.owner_address) = lower($1::TEXT) AND v.id > $2
+    ORDER BY v.id ASC
+    LIMIT $3
+) page
+ORDER BY page.id DESC;
+
 --name: list-pools-by-user
 SELECT dp.id, dp.otx_id, dp.platform_contract_id, dp.status, dp.address, dp.name, dp.symbol, dp.decimals,
     dp.token_registry_address, dp.limiter_address, dp.fee_policy_address, dp.quoter_address, dp.quoter_type,
