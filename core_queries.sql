@@ -876,7 +876,7 @@ SELECT
 -- 'moved'. Failed and unverified rows never worked and stay behind.
 --name: move-rotated-webauthn-credentials
 UPDATE webauthn_credentials
-SET address = $2::TEXT, state = 'moved', tracking_id = NULL
+SET address = $2::TEXT, state = 'moved', tracking_id = NULL, carried = true
 WHERE address = $1::TEXT AND state IN ('active', 'pending', 'legacy', 'moved')
 RETURNING credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
     tracking_id::TEXT AS tracking_id, state, created_at;
@@ -1415,7 +1415,8 @@ ORDER BY created_at DESC, credential_id;
 -- replacement row under the same tracking id, so one row's REVERTED or LOW_NONCE
 -- is not the outcome while another row is still in flight:
 --   any SUCCESS                      -> active
---   every row terminal, none SUCCESS -> failed
+--   every row terminal, none SUCCESS -> failed, or back to moved for a passkey
+--                                       a key rotation carried (migration 069)
 --   otherwise                        -> still pending
 -- The terminal set matches store.terminalDispatchStatuses.
 --name: settle-webauthn-registration
@@ -1429,9 +1430,13 @@ SET state = CASE
         SELECT 1 FROM otx o INNER JOIN dispatch d ON d.otx_id = o.id
         WHERE o.tracking_id = c.tracking_id
           AND d.status NOT IN ('SUCCESS', 'REVERTED', 'LOW_NONCE', 'INVALID_TX')
-    ) THEN 'failed'
+    ) THEN CASE WHEN c.carried THEN 'moved' ELSE 'failed' END
     ELSE 'pending'
-END
+END,
+carried = c.carried AND NOT EXISTS (
+    SELECT 1 FROM otx o INNER JOIN dispatch d ON d.otx_id = o.id
+    WHERE o.tracking_id = c.tracking_id AND d.status = 'SUCCESS'
+)
 WHERE c.tracking_id = (SELECT tracking_id FROM otx WHERE id = $1)
   AND c.state = 'pending';
 

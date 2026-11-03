@@ -48,7 +48,15 @@ ALTER TABLE webauthn_credentials
     ADD CONSTRAINT webauthn_credentials_state_check
     CHECK (state IN ('pending', 'active', 'failed', 'legacy', 'unverified', 'moved'));
 
+-- A passkey a rotation carried stays the account's until the new wallet has
+-- registered it: a registration that reverts returns it to 'moved', not
+-- 'failed', so the account can retry it and a later rotation carries it on.
+-- Cleared when a registration of it succeeds.
+ALTER TABLE webauthn_credentials ADD COLUMN carried BOOLEAN NOT NULL DEFAULT false;
+
 ---- create above / drop below ----
+
+ALTER TABLE webauthn_credentials DROP COLUMN IF EXISTS carried;
 
 UPDATE webauthn_credentials SET state = 'failed' WHERE state = 'moved';
 ALTER TABLE webauthn_credentials DROP CONSTRAINT webauthn_credentials_state_check;

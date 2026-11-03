@@ -264,6 +264,7 @@ func TestKeyRotationMigration(t *testing.T) {
 	assert.Contains(t, up, "hashtextextended('user-address:' || lower(NEW.blockchain_address), 0)")
 	assert.Contains(t, up, "CONSTRAINT = 'users_address_retired'")
 	assert.Contains(t, up, "'unverified', 'moved'")
+	assert.Contains(t, up, "ADD COLUMN carried BOOLEAN NOT NULL DEFAULT false")
 }
 
 func TestAdminUsernameSearchIndexMigration(t *testing.T) {

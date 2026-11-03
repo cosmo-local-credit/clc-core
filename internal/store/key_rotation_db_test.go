@@ -343,3 +343,48 @@ func TestRotationAfterRotation(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, ErrAddressRetired, "a superseded retry must not return the account at C")
 }
+
+// A→B, the registration of the carried passkey on B reverts, then B→C: the
+// passkey is still the account's to retry, and C inherits it.
+func TestCarriedPasskeySurvivesAFailedRegistration(t *testing.T) {
+	env, cleanup := newWebAuthnTestEnv(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	a, b, c := rotationTestAddress(t), rotationTestAddress(t), rotationTestAddress(t)
+	user := insertRotationTestUser(t, env.pg, env.tx, a)
+	first := uuid.NewString()
+	require.NoError(t, env.pg.RecordWebAuthnRegistration(ctx, env.tx, webAuthnTestCred("rotation-revert", a, first)))
+	env.setStatus(env.relay(first, IN_NETWORK), SUCCESS)
+
+	_, err := env.pg.RotateUserAddress(ctx, env.tx, AddressRotationRequest{
+		UserID: user.ID, OldAddress: a, NewAddress: b, InitiatedBy: RotationByUser,
+	})
+	require.NoError(t, err)
+
+	relink := uuid.NewString()
+	require.NoError(t, env.pg.RecordWebAuthnRegistration(ctx, env.tx, webAuthnTestCred("rotation-revert", b, relink)))
+	env.setStatus(env.relay(relink, IN_NETWORK), REVERTED)
+	assert.Equal(t, WebAuthnMoved, env.state("rotation-revert"), "a reverted re-registration leaves it retryable")
+	assert.False(t, env.usable("rotation-revert"))
+
+	second, err := env.pg.RotateUserAddress(ctx, env.tx, AddressRotationRequest{
+		UserID: user.ID, OldAddress: b, NewAddress: c, InitiatedBy: RotationByUser,
+	})
+	require.NoError(t, err)
+	require.Len(t, second.MovedPasskeys, 1)
+	cred, err := env.pg.GetWebAuthnCredential(ctx, env.tx, "rotation-revert")
+	require.NoError(t, err)
+	assert.Equal(t, c, cred.Address)
+
+	// Once registered, it is an ordinary passkey again: a revert of a later,
+	// unrelated registration would leave it failed like any other.
+	final := uuid.NewString()
+	require.NoError(t, env.pg.RecordWebAuthnRegistration(ctx, env.tx, webAuthnTestCred("rotation-revert", c, final)))
+	env.setStatus(env.relay(final, IN_NETWORK), SUCCESS)
+	assert.True(t, env.usable("rotation-revert"))
+	var carried bool
+	require.NoError(t, env.tx.QueryRow(ctx, `SELECT carried FROM webauthn_credentials WHERE credential_id = $1`,
+		"rotation-revert").Scan(&carried))
+	assert.False(t, carried)
+}
