@@ -76,6 +76,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "039_voucher_reviews.sql")
 	assert.Contains(t, sqlFiles, "067_pool_reviews.sql")
 	assert.Contains(t, sqlFiles, "068_admin_username_search_index.sql")
+	assert.Contains(t, sqlFiles, "069_key_rotation.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -168,7 +169,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "065_admin_role_index.sql" ||
 				name == "066_optional_want_contact.sql" ||
 				name == "067_pool_reviews.sql" ||
-				name == "068_admin_username_search_index.sql",
+				name == "068_admin_username_search_index.sql" ||
+				name == "069_key_rotation.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -246,7 +248,22 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"066_optional_want_contact.sql",
 		"067_pool_reviews.sql",
 		"068_admin_username_search_index.sql",
+		"069_key_rotation.sql",
 	}, files)
+}
+
+func TestKeyRotationMigration(t *testing.T) {
+	content, err := os.ReadFile("069_key_rotation.sql")
+	require.NoError(t, err)
+	up, _, _ := strings.Cut(string(content), "---- create above / drop below ----")
+	// Retirement is case-insensitive like every other address lookup.
+	assert.Contains(t, up, "ON address_rotations (lower(old_address))")
+	// The trigger must guard inserts and address moves alike, and serialize with
+	// RotateUserAddress through the same advisory key.
+	assert.Contains(t, up, "BEFORE INSERT OR UPDATE OF blockchain_address ON users")
+	assert.Contains(t, up, "hashtextextended('user-address:' || lower(NEW.blockchain_address), 0)")
+	assert.Contains(t, up, "CONSTRAINT = 'users_address_retired'")
+	assert.Contains(t, up, "'unverified', 'moved'")
 }
 
 func TestAdminUsernameSearchIndexMigration(t *testing.T) {

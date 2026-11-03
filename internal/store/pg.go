@@ -128,6 +128,17 @@ type (
 		IdentityAvailability          string `query:"identity-availability"`
 		GetUserByID                   string `query:"get-user-by-id"`
 		GetUserAccessByID             string `query:"get-user-access-by-id"`
+		LockUserAddressRotation       string `query:"lock-user-address-rotation"`
+		GetAddressRotationByOld       string `query:"get-address-rotation-by-old-address"`
+		ListAddressRotationsByUser    string `query:"list-address-rotations-by-user"`
+		LockUserForRotation           string `query:"lock-user-for-rotation"`
+		CountInFlightUserDeployments  string `query:"count-in-flight-user-deployments"`
+		RotateUserAddress             string `query:"rotate-user-address"`
+		RewriteRotatedAddressRefs     string `query:"rewrite-rotated-address-references"`
+		MoveRotatedWebAuthn           string `query:"move-rotated-webauthn-credentials"`
+		ListMovedWebAuthn             string `query:"list-moved-webauthn-credentials"`
+		InsertAddressRotation         string `query:"insert-address-rotation"`
+		AddressIsRetired              string `query:"address-is-retired"`
 		UpdateUserStatus              string `query:"update-user-status"`
 		UpdateUserRole                string `query:"update-user-role"`
 		ApprovePendingUserByAddress   string `query:"approve-pending-user-by-address"`

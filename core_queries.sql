@@ -768,6 +768,134 @@ SELECT blockchain_address, role, status
 FROM users
 WHERE id = $1;
 
+-- Key rotation (migration 069). The account moves from $1 (old address) to $2
+-- (new address); both are checksummed, and each column keeps the case it is
+-- written in elsewhere.
+--name: lock-user-address-rotation
+SELECT pg_advisory_xact_lock(hashtextextended('user-address:' || lower($1::TEXT), 0));
+
+--name: get-address-rotation-by-old-address
+SELECT id, user_id, old_address, new_address, initiated_by, admin_user_id, created_at
+FROM address_rotations
+WHERE lower(old_address) = lower($1::TEXT);
+
+--name: list-address-rotations-by-user
+SELECT id, user_id, old_address, new_address, initiated_by, admin_user_id, created_at
+FROM address_rotations
+WHERE user_id = $1
+ORDER BY created_at DESC, id DESC;
+
+--name: lock-user-for-rotation
+SELECT blockchain_address
+FROM users
+WHERE id = $1
+FOR UPDATE;
+
+-- A deployment confirming after the move would put the catalog row under the
+-- old address. An hour bounds it: a deploy job lost before it wrote an OTX must
+-- not block the account forever.
+--name: count-in-flight-user-deployments
+SELECT COUNT(*)
+FROM user_deployments ud
+WHERE ud.user_id = $1
+  AND ud.created_at > now() - INTERVAL '1 hour'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM otx o
+      LEFT JOIN deployed_tokens dt ON dt.otx_id = o.id
+      LEFT JOIN deployed_pools dp ON dp.otx_id = o.id
+      WHERE o.tracking_id = ud.tracking_id
+        AND COALESCE(dt.status, dp.status) IN ('CONFIRMED', 'FAILED')
+  );
+
+--name: rotate-user-address
+UPDATE users
+SET blockchain_address = $2::TEXT,
+    email = CASE
+        WHEN email = 'pending+' || substr(lower($1::TEXT), 3) || '@clc.local'
+        THEN 'pending+' || substr(lower($2::TEXT), 3) || '@clc.local'
+        ELSE email
+    END
+WHERE id = $3 AND lower(blockchain_address) = lower($1::TEXT)
+RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
+
+-- Off-chain records the person wrote or holds under their address. Event logs
+-- (retirement_events), relay idempotency rows (relay_operations), deployment
+-- admins and chain-derived ownership keep the old address. One UPDATE per
+-- table: two data-modifying CTEs updating the same row in one statement apply
+-- only one of the changes.
+--name: rewrite-rotated-address-references
+WITH moved_reports AS (
+    UPDATE reports SET
+        author_address = CASE WHEN lower(author_address) = lower($1::TEXT) THEN $2::TEXT ELSE author_address END,
+        modifier_address = CASE WHEN lower(modifier_address) = lower($1::TEXT) THEN $2::TEXT ELSE modifier_address END
+    WHERE lower(author_address) = lower($1::TEXT) OR lower(modifier_address) = lower($1::TEXT)
+    RETURNING 1
+), moved_verifiers AS (
+    UPDATE report_verifiers SET verifier_address = $2::TEXT
+    WHERE lower(verifier_address) = lower($1::TEXT)
+    RETURNING 1
+), moved_offerings AS (
+    UPDATE offerings SET seller_address = $2::TEXT
+    WHERE lower(seller_address) = lower($1::TEXT)
+    RETURNING 1
+), moved_voucher_reviews AS (
+    UPDATE voucher_reviews SET
+        reviewer_address = CASE WHEN reviewer_address = lower($1::TEXT) THEN lower($2::TEXT) ELSE reviewer_address END,
+        reply_author_address = CASE WHEN reply_author_address = lower($1::TEXT) THEN lower($2::TEXT) ELSE reply_author_address END
+    WHERE reviewer_address = lower($1::TEXT) OR reply_author_address = lower($1::TEXT)
+    RETURNING 1
+), moved_pool_reviews AS (
+    UPDATE pool_reviews SET
+        reviewer_address = CASE WHEN reviewer_address = lower($1::TEXT) THEN lower($2::TEXT) ELSE reviewer_address END,
+        reply_author_address = CASE WHEN reply_author_address = lower($1::TEXT) THEN lower($2::TEXT) ELSE reply_author_address END
+    WHERE reviewer_address = lower($1::TEXT) OR reply_author_address = lower($1::TEXT)
+    RETURNING 1
+), moved_flags AS (
+    UPDATE voucher_review_flags SET
+        reporter_address = CASE WHEN reporter_address = lower($1::TEXT) THEN lower($2::TEXT) ELSE reporter_address END,
+        resolved_by = CASE WHEN resolved_by = lower($1::TEXT) THEN lower($2::TEXT) ELSE resolved_by END
+    WHERE reporter_address = lower($1::TEXT) OR resolved_by = lower($1::TEXT)
+    RETURNING 1
+), moved_retirements AS (
+    UPDATE retirement_requests SET
+        requester_address = CASE WHEN requester_address = lower($1::TEXT) THEN lower($2::TEXT) ELSE requester_address END,
+        owner_address = CASE WHEN owner_address = lower($1::TEXT) THEN lower($2::TEXT) ELSE owner_address END,
+        decision_by = CASE WHEN decision_by = lower($1::TEXT) THEN lower($2::TEXT) ELSE decision_by END
+    WHERE requester_address = lower($1::TEXT) OR owner_address = lower($1::TEXT) OR decision_by = lower($1::TEXT)
+    RETURNING 1
+)
+SELECT
+    (SELECT COUNT(*) FROM moved_reports) + (SELECT COUNT(*) FROM moved_verifiers)
+    + (SELECT COUNT(*) FROM moved_offerings) + (SELECT COUNT(*) FROM moved_voucher_reviews)
+    + (SELECT COUNT(*) FROM moved_pool_reviews) + (SELECT COUNT(*) FROM moved_flags)
+    + (SELECT COUNT(*) FROM moved_retirements) AS rewritten;
+
+-- A passkey that could sign in, or was about to, moves with the account as
+-- 'moved'. Failed and unverified rows never worked and stay behind.
+--name: move-rotated-webauthn-credentials
+UPDATE webauthn_credentials
+SET address = $2::TEXT, state = 'moved', tracking_id = NULL
+WHERE address = $1::TEXT AND state IN ('active', 'pending', 'legacy')
+RETURNING credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at;
+
+--name: list-moved-webauthn-credentials
+SELECT credential_id, address, key_hash, public_key_x::TEXT AS public_key_x, public_key_y::TEXT AS public_key_y,
+    tracking_id::TEXT AS tracking_id, state, created_at
+FROM webauthn_credentials
+WHERE address = $1::TEXT AND state = 'moved'
+ORDER BY created_at, credential_id;
+
+--name: insert-address-rotation
+INSERT INTO address_rotations (user_id, old_address, new_address, initiated_by, admin_user_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, user_id, old_address, new_address, initiated_by, admin_user_id, created_at;
+
+-- Lets a sign-in say "this card was replaced" rather than registering it.
+--name: address-is-retired
+SELECT EXISTS (SELECT 1 FROM address_rotations WHERE lower(old_address) = lower($1::TEXT));
+
 --name: get-user-by-email
 SELECT id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at
 FROM users
@@ -1207,11 +1335,12 @@ INSERT INTO webauthn_credentials (credential_id, address, key_hash, public_key_x
 VALUES ($1, $2, $3, $4, $5, $6::uuid, 'pending');
 
 -- Re-arm a failed registration of the same credential -> address/key mapping
--- under a new tracking id.
+-- under a new tracking id. A 'moved' row (key rotation) is re-armed by the new
+-- wallet's root key registering the same key.
 --name: rearm-webauthn-credential
 UPDATE webauthn_credentials
 SET tracking_id = $2::uuid, state = 'pending'
-WHERE credential_id = $1 AND state IN ('failed', 'unverified');
+WHERE credential_id = $1 AND state IN ('failed', 'unverified', 'moved');
 
 -- Any-state lookup, locked, for deciding whether a registration conflicts.
 --name: get-webauthn-credential-for-update
