@@ -86,6 +86,7 @@ func TestReportManagementRoutesEnforceCredentialKinds(t *testing.T) {
 
 	userToken := mintReportToken(t, private, reportAuthorAddress, "USER")
 	adminToken := mintReportToken(t, private, reportAdminAddress, "SUPERADMIN")
+	withSessionAccounts(t, a, userToken)
 	serviceClaims := JWTCustomClaims{
 		PublicKey: reportOtherAddress,
 		Service:   true,

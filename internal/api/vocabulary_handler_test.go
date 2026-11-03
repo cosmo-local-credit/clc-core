@@ -53,13 +53,15 @@ func TestRenameVocabularyRequiresSuperadmin(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	a := New(APIOpts{Logg: slog.New(slog.DiscardHandler), SigningKey: priv, VerifyingKey: pub})
+	userToken := offeringToken(t, priv, offeringOwnerAddress, "USER")
+	withSessionAccounts(t, a, userToken)
 	for _, path := range []string{"tags", "units", "units-of-account"} {
 		for _, tc := range []struct {
 			name, token string
 			status      int
 		}{
 			{"anonymous", "", http.StatusUnauthorized},
-			{"user", offeringToken(t, priv, offeringOwnerAddress, "USER"), http.StatusForbidden},
+			{"user", userToken, http.StatusForbidden},
 			{"service", offeringServiceToken(t, priv), http.StatusForbidden},
 		} {
 			t.Run(path+"/"+tc.name, func(t *testing.T) {

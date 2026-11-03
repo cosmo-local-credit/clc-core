@@ -22,6 +22,7 @@ func newPoolCatalogTestAPI(t *testing.T) *API {
 	return New(APIOpts{
 		Logg:         slog.New(slog.DiscardHandler),
 		CORS:         []string{"https://app.example"},
+		Store:        sessionFixtureAccounts(),
 		SigningKey:   priv,
 		VerifyingKey: pub,
 	})
@@ -143,6 +144,7 @@ func TestPoolCatalogMiddlewareKeepsTheCallerContext(t *testing.T) {
 	a := &API{
 		signingKey:   priv,
 		verifyingKey: pub,
+		store:        sessionFixtureAccounts(),
 		poolLimiter:  newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
 	}
 
