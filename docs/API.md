@@ -578,7 +578,7 @@ Response `200`:
 | `trackingId` | string or null | Set only while `state` is `pending`. Use it with `GET /api/v2/relayer/track/:trackingId`. |
 | `publicKeyX`, `publicKeyY` | string | The P-256 public key as decimal strings. A client needs them to register a `moved` passkey on the new wallet. |
 
-A `moved` credential came with the account in a key rotation (section 4.11). It does not sign in until the new wallet's root key registers the same key with `POST /api/v2/relayer/relay`, which makes it `pending` again.
+A `moved` credential came with the account in a key rotation (section 4.11). It does not sign in until the new wallet's root key registers the same key with `POST /api/v2/relayer/relay`, which makes it `pending` again. If that registration reverts, the credential returns to `moved`, not `failed`, so the account can retry it and a later key rotation carries it on.
 
 The route compares the token's address with the account's current address. A token for a replaced sign-in card returns `401`.
 
