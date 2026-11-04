@@ -98,6 +98,7 @@ type (
 		GetOracleFeedByName(context.Context, pgx.Tx, int64, string) (OracleFeed, error)
 		ListOracleFeeds(context.Context, pgx.Tx, int64) ([]OracleFeed, error)
 		GetOTXByTrackingID(context.Context, pgx.Tx, string) ([]*OTX, error)
+		TrackingJobFailure(context.Context, pgx.Tx, string) (*TrackingFailure, error)
 		GetOTXByAccount(context.Context, pgx.Tx, string, uint64) ([]*OTX, error)
 		GetOTXByAccountNext(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)
 		GetOTXByAccountPrevious(context.Context, pgx.Tx, string, uint64, uint64) ([]*OTX, error)

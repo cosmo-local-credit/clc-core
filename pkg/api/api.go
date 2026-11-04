@@ -570,4 +570,8 @@ const (
 	// ErrCodePasskeyMoved: the passkey belongs to a rotated account and waits
 	// for the new card to re-register it on the new wallet (HTTP 409).
 	ErrCodePasskeyMoved = "E21"
+	// ErrCodeTrackingFailed: the job behind this tracking ID was discarded or
+	// cancelled, so no OTX will ever be written for it and polling cannot
+	// succeed (HTTP 410). The description carries the job's own error.
+	ErrCodeTrackingFailed = "E22"
 )

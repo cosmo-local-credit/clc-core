@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -94,6 +95,39 @@ func (pg *Pg) GetOTXByTrackingID(ctx context.Context, tx pgx.Tx, trackingID stri
 	}
 
 	return otxs, nil
+}
+
+// TrackingFailure is a queue job that ended without ever writing an OTX row.
+type TrackingFailure struct {
+	Kind  string
+	State string
+	Error string
+}
+
+// TrackingJobFailure reports a terminally failed job for a tracking ID.
+//
+// A tracking ID is handed to the caller the moment the job is enqueued, before
+// the worker has written its OTX row, so "no OTX" normally means "not yet".
+// When the job is discarded or cancelled instead, no row is ever coming: the
+// caller must be told so rather than left polling an ID that cannot resolve.
+// Only a finalized state counts — a job still retrying is genuinely pending.
+func (pg *Pg) TrackingJobFailure(ctx context.Context, tx pgx.Tx, trackingID string) (*TrackingFailure, error) {
+	var failure TrackingFailure
+	// river_job holds the tracking ID inside args; every kind that reports one
+	// names the field the same way.
+	err := tx.QueryRow(ctx, `
+SELECT kind, state::text, COALESCE(errors[array_length(errors, 1)] ->> 'error', '')
+FROM river_job
+WHERE args->>'trackingId' = $1 AND state IN ('discarded', 'cancelled')
+ORDER BY finalized_at DESC NULLS LAST
+LIMIT 1`, trackingID).Scan(&failure.Kind, &failure.State, &failure.Error)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &failure, nil
 }
 
 func (pg *Pg) GetOTXByAccount(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]*OTX, error) {

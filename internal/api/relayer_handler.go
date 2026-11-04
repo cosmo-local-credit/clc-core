@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -250,6 +251,16 @@ func relayerTrackingStatus(otxs []*store.OTX) (status int, errCode, description 
 		return http.StatusForbidden, apiresp.ErrCodeForbidden, "tracking id is not public relayer flow"
 	}
 	return http.StatusOK, "", ""
+}
+
+// trackingFailureDescription is what the caller is shown for a job that ended
+// without an OTX. The job's own error is the useful part; it names the reason
+// the request was refused, which a generic "not found" never could.
+func trackingFailureDescription(failure *store.TrackingFailure) string {
+	if failure.Error == "" {
+		return fmt.Sprintf("tracking id %s was %s", failure.Kind, failure.State)
+	}
+	return failure.Error
 }
 
 func relayDelegateTrackingID(result *rivertype.JobInsertResult, fallback string) string {
@@ -606,8 +617,24 @@ func (a *API) trackRelayerOTXHandler(c *echo.Context) error {
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
+	// No OTX row is normally "the worker has not written it yet", which the
+	// caller polls through. A job that ended without one is terminal, and
+	// saying so is the difference between a retry and an endless spinner.
+	var failure *store.TrackingFailure
+	if len(otxs) == 0 {
+		if failure, err = a.store.TrackingJobFailure(ctx, tx, req.TrackingID); err != nil {
+			return handlePostgresError(c, err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
+	}
+	if failure != nil {
+		return c.JSON(http.StatusGone, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeTrackingFailed,
+			Description: trackingFailureDescription(failure),
+		})
 	}
 	if status, errCode, description := relayerTrackingStatus(otxs); status != http.StatusOK {
 		return c.JSON(status, apiresp.ErrResponse{
