@@ -83,6 +83,34 @@ func TestTrackingFailureReportsCancelledJob(t *testing.T) {
 	require.Equal(t, "tracking id RELAY_DELEGATE was cancelled", body.Description)
 }
 
+func TestTrackingFailureHidesAPrivateFlowFromThePublicTracker(t *testing.T) {
+	a := newRelayOperationAPI(t)
+	trackingID := uuid.NewString()
+	// A deploy is an authenticated flow. Its diagnostics can name contracts,
+	// addresses and internal state, and the relayer tracker takes no auth at
+	// all — so guessing a tracking ID must not read one.
+	insertFinalizedJob(t, a, "TOKEN_DEPLOY", "discarded", trackingID, "deploy: secret internal detail")
+
+	status, body := getRelayerTrack(t, a, trackingID)
+
+	require.Equal(t, http.StatusNotFound, status)
+	require.Equal(t, "E03", body.ErrCode)
+	require.NotContains(t, body.Description, "secret internal detail")
+}
+
+func TestTrackingFailureReportsARelayJobToThePublicTracker(t *testing.T) {
+	a := newRelayOperationAPI(t)
+	trackingID := uuid.NewString()
+	// RELAY is the other kind this endpoint queues itself, so it is reportable.
+	insertFinalizedJob(t, a, "RELAY", "discarded", trackingID, "relay: batch rejected")
+
+	status, body := getRelayerTrack(t, a, trackingID)
+
+	require.Equal(t, http.StatusGone, status)
+	require.Equal(t, "E22", body.ErrCode)
+	require.Equal(t, "relay: batch rejected", body.Description)
+}
+
 func TestTrackingFailureLeavesAnUnknownIDNotFound(t *testing.T) {
 	a := newRelayOperationAPI(t)
 

@@ -92,7 +92,8 @@ func (a *API) trackOTXHandler(c *echo.Context) error {
 	// job that ended without one has to say so or the caller waits forever.
 	var failure *store.TrackingFailure
 	if len(otxs) == 0 {
-		if failure, err = a.store.TrackingJobFailure(ctx, tx, trackingID); err != nil {
+		// Any kind: this endpoint authenticates and checks ownership above.
+		if failure, err = a.store.TrackingJobFailure(ctx, tx, trackingID, nil); err != nil {
 			return handlePostgresError(c, err)
 		}
 	}

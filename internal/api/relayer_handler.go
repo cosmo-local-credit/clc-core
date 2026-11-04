@@ -253,6 +253,14 @@ func relayerTrackingStatus(otxs []*store.OTX) (status int, errCode, description 
 	return http.StatusOK, "", ""
 }
 
+// publicRelayerJobKinds are the queue kinds the public relayer endpoints
+// enqueue themselves, and so the only ones they may report a failure for.
+// They are the job counterparts of the OTX types isPublicRelayerTrackingChain
+// admits; a deploy, a pool or a Safe execution is a private flow.
+func publicRelayerJobKinds() []string {
+	return []string{worker.RelayArgs{}.Kind(), worker.RelayDelegateArgs{}.Kind()}
+}
+
 // trackingFailureDescription is what the caller is shown for a job that ended
 // without an OTX. The job's own error is the useful part; it names the reason
 // the request was refused, which a generic "not found" never could.
@@ -620,9 +628,13 @@ func (a *API) trackRelayerOTXHandler(c *echo.Context) error {
 	// No OTX row is normally "the worker has not written it yet", which the
 	// caller polls through. A job that ended without one is terminal, and
 	// saying so is the difference between a retry and an endless spinner.
+	//
+	// Only the kinds this unauthenticated endpoint already serves: with no OTX
+	// chain there is nothing for isPublicRelayerTrackingChain to judge, so the
+	// kind filter is what keeps a private flow's diagnostic out of a guess.
 	var failure *store.TrackingFailure
 	if len(otxs) == 0 {
-		if failure, err = a.store.TrackingJobFailure(ctx, tx, req.TrackingID); err != nil {
+		if failure, err = a.store.TrackingJobFailure(ctx, tx, req.TrackingID, publicRelayerJobKinds()); err != nil {
 			return handlePostgresError(c, err)
 		}
 	}
