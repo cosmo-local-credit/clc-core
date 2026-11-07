@@ -1404,7 +1404,7 @@ func TestReservedNoopMigrations(t *testing.T) {
 		up, down, found := strings.Cut(string(content), "---- create above / drop below ----")
 		require.True(t, found, name)
 		for _, section := range []string{up, down} {
-			for _, line := range strings.Split(section, "\n") {
+			for line := range strings.SplitSeq(section, "\n") {
 				line = strings.TrimSpace(line)
 				assert.True(t, line == "" || strings.HasPrefix(line, "--") || line == "SELECT 1;",
 					"%s must hold only comments and SELECT 1: %q", name, line)
