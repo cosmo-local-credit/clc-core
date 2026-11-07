@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -271,6 +273,7 @@ func TestReportMutationRoutesEnforceCredentialKindsBeforeHandlers(t *testing.T) 
 
 	userToken := mintReportToken(t, private, reportAuthorAddress, "USER")
 	adminToken := mintReportToken(t, private, reportAdminAddress, "SUPERADMIN")
+	withSessionAccounts(t, a, userToken)
 	serviceClaims := JWTCustomClaims{
 		PublicKey: reportOtherAddress,
 		Service:   true,
@@ -353,9 +356,9 @@ func TestReportMutationAuthorizationThroughRoutes(t *testing.T) {
 		SigningKey:   private,
 		VerifyingKey: public,
 	})
-	authorToken := mintReportToken(t, private, reportAuthorAddress, "USER")
-	otherToken := mintReportToken(t, private, reportOtherAddress, "USER")
 	cleanupRoleTestUsers(t, a)
+	authorToken := seededSessionToken(t, a, reportAuthorAddress)
+	otherToken := seededSessionToken(t, a, reportOtherAddress)
 	adminUser := seedRoleTestUser(t, a, reportAdminAddress, "ADMIN", "APPROVED")
 	adminToken, err := a.generateUserToken(adminUser)
 	if err != nil {
@@ -554,6 +557,30 @@ func reportStatus(t *testing.T, response *httptest.ResponseRecorder) string {
 	return envelope.Result.Report.Status
 }
 
+// seededSessionToken signs a session for an approved USER account on address,
+// seeding the account unless a fixture already holds it: a session must name
+// the address its account holds now.
+func seededSessionToken(t *testing.T, a *API, address string) string {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin session fixture: %v", err)
+	}
+	user, err := a.store.GetUserByAddress(ctx, tx, address)
+	_ = tx.Rollback(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		user = seedRoleTestUser(t, a, address, "USER", "APPROVED")
+	} else if err != nil {
+		t.Fatalf("look up session fixture: %v", err)
+	}
+	token, err := a.generateUserToken(user)
+	if err != nil {
+		t.Fatalf("sign session fixture: %v", err)
+	}
+	return token
+}
+
 func mintReportToken(t *testing.T, private ed25519.PrivateKey, address, role string) string {
 	t.Helper()
 	claims := UserJWTClaims{
@@ -603,9 +630,9 @@ func TestReportResourceLinksRequireOwnershipThroughRoutes(t *testing.T) {
 		SigningKey:   private,
 		VerifyingKey: public,
 	})
-	authorToken := mintReportToken(t, private, reportAuthorAddress, "USER")
-	otherToken := mintReportToken(t, private, reportOtherAddress, "USER")
 	cleanupRoleTestUsers(t, a)
+	authorToken := seededSessionToken(t, a, reportAuthorAddress)
+	otherToken := seededSessionToken(t, a, reportOtherAddress)
 	adminUser := seedRoleTestUser(t, a, reportAdminAddress, "ADMIN", "APPROVED")
 	adminToken, err := a.generateUserToken(adminUser)
 	if err != nil {

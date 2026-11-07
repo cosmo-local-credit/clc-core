@@ -12,14 +12,12 @@ import (
 )
 
 const (
-	AccountActivityCreation     = "creation"
-	AccountActivitySent         = "sent"
-	AccountActivityReceived     = "received"
-	AccountActivitySwapped      = "swapped"
-	AccountActivityDeposited    = "deposited"
-	AccountActivityWithdrawn    = "withdrawn"
-	AccountActivityFeeWithdrawn = "fee_withdrawn"
-	AccountActivityPoolPayout   = "pool_payout"
+	AccountActivityCreation   = "creation"
+	AccountActivitySent       = "sent"
+	AccountActivityReceived   = "received"
+	AccountActivitySwapped    = "swapped"
+	AccountActivityDeposited  = "deposited"
+	AccountActivityPoolPayout = "pool_payout"
 )
 
 var (
@@ -27,7 +25,7 @@ var (
 		AccountActivityCreation,
 		AccountActivitySent,
 		AccountActivityReceived,
-		AccountActivitySwapped, AccountActivityDeposited, AccountActivityWithdrawn, AccountActivityFeeWithdrawn, AccountActivityPoolPayout,
+		AccountActivitySwapped, AccountActivityDeposited, AccountActivityPoolPayout,
 	}
 )
 
@@ -76,7 +74,6 @@ type (
 		Direction           *string             `db:"direction" json:"direction,omitempty"`
 		InitiatorAddress    *string             `db:"initiator_address" json:"initiatorAddress,omitempty"`
 		PoolName            string              `db:"-" json:"poolName,omitempty"`
-		NominalAmount       *string             `db:"nominal_amount" json:"nominalAmount,omitempty"`
 		HasNote             *bool               `db:"-" json:"hasNote,omitempty"`
 	}
 )
@@ -92,7 +89,7 @@ func NormalizeAccountActivityKinds(values []string) ([]string, error) {
 				continue
 			}
 			switch kind {
-			case AccountActivityCreation, AccountActivitySent, AccountActivityReceived, AccountActivitySwapped, AccountActivityDeposited, AccountActivityWithdrawn, AccountActivityFeeWithdrawn, AccountActivityPoolPayout:
+			case AccountActivityCreation, AccountActivitySent, AccountActivityReceived, AccountActivitySwapped, AccountActivityDeposited, AccountActivityPoolPayout:
 				requested[kind] = true
 			default:
 				return nil, errors.New("types contains an unsupported activity type")

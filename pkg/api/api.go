@@ -275,6 +275,36 @@ type (
 		Signature         string `json:"signature"         validate:"required"`
 	}
 
+	// KeyRotationSIWEProof is a SIWE message whose statement names the
+	// rotation ("Replace sign-in card <old> with <new>") and its signature.
+	KeyRotationSIWEProof struct {
+		Message   string `json:"message"   validate:"required"`
+		Signature string `json:"signature" validate:"required"`
+	}
+
+	// KeyRotationOldProof proves control of the address being replaced: a
+	// passkey assertion when the account has an active passkey, otherwise a
+	// SIWE signature by the old card. Exactly one is set. A passkey signs
+	// util.KeyRotationPasskeyChallenge(statement, Nonce), with Nonce from
+	// POST /auth/nonce, never an issued sign-in challenge.
+	KeyRotationOldProof struct {
+		SIWE     *KeyRotationSIWEProof   `json:"siwe,omitempty"`
+		WebAuthn *WebAuthnRecoverRequest `json:"webauthn,omitempty"`
+		Nonce    string                  `json:"nonce,omitempty"`
+	}
+
+	// KeyRotationRequest moves the caller's account to the new card's address.
+	KeyRotationRequest struct {
+		Old KeyRotationOldProof  `json:"old"`
+		New KeyRotationSIWEProof `json:"new"`
+	}
+
+	// AdminKeyRotationRequest moves another account to a new card without
+	// proof from the old one. Only the new card signs.
+	AdminKeyRotationRequest struct {
+		New KeyRotationSIWEProof `json:"new"`
+	}
+
 	// SIWEVerifyRequest is the unified sign-in / sign-up request.
 	// Both flows share the same endpoint; the server upserts the user.
 	SIWEVerifyRequest struct {
@@ -534,4 +564,14 @@ const (
 	ErrCodeEmailConflict              = "E17"
 	ErrCodePhoneConflict              = "E18"
 	ErrCodeShareUnavailable           = "E19"
+	// ErrCodeAddressRetired: the sign-in card's address was replaced by a key
+	// rotation and can never sign in or register again (HTTP 410).
+	ErrCodeAddressRetired = "E20"
+	// ErrCodePasskeyMoved: the passkey belongs to a rotated account and waits
+	// for the new card to re-register it on the new wallet (HTTP 409).
+	ErrCodePasskeyMoved = "E21"
+	// ErrCodeTrackingFailed: the job behind this tracking ID was discarded or
+	// cancelled, so no OTX will ever be written for it and polling cannot
+	// succeed (HTTP 410). The description carries the job's own error.
+	ErrCodeTrackingFailed = "E22"
 )

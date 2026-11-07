@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 const (
@@ -76,6 +78,50 @@ func TestSTSProposeBodyAndNonce(t *testing.T) {
 	}
 	if body["contractTransactionHash"] != "0xhash" || body["sender"] != "0xsender" || body["nonce"] != float64(9) ||
 		body["data"] != nil || body["operation"] != float64(1) {
+		t.Fatalf("body %v", body)
+	}
+}
+
+// The Transaction Service rejects an address that is not EIP-55, and the
+// field it names is the one in the JSON body. The SafeTx hash is over the
+// 20 bytes, so the checksum must change only the strings it is shown.
+func TestSTSProposeChecksumsAddresses(t *testing.T) {
+	const (
+		safe   = "0x8fc371097031b44aaa0510e21f492072376e7b4f"
+		token  = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+		refund = "0x1234567890abcdef1234567890abcdef12345678"
+	)
+	wantSafe := common.HexToAddress(safe).Hex()
+	wantToken := common.HexToAddress(token).Hex()
+	wantRefund := common.HexToAddress(refund).Hex()
+	if wantSafe == safe || wantToken == token || wantRefund == refund {
+		t.Fatal("fixture is already checksummed")
+	}
+	var (
+		body map[string]any
+		path string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	f := TxFields{
+		To: safe, Value: "0", Data: "0xabcdef", Operation: 0,
+		SafeTxGas: "0", BaseGas: "0", GasPrice: "0",
+		GasToken: token, RefundReceiver: refund, Nonce: "46",
+	}
+	if err := NewSTS(srv.URL, "").Propose(context.Background(), safe, "0xhash", "0xsender", "0xsig", f); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/v1/safes/"+wantSafe+"/multisig-transactions/" {
+		t.Fatalf("path %s", path)
+	}
+	if body["to"] != wantSafe || body["gasToken"] != wantToken || body["refundReceiver"] != wantRefund ||
+		body["sender"] != "0xsender" || body["contractTransactionHash"] != "0xhash" {
 		t.Fatalf("body %v", body)
 	}
 }

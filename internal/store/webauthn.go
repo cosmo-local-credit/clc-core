@@ -18,6 +18,9 @@ const (
 	WebAuthnFailed     = "failed"
 	WebAuthnLegacy     = "legacy"
 	WebAuthnUnverified = "unverified"
+	// WebAuthnMoved is a credential re-pointed at a rotated account's new
+	// address that the new wallet has not registered yet (migration 069).
+	WebAuthnMoved = "moved"
 )
 
 type (
@@ -58,8 +61,9 @@ func (e *WebAuthnRegistrationError) Unwrap() error { return e.Reason }
 
 // CheckWebAuthnRegistration decides whether cred may be recorded as a new
 // pending registration given the row, if any, already holding its credential
-// id. It returns nil when there is no row or the row is a failed attempt at
-// the same mapping, which may be retried.
+// id. It returns nil when there is no row, the row is a failed attempt at the
+// same mapping, which may be retried, or the row was moved to this address by
+// a key rotation and is waiting for the new wallet to register it.
 func CheckWebAuthnRegistration(existing *WebAuthnCredential, cred WebAuthnCredential) error {
 	if existing == nil {
 		return nil
@@ -68,7 +72,7 @@ func CheckWebAuthnRegistration(existing *WebAuthnCredential, cred WebAuthnCreden
 		return &WebAuthnRegistrationError{Reason: ErrWebAuthnCredentialConflict, Existing: *existing}
 	}
 	switch existing.State {
-	case WebAuthnFailed, WebAuthnUnverified:
+	case WebAuthnFailed, WebAuthnUnverified, WebAuthnMoved:
 		return nil
 	case WebAuthnPending:
 		return &WebAuthnRegistrationError{Reason: ErrWebAuthnRegistrationPending, Existing: *existing}

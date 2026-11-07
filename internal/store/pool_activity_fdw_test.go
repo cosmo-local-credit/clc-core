@@ -45,19 +45,15 @@ func TestPoolActivityFDW(t *testing.T) {
     CREATE TABLE SOURCE.pools(contract_address TEXT PRIMARY KEY);
     CREATE TABLE SOURCE.pool_swap(id BIGINT PRIMARY KEY,tx_id BIGINT,log_index BIGINT,contract_address TEXT,
         initiator_address TEXT,token_in_address TEXT,token_out_address TEXT,in_value NUMERIC,out_value NUMERIC,fee NUMERIC);
-    CREATE TABLE SOURCE.pool_withdrawal(id BIGINT PRIMARY KEY,tx_id BIGINT,log_index BIGINT,
-        contract_address TEXT,kind TEXT,initiator_address TEXT,token_address TEXT,recipient_address TEXT,amount NUMERIC);
     INSERT INTO SOURCE.tx SELECT n,'tx-'||n,'2026-10-01',true FROM generate_series(1,100003) n;
     INSERT INTO SOURCE.token_transfer SELECT n,n,1,'token',1,'other','another' FROM generate_series(1,100000) n;
     INSERT INTO SOURCE.pool_swap SELECT n,n,3,'other-pool','other','token','out',1,2,0 FROM generate_series(1,100000) n;
-    INSERT INTO SOURCE.pool_withdrawal SELECT n,n,4,'other-pool','liquidity','other','token','another',1 FROM generate_series(1,100000) n;
     INSERT INTO SOURCE.token_transfer VALUES
         (100001,100001,1,'token',10,'user','pool'),
         (100002,100002,1,'token',10,'user','pool'),
         (100003,100002,2,'out',12,'pool','user'),
         (100004,100003,1,'token',7,'pool','user');
     INSERT INTO SOURCE.pool_swap VALUES (100001,100002,3,'pool','user','token','out',10,12,0);
-    INSERT INTO SOURCE.pool_withdrawal VALUES (100001,100003,2,'pool','liquidity','owner','token','user',7);
     INSERT INTO SOURCE.pools VALUES ('pool');
     CREATE INDEX ON SOURCE.token_transfer(lower(sender_address),tx_id,log_index);
     CREATE INDEX ON SOURCE.token_transfer(lower(recipient_address),tx_id,log_index);
@@ -65,9 +61,7 @@ func TestPoolActivityFDW(t *testing.T) {
     CREATE INDEX ON SOURCE.pool_swap(lower(initiator_address),tx_id);
     CREATE INDEX ON SOURCE.pool_swap(lower(contract_address),tx_id);
     CREATE INDEX ON SOURCE.pool_swap(tx_id);
-    CREATE INDEX ON SOURCE.pool_withdrawal(lower(initiator_address),tx_id);
-    CREATE INDEX ON SOURCE.pool_withdrawal(tx_id);
-    ANALYZE SOURCE.tx; ANALYZE SOURCE.token_transfer; ANALYZE SOURCE.pool_swap; ANALYZE SOURCE.pool_withdrawal;
+    ANALYZE SOURCE.tx; ANALYZE SOURCE.token_transfer; ANALYZE SOURCE.pool_swap;
     `, "SOURCE", identifier(src)))
 	require.NoError(t, err)
 	_, err = source.Exec(ctx, "CREATE SERVER "+identifier(server)+
@@ -104,7 +98,7 @@ func TestPoolActivityFDW(t *testing.T) {
 		rows, queryErr := federation.ListUserActivity(ctx, "user", filter, nil, 20, true)
 		require.NoError(t, queryErr)
 		require.Len(t, rows, 3)
-		require.Equal(t, []string{"withdrawn", "swapped", "deposited"}, []string{rows[0].Kind, rows[1].Kind, rows[2].Kind})
+		require.Equal(t, []string{"pool_payout", "swapped", "deposited"}, []string{rows[0].Kind, rows[1].Kind, rows[2].Kind})
 	}
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)

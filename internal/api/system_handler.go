@@ -88,8 +88,26 @@ func (a *API) trackOTXHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
+	// An empty chain reads as "not written yet" and is polled through, so a
+	// job that ended without one has to say so or the caller waits forever.
+	var failure *store.TrackingFailure
+	if len(otxs) == 0 {
+		// Any kind: this endpoint authenticates and checks ownership above.
+		if failure, err = a.store.TrackingJobFailure(ctx, tx, trackingID, nil); err != nil {
+			return handlePostgresError(c, err)
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
+	}
+
+	if failure != nil {
+		return c.JSON(http.StatusGone, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeTrackingFailed,
+			Description: trackingFailureDescription(failure),
+		})
 	}
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{

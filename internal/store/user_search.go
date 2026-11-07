@@ -59,8 +59,8 @@ type (
 	UserFilter struct {
 		// Term is normalized search text: trimmed, with internal whitespace
 		// collapsed to single spaces. Empty means no search predicate. It is
-		// matched against the identity and contact columns only — name, email,
-		// phone and address.
+		// matched against the identity and contact columns only — name,
+		// username, email, phone and address.
 		Term string
 		// Status narrows to one approval state. Empty means every state.
 		Status UserStatus
@@ -203,8 +203,8 @@ func composeUserPage(filter UserFilter, page CatalogPage, cursor, limit uint64) 
 	return composed{sql: body + userPageProjection, args: args.values}
 }
 
-// userSearchPredicate matches the term against the four columns that identify an
-// account to an operator: name, email, phone and address.
+// userSearchPredicate matches the term against the columns that identify an
+// account to an operator: name, username, email, phone and address.
 //
 // The set stops there on purpose. Country is not searched — a two-letter code is
 // a classification, and folding it into free text makes "KE" answer with every
@@ -212,10 +212,10 @@ func composeUserPage(filter UserFilter, page CatalogPage, cursor, limit uint64) 
 // parameter of its own if the console ever wants one. Role is not searched
 // either: there are three roles and a search is not how anyone finds them.
 //
-// email and phone are nullable, and a NULL never matches a LIKE, so an account
-// missing one is simply not matched on it — no COALESCE is needed and none is
-// wanted, since coalescing a missing email to the empty string would let a
-// two-character prefix search match every account that has none.
+// email, phone and username are nullable, and a NULL never matches a LIKE, so an
+// account missing one is simply not matched on it — no COALESCE is needed and
+// none is wanted, since coalescing a missing email to the empty string would let
+// a two-character prefix search match every account that has none.
 //
 // A pasted address matches here as a substring rather than through the unique
 // index on lower(blockchain_address). That keeps one driving shape instead of
@@ -226,14 +226,14 @@ func userSearchPredicate(args *sqlArgs, filter UserFilter) string {
 		return ""
 	}
 
-	columns := []string{"u.name", "u.email", "u.phone", "u.blockchain_address"}
+	columns := []string{"u.name", "u.username", "u.email", "u.phone", "u.blockchain_address"}
 	pattern := "'%' || lower(%s) || '%'"
 	if filter.prefixOnly() {
 		pattern = "lower(%s) || '%'"
 	}
 
 	// Bound once and reused for every column: the term is one value, and binding
-	// it four times would make the argument list vary with the column count.
+	// it per column would make the argument list vary with the column count.
 	placeholder := args.bind(filter.likeTerm())
 
 	matches := make([]string, 0, len(columns))

@@ -47,3 +47,30 @@ func (pg *Pg) ListOwnedVouchersPrevious(ctx context.Context, tx pgx.Tx, userID u
 	}
 	return vouchers, nil
 }
+
+// ListVouchersOwnedByAddress pages the vouchers address owns directly, retired
+// ones included and Safe-owned ones not, newest first.
+func (pg *Pg) ListVouchersOwnedByAddress(
+	ctx context.Context,
+	tx pgx.Tx,
+	address string,
+	page CatalogPage,
+	cursor, limit uint64,
+) ([]OwnedVoucher, error) {
+	var vouchers []OwnedVoucher
+	var err error
+	switch page {
+	case CatalogNextPage:
+		err = pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListVouchersOwnedByAddressNext, address, cursor, limit)
+	case CatalogPrevPage:
+		err = pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListVouchersOwnedByAddressPrev, address, cursor, limit)
+	case CatalogFirstPage:
+		err = pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListVouchersOwnedByAddress, address, limit)
+	default:
+		err = pgxscan.Select(ctx, tx, &vouchers, pg.queries.ListVouchersOwnedByAddress, address, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return vouchers, nil
+}

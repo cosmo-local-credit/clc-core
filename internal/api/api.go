@@ -210,6 +210,9 @@ func New(o APIOpts) *API {
 	authGroup.POST("/signin", a.signinHandler)
 	authGroup.POST("/logout", a.logoutHandler)
 	authGroup.POST("/webauthn/verify", a.webAuthnSigninHandler)
+	// Replacing a sign-in card authenticates by proofs from both cards, never by
+	// the session cookie; see keyRotationHandler.
+	authGroup.POST("/key-rotation", a.keyRotationHandler)
 	authGroup.GET("/session", a.sessionHandler)
 	// Resolves the session inside the handler, like /session; see its comment.
 	authGroup.GET("/webauthn/credentials", a.webAuthnCredentialsHandler)
@@ -404,6 +407,7 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/retirement-requests", a.ownRetirementRequestsHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
 	userGroup.GET("/me/safes", a.userSafesHandler)
+	userGroup.GET("/me/key-rotations", a.userKeyRotationsHandler)
 	userGroup.GET("/me/shares/eligibility/:address", a.userShareEligibilityHandler)
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
 	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)
@@ -418,6 +422,7 @@ func New(o APIOpts) *API {
 	adminGroup := apiGroup.Group("/admin", a.requireAdmin())
 	adminGroup.GET("/users", a.adminListUsersHandler)
 	adminGroup.PUT("/users/:address/role", a.adminUpdateUserRoleHandler, a.requireSuperAdmin())
+	adminGroup.POST("/users/:address/key-rotation", a.adminKeyRotationHandler, a.requireSuperAdmin())
 	adminGroup.PUT("/users/:address/approve", a.adminApproveUserHandler)
 	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
 	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)

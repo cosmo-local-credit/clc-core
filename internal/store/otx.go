@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -21,6 +22,13 @@ type (
 		CreatedAt      time.Time `db:"created_at" json:"createdAt"`
 		UpdatedAt      time.Time `db:"updated_at" json:"updatedAt"`
 		DispatchStatus string    `db:"status"     json:"status"`
+	}
+
+	// TrackingFailure is a queue job that ended without ever writing an OTX row.
+	TrackingFailure struct {
+		Kind  string
+		State string
+		Error string
 	}
 )
 
@@ -94,6 +102,42 @@ func (pg *Pg) GetOTXByTrackingID(ctx context.Context, tx pgx.Tx, trackingID stri
 	}
 
 	return otxs, nil
+}
+
+// TrackingJobFailure reports a terminally failed job for a tracking ID.
+//
+// A tracking ID is handed to the caller the moment the job is enqueued, before
+// the worker has written its OTX row, so "no OTX" normally means "not yet".
+// When the job is discarded or cancelled instead, no row is ever coming: the
+// caller must be told so rather than left polling an ID that cannot resolve.
+// Only a finalized state counts — a job still retrying is genuinely pending.
+//
+// `kinds` restricts which job kinds may be reported. An unauthenticated caller
+// passes the kinds its endpoint already exposes, so a private flow's diagnostic
+// cannot be read by guessing a tracking ID. Empty means any kind, which only an
+// authenticated and ownership-checked caller may ask for.
+//
+// A failure is only reported while the job row survives: River prunes cancelled
+// jobs after a day and discarded ones after a week, after which the ID answers
+// not-found again. Callers must still bound their own waiting.
+func (pg *Pg) TrackingJobFailure(ctx context.Context, tx pgx.Tx, trackingID string, kinds []string) (*TrackingFailure, error) {
+	var failure TrackingFailure
+	// river_job holds the tracking ID inside args; every kind that reports one
+	// names the field the same way.
+	err := tx.QueryRow(ctx, `
+SELECT kind, state::text, COALESCE(errors[array_length(errors, 1)] ->> 'error', '')
+FROM river_job
+WHERE args->>'trackingId' = $1 AND state IN ('discarded', 'cancelled')
+    AND (cardinality($2::text[]) = 0 OR kind = ANY($2::text[]))
+ORDER BY finalized_at DESC NULLS LAST
+LIMIT 1`, trackingID, kinds).Scan(&failure.Kind, &failure.State, &failure.Error)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &failure, nil
 }
 
 func (pg *Pg) GetOTXByAccount(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]*OTX, error) {

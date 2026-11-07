@@ -17,6 +17,11 @@ const (
 	// duplicate-identity pre-check or never pre-checked at all; we translate
 	// the violation into a 409 conflict rather than surfacing a generic 500 E01.
 	pgUniqueViolation = "23505"
+
+	// retiredAddressConstraint is raised by the users trigger from migration
+	// 069 when an insert or a rotation targets an address a key rotation
+	// retired.
+	retiredAddressConstraint = "users_address_retired"
 )
 
 // userIdentityConflict maps a UNIQUE violation on the users table onto a 409
@@ -45,6 +50,21 @@ func userIdentityConflict(err error) (apiresp.ErrResponse, bool) {
 		resp.Description = "phone number already linked to another account"
 	}
 	return resp, true
+}
+
+func isRetiredAddressError(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.ConstraintName == retiredAddressConstraint
+}
+
+// addressRetired answers a sign-in or signup with a card whose account moved to
+// a new card. Gone rather than not found: the client must not offer sign-up.
+func addressRetired(c *echo.Context) error {
+	return c.JSON(http.StatusGone, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeAddressRetired,
+		Description: "this sign-in card was replaced",
+	})
 }
 
 func (a *API) customHTTPErrorHandler(c *echo.Context, err error) {
