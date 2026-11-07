@@ -77,6 +77,9 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "067_pool_reviews.sql")
 	assert.Contains(t, sqlFiles, "068_admin_username_search_index.sql")
 	assert.Contains(t, sqlFiles, "069_key_rotation.sql")
+	assert.Contains(t, sqlFiles, "070_reserved_noop.sql")
+	assert.Contains(t, sqlFiles, "071_reserved_noop.sql")
+	assert.Contains(t, sqlFiles, "072_reserved_noop.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -170,7 +173,10 @@ func TestMigrationFiles(t *testing.T) {
 				name == "066_optional_want_contact.sql" ||
 				name == "067_pool_reviews.sql" ||
 				name == "068_admin_username_search_index.sql" ||
-				name == "069_key_rotation.sql",
+				name == "069_key_rotation.sql" ||
+				name == "070_reserved_noop.sql" ||
+				name == "071_reserved_noop.sql" ||
+				name == "072_reserved_noop.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -249,6 +255,9 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"067_pool_reviews.sql",
 		"068_admin_username_search_index.sql",
 		"069_key_rotation.sql",
+		"070_reserved_noop.sql",
+		"071_reserved_noop.sql",
+		"072_reserved_noop.sql",
 	}, files)
 }
 
@@ -1386,4 +1395,20 @@ func TestPoolOwnerIndexMigration(t *testing.T) {
 	// The expression has to match ownerPredicate's comparison exactly, or the
 	// index exists and the planner cannot use it.
 	assert.Contains(t, s, "ON pools (lower(owner_address))")
+}
+
+func TestReservedNoopMigrations(t *testing.T) {
+	for _, name := range []string{"070_reserved_noop.sql", "071_reserved_noop.sql", "072_reserved_noop.sql"} {
+		content, err := os.ReadFile(name)
+		require.NoError(t, err)
+		up, down, found := strings.Cut(string(content), "---- create above / drop below ----")
+		require.True(t, found, name)
+		for _, section := range []string{up, down} {
+			for _, line := range strings.Split(section, "\n") {
+				line = strings.TrimSpace(line)
+				assert.True(t, line == "" || strings.HasPrefix(line, "--") || line == "SELECT 1;",
+					"%s must hold only comments and SELECT 1: %q", name, line)
+			}
+		}
+	}
 }
