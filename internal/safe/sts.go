@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 const (
@@ -155,6 +157,16 @@ func (s *STS) do(ctx context.Context, method, path string, body any, out any) er
 	return json.Unmarshal(raw, out)
 }
 
+// checksumAddress is the EIP-55 form the Transaction Service requires. The
+// SafeTx hash is over the 20 bytes, so this does not change
+// contractTransactionHash. A value that is not an address is left as submitted.
+func checksumAddress(s string) string {
+	if !common.IsHexAddress(s) {
+		return s
+	}
+	return common.HexToAddress(s).Hex()
+}
+
 // Propose registers a transaction and its first signature.
 func (s *STS) Propose(ctx context.Context, safe, safeTxHash, sender, signature string, f TxFields) error {
 	var data *string
@@ -162,12 +174,12 @@ func (s *STS) Propose(ctx context.Context, safe, safeTxHash, sender, signature s
 		data = &f.Data
 	}
 	body := map[string]any{
-		"to": f.To, "value": json.Number(f.Value), "data": data, "operation": f.Operation,
-		"gasToken": f.GasToken, "safeTxGas": json.Number(f.SafeTxGas), "baseGas": json.Number(f.BaseGas),
-		"gasPrice": json.Number(f.GasPrice), "refundReceiver": f.RefundReceiver, "nonce": json.Number(f.Nonce),
-		"contractTransactionHash": safeTxHash, "sender": sender, "signature": signature,
+		"to": checksumAddress(f.To), "value": json.Number(f.Value), "data": data, "operation": f.Operation,
+		"gasToken": checksumAddress(f.GasToken), "safeTxGas": json.Number(f.SafeTxGas), "baseGas": json.Number(f.BaseGas),
+		"gasPrice": json.Number(f.GasPrice), "refundReceiver": checksumAddress(f.RefundReceiver), "nonce": json.Number(f.Nonce),
+		"contractTransactionHash": safeTxHash, "sender": checksumAddress(sender), "signature": signature,
 	}
-	return s.do(ctx, http.MethodPost, "/api/v1/safes/"+safe+"/multisig-transactions/", body, nil)
+	return s.do(ctx, http.MethodPost, "/api/v1/safes/"+checksumAddress(safe)+"/multisig-transactions/", body, nil)
 }
 
 // Confirm adds a signature to a proposed transaction.
