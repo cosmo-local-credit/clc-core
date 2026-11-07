@@ -80,6 +80,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "070_reserved_noop.sql")
 	assert.Contains(t, sqlFiles, "071_reserved_noop.sql")
 	assert.Contains(t, sqlFiles, "072_reserved_noop.sql")
+	assert.Contains(t, sqlFiles, "073_drop_recovery_objects.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -176,7 +177,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "069_key_rotation.sql" ||
 				name == "070_reserved_noop.sql" ||
 				name == "071_reserved_noop.sql" ||
-				name == "072_reserved_noop.sql",
+				name == "072_reserved_noop.sql" ||
+				name == "073_drop_recovery_objects.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -258,6 +260,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"070_reserved_noop.sql",
 		"071_reserved_noop.sql",
 		"072_reserved_noop.sql",
+		"073_drop_recovery_objects.sql",
 	}, files)
 }
 
@@ -1411,4 +1414,28 @@ func TestReservedNoopMigrations(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestDropRecoveryObjectsMigration(t *testing.T) {
+	content, err := os.ReadFile("073_drop_recovery_objects.sql")
+	require.NoError(t, err)
+	up, _, found := strings.Cut(string(content), "---- create above / drop below ----")
+	require.True(t, found)
+
+	// A database that never had these objects must pass through unchanged.
+	for line := range strings.SplitSeq(up, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "DROP ") {
+			assert.Contains(t, line, "IF EXISTS", "every drop must tolerate a missing object: %q", line)
+		}
+	}
+	// Populated recovery tables are an audit trail; the migration must stop first.
+	assert.Contains(t, up, "RAISE EXCEPTION 'cannot drop recovery table %: it holds rows'")
+	assert.Less(t, strings.Index(up, "RAISE EXCEPTION"), strings.Index(up, "DROP TRIGGER"))
+	// The catalog identity function is restored before the tables it consulted go.
+	restore := strings.Index(up, "CREATE OR REPLACE FUNCTION sync_catalog_identity()")
+	require.GreaterOrEqual(t, restore, 0)
+	assert.Less(t, restore, strings.Index(up, "DROP TABLE IF EXISTS recovery_identity_supersessions"))
+	assert.NotContains(t, up, "voucher_recoveries r", "the restored function must not read recovery tables")
+	// Rotation's own trigger is not part of what this removes.
+	assert.NotContains(t, up, "users_reject_retired_address")
 }
