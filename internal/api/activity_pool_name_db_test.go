@@ -57,9 +57,6 @@ func TestAccountActivityPoolNamesDB(t *testing.T) {
 		CREATE TABLE pool_swap(tx_id INT REFERENCES tx(id),log_index BIGINT,contract_address VARCHAR(42),
 			initiator_address VARCHAR(42),token_in_address VARCHAR(42),token_out_address VARCHAR(42),
 			in_value NUMERIC,out_value NUMERIC,fee NUMERIC);
-		CREATE TABLE pool_withdrawal(id BIGINT PRIMARY KEY,tx_id INT REFERENCES tx(id),log_index BIGINT,
-			contract_address VARCHAR(42),kind TEXT,initiator_address VARCHAR(42),token_address VARCHAR(42),
-			recipient_address VARCHAR(42),amount NUMERIC);
 		INSERT INTO tx VALUES (1,'0xdeposit','2026-10-30',true),(2,'0xpayout','2026-10-30',true);
 	`)
 	require.NoError(t, err)

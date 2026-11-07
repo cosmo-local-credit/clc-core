@@ -139,8 +139,6 @@ func TestAccountActivityGroupsSwapRoutesAndKeepsUnrelatedTransfersDB(t *testing.
 
 	_, err = tx.Exec(ctx, `
         CREATE TEMP TABLE pools(contract_address TEXT) ON COMMIT DROP;
-        CREATE TEMP TABLE pool_withdrawal(id BIGINT, tx_id BIGINT, contract_address TEXT, kind TEXT,
-            initiator_address TEXT, token_address TEXT, recipient_address TEXT, amount NUMERIC, log_index BIGINT) ON COMMIT DROP;
         CREATE TEMP TABLE tx(
             id BIGINT, tx_hash TEXT, success BOOLEAN, date_block TIMESTAMP
         ) ON COMMIT DROP;
