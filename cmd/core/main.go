@@ -63,10 +63,11 @@ func main() {
 	gasOracleInst := loadGasOracle(chainProvider)
 	accountIndexAddress := loadRegistry(chainProvider)
 	relayerComponent := loadRelayer(pgStore, chainProvider, gasOracleInst)
-	workerComponent := loadWorker(pgStore, federationStore, chainProvider, gasOracleInst, relayerComponent, accountIndexAddress)
+	pubComponent, jsComponent := loadPub()
+	workerComponent := loadWorker(pgStore, federationStore, chainProvider, gasOracleInst, relayerComponent, accountIndexAddress, pubComponent)
 	pretiumComponent := loadPretium()
 	apiComponent := loadAPI(pgStore, federationStore, chainProvider, workerComponent, relayerComponent, pretiumComponent)
-	subComponent, pubComponent := loadSub(pgStore, chainProvider, workerComponent)
+	subComponent := loadSub(pgStore, chainProvider, workerComponent, pubComponent, jsComponent)
 
 	lo.Info("starting clc-core", "build", build)
 

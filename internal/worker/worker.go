@@ -41,6 +41,10 @@ type (
 		// SafeExecutor enables executing confirmed Safe transactions from the
 		// system signer; nil leaves execution to the Safe app.
 		SafeExecutor *safe.Executor
+		// MessagingPublisher publishes the messaging outbox. It is separate from
+		// Pub so wiring it does not also switch on the CUSTODIAL sends in the
+		// dispatch and receipt jobs, which cmd/core has never configured.
+		MessagingPublisher *pub.Pub
 	}
 
 	WorkerContainer struct {
@@ -56,6 +60,7 @@ type (
 		accountIndexAddress common.Address
 		chainID             int64
 		safeExecutor        *safe.Executor
+		messagingPublisher  *pub.Pub
 	}
 )
 
@@ -74,6 +79,7 @@ func New(o WorkerOpts) *WorkerContainer {
 		accountIndexAddress: o.AccountIndexAddress,
 		chainID:             o.ChainID,
 		safeExecutor:        o.SafeExecutor,
+		messagingPublisher:  o.MessagingPublisher,
 	}
 }
 
@@ -187,6 +193,16 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 	}
 
 	if err := river.AddWorkerSafely(workers, &SafeSignersRefreshWorker{wc: wc, reader: safe.NewReader(wc.chainProvider)}); err != nil {
+		return nil, err
+	}
+
+	// A nil interface, not a typed nil, when no publisher is configured, so the
+	// worker reports it rather than panicking.
+	messagingWorker := &MessagingEventWorker{}
+	if wc.messagingPublisher != nil {
+		messagingWorker.pub = wc.messagingPublisher
+	}
+	if err := river.AddWorkerSafely(workers, messagingWorker); err != nil {
 		return nil, err
 	}
 
