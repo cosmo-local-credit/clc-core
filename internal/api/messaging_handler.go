@@ -125,6 +125,14 @@ func (a *API) createConversationHandler(c *echo.Context) error {
 	if recipient.ID == caller {
 		return messagingRespond(c, errMessagingNotFound)
 	}
+
+	// The pair lock comes before the block check, and a block change takes it
+	// too, so a block that commits while this request waits is seen here, row
+	// or no row.
+	low, high := min(caller, recipient.ID), max(caller, recipient.ID)
+	if err := a.store.LockPair(ctx, tx, low, high); err != nil {
+		return err
+	}
 	blocked, err := a.store.BlockedEitherWay(ctx, tx, caller, recipient.ID)
 	if err != nil {
 		return err
@@ -133,7 +141,6 @@ func (a *API) createConversationHandler(c *echo.Context) error {
 		return messagingRespond(c, errMessagingNotFound)
 	}
 
-	low, high := min(caller, recipient.ID), max(caller, recipient.ID)
 	existing, err := a.store.LockDirectPair(ctx, tx, low, high)
 	var conversationID int64
 	switch {
@@ -567,9 +574,10 @@ func (a *API) listBlocksHandler(c *echo.Context) error {
 	return messagingResult(c, http.StatusOK, map[string]any{"items": items})
 }
 
-// PUT /blocks/:address and DELETE /blocks/:address. A block locks the pair's
-// direct conversation first, so a concurrent send either commits before the
-// block or sees it. Only the blocker hears about it.
+// PUT /blocks/:address and DELETE /blocks/:address. A block takes the pair
+// lock, then the pair's direct conversation row, so a concurrent request or
+// send either commits before the block or sees it. Only the blocker hears
+// about it.
 func (a *API) putBlockHandler(c *echo.Context) error {
 	return a.changeBlock(c, true)
 }
@@ -606,8 +614,14 @@ func (a *API) changeBlock(c *echo.Context, block bool) error {
 		return messagingRespond(c, errMessagingNotFound)
 	}
 
+	// The pair lock serializes this with a request, which checks blocks only
+	// after taking it; the row lock serializes it with a send.
+	low, high := min(caller, target.ID), max(caller, target.ID)
+	if err := a.store.LockPair(ctx, tx, low, high); err != nil {
+		return err
+	}
 	var conversationID int64
-	pair, err := a.store.LockDirectPair(ctx, tx, min(caller, target.ID), max(caller, target.ID))
+	pair, err := a.store.LockDirectPair(ctx, tx, low, high)
 	switch {
 	case err == nil:
 		conversationID = pair.ID

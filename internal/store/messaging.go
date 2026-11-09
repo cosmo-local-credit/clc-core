@@ -38,6 +38,7 @@ type (
 		ListConversationViews(context.Context, pgx.Tx, int64, string, *Keyset, int) ([]ConversationView, error)
 		MessagingUnreadCounts(context.Context, pgx.Tx, int64) (MessagingUnread, error)
 		MemberConversation(context.Context, pgx.Tx, int64, int64, bool) (ConversationMembers, error)
+		LockPair(context.Context, pgx.Tx, int64, int64) error
 		LockDirectPair(context.Context, pgx.Tx, int64, int64) (ConversationMembers, error)
 		AdminHelpdeskConversation(context.Context, pgx.Tx, int64, bool) (ConversationMembers, error)
 		InsertDirectConversation(context.Context, pgx.Tx, int64, int64, int64, *string) (int64, bool, error)
@@ -265,6 +266,13 @@ func (pg *Pg) MemberConversation(ctx context.Context, tx pgx.Tx, caller, id int6
 	var members ConversationMembers
 	err := pgxscan.Get(ctx, tx, &members, query, caller, id)
 	return members, err
+}
+
+// LockPair takes the pair's transaction-scoped advisory lock, held by a
+// request and a block change until commit; low < high.
+func (pg *Pg) LockPair(ctx context.Context, tx pgx.Tx, low, high int64) error {
+	_, err := tx.Exec(ctx, pg.queries.MessagingLockPair, low, high)
+	return err
 }
 
 // LockDirectPair locks the pair's direct conversation; low < high.

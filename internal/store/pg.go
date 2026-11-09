@@ -310,6 +310,7 @@ type (
 		MessagingUnreadCounts                  string `query:"messaging-unread-counts"`
 		MessagingMemberConversation            string `query:"messaging-member-conversation"`
 		MessagingLockMemberConversation        string `query:"messaging-lock-member-conversation"`
+		MessagingLockPair                      string `query:"messaging-lock-pair"`
 		MessagingLockDirectPair                string `query:"messaging-lock-direct-pair"`
 		MessagingAdminHelpdeskConversation     string `query:"messaging-admin-helpdesk-conversation"`
 		MessagingAdminLockHelpdeskConversation string `query:"messaging-admin-lock-helpdesk-conversation"`

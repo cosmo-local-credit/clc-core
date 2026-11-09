@@ -11,10 +11,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -597,6 +599,109 @@ func TestMessagingBlocksDB(t *testing.T) {
 	require.Equal(t, 2, f.unread(bob)["direct"])
 	require.Equal(t, http.StatusNotFound, f.do(bob, http.MethodPut, "/api/v2/blocks/"+bob.Address, nil).Code)
 	require.Equal(t, http.StatusNotFound, f.do(bob, http.MethodPut, "/api/v2/blocks/"+randomAddress(t), nil).Code)
+}
+
+// waitForLockWaiters polls until n backends of this database wait on a lock,
+// or reports false if that never happens.
+func (f *msgFixture) waitForLockWaiters(n int) bool {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		if err := f.a.store.Pool().QueryRow(context.Background(), `
+			SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting); err != nil {
+			f.t.Errorf("count lock waiters: %v", err)
+			return false
+		}
+		if waiting >= n {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+// A request racing a block must not get through once the block commits, with
+// or without a conversation row to lock. The schedule is forced: a held
+// user_blocks insert parks PUT /blocks after it has taken its locks, the
+// request starts behind it, and only then is the block let through. The block
+// was first, so the request must see it.
+func TestMessagingRequestRacingBlockDB(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		existing        bool // the pair has a declined row the requester may reopen
+		requesterBlocks bool
+	}{
+		{"rerequest/recipient blocks", true, false},
+		{"rerequest/requester blocks", true, true},
+		{"first request/recipient blocks", false, false},
+		{"first request/requester blocks", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newMessagingFixture(t)
+			requester, recipient := f.approved(), f.approved()
+			ctx := context.Background()
+
+			if tc.existing {
+				// The recipient asked and the requester declined, so only the
+				// requester may reopen it.
+				conv := f.request(recipient, requester)
+				require.Equal(t, http.StatusOK, f.setStatus(requester, conv.ID, "declined").Code)
+			}
+			blocker, blocked := recipient, requester
+			if tc.requesterBlocks {
+				blocker, blocked = requester, recipient
+			}
+
+			hold, err := f.a.store.Pool().Begin(ctx)
+			require.NoError(t, err)
+			defer hold.Rollback(ctx)
+			_, err = hold.Exec(ctx, `INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)`, blocker.ID, blocked.ID)
+			require.NoError(t, err)
+
+			var wg sync.WaitGroup
+			var blockRes, requestRes msgResponse
+			wg.Go(func() { blockRes = f.do(blocker, http.MethodPut, "/api/v2/blocks/"+blocked.Address, nil) })
+			require.True(t, f.waitForLockWaiters(1), "the block parks on the held insert")
+			requestDone := make(chan struct{})
+			wg.Go(func() {
+				defer close(requestDone)
+				requestRes = f.do(requester, http.MethodPost, "/api/v2/conversations", map[string]any{"recipientAddress": recipient.Address})
+			})
+			// The request either finishes on its own or waits behind the block.
+			parked := make(chan bool, 1)
+			go func() { parked <- f.waitForLockWaiters(2) }()
+			select {
+			case <-requestDone:
+			case <-parked:
+			}
+			require.NoError(t, hold.Rollback(ctx))
+			wg.Wait()
+
+			require.Equal(t, http.StatusNoContent, blockRes.Code, blockRes.Raw)
+			unknown := f.do(requester, http.MethodPost, "/api/v2/conversations", map[string]any{"recipientAddress": randomAddress(t)})
+			require.Equal(t, http.StatusNotFound, requestRes.Code, "a request behind a committed block: %s", requestRes.Raw)
+			require.Equal(t, unknown.Raw, requestRes.Raw, "the refusal is the generic not-found")
+
+			var requested int
+			require.NoError(t, f.a.store.Pool().QueryRow(ctx, `
+				SELECT count(*) FROM river_job
+				WHERE kind = 'MESSAGING_EVENT' AND args->>'kind' = 'conversation.requested'
+				  AND (args->'actor'->>'userId')::INT = $1`, requester.ID).Scan(&requested))
+			require.Zero(t, requested, "a refused request enqueues nothing")
+			var status string
+			err = f.a.store.Pool().QueryRow(ctx, `
+				SELECT status FROM conversations
+				WHERE kind = 'direct' AND user_a_id = $1 AND user_b_id = $2`,
+				min(requester.ID, recipient.ID), max(requester.ID, recipient.ID)).Scan(&status)
+			if tc.existing {
+				require.NoError(t, err)
+				require.Equal(t, "declined", status)
+			} else {
+				require.ErrorIs(t, err, pgx.ErrNoRows)
+			}
+		})
+	}
 }
 
 func TestMessagingDailyRequestQuotaDB(t *testing.T) {

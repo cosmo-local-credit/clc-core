@@ -4282,6 +4282,13 @@ WHERE c.id = $2::BIGINT
 FOR UPDATE OF c;
 
 -- The direct conversation of a pair, locked. $1 < $2.
+-- Serializes everything that decides between a pair: a request and a block
+-- or unblock. A block has no row to lock when the pair has never talked, so
+-- the row lock alone lets a first request and a block each miss the other.
+-- Transaction-scoped; $1 < $2.
+--name: messaging-lock-pair
+SELECT pg_advisory_xact_lock(hashtextextended('messaging-pair:' || $1::INT || ':' || $2::INT, 0));
+
 --name: messaging-lock-direct-pair
 SELECT c.id, c.kind, c.status, c.actor_id,
     c.user_a_id, ua.blockchain_address AS user_a_address,
