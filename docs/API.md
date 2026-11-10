@@ -6774,7 +6774,7 @@ Pass `nextCursor` back as `cursor`. A cursor is opaque. `limit` defaults to 30 a
 ### 16.1 `GET /api/v2/conversations`
 
 Query: `kind` (`direct` or `helpdesk`, both when absent), `cursor`, `limit`.
-Ordered by last activity (`lastMessageAt`, else `updatedAt`), newest first.
+Ordered by last activity (the later of `lastMessageAt` and `updatedAt`), newest first.
 A pending request from someone the caller blocked is left out.
 
 ### 16.2 `GET /api/v2/conversations/unread`

@@ -4149,7 +4149,7 @@ WHERE lower(blockchain_address) = lower($1);
 -- unread count and last message. $1 caller, $2 conversation.
 --name: messaging-get-conversation
 SELECT c.id, c.kind, c.status, c.actor_id, c.intro, c.last_message_at, c.created_at, c.updated_at,
-    COALESCE(c.last_message_at, c.updated_at) AS sort_at,
+    GREATEST(c.last_message_at, c.updated_at) AS sort_at,
     peer.id AS peer_id, peer.blockchain_address AS peer_address,
     peer.username AS peer_username, peer.avatar_url AS peer_avatar,
     (c.peer_id IS NOT NULL AND EXISTS (
@@ -4175,8 +4175,11 @@ LEFT JOIN LATERAL (
     FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1
 ) lm ON true;
 
--- The caller's conversations, newest activity first. $2 is the kind or '' for
--- both; $3/$4 the keyset of the previous page's last row, NULL for the first.
+-- The caller's conversations, newest activity first. Activity is the later of
+-- the last message and the last status change (GREATEST skips a NULL), so a
+-- fresh request to reopen an old conversation sorts by the request. $2 is the
+-- kind or '' for both; $3/$4 the keyset of the previous page's last row, NULL
+-- for the first.
 -- A pending request from someone the caller blocked is left out.
 --name: messaging-list-conversations
 WITH mine AS (
@@ -4191,7 +4194,7 @@ WITH mine AS (
     WHERE c.kind = 'helpdesk' AND c.user_a_id = $1::INT
 )
 SELECT c.id, c.kind, c.status, c.actor_id, c.intro, c.last_message_at, c.created_at, c.updated_at,
-    COALESCE(c.last_message_at, c.updated_at) AS sort_at,
+    GREATEST(c.last_message_at, c.updated_at) AS sort_at,
     peer.id AS peer_id, peer.blockchain_address AS peer_address,
     peer.username AS peer_username, peer.avatar_url AS peer_avatar,
     (c.peer_id IS NOT NULL AND EXISTS (
@@ -4210,8 +4213,8 @@ FROM (
       AND NOT (c.status = 'pending' AND c.actor_id <> $1::INT
           AND EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.actor_id))
       AND ($3::TIMESTAMPTZ IS NULL
-          OR (COALESCE(c.last_message_at, c.updated_at), c.id) < ($3::TIMESTAMPTZ, $4::BIGINT))
-    ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC, c.id DESC
+          OR (GREATEST(c.last_message_at, c.updated_at), c.id) < ($3::TIMESTAMPTZ, $4::BIGINT))
+    ORDER BY GREATEST(c.last_message_at, c.updated_at) DESC, c.id DESC
     LIMIT $5::INT
 ) c
 LEFT JOIN users peer ON peer.id = c.peer_id
@@ -4220,7 +4223,7 @@ LEFT JOIN LATERAL (
     SELECT m.id, m.client_id, m.sender_user_id, m.body, m.image_urls, m.created_at
     FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1
 ) lm ON true
-ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC, c.id DESC;
+ORDER BY GREATEST(c.last_message_at, c.updated_at) DESC, c.id DESC;
 
 -- Unread counts for the Activity badge. A message is unread when someone other
 -- than the caller sent it and its id is above the caller's marker; no marker
@@ -4328,7 +4331,7 @@ RETURNING id;
 -- Only whoever declined or revoked may reopen a conversation.
 --name: messaging-rerequest-direct-conversation
 UPDATE conversations
-SET status = 'pending', actor_id = $2::INT, intro = $3, updated_at = CURRENT_TIMESTAMP
+SET status = 'pending', actor_id = $2::INT, intro = $3, updated_at = clock_timestamp()
 WHERE id = $1::BIGINT AND kind = 'direct' AND status IN ('declined', 'revoked')
   AND actor_id = $2::INT
 RETURNING id;
@@ -4337,14 +4340,14 @@ RETURNING id;
 -- cannot both apply. $3 is 'accepted' or 'declined'.
 --name: messaging-respond-direct-request
 UPDATE conversations
-SET status = $3::TEXT, actor_id = $2::INT, updated_at = CURRENT_TIMESTAMP
+SET status = $3::TEXT, actor_id = $2::INT, updated_at = clock_timestamp()
 WHERE id = $1::BIGINT AND kind = 'direct' AND status = 'pending'
   AND $2::INT IN (user_a_id, user_b_id) AND actor_id <> $2::INT
 RETURNING id;
 
 --name: messaging-revoke-direct-conversation
 UPDATE conversations
-SET status = 'revoked', actor_id = $2::INT, updated_at = CURRENT_TIMESTAMP
+SET status = 'revoked', actor_id = $2::INT, updated_at = clock_timestamp()
 WHERE id = $1::BIGINT AND kind = 'direct' AND status = 'accepted'
   AND $2::INT IN (user_a_id, user_b_id)
 RETURNING id;
@@ -4367,20 +4370,25 @@ JOIN users u ON u.id = m.sender_user_id
 WHERE m.sender_user_id = $1::INT AND m.client_id = $2::UUID;
 
 -- Runs under the conversation's row lock, so ids increase in commit order
--- within a conversation.
+-- within a conversation, and so does created_at: it is the time the lock was
+-- held, not the transaction's start, and never earlier than the message before.
 --name: messaging-insert-message
-INSERT INTO messages (conversation_id, sender_user_id, client_id, body, image_urls)
-VALUES ($1::BIGINT, $2::INT, $3::UUID, $4, $5::TEXT[])
+INSERT INTO messages (conversation_id, sender_user_id, client_id, body, image_urls, created_at)
+VALUES ($1::BIGINT, $2::INT, $3::UUID, $4, $5::TEXT[], GREATEST(clock_timestamp(),
+    (SELECT c.last_message_at FROM conversations c WHERE c.id = $1::BIGINT)))
 ON CONFLICT (sender_user_id, client_id) DO NOTHING
 RETURNING id, conversation_id, sender_user_id, client_id, body, image_urls, created_at;
 
+-- Never moves backwards.
 --name: messaging-touch-conversation
-UPDATE conversations SET last_message_at = $2::TIMESTAMPTZ WHERE id = $1::BIGINT;
+UPDATE conversations
+SET last_message_at = GREATEST(last_message_at, $2::TIMESTAMPTZ)
+WHERE id = $1::BIGINT;
 
 -- A user posting to a resolved helpdesk conversation reopens it.
 --name: messaging-reopen-helpdesk
 UPDATE conversations
-SET status = 'open', actor_id = $2::INT, updated_at = CURRENT_TIMESTAMP
+SET status = 'open', actor_id = $2::INT, updated_at = clock_timestamp()
 WHERE id = $1::BIGINT AND kind = 'helpdesk' AND status = 'resolved'
 RETURNING id;
 
@@ -4475,7 +4483,7 @@ RETURNING id;
 -- last keyset, NULL for the first.
 --name: messaging-admin-list-helpdesk
 SELECT c.id, c.status, c.last_message_at, c.created_at, c.updated_at,
-    COALESCE(c.last_message_at, c.updated_at) AS sort_at,
+    GREATEST(c.last_message_at, c.updated_at) AS sort_at,
     c.user_a_id AS user_id, u.blockchain_address AS user_address,
     u.username AS user_username, u.avatar_url AS user_avatar,
     lm.id AS last_message_id, lm.client_id AS last_message_client_id,
@@ -4492,13 +4500,13 @@ LEFT JOIN users su ON su.id = lm.sender_user_id
 WHERE c.kind = 'helpdesk'
   AND ($1::TEXT = '' OR c.status = $1::TEXT)
   AND ($2::TIMESTAMPTZ IS NULL
-      OR (COALESCE(c.last_message_at, c.updated_at), c.id) < ($2::TIMESTAMPTZ, $3::BIGINT))
-ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC, c.id DESC
+      OR (GREATEST(c.last_message_at, c.updated_at), c.id) < ($2::TIMESTAMPTZ, $3::BIGINT))
+ORDER BY GREATEST(c.last_message_at, c.updated_at) DESC, c.id DESC
 LIMIT $4::INT;
 
 --name: messaging-admin-get-helpdesk
 SELECT c.id, c.status, c.last_message_at, c.created_at, c.updated_at,
-    COALESCE(c.last_message_at, c.updated_at) AS sort_at,
+    GREATEST(c.last_message_at, c.updated_at) AS sort_at,
     c.user_a_id AS user_id, u.blockchain_address AS user_address,
     u.username AS user_username, u.avatar_url AS user_avatar,
     lm.id AS last_message_id, lm.client_id AS last_message_client_id,
@@ -4518,7 +4526,7 @@ WHERE c.kind = 'helpdesk' AND c.id = $1::BIGINT;
 -- it is already in that state.
 --name: messaging-admin-set-helpdesk-status
 UPDATE conversations
-SET status = $2::TEXT, actor_id = $3::INT, updated_at = CURRENT_TIMESTAMP
+SET status = $2::TEXT, actor_id = $3::INT, updated_at = clock_timestamp()
 WHERE id = $1::BIGINT AND kind = 'helpdesk' AND status <> $2::TEXT
 RETURNING id;
 
