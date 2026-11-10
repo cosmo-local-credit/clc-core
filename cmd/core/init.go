@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grassrootseconomics/ethutils"
 	"github.com/jackc/pgx/v5"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func notifyShutdown() (context.Context, context.CancelFunc) {
@@ -146,7 +147,7 @@ func loadRegistry(chainProvider *ethutils.Provider) common.Address {
 	return accountIndex
 }
 
-func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer, accountIndexAddress common.Address) *worker.WorkerContainer {
+func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer, accountIndexAddress common.Address, pubInst *pub.Pub) *worker.WorkerContainer {
 	maxWorkers := ko.Int("workers.max")
 	if maxWorkers <= 0 {
 		maxWorkers = runtime.NumCPU() * 2
@@ -163,6 +164,7 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 		AccountIndexAddress: accountIndexAddress,
 		ChainID:             ko.MustInt64("chain.id"),
 		SafeExecutor:        loadSafeExecutor(pgStore, chainProvider),
+		MessagingPublisher:  pubInst,
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)
@@ -172,7 +174,9 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 	return workerContainer
 }
 
-func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *worker.WorkerContainer) (*sub.Sub, *pub.Pub) {
+// loadPub connects to NATS and ensures the streams clc-core publishes to. It
+// runs before the worker, whose messaging outbox job publishes through it.
+func loadPub() (*pub.Pub, jetstream.JetStream) {
 	endpoints := ko.MustStrings("jetstream.endpoints")
 	persistDuration := time.Duration(ko.MustInt("jetstream.persist_duration_hrs")) * time.Hour
 
@@ -185,12 +189,14 @@ func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *wor
 	}
 	lo.Info("connected to NATS", "endpoints", endpoints)
 
-	pubInst := pub.NewPub(pub.PubOpts{
+	return pub.NewPub(pub.PubOpts{
 		PersistDuration: persistDuration,
 		JS:              js,
 		NatsConn:        natsConn,
-	})
+	}), js
+}
 
+func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *worker.WorkerContainer, pubInst *pub.Pub, js jetstream.JetStream) *sub.Sub {
 	subInst, err := sub.NewSub(sub.SubObts{
 		ChainID:     ko.MustInt64("chain.id"),
 		Store:       pgStore,
@@ -212,7 +218,7 @@ func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *wor
 		os.Exit(1)
 	}
 
-	return subInst, pubInst
+	return subInst
 }
 
 func loadRelayer(pgStore store.Store, chainProvider *ethutils.Provider, gasOracle gas.GasOracle) *relayer.Relayer {

@@ -81,6 +81,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "071_reserved_noop.sql")
 	assert.Contains(t, sqlFiles, "072_reserved_noop.sql")
 	assert.Contains(t, sqlFiles, "073_drop_recovery_objects.sql")
+	assert.Contains(t, sqlFiles, "074_messaging.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -178,7 +179,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "070_reserved_noop.sql" ||
 				name == "071_reserved_noop.sql" ||
 				name == "072_reserved_noop.sql" ||
-				name == "073_drop_recovery_objects.sql",
+				name == "073_drop_recovery_objects.sql" ||
+				name == "074_messaging.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -261,6 +263,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"071_reserved_noop.sql",
 		"072_reserved_noop.sql",
 		"073_drop_recovery_objects.sql",
+		"074_messaging.sql",
 	}, files)
 }
 

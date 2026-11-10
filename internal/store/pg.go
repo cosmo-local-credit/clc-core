@@ -301,6 +301,48 @@ type (
 
 		DashboardCatalogSnapshot string `query:"dashboard-catalog-snapshot"`
 		DashboardCatalogSeries   string `query:"dashboard-catalog-series"`
+
+		// Messaging (migration 074).
+		MessagingApprovedUserByAddress         string `query:"messaging-approved-user-by-address"`
+		MessagingUserByAddress                 string `query:"messaging-user-by-address"`
+		MessagingGetConversation               string `query:"messaging-get-conversation"`
+		MessagingListConversations             string `query:"messaging-list-conversations"`
+		MessagingUnreadCounts                  string `query:"messaging-unread-counts"`
+		MessagingMemberConversation            string `query:"messaging-member-conversation"`
+		MessagingLockMemberConversation        string `query:"messaging-lock-member-conversation"`
+		MessagingLockPair                      string `query:"messaging-lock-pair"`
+		MessagingLockDirectPair                string `query:"messaging-lock-direct-pair"`
+		MessagingAdminHelpdeskConversation     string `query:"messaging-admin-helpdesk-conversation"`
+		MessagingAdminLockHelpdeskConversation string `query:"messaging-admin-lock-helpdesk-conversation"`
+		MessagingInsertDirectConversation      string `query:"messaging-insert-direct-conversation"`
+		MessagingRerequestDirectConversation   string `query:"messaging-rerequest-direct-conversation"`
+		MessagingRespondDirectRequest          string `query:"messaging-respond-direct-request"`
+		MessagingRevokeDirectConversation      string `query:"messaging-revoke-direct-conversation"`
+		MessagingBlockedEitherWay              string `query:"messaging-blocked-either-way"`
+		MessagingBlocks                        string `query:"messaging-blocks"`
+		MessagingMessageByClientID             string `query:"messaging-message-by-client-id"`
+		MessagingInsertMessage                 string `query:"messaging-insert-message"`
+		MessagingTouchConversation             string `query:"messaging-touch-conversation"`
+		MessagingReopenHelpdesk                string `query:"messaging-reopen-helpdesk"`
+		MessagingMessagesBefore                string `query:"messaging-messages-before"`
+		MessagingMessagesAfter                 string `query:"messaging-messages-after"`
+		MessagingAdvanceReadMarker             string `query:"messaging-advance-read-marker"`
+		MessagingMessageInConversation         string `query:"messaging-message-in-conversation"`
+		MessagingInsertHelpdesk                string `query:"messaging-insert-helpdesk"`
+		MessagingHelpdeskID                    string `query:"messaging-helpdesk-id"`
+		MessagingListBlocks                    string `query:"messaging-list-blocks"`
+		MessagingInsertBlock                   string `query:"messaging-insert-block"`
+		MessagingDeleteBlock                   string `query:"messaging-delete-block"`
+		MessagingConsumeRequestQuota           string `query:"messaging-consume-request-quota"`
+		MessagingReportableMessage             string `query:"messaging-reportable-message"`
+		MessagingInsertAbuseReport             string `query:"messaging-insert-abuse-report"`
+		MessagingAdminListHelpdesk             string `query:"messaging-admin-list-helpdesk"`
+		MessagingAdminGetHelpdesk              string `query:"messaging-admin-get-helpdesk"`
+		MessagingAdminCounts                   string `query:"messaging-admin-counts"`
+		MessagingAdminSetHelpdeskStatus        string `query:"messaging-admin-set-helpdesk-status"`
+		MessagingAdminListAbuseReports         string `query:"messaging-admin-list-abuse-reports"`
+		MessagingAdminGetAbuseReport           string `query:"messaging-admin-get-abuse-report"`
+		MessagingAdminResolveAbuseReport       string `query:"messaging-admin-resolve-abuse-report"`
 	}
 
 	PgOpts struct {
