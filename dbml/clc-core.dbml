@@ -571,6 +571,109 @@ Table "offering_tags" {
   }
 }
 
+Table "conversations" {
+  "id" int8 [pk, not null, increment]
+  "kind" text [not null]
+  "user_a_id" int4 [not null]
+  "user_b_id" int4
+  "status" text [not null]
+  "actor_id" int4
+  "intro" text
+  "last_message_at" timestamptz
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `(kind = 'direct' AND user_b_id IS NOT NULL AND user_a_id < user_b_id AND status IN ('pending', 'accepted', 'declined', 'revoked')) OR (kind = 'helpdesk' AND user_b_id IS NULL AND status IN ('open', 'resolved'))` [name: 'conversations_shape']
+    `intro IS NULL OR char_length(intro) <= 200` [name: 'conversations_intro_length']
+  }
+
+  Indexes {
+    (user_a_id, user_b_id) [type: btree, unique, name: "conversations_direct_pair_unique", note: 'WHERE kind = direct']
+    user_a_id [type: btree, unique, name: "conversations_helpdesk_user_unique", note: 'WHERE kind = helpdesk']
+    user_b_id [type: btree, name: "conversations_user_b_idx", note: 'WHERE kind = direct']
+    (status, `last_message_at DESC`) [type: btree, name: "conversations_helpdesk_queue_idx", note: 'WHERE kind = helpdesk']
+  }
+}
+
+Table "messages" {
+  "id" int8 [pk, not null, increment]
+  "conversation_id" int8 [not null]
+  "sender_user_id" int4 [not null]
+  "client_id" uuid [not null]
+  "body" text
+  "image_urls" "text[]" [not null, default: '{}']
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `NULLIF(btrim(body), '') IS NOT NULL OR cardinality(image_urls) > 0` [name: 'messages_has_content']
+    `body IS NULL OR char_length(body) <= 2000` [name: 'messages_body_length']
+    `cardinality(image_urls) <= 4` [name: 'messages_image_count']
+  }
+
+  Indexes {
+    (sender_user_id, client_id) [type: btree, unique, name: "messages_client_id_unique"]
+    (conversation_id, `id DESC`) [type: btree, name: "messages_conversation_page_idx"]
+  }
+}
+
+Table "conversation_reads" {
+  "conversation_id" int8 [not null]
+  "user_id" int4 [not null]
+  "last_read_message_id" int8 [not null, note: 'High-water mark, not a foreign key']
+
+  Indexes {
+    (conversation_id, user_id) [pk, type: btree, name: "conversation_reads_pkey"]
+  }
+}
+
+Table "user_blocks" {
+  "blocker_id" int4 [not null]
+  "blocked_id" int4 [not null]
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `blocker_id <> blocked_id` [name: 'user_blocks_distinct']
+  }
+
+  Indexes {
+    (blocker_id, blocked_id) [pk, type: btree, name: "user_blocks_pkey"]
+    blocked_id [type: btree, name: "user_blocks_blocked_idx"]
+  }
+}
+
+Table "abuse_reports" {
+  "id" int8 [pk, not null, increment]
+  "reporter_id" int4 [not null]
+  "reported_user_id" int4 [not null]
+  "message_id" int8
+  "comment" text
+  "status" text [not null, default: 'open']
+  "resolved_by" int4
+  "resolved_at" timestamptz
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Checks {
+    `status IN ('open', 'dismissed', 'actioned')` [name: 'abuse_reports_status']
+    `comment IS NULL OR char_length(comment) <= 1000` [name: 'abuse_reports_comment_length']
+    `reporter_id <> reported_user_id` [name: 'abuse_reports_distinct']
+  }
+
+  Indexes {
+    (status, `created_at DESC`) [type: btree, name: "abuse_reports_queue_idx"]
+  }
+}
+
+Table "messaging_request_quota" {
+  "user_id" int4 [not null]
+  "day" date [not null]
+  "used" int4 [not null]
+
+  Indexes {
+    (user_id, day) [pk, type: btree, name: "messaging_request_quota_pkey"]
+  }
+}
+
 Table "river_job" {
   "id" int8 [pk, not null, increment]
   "state" river_job_state [not null, default: 'available']
@@ -744,3 +847,31 @@ Ref "vouchers_marker_color_fk":"voucher_marker_color"."value" < "vouchers"."mark
 Ref "deployed_tokens_marker_icon_fk":"voucher_marker_icon"."value" < "deployed_tokens"."marker_icon"
 
 Ref "deployed_tokens_marker_color_fk":"voucher_marker_color"."value" < "deployed_tokens"."marker_color"
+
+Ref "conversations_user_a_id_fkey":"users"."id" < "conversations"."user_a_id" [delete: cascade]
+
+Ref "conversations_user_b_id_fkey":"users"."id" < "conversations"."user_b_id" [delete: cascade]
+
+Ref "conversations_actor_id_fkey":"users"."id" < "conversations"."actor_id"
+
+Ref "messages_conversation_id_fkey":"conversations"."id" < "messages"."conversation_id" [delete: cascade]
+
+Ref "messages_sender_user_id_fkey":"users"."id" < "messages"."sender_user_id"
+
+Ref "conversation_reads_conversation_id_fkey":"conversations"."id" < "conversation_reads"."conversation_id" [delete: cascade]
+
+Ref "conversation_reads_user_id_fkey":"users"."id" < "conversation_reads"."user_id" [delete: cascade]
+
+Ref "user_blocks_blocker_id_fkey":"users"."id" < "user_blocks"."blocker_id" [delete: cascade]
+
+Ref "user_blocks_blocked_id_fkey":"users"."id" < "user_blocks"."blocked_id" [delete: cascade]
+
+Ref "abuse_reports_reporter_id_fkey":"users"."id" < "abuse_reports"."reporter_id"
+
+Ref "abuse_reports_reported_user_id_fkey":"users"."id" < "abuse_reports"."reported_user_id"
+
+Ref "abuse_reports_message_id_fkey":"messages"."id" < "abuse_reports"."message_id" [delete: set null]
+
+Ref "abuse_reports_resolved_by_fkey":"users"."id" < "abuse_reports"."resolved_by"
+
+Ref "messaging_request_quota_user_id_fkey":"users"."id" < "messaging_request_quota"."user_id" [delete: cascade]

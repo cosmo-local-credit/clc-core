@@ -77,6 +77,7 @@ type (
 		marketMapGuestLimiter   *marketRateLimiter
 		poolLimiter             *marketRateLimiter
 		recipientLimiter        *marketRateLimiter
+		messageLimiter          *marketRateLimiter
 		marketFacets            *marketFacetCache
 		marketMapCache          *marketMapCache
 		marketMapExecutor       *marketMapExecutor
@@ -119,6 +120,7 @@ func New(o APIOpts) *API {
 		marketMapGuestLimiter: newMarketRateLimiterWithCapacity(marketMapGuestRateLimit, marketMapGuestRateBurst, marketMapRateMaxClients, true, time.Now),
 		poolLimiter:           newMarketRateLimiter(marketRateLimit, marketRateBurst, time.Now),
 		recipientLimiter:      newMarketRateLimiter(recipientRateLimit, recipientRateBurst, time.Now),
+		messageLimiter:        newMarketRateLimiter(messageRateLimit, messageRateBurst, time.Now),
 		marketFacets:          newMarketFacetCache(time.Now),
 		marketMapCache:        newMarketMapCache(time.Now),
 		marketMapExecutor:     newMarketMapExecutor(),
@@ -150,6 +152,7 @@ func New(o APIOpts) *API {
 	a.marketMapGuestLimiter.startSweeper()
 	a.poolLimiter.startSweeper()
 	a.recipientLimiter.startSweeper()
+	a.messageLimiter.startSweeper()
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
 	router := echo.New()
@@ -350,6 +353,24 @@ func New(o APIOpts) *API {
 	apiGroup.POST("/pools/:address/retirement-requests", a.createRetirementRequestHandler, a.requireUserAuth())
 	apiGroup.PUT("/retirement-requests/:id/cancel", a.decideRetirementRequestHandler, a.requireUserAuth())
 
+	// Messaging (clc-app docs/MESSAGING.md). User routes need a user session and
+	// grant a role nothing: each handler checks membership itself. Only POST
+	// /conversations spends the daily request quota; sends spend the
+	// per-minute message limiter.
+	apiGroup.GET("/conversations", a.listConversationsHandler, a.requireUserAuth())
+	apiGroup.GET("/conversations/unread", a.unreadConversationsHandler, a.requireUserAuth())
+	apiGroup.POST("/conversations", a.createConversationHandler, a.requireUserAuth())
+	apiGroup.GET("/conversations/:id", a.getConversationHandler, a.requireUserAuth())
+	apiGroup.PUT("/conversations/:id/status", a.updateConversationStatusHandler, a.requireUserAuth())
+	apiGroup.GET("/conversations/:id/messages", a.listConversationMessagesHandler, a.requireUserAuth())
+	apiGroup.POST("/conversations/:id/messages", a.postConversationMessageHandler, a.requireUserAuth(), a.messageRateLimitMiddleware())
+	apiGroup.PUT("/conversations/:id/read", a.markConversationReadHandler, a.requireUserAuth())
+	apiGroup.POST("/helpdesk", a.helpdeskConversationHandler, a.requireUserAuth())
+	apiGroup.GET("/blocks", a.listBlocksHandler, a.requireUserAuth())
+	apiGroup.PUT("/blocks/:address", a.putBlockHandler, a.requireUserAuth())
+	apiGroup.DELETE("/blocks/:address", a.deleteBlockHandler, a.requireUserAuth())
+	apiGroup.POST("/abuse-reports", a.createAbuseReportHandler, a.requireUserAuth())
+
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")
 		pretiumGroup.POST("/trigger-onramp", a.pretiumTriggerOnrampHandler)
@@ -462,6 +483,15 @@ func New(o APIOpts) *API {
 	adminGroup.PUT("/review-notifications/:id", a.reviewModerateHandler)
 	adminGroup.GET("/reports", a.adminReportsListHandler)
 	adminGroup.GET("/reports/:id", a.adminReportByIDHandler)
+
+	// Messaging moderation. Helpdesk rows only; see messaging_admin_handler.go.
+	adminGroup.GET("/helpdesk", a.adminListHelpdeskHandler)
+	adminGroup.GET("/helpdesk/:id", a.adminGetHelpdeskHandler)
+	adminGroup.GET("/helpdesk/:id/messages", a.adminListHelpdeskMessagesHandler)
+	adminGroup.POST("/helpdesk/:id/messages", a.adminPostHelpdeskMessageHandler, a.messageRateLimitMiddleware())
+	adminGroup.PUT("/helpdesk/:id/status", a.adminSetHelpdeskStatusHandler)
+	adminGroup.GET("/abuse-reports", a.adminListAbuseReportsHandler)
+	adminGroup.PUT("/abuse-reports/:id", a.adminResolveAbuseReportHandler)
 
 	// Dashboard aggregates are a separate group so catalog mutations and
 	// ops totals do not share a route prefix that invites accidental reuse.

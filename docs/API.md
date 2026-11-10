@@ -24,7 +24,8 @@ The code is the source of truth. The generated Swagger files in this folder are 
 13. [Pretium](#13-pretium)
 14. [Current user](#14-current-user)
 15. [Admin](#15-admin)
-16. [Route index](#16-route-index)
+16. [Messaging](#16-messaging)
+17. [Route index](#17-route-index)
 
 ---
 
@@ -173,6 +174,7 @@ Section 4 describes each route and the message format.
 
 Some public routes have a per-client limit.
 Section 7.1 describes the market limit. Section 8.1 describes the pool limit.
+Section 16 describes the messaging limits.
 A client that exceeds a limit gets status 429, code `E11` and a `Retry-After` header.
 
 ---
@@ -6697,7 +6699,210 @@ The row does not include the raw signed transaction.
 
 ---
 
-## 16. Route index
+## 16. Messaging
+
+Direct conversations between two approved users, one helpdesk conversation per user, blocks and abuse reports.
+The design is in clc-app `docs/MESSAGING.md`.
+All routes need a user session; a service token returns `403` with code `E10`.
+People are named by checksummed address. A user id never appears in a response.
+
+**Membership.** Every `/conversations/:id` route loads the conversation and checks that the caller is in it, in one query.
+A conversation the caller is not in returns the same `404` as a missing id.
+A role grants nothing here: an administrator outside a direct conversation also gets `404`.
+
+**One generic `404`.** `404` with code `E07` and description `not found` is the answer for a missing id, a non-member, an unknown address, an address with no approved user, the caller's own address, and an action refused because of a block.
+Nobody can tell that they were blocked.
+
+**Limits.**
+
+| Limit | Applies to | Over the limit |
+|---|---|---|
+| 100 requests per user per UTC day | `POST /api/v2/conversations` only. A request that fails is not counted. | `429`, `E11`, `Retry-After` until the next UTC midnight |
+| 30 messages per user per minute (per instance) | `POST /api/v2/conversations/:id/messages` and `POST /api/v2/admin/helpdesk/:id/messages` | `429`, `E11`, `Retry-After` |
+
+**Text limits.** `body` at most 2000 characters, `intro` at most 200, a report `comment` at most 1000, at most 4 `imageUrls`.
+Each image URL must be an absolute `http(s)` URL. A message needs text, an image, or both; whitespace alone is not text.
+
+**Paging.** List routes return `{ "items": [...], "nextCursor": string | null }`.
+Pass `nextCursor` back as `cursor`. A cursor is opaque. `limit` defaults to 30 and is capped at 100.
+
+**Conversation.**
+
+```json
+{
+  "id": 12,
+  "kind": "direct",
+  "status": "pending",
+  "peer": { "address": "0x...", "username": "bob", "avatar": null },
+  "intro": "Hi from the market",
+  "requestedBySelf": true,
+  "canAccept": false,
+  "canRequest": false,
+  "blocked": false,
+  "lastMessage": null,
+  "lastMessageAt": null,
+  "lastReadMessageId": null,
+  "unreadCount": 0,
+  "createdAt": "2026-11-09T10:00:00Z",
+  "updatedAt": "2026-11-09T10:00:00Z"
+}
+```
+
+`kind` is `direct` or `helpdesk`. A direct `status` is `pending`, `accepted`, `declined` or `revoked`; a helpdesk `status` is `open` or `resolved`.
+`peer` is `null` for helpdesk.
+`requestedBySelf` is true when the caller made the current status of a direct conversation.
+`canAccept` is true for a pending conversation the caller did not request.
+`canRequest` is true for a declined or revoked conversation the caller closed.
+`blocked` is true when the caller has blocked the peer.
+
+**Message.**
+
+```json
+{
+  "id": 456,
+  "conversationId": 12,
+  "clientId": "5f0c2f7e-0a0b-4a51-9d2c-3d6c1c3f0e11",
+  "sender": "self",
+  "body": "Hello",
+  "imageUrls": [],
+  "createdAt": "2026-11-09T10:00:00Z"
+}
+```
+
+`sender` is relative to the caller: `self`, `peer`, or `support` for an administrator's reply in helpdesk.
+
+### 16.1 `GET /api/v2/conversations`
+
+Query: `kind` (`direct` or `helpdesk`, both when absent), `cursor`, `limit`.
+Ordered by last activity (the later of `lastMessageAt` and `updatedAt`), newest first.
+A pending request from someone the caller blocked is left out.
+
+### 16.2 `GET /api/v2/conversations/unread`
+
+Returns `{ "direct": 3, "requests": 1, "helpdesk": 0 }`.
+A message is unread when someone other than the caller sent it and its id is above the caller's read marker.
+`direct` counts unread messages in every direct conversation, whatever its status. `requests` counts pending conversations the caller did not request. Both leave out anyone the caller blocked.
+`helpdesk` counts unread support replies.
+
+### 16.3 `POST /api/v2/conversations`
+
+Body: `{ "recipientAddress": "0x...", "intro": "optional" }`.
+Requests a direct conversation and returns `201` with the conversation, status `pending`.
+A conversation that the caller declined or revoked is reopened. Any other existing conversation returns `409` with code `E16`; only the person who declined or revoked may reopen one.
+Spends one of the caller's 100 daily requests.
+
+### 16.4 `GET /api/v2/conversations/:id`
+
+Returns the conversation.
+
+### 16.5 `PUT /api/v2/conversations/:id/status`
+
+Body: `{ "status": "accepted" | "declined" | "revoked" }`. Returns the conversation.
+Accept and decline need a pending conversation the caller did not request. Revoke needs an accepted one.
+A member whose conversation is in the wrong state gets `409`. A block does not change the status.
+
+### 16.6 `GET /api/v2/conversations/:id/messages`
+
+Query: `before` or `after` (a message id; both together return `400`), `limit` (default 50, at most 100).
+Returns `{ "items": Message[], "hasMore": boolean }` with items in ascending id order.
+Without a cursor, or with `before`, it returns the newest `limit` messages below `before`; `hasMore` means older messages exist.
+With `after`, it returns the oldest `limit` messages above `after`; `hasMore` means newer messages exist.
+History stays readable after a revoke or a block.
+
+### 16.7 `POST /api/v2/conversations/:id/messages`
+
+Body: `{ "clientId": "uuid", "body": "optional", "imageUrls": ["https://..."] }`.
+Returns `201` with the message.
+A repeated `clientId` returns `200` with the stored message and stores nothing. A `clientId` the caller used in another conversation returns `409`.
+A direct conversation must be `accepted` (`409` otherwise) and have no block in either direction (generic `404`).
+Posting to a resolved helpdesk conversation reopens it.
+
+### 16.8 `PUT /api/v2/conversations/:id/read`
+
+Body: `{ "lastReadMessageId": 456 }`. Returns `204`.
+The marker only moves forward: an older id leaves it where it is. An id from another conversation, or one that does not exist, returns `404`.
+
+### 16.9 `POST /api/v2/helpdesk`
+
+Returns the caller's helpdesk conversation: `201` when this call created it, `200` when it existed.
+The caller posts to it through `POST /api/v2/conversations/:id/messages`.
+
+### 16.10 Blocks
+
+| Method | Path | Result |
+|---|---|---|
+| GET | `/api/v2/blocks` | `{ "items": [{ "address", "username", "avatar", "createdAt" }] }`, newest first |
+| PUT | `/api/v2/blocks/:address` | `204`. Blocks an approved user. Repeating it changes nothing. |
+| DELETE | `/api/v2/blocks/:address` | `204`. Unblocking restores the conversation as it was. |
+
+### 16.11 `POST /api/v2/abuse-reports`
+
+Body: `{ "reportedAddress": "0x...", "messageId": 456, "comment": "optional" }`. Returns `201` with `{ "id": 9 }`.
+`messageId` is optional. It must name a message the reported user sent, in a conversation the caller belongs to; otherwise the route returns `404`.
+
+### 16.12 Admin helpdesk and reports
+
+**Access:** Administrative (`ADMIN` or `SUPERADMIN`). These routes read and write helpdesk conversations only.
+An administrator can read a direct message only when it is attached to an abuse report.
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| GET | `/api/v2/admin/helpdesk` | `status` (`open`, `resolved`), `cursor`, `limit` | `{ items: HelpdeskItem[], nextCursor }` |
+| GET | `/api/v2/admin/helpdesk/:id` | | `HelpdeskItem` |
+| GET | `/api/v2/admin/helpdesk/:id/messages` | `before` or `after`, `limit` | `{ items: AdminMessage[], hasMore }` |
+| POST | `/api/v2/admin/helpdesk/:id/messages` | `{ clientId, body?, imageUrls? }` | `201`, or `200` for a repeated `clientId`: `AdminMessage` |
+| PUT | `/api/v2/admin/helpdesk/:id/status` | `{ status: "open" \| "resolved" }` | `HelpdeskItem` |
+| GET | `/api/v2/admin/abuse-reports` | `status` (`open`, `dismissed`, `actioned`), `cursor`, `limit` | `{ items: AbuseReport[], nextCursor }` |
+| PUT | `/api/v2/admin/abuse-reports/:id` | `{ status: "dismissed" \| "actioned" }` | `AbuseReport`; `409` once decided |
+
+A `HelpdeskItem` is `{ id, status, user: { address, username, avatar }, lastMessage, lastMessageAt, needsReply, createdAt, updatedAt }`.
+`needsReply` is true when the conversation is open and the user sent the last message.
+An `AdminMessage` is a message whose `sender` is `user` or `support`, plus `adminAddress`, the replying administrator's address for a support message.
+An `AbuseReport` is `{ id, status, reporter, reported, message: { id, body, imageUrls, createdAt } | null, comment, resolvedBy, resolvedAt, createdAt }`, where `resolvedBy` is an address.
+
+### 16.13 Events
+
+Every state change queues its event in the same transaction, as a River job (`MESSAGING_EVENT`, 10 attempts).
+The worker publishes it to the JetStream stream `MESSAGING` on subject `MESSAGING.<kind>`, with `Nats-Msg-Id` set to `eventId`.
+clc-app-notifications consumes the stream.
+
+```json
+{
+  "eventId": "0f8c...",
+  "kind": "message.created",
+  "occurredAt": "2026-11-09T10:00:00Z",
+  "conversationId": 123,
+  "conversationKind": "direct",
+  "messageId": 456,
+  "actor": { "userId": 1, "address": "0xAbC..." },
+  "audience": [
+    { "userId": 2, "address": "0xDeF...", "push": true },
+    { "userId": 1, "address": "0xAbC...", "push": false }
+  ]
+}
+```
+
+`messageId` is present only on `message.created`. `conversationId` is `0` for a block between two people with no conversation.
+
+| Event | Audience | Push |
+|---|---|---|
+| `message.created` (direct) | Both members | The other member |
+| `message.created` (helpdesk, user) | The user | None |
+| `message.created` (helpdesk, reply) | The user | The user |
+| `conversation.requested` | Both members | The recipient |
+| `conversation.accepted` | Both members | The requester, unless they have blocked the accepter |
+| `conversation.declined` | Both members | None |
+| `conversation.revoked` | Both members | None |
+| `helpdesk.status_changed` | The user | None |
+| `conversation.read` | The reader | None |
+| `block.changed` | The blocker | None |
+
+`helpdesk.status_changed` is also sent when a helpdesk conversation is created or a user's post reopens it.
+A retried send with the same `clientId`, a read marker that does not move, a repeated block and a status that is already set send no event.
+
+---
+
+## 17. Route index
 
 This table lists every route. The "Access" column shows the access level.
 Routes marked with * exist only when the related feature is configured: `/api/v2/pretium/*` needs Pretium, and `/api/v2/accounts/*` and `/api/v2/federation/*` need federation.
@@ -6845,6 +7050,26 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/admin/transactions/vouchers` | Administrative |
 | GET | `/api/v2/admin/transactions/pools` | Administrative |
 | GET | `/api/v2/admin/transactions/otx` | Administrative |
+| GET | `/api/v2/conversations` | User session |
+| GET | `/api/v2/conversations/unread` | User session |
+| POST | `/api/v2/conversations` | User session |
+| GET | `/api/v2/conversations/:id` | User session (member) |
+| PUT | `/api/v2/conversations/:id/status` | User session (member) |
+| GET | `/api/v2/conversations/:id/messages` | User session (member) |
+| POST | `/api/v2/conversations/:id/messages` | User session (member) |
+| PUT | `/api/v2/conversations/:id/read` | User session (member) |
+| POST | `/api/v2/helpdesk` | User session |
+| GET | `/api/v2/blocks` | User session |
+| PUT | `/api/v2/blocks/:address` | User session |
+| DELETE | `/api/v2/blocks/:address` | User session |
+| POST | `/api/v2/abuse-reports` | User session |
+| GET | `/api/v2/admin/helpdesk` | Administrative |
+| GET | `/api/v2/admin/helpdesk/:id` | Administrative |
+| GET | `/api/v2/admin/helpdesk/:id/messages` | Administrative |
+| POST | `/api/v2/admin/helpdesk/:id/messages` | Administrative |
+| PUT | `/api/v2/admin/helpdesk/:id/status` | Administrative |
+| GET | `/api/v2/admin/abuse-reports` | Administrative |
+| PUT | `/api/v2/admin/abuse-reports/:id` | Administrative |
 | GET | `/api/v2/federation/system`* | User or service token |
 | GET | `/api/v2/relayer/health` | Public |
 | GET | `/api/v2/relayer/nonce/:address` | Public |

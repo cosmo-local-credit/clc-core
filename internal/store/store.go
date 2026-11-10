@@ -13,6 +13,7 @@ type (
 	Store interface {
 		ListTransferSearchTokens(context.Context, pgx.Tx, CatalogFilter) ([]string, error)
 		CuratedCatalogStore
+		MessagingStore
 		SuggestUsername(context.Context, pgx.Tx, string) (string, error)
 		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)
 		ResolveRecipient(context.Context, pgx.Tx, string, int64, bool) (Recipient, error)

@@ -2,6 +2,7 @@ package pub
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -25,6 +26,8 @@ type (
 
 const (
 	pushStream = "CUSTODIAL"
+
+	messagingDuplicateWindow = 10 * time.Minute
 )
 
 var (
@@ -43,6 +46,19 @@ func NewPub(o PubOpts) *Pub {
 		MaxAge:     o.PersistDuration,
 		Storage:    jetstream.FileStorage,
 		Duplicates: time.Minute,
+	})
+
+	// Messaging events for clc-app-notifications. The duplicate window covers
+	// the outbox job's early retries; anything later is deduplicated by the
+	// consumer on eventId. CreateOrUpdate so a changed config reaches an
+	// existing stream; a failure here surfaces as a failed publish, which the
+	// job retries.
+	_, _ = o.JS.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name:       event.MessagingStream,
+		Subjects:   []string{event.MessagingSubjectPrefix + ">"},
+		MaxAge:     o.PersistDuration,
+		Storage:    jetstream.FileStorage,
+		Duplicates: messagingDuplicateWindow,
 	})
 
 	return &Pub{
@@ -73,4 +89,23 @@ func (p *Pub) Send(ctx context.Context, payload event.Event) error {
 	}
 
 	return nil
+}
+
+// PublishMessaging publishes one messaging event on MESSAGING.<kind>, with
+// Nats-Msg-Id set to its eventId so JetStream drops a retry inside the
+// duplicate window. Unlike Send, the caller is the outbox worker and an error
+// is returned for River to retry.
+func (p *Pub) PublishMessaging(ctx context.Context, payload event.MessagingEvent) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = p.js.Publish(
+		ctx,
+		event.MessagingSubjectPrefix+payload.Kind,
+		data,
+		jetstream.WithMsgID(payload.EventID),
+		jetstream.WithExpectStream(event.MessagingStream),
+	)
+	return err
 }
