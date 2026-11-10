@@ -338,6 +338,7 @@ type (
 		MessagingInsertAbuseReport             string `query:"messaging-insert-abuse-report"`
 		MessagingAdminListHelpdesk             string `query:"messaging-admin-list-helpdesk"`
 		MessagingAdminGetHelpdesk              string `query:"messaging-admin-get-helpdesk"`
+		MessagingAdminCounts                   string `query:"messaging-admin-counts"`
 		MessagingAdminSetHelpdeskStatus        string `query:"messaging-admin-set-helpdesk-status"`
 		MessagingAdminListAbuseReports         string `query:"messaging-admin-list-abuse-reports"`
 		MessagingAdminGetAbuseReport           string `query:"messaging-admin-get-abuse-report"`

@@ -6788,6 +6788,7 @@ A message is unread when someone other than the caller sent it and its id is abo
 
 Body: `{ "recipientAddress": "0x...", "intro": "optional" }`.
 Requests a direct conversation and returns `201` with the conversation, status `pending`.
+A non-empty `intro` is also stored as the requester's first message, so it stays in the history after the request is answered. While the request waits on the recipient it counts under `requests` in the unread counts, not under `direct`.
 A conversation that the caller declined or revoked is reopened. Any other existing conversation returns `409` with code `E16`; only the person who declined or revoked may reopen one.
 Spends one of the caller's 100 daily requests.
 
@@ -6847,6 +6848,7 @@ An administrator can read a direct message only when it is attached to an abuse 
 
 | Method | Path | Body / query | Response |
 |---|---|---|---|
+| GET | `/api/v2/admin/messaging/counts` | | `{ helpdeskNeedsReply, abuseReportsOpen }`: open helpdesk conversations whose newest message is the user's, and open reports |
 | GET | `/api/v2/admin/helpdesk` | `status` (`open`, `resolved`), `cursor`, `limit` | `{ items: HelpdeskItem[], nextCursor }` |
 | GET | `/api/v2/admin/helpdesk/:id` | | `HelpdeskItem` |
 | GET | `/api/v2/admin/helpdesk/:id/messages` | `before` or `after`, `limit` | `{ items: AdminMessage[], hasMore }` |
@@ -7063,6 +7065,7 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | PUT | `/api/v2/blocks/:address` | User session |
 | DELETE | `/api/v2/blocks/:address` | User session |
 | POST | `/api/v2/abuse-reports` | User session |
+| GET | `/api/v2/admin/messaging/counts` | Administrative |
 | GET | `/api/v2/admin/helpdesk` | Administrative |
 | GET | `/api/v2/admin/helpdesk/:id` | Administrative |
 | GET | `/api/v2/admin/helpdesk/:id/messages` | Administrative |

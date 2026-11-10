@@ -4246,11 +4246,14 @@ WITH mine AS (
     WHERE mine.peer_id IS NULL OR NOT EXISTS (
         SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = mine.peer_id)
 ), unread AS (
+    -- A request waiting on the caller counts once, under requests: its intro
+    -- message is not also a direct unread.
     SELECT visible.kind, count(*)::INT AS n
     FROM visible
     JOIN messages m ON m.conversation_id = visible.id
     LEFT JOIN conversation_reads r ON r.conversation_id = visible.id AND r.user_id = $1::INT
     WHERE m.sender_user_id <> $1::INT AND m.id > COALESCE(r.last_read_message_id, 0)
+      AND NOT (visible.kind = 'direct' AND visible.status = 'pending' AND visible.actor_id <> $1::INT)
     GROUP BY visible.kind
 )
 SELECT
@@ -4503,6 +4506,16 @@ WHERE c.kind = 'helpdesk'
       OR (GREATEST(c.last_message_at, c.updated_at), c.id) < ($2::TIMESTAMPTZ, $3::BIGINT))
 ORDER BY GREATEST(c.last_message_at, c.updated_at) DESC, c.id DESC
 LIMIT $4::INT;
+
+-- The admin sidebar counters: open helpdesk conversations whose newest
+-- message is the user's (the queue's needsReply), and open abuse reports.
+--name: messaging-admin-counts
+SELECT
+    (SELECT count(*) FROM conversations c
+        WHERE c.kind = 'helpdesk' AND c.status = 'open'
+          AND (SELECT m.sender_user_id FROM messages m
+              WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) = c.user_a_id)::INT AS helpdesk_needs_reply,
+    (SELECT count(*) FROM abuse_reports WHERE status = 'open')::INT AS abuse_reports_open;
 
 --name: messaging-admin-get-helpdesk
 SELECT c.id, c.status, c.last_message_at, c.created_at, c.updated_at,

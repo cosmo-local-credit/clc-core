@@ -485,6 +485,7 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/reports/:id", a.adminReportByIDHandler)
 
 	// Messaging moderation. Helpdesk rows only; see messaging_admin_handler.go.
+	adminGroup.GET("/messaging/counts", a.adminMessagingCountsHandler)
 	adminGroup.GET("/helpdesk", a.adminListHelpdeskHandler)
 	adminGroup.GET("/helpdesk/:id", a.adminGetHelpdeskHandler)
 	adminGroup.GET("/helpdesk/:id/messages", a.adminListHelpdeskMessagesHandler)

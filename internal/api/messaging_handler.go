@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/pkg/event"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -165,6 +166,24 @@ func (a *API) createConversationHandler(c *echo.Context) error {
 		}
 	default:
 		return err
+	}
+
+	// The intro is the requester's first message, so it stays in the history
+	// once the request is answered. The row is locked by now, as every send
+	// requires. No message event: the request's own push carries it.
+	if intro != nil {
+		message, _, err := a.store.InsertMessage(ctx, tx, store.MessageWrite{
+			ConversationID: conversationID,
+			SenderUserID:   caller,
+			ClientID:       uuid.NewString(),
+			Body:           intro,
+		})
+		if err != nil {
+			return err
+		}
+		if err := a.store.TouchConversation(ctx, tx, conversationID, message.CreatedAt); err != nil {
+			return err
+		}
 	}
 
 	ev := newMessagingEvent(event.ConversationRequested, conversationID, store.ConversationDirect, caller, callerAddress, time.Now())

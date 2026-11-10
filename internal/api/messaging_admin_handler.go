@@ -16,6 +16,25 @@ import (
 // conversations or reads their messages. The one direct message an admin can
 // see is the one attached to an abuse report.
 
+// GET /admin/messaging/counts: the console's sidebar counters.
+func (a *API) adminMessagingCountsHandler(c *echo.Context) error {
+	ctx := c.Request().Context()
+	tx, err := a.messagingReadTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	counts, err := a.store.AdminMessagingCounts(ctx, tx)
+	if err != nil {
+		return err
+	}
+	return messagingResult(c, http.StatusOK, map[string]int{
+		"helpdeskNeedsReply": counts.HelpdeskNeedsReply,
+		"abuseReportsOpen":   counts.AbuseReportsOpen,
+	})
+}
+
 // GET /admin/helpdesk?status=&cursor=&limit=
 func (a *API) adminListHelpdeskHandler(c *echo.Context) error {
 	status := c.QueryParam("status")

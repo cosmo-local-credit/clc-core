@@ -63,6 +63,7 @@ type (
 		InsertAbuseReport(context.Context, pgx.Tx, int64, int64, *int64, *string) (int64, error)
 		ListAdminHelpdesk(context.Context, pgx.Tx, string, *Keyset, int) ([]AdminHelpdeskRow, error)
 		GetAdminHelpdesk(context.Context, pgx.Tx, int64) (AdminHelpdeskRow, error)
+		AdminMessagingCounts(context.Context, pgx.Tx) (AdminMessagingCounts, error)
 		SetAdminHelpdeskStatus(context.Context, pgx.Tx, int64, string, int64) (bool, error)
 		ListAbuseReports(context.Context, pgx.Tx, string, *Keyset, int) ([]AbuseReportRow, error)
 		GetAbuseReport(context.Context, pgx.Tx, int64) (AbuseReportRow, error)
@@ -125,6 +126,11 @@ type (
 		Direct   int `db:"direct"`
 		Requests int `db:"requests"`
 		Helpdesk int `db:"helpdesk"`
+	}
+
+	AdminMessagingCounts struct {
+		HelpdeskNeedsReply int `db:"helpdesk_needs_reply"`
+		AbuseReportsOpen   int `db:"abuse_reports_open"`
 	}
 
 	Message struct {
@@ -460,6 +466,12 @@ func (pg *Pg) ListAdminHelpdesk(ctx context.Context, tx pgx.Tx, status string, a
 	var rows []AdminHelpdeskRow
 	err := pgxscan.Select(ctx, tx, &rows, pg.queries.MessagingAdminListHelpdesk, status, at, id, limit)
 	return rows, err
+}
+
+func (pg *Pg) AdminMessagingCounts(ctx context.Context, tx pgx.Tx) (AdminMessagingCounts, error) {
+	var counts AdminMessagingCounts
+	err := pgxscan.Get(ctx, tx, &counts, pg.queries.MessagingAdminCounts)
+	return counts, err
 }
 
 func (pg *Pg) GetAdminHelpdesk(ctx context.Context, tx pgx.Tx, id int64) (AdminHelpdeskRow, error) {

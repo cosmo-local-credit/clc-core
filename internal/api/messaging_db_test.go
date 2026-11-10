@@ -280,7 +280,12 @@ func TestMessagingRequestAcceptSendReadDB(t *testing.T) {
 	require.True(t, seen.CanAccept)
 	require.False(t, seen.RequestedBySelf)
 	require.Equal(t, alice.Address, seen.Peer.Address)
-	require.Equal(t, map[string]int{"direct": 0, "requests": 1, "helpdesk": 0}, f.unread(bob))
+	require.Equal(t, map[string]int{"direct": 0, "requests": 1, "helpdesk": 0}, f.unread(bob),
+		"the intro counts once, as the request")
+	require.NotNil(t, seen.LastMessage, "the intro is the first message")
+	require.Equal(t, "hi from the market", *seen.LastMessage.Body)
+	require.Equal(t, "peer", seen.LastMessage.Sender)
+	intro := seen.LastMessage.ID
 
 	// A pending conversation takes no messages, and a requester cannot accept.
 	require.Equal(t, http.StatusConflict, f.send(alice, conv.ID, uuid.NewString(), "early").Code)
@@ -290,6 +295,7 @@ func TestMessagingRequestAcceptSendReadDB(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.Code, res.Raw)
 	res.decode(t, &seen)
 	require.Equal(t, "accepted", seen.Status)
+	require.Equal(t, 1, f.unread(bob)["direct"], "once accepted, an unread intro is a message")
 	jobs = f.jobs(conv.ID)
 	require.Equal(t, "conversation.accepted", jobs[len(jobs)-1].Kind)
 	require.Equal(t, map[int64]bool{alice.ID: true, bob.ID: false}, jobs[len(jobs)-1].Audience, "the requester is pushed")
@@ -331,8 +337,11 @@ func TestMessagingRequestAcceptSendReadDB(t *testing.T) {
 		HasMore bool               `json:"hasMore"`
 	}
 	res.decode(t, &page)
-	require.Len(t, page.Items, 3)
-	require.Equal(t, []string{"peer", "self", "self"}, []string{page.Items[0].Sender, page.Items[1].Sender, page.Items[2].Sender})
+	require.Len(t, page.Items, 4)
+	require.Equal(t, intro, page.Items[0].ID, "the intro stays in the history")
+	require.Equal(t, "hi from the market", *page.Items[0].Body)
+	require.Equal(t, []string{"peer", "peer", "self", "self"},
+		[]string{page.Items[0].Sender, page.Items[1].Sender, page.Items[2].Sender, page.Items[3].Sender})
 	require.False(t, page.HasMore)
 
 	// Unread for Alice: Bob's two messages; her own never count.
@@ -447,10 +456,16 @@ func TestMessagingRequestTargetsAndRerequestDB(t *testing.T) {
 
 	// Only the decliner can reopen it.
 	require.Equal(t, http.StatusConflict, f.do(alice, http.MethodPost, "/api/v2/conversations", map[string]any{"recipientAddress": bob.Address}).Code)
-	reopened := f.request(bob, alice)
+	res = f.do(bob, http.MethodPost, "/api/v2/conversations", map[string]any{"recipientAddress": alice.Address, "intro": "second try"})
+	require.Equal(t, http.StatusCreated, res.Code, res.Raw)
+	var reopened messagingConversation
+	res.decode(t, &reopened)
 	require.Equal(t, conv.ID, reopened.ID)
 	require.Equal(t, "pending", reopened.Status)
 	require.True(t, reopened.RequestedBySelf)
+	require.NotNil(t, reopened.LastMessage, "a reopening intro joins the history")
+	require.Equal(t, "second try", *reopened.LastMessage.Body)
+	require.Equal(t, "self", reopened.LastMessage.Sender)
 
 	require.Equal(t, http.StatusOK, f.setStatus(alice, conv.ID, "accepted").Code)
 	res = f.setStatus(alice, conv.ID, "revoked")
@@ -761,7 +776,17 @@ func TestMessagingHelpdeskDB(t *testing.T) {
 	res.decode(t, &again)
 	require.Equal(t, desk.ID, again.ID)
 
+	needsReply := func() int {
+		res := f.do(admin, http.MethodGet, "/api/v2/admin/messaging/counts", nil)
+		require.Equal(t, http.StatusOK, res.Code, res.Raw)
+		var out map[string]int
+		res.decode(t, &out)
+		return out["helpdeskNeedsReply"]
+	}
+	waiting := needsReply()
+
 	question := f.sent(user, desk.ID, "how do I cash out?")
+	require.Equal(t, waiting+1, needsReply(), "the user's message waits on a reply")
 	require.Equal(t, "self", question.Sender)
 	jobs := f.jobs(desk.ID)
 	require.Equal(t, "message.created", jobs[len(jobs)-1].Kind)
@@ -802,6 +827,7 @@ func TestMessagingHelpdeskDB(t *testing.T) {
 	require.Equal(t, map[int64]bool{user.ID: true}, jobs[len(jobs)-1].Audience)
 
 	require.False(t, findItem(admin, "?limit=100").NeedsReply)
+	require.Equal(t, waiting, needsReply(), "a support reply clears it")
 	require.Equal(t, 1, f.unread(user)["helpdesk"])
 	res = f.do(user, http.MethodGet, fmt.Sprintf("/api/v2/conversations/%d/messages", desk.ID), nil)
 	var page struct {
@@ -894,6 +920,16 @@ func TestMessagingAbuseReportsDB(t *testing.T) {
 	require.Equal(t, "harassment", *found.Comment)
 	require.Nil(t, found.ResolvedBy)
 
+	counts := func() map[string]int {
+		res := f.do(admin, http.MethodGet, "/api/v2/admin/messaging/counts", nil)
+		require.Equal(t, http.StatusOK, res.Code, res.Raw)
+		var out map[string]int
+		res.decode(t, &out)
+		return out
+	}
+	require.Equal(t, http.StatusForbidden, f.do(alice, http.MethodGet, "/api/v2/admin/messaging/counts", nil).Code)
+	openBefore := counts()["abuseReportsOpen"]
+
 	resolve := func(id int64, status string) msgResponse {
 		return f.do(admin, http.MethodPut, "/api/v2/admin/abuse-reports/"+strconv.FormatInt(id, 10), map[string]string{"status": status})
 	}
@@ -905,6 +941,7 @@ func TestMessagingAbuseReportsDB(t *testing.T) {
 	require.Equal(t, admin.Address, *decided.ResolvedBy)
 	require.NotNil(t, decided.ResolvedAt)
 	require.Equal(t, http.StatusConflict, resolve(created.ID, "dismissed").Code)
+	require.Equal(t, openBefore-1, counts()["abuseReportsOpen"], "a decided report leaves the counter")
 	require.Equal(t, http.StatusNotFound, resolve(999999999, "dismissed").Code)
 	require.Equal(t, http.StatusBadRequest, resolve(created.ID, "open").Code)
 }

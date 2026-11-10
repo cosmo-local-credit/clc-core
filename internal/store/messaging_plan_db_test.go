@@ -80,6 +80,7 @@ func TestMessagingQueryPlans(t *testing.T) {
 		// Every seeded user has an open helpdesk row, so joining all of users is
 		// right here; the queue itself must come from its partial index.
 		{"helpdesk_queue", pg.queries.MessagingAdminListHelpdesk, []any{"open", nil, int64(0), 31}, []string{"conversations_helpdesk_queue_idx", "messages_conversation_page_idx"}},
+		{"admin_counts", pg.queries.MessagingAdminCounts, nil, []string{"conversations_helpdesk_queue_idx", "messages_conversation_page_idx"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+tc.query, tc.args...)
@@ -89,7 +90,7 @@ func TestMessagingQueryPlans(t *testing.T) {
 			plan := strings.Join(lines, "\n")
 			t.Log(plan)
 			tables := []string{"messages", "conversations", "users", "conversation_reads"}
-			if tc.name == "helpdesk_queue" {
+			if tc.name == "helpdesk_queue" || tc.name == "admin_counts" {
 				tables = tables[:2]
 			}
 			for _, table := range tables {
