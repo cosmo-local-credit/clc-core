@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -578,6 +579,111 @@ func TestReportsEndpointReturnsTagFacetsOnTheFirstPageOnly(t *testing.T) {
 	}
 }
 
+func setReportCreatedAt(t *testing.T, a *API, id uint64, createdAt time.Time) {
+	t.Helper()
+	if _, err := a.store.Pool().Exec(context.Background(),
+		`UPDATE reports SET created_at = $2 WHERE id = $1`, id, createdAt); err != nil {
+		t.Fatalf("backdate report %d: %v", id, err)
+	}
+}
+
+func TestReportsEndpointFiltersByPostedWindow(t *testing.T) {
+	a, token := newReportSearchAPI(t)
+	marker := reportSearchToken + "Posted"
+	now := time.Now().UTC()
+
+	twoWeeks, cleanTwoWeeks := seedApprovedReport(t, a, marker+" two-weeks", "x", "Art")
+	defer cleanTwoWeeks()
+	setReportCreatedAt(t, a, twoWeeks, now.AddDate(0, 0, -14))
+
+	twoMonths, cleanTwoMonths := seedApprovedReport(t, a, marker+" two-months", "x")
+	defer cleanTwoMonths()
+	setReportCreatedAt(t, a, twoMonths, now.AddDate(0, -2, 0))
+
+	eightMonths, cleanEightMonths := seedApprovedReport(t, a, marker+" eight-months", "x")
+	defer cleanEightMonths()
+	setReportCreatedAt(t, a, eightMonths, now.AddDate(0, -8, 0))
+
+	twoYears, cleanTwoYears := seedApprovedReport(t, a, marker+" two-years", "x", "Art")
+	defer cleanTwoYears()
+	setReportCreatedAt(t, a, twoYears, now.AddDate(-2, 0, 0))
+
+	ids := func(params map[string][]string) []uint64 {
+		t.Helper()
+		res, page := getReportPage(t, a, token, params)
+		if res.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+		}
+		got := make([]uint64, 0, len(page.Reports))
+		for _, report := range page.Reports {
+			if strings.HasPrefix(report.Title, marker) {
+				got = append(got, report.ID)
+			}
+		}
+		return got
+	}
+
+	if got := ids(map[string][]string{"q": {marker}}); !slices.Equal(got, []uint64{twoWeeks}) {
+		t.Errorf("default posted = %v, want only two-weeks", got)
+	}
+	if got := ids(map[string][]string{"q": {marker}, "posted": {"1m"}}); !slices.Equal(got, []uint64{twoWeeks}) {
+		t.Errorf("posted=1m = %v, want only two-weeks", got)
+	}
+	gotThree := ids(map[string][]string{"q": {marker}, "posted": {"3m"}})
+	if !containsAll(gotThree, twoWeeks, twoMonths) || containsID(gotThree, eightMonths) || containsID(gotThree, twoYears) {
+		t.Errorf("posted=3m = %v, want two-weeks and two-months", gotThree)
+	}
+	gotSix := ids(map[string][]string{"q": {marker}, "posted": {"6m"}})
+	if !containsAll(gotSix, twoWeeks, twoMonths) || containsID(gotSix, eightMonths) || containsID(gotSix, twoYears) {
+		t.Errorf("posted=6m = %v, want two-weeks and two-months", gotSix)
+	}
+	gotYear := ids(map[string][]string{"q": {marker}, "posted": {"1y"}})
+	if !containsAll(gotYear, twoWeeks, twoMonths, eightMonths) || containsID(gotYear, twoYears) {
+		t.Errorf("posted=1y = %v, want everything except two-years", gotYear)
+	}
+	gotAll := ids(map[string][]string{"q": {marker}, "posted": {"all"}})
+	if !containsAll(gotAll, twoWeeks, twoMonths, eightMonths, twoYears) {
+		t.Errorf("posted=all = %v, want every fixture", gotAll)
+	}
+
+	_, monthFacets := getReportPage(t, a, token, map[string][]string{
+		"q": {marker}, "posted": {"1m"}, "facets": {"true"},
+	})
+	_, allFacets := getReportPage(t, a, token, map[string][]string{
+		"q": {marker}, "posted": {"all"}, "facets": {"true"},
+	})
+	artCount := func(page reportPagePayload) uint64 {
+		if page.TagFacets == nil {
+			t.Fatal("facets=true must return tagFacets")
+		}
+		for _, facet := range *page.TagFacets {
+			if facet.Tag == "Art" {
+				return facet.Count
+			}
+		}
+		return 0
+	}
+	if artCount(monthFacets) != 1 {
+		t.Errorf("Art count in 1m = %d, want 1", artCount(monthFacets))
+	}
+	if artCount(allFacets) != 2 {
+		t.Errorf("Art count in all = %d, want 2", artCount(allFacets))
+	}
+}
+
+func containsID(ids []uint64, id uint64) bool {
+	return slices.Contains(ids, id)
+}
+
+func containsAll(ids []uint64, want ...uint64) bool {
+	for _, id := range want {
+		if !slices.Contains(ids, id) {
+			return false
+		}
+	}
+	return true
+}
+
 func TestReportsEndpointRejectsInvalidFilters(t *testing.T) {
 	a, token := newReportSearchAPI(t)
 
@@ -594,6 +700,7 @@ func TestReportsEndpointRejectsInvalidFilters(t *testing.T) {
 		"bad poolMatch":    {"poolMatch": {"sideways"}},
 		"unknown pool":     {"pools": {"42220:0x9999999999999999999999999999999999999999"}},
 		"too many tags":    {"tags": {"a,b,c,d,e,f,g,h,i,j,k,l,m"}},
+		"bad posted":       {"posted": {"2m"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			res, _ := getReportPage(t, a, token, params)
@@ -621,12 +728,12 @@ func TestReportsEndpointRejectsInvalidFilters(t *testing.T) {
 	}
 }
 
-// An unfiltered request must reach the untouched static statements and return the feed's
-// existing shape, with no facet key.
+// posted=all with no other filters reaches the untouched static statements and returns the
+// feed's existing shape, with no facet key. Omitted posted is 1m (see FiltersByPostedWindow).
 func TestReportsEndpointLeavesTheUnfilteredFeedUnchanged(t *testing.T) {
 	a, token := newReportSearchAPI(t)
 
-	res, page := getReportPage(t, a, token, map[string][]string{"perPage": {"5"}})
+	res, page := getReportPage(t, a, token, map[string][]string{"perPage": {"5"}, "posted": {"all"}})
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}

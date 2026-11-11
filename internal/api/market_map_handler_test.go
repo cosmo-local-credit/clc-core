@@ -59,6 +59,44 @@ func TestParseMarketMapZoomUsesStableQuarterBuckets(t *testing.T) {
 	}
 }
 
+func TestMarketMapKeyDistinguishesPostedWindow(t *testing.T) {
+	oneMonth, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	allTime, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map?posted=all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitMonth, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map?posted=1m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := []string{"post"}
+	if marketMapKey(oneMonth, kinds, 10) == marketMapKey(allTime, kinds, 10) {
+		t.Fatal("default 1m and posted=all must not share a cache key")
+	}
+	if marketMapKey(oneMonth, kinds, 10) != marketMapKey(explicitMonth, kinds, 10) {
+		t.Fatal("omitted posted and posted=1m must share a cache key")
+	}
+}
+
+func TestParseMarketMapSearchDefaultsPostedToOneMonth(t *testing.T) {
+	search, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if search.posted != "1m" || search.filter.PostedAfter == nil {
+		t.Fatalf("posted = %q PostedAfter = %v, want 1m with a cutoff", search.posted, search.filter.PostedAfter)
+	}
+}
+
+func TestParseMarketMapSearchRejectsUnknownPosted(t *testing.T) {
+	if _, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map?posted=2m")); err == nil {
+		t.Fatal("unknown posted was accepted")
+	}
+}
+
 func TestMarketMapKeyIgnoresKindInputOrder(t *testing.T) {
 	c := marketMapTestContext("/api/v2/market-map?q=market&bbox=35,-5,40,1")
 	search, err := parseMarketMapSearch(c)

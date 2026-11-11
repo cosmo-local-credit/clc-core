@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -85,6 +86,10 @@ type (
 		// Bounds is the public map viewport. One rectangle is ordinary; two
 		// rectangles represent a viewport crossing the antimeridian.
 		Bounds []CatalogBounds
+		// PostedAfter narrows Posts to rows authored at or after this instant.
+		// Nil means all time. Report composers and the market-map post union
+		// are the only readers; voucher and pool catalogs ignore it.
+		PostedAfter *time.Time
 	}
 
 	// VoucherRef is the stable public identity of a voucher. Numeric database
@@ -332,7 +337,7 @@ func normalizeCatalogTags(raw []string) []string {
 // Active reports whether the filter narrows anything. When it does not, callers
 // use the existing static statements unchanged.
 func (f CatalogFilter) Active() bool {
-	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || len(f.PoolIDs) > 0 || len(f.CreditablePoolIDs) > 0 || f.Owner != "" || f.Nearby != nil || len(f.Bounds) > 0
+	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || len(f.PoolIDs) > 0 || len(f.CreditablePoolIDs) > 0 || f.Owner != "" || f.Nearby != nil || len(f.Bounds) > 0 || f.PostedAfter != nil
 }
 
 // prefixOnly reports whether the term is short enough that it matches as a

@@ -52,6 +52,7 @@ func (pg *Pg) ListMarketMap(
 		hasBounds, minLng, minLat, maxLng, maxLat,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
 		MarketMapMaxFeatures,
+		filter.PostedAfter,
 	)
 	if err != nil {
 		return MarketMapResult{}, err

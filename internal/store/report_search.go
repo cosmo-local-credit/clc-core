@@ -156,6 +156,13 @@ func reportPoolPredicate(args *sqlArgs, filter CatalogFilter) string {
 // creditable pools. A direct pool link qualifies, as does a linked active
 // voucher which that pool currently allows. EXISTS keeps one Post row even
 // when several vouchers or pools satisfy the relationship.
+func reportPostedAfterPredicate(args *sqlArgs, filter CatalogFilter) string {
+	if filter.PostedAfter == nil {
+		return ""
+	}
+	return "r.created_at >= " + args.bind(*filter.PostedAfter)
+}
+
 func reportCreditablePoolPredicate(args *sqlArgs, filter CatalogFilter) string {
 	if len(filter.CreditablePoolIDs) == 0 {
 		return ""
@@ -220,6 +227,7 @@ func composeReportPage(
 				catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 				ownerPredicate(args, "r.author_address", filter),
+				reportPostedAfterPredicate(args, filter),
 				reportTagPredicate(args, filter),
 				reportVoucherPredicate(args, filter),
 				reportPoolPredicate(args, filter),
@@ -240,6 +248,7 @@ func composeReportPage(
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			ownerPredicate(args, "r.author_address", filter),
+			reportPostedAfterPredicate(args, filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
@@ -290,6 +299,7 @@ func composeReportTagCounts(filter CatalogFilter) composed {
 			"r.status = 'APPROVED'",
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
+			reportPostedAfterPredicate(args, filter),
 			reportSearchPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
 			reportPoolPredicate(args, filter),
@@ -319,6 +329,7 @@ func composeReportVoucherCounts(filter CatalogFilter) composed {
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			ownerPredicate(args, "r.author_address", filter),
+			reportPostedAfterPredicate(args, filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportPoolPredicate(args, filter),
@@ -345,6 +356,7 @@ func composeReportPoolCounts(filter CatalogFilter) composed {
 			"r.status = 'APPROVED'",
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
+			reportPostedAfterPredicate(args, filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportVoucherPredicate(args, filter),

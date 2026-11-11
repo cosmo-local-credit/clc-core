@@ -2501,6 +2501,23 @@
               "type": "string"
             },
             "description": "Verified pool references as chainId:address. Repeat the parameter or use commas."
+          },
+          {
+            "name": "posted",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1m",
+                "3m",
+                "6m",
+                "1y",
+                "all"
+              ],
+              "default": "1m"
+            },
+            "description": "Restricts the post layer to posts whose createdAt is within this calendar window. Omitted is 1m. all is every approved post pin. Other kinds are unchanged."
           }
         ],
         "responses": {
@@ -7377,6 +7394,23 @@
               "default": false
             },
             "description": "Show only posts with coordinates within 1000 km of the saved profile location of the caller. The order does not change. A caller without a saved location gets '400 E04'."
+          },
+          {
+            "name": "posted",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1m",
+                "3m",
+                "6m",
+                "1y",
+                "all"
+              ],
+              "default": "1m"
+            },
+            "description": "Restrict to posts whose 'createdAt' is within this calendar window. Omitted is '1m'. 'all' is every approved post. Another value returns '400' 'E04'."
           },
           {
             "name": "facets",

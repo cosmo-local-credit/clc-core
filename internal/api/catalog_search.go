@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -33,6 +34,7 @@ var (
 		"pools contains a pool that does not exist in the catalog")
 	errReportTooManyPools = errors.New("pools must contain at most 12 values")
 	errUnknownPoolMatch   = errors.New(`poolMatch must be "any" or "all"`)
+	errInvalidPosted      = errors.New(`posted must be "1m", "3m", "6m", "1y", or "all"`)
 	// The vocabulary is named as `facets=true` rather than as /api/v2/token-tags
 	// because this endpoint is public and that one is not: a signed-out caller
 	// can filter but cannot read the tag list from there. The facet response is
@@ -66,6 +68,9 @@ type (
 		// same answer at the same cost.
 		facets bool
 		nearby bool
+		// posted is the public post time window: 1m, 3m, 6m, 1y, or all.
+		// Empty means the parser never read the parameter.
+		posted string
 	}
 
 	catalogRelationshipRef struct {
@@ -247,6 +252,9 @@ func parseReportRelationshipSearch(c *echo.Context) (catalogSearchRequest, error
 			Address: ref.address,
 		})
 	}
+	if err := applyPostedWindow(&search, c.Request().URL.Query().Get("posted"), time.Now().UTC()); err != nil {
+		return catalogSearchRequest{}, err
+	}
 	return search, nil
 }
 
@@ -292,6 +300,56 @@ func parseCatalogRelationshipRefs(
 		return strings.Compare(strings.ToLower(left.address), strings.ToLower(right.address))
 	})
 	return refs, nil
+}
+
+// applyPostedWindow resolves `posted=1m|3m|6m|1y|all` onto the report filter.
+// Omitted is 1 month. `all` leaves PostedAfter nil. Callers that must stay
+// all-time never invoke this.
+func applyPostedWindow(search *catalogSearchRequest, raw string, now time.Time) error {
+	window, err := parsePostedWindow(raw)
+	if err != nil {
+		return err
+	}
+	search.posted = window
+	search.filter.PostedAfter = postedAfter(window, now)
+	return nil
+}
+
+func parsePostedWindow(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "1m":
+		return "1m", nil
+	case "3m":
+		return "3m", nil
+	case "6m":
+		return "6m", nil
+	case "1y":
+		return "1y", nil
+	case "all":
+		return "all", nil
+	default:
+		return "", errInvalidPosted
+	}
+}
+
+func postedAfter(window string, now time.Time) *time.Time {
+	if window == "all" {
+		return nil
+	}
+	var instant time.Time
+	switch window {
+	case "1m":
+		instant = now.AddDate(0, -1, 0)
+	case "3m":
+		instant = now.AddDate(0, -3, 0)
+	case "6m":
+		instant = now.AddDate(0, -6, 0)
+	case "1y":
+		instant = now.AddDate(-1, 0, 0)
+	default:
+		return nil
+	}
+	return &instant
 }
 
 func relationshipMatch(raw string, unknown error) (store.TagMatch, error) {

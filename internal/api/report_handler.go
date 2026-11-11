@@ -70,11 +70,12 @@ const (
 // carried, and it is echoed back as `next`.
 //
 // Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, `pools`,
-// `poolMatch`, `creditablePools`, `bbox`, and `facets` narrow the feed
-// (SEARCH_FILTER_PLAN.md Slice 4). `q` matches title and description; report body
-// search stays parked. Report tags are the reports' own `report_tags`, which each
-// row already returns, so a filtered row carries the tag that matched it. The
-// response shape is unchanged when the parameters are absent and gains the
+// `poolMatch`, `creditablePools`, `bbox`, `posted`, and `facets` narrow the feed
+// (SEARCH_FILTER_PLAN.md Slice 4). `posted` is a created_at window: 1m, 3m, 6m,
+// 1y, or all. Omitted `posted` is 1m. `q` matches title and description; report
+// body search stays parked. Report tags are the reports' own `report_tags`, which
+// each row already returns, so a filtered row carries the tag that matched it.
+// The response shape is unchanged when the parameters are absent and gains the
 // additive `tagFacets` and `voucherFacets` keys when `facets=true` is asked for
 // on a first page.
 func (a *API) reportsListHandler(c *echo.Context) error {
