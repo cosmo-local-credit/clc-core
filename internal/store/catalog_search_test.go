@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeCatalogTermCollapsesWhitespace(t *testing.T) {
@@ -113,6 +114,7 @@ func TestNewCatalogFilterRejectsUnknownTagMatch(t *testing.T) {
 }
 
 func TestCatalogFilterActive(t *testing.T) {
+	postedAfter := time.Now().AddDate(0, -1, 0)
 	for name, tc := range map[string]struct {
 		filter CatalogFilter
 		want   bool
@@ -123,6 +125,7 @@ func TestCatalogFilterActive(t *testing.T) {
 		"vouchers only": {filter: CatalogFilter{VoucherIDs: []uint64{42}}, want: true},
 		"pools only":    {filter: CatalogFilter{PoolIDs: []uint64{42}}, want: true},
 		"term and tags": {filter: CatalogFilter{Term: "sar", Tags: []string{"Art"}}, want: true},
+		"posted after":  {filter: CatalogFilter{PostedAfter: &postedAfter}, want: true},
 	} {
 		if got := tc.filter.Active(); got != tc.want {
 			t.Errorf("%s: Active() = %v, want %v", name, got, tc.want)
@@ -873,6 +876,35 @@ func TestReportCreditablePoolsApplyToPageAndEveryFacet(t *testing.T) {
 	}
 }
 
+func TestReportPostedAfterAppliesToPageAndEveryFacet(t *testing.T) {
+	after := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	filter := CatalogFilter{PostedAfter: &after}
+	for name, query := range map[string]composed{
+		"page":           composeReportPage(filter, ReportCursor{}, false, 20),
+		"search page":    composeReportPage(CatalogFilter{Term: "harvest", PostedAfter: &after}, ReportCursor{}, false, 20),
+		"tag facets":     composeReportTagCounts(filter),
+		"voucher facets": composeReportVoucherCounts(filter),
+		"pool facets":    composeReportPoolCounts(filter),
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertPlaceholdersMatchArgs(t, name, query)
+			if !strings.Contains(query.sql, "r.created_at >= ") {
+				t.Errorf("posted window is missing from %s:\n%s", name, query.sql)
+			}
+			found := false
+			for _, arg := range query.args {
+				if instant, ok := arg.(time.Time); ok && instant.Equal(after) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("PostedAfter was not bound in %s: %#v", name, query.args)
+			}
+		})
+	}
+}
+
 func TestLoadCatalogSearchQueries(t *testing.T) {
 	queries, err := loadQueries("../../core_queries.sql")
 	if err != nil {
@@ -922,6 +954,14 @@ func TestLoadCatalogSearchQueries(t *testing.T) {
 	if !strings.Contains(queries.SetCatalogStatementTimeout, "set_config('statement_timeout', $1, true)") {
 		t.Errorf("statement timeout must be transaction-local and parameterized:\n%s", queries.SetCatalogStatementTimeout)
 	}
+	if queries.ListMarketMap == "" {
+		t.Error("expected list-market-map query to be loaded")
+	}
+	if !strings.Contains(queries.ListMarketMap, "$20::TIMESTAMPTZ IS NULL OR r.created_at >= $20") {
+		t.Errorf("list-market-map post branch must accept a nullable created_at window:\n%s",
+			queries.ListMarketMap)
+	}
+
 	if queries.ResolveVoucherRefs == "" {
 		t.Error("expected resolve-voucher-refs query to be loaded")
 	}

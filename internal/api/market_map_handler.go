@@ -43,6 +43,7 @@ type (
 		Kinds          []string              `json:"kinds"`
 		Zoom           float64               `json:"zoom"`
 		Facets         bool                  `json:"facets"`
+		Posted         string                `json:"posted"`
 	}
 )
 
@@ -98,6 +99,9 @@ func parseMarketMapSearch(c *echo.Context) (catalogSearchRequest, error) {
 		}
 		return strings.Compare(strings.ToLower(left.Address), strings.ToLower(right.Address))
 	})
+	if err := applyPostedWindow(&search, c.Request().URL.Query().Get("posted"), time.Now().UTC()); err != nil {
+		return catalogSearchRequest{}, err
+	}
 	return search, nil
 }
 
@@ -119,7 +123,7 @@ func marketMapKey(search catalogSearchRequest, kinds []string, zoom float64) str
 	identity := marketMapCacheIdentity{
 		Term: search.filter.Term, Tags: search.filter.Tags, TagMatch: search.filter.TagMatch,
 		Bounds: search.filter.Bounds, CreditablePool: search.creditablePoolRefs,
-		Kinds: canonicalKinds, Zoom: zoom, Facets: search.facets,
+		Kinds: canonicalKinds, Zoom: zoom, Facets: search.facets, Posted: search.posted,
 	}
 	encoded, _ := json.Marshal(identity)
 	sum := sha256.Sum256(encoded)

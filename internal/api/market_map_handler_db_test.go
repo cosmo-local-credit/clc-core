@@ -127,3 +127,57 @@ func TestMarketMapFractionalViewportEndpointDB(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{marker + " Renamed", marker + " Second"}, names)
 }
+
+func TestMarketMapPostedWindowHidesOldPostPinsDB(t *testing.T) {
+	a := newMarketAPIWithStore(t)
+	marker := fmt.Sprintf("%sPostedPin%d", searchTokenAPI, time.Now().UnixNano())
+	now := time.Now().UTC()
+	const lat, lng = -3.68, 39.83
+
+	insert := func(title string, created time.Time) uint64 {
+		t.Helper()
+		var id uint64
+		err := a.store.Pool().QueryRow(t.Context(), `
+			INSERT INTO reports (title, description, status, author_address, geo_lat, geo_lng, created_at, updated_at)
+			VALUES ($1, 'x', 'APPROVED', '0x0000000000000000000000000000000000000002', $2, $3, $4, $4)
+			RETURNING id`, title, lat, lng, created).Scan(&id)
+		require.NoError(t, err)
+		return id
+	}
+	recentID := insert(marker+" recent", now)
+	oldID := insert(marker+" old", now.AddDate(-2, 0, 0))
+	t.Cleanup(func() {
+		_, _ = a.store.Pool().Exec(t.Context(), `DELETE FROM reports WHERE id = ANY($1)`, []uint64{recentID, oldID})
+	})
+
+	names := func(posted string) []string {
+		t.Helper()
+		params := map[string][]string{
+			"bbox": {"39.7,-3.8,40.2,-3.2"}, "zoom": {"20"}, "kinds": {"post"}, "q": {marker},
+		}
+		if posted != "" {
+			params["posted"] = []string{posted}
+		}
+		req := httptest.NewRequest(http.MethodGet, searchURL("/api/v2/market-map", params), nil)
+		req.RemoteAddr = "198.51.100.92:5000"
+		res := httptest.NewRecorder()
+		a.router.ServeHTTP(res, req)
+		require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+		var envelope struct {
+			Result struct {
+				Features []store.MarketMapFeature `json:"features"`
+			} `json:"result"`
+		}
+		require.NoError(t, json.Unmarshal(res.Body.Bytes(), &envelope))
+		got := make([]string, 0, len(envelope.Result.Features))
+		for _, feature := range envelope.Result.Features {
+			if feature.Name != nil {
+				got = append(got, *feature.Name)
+			}
+		}
+		return got
+	}
+
+	require.Equal(t, []string{marker + " recent"}, names(""))
+	require.ElementsMatch(t, []string{marker + " recent", marker + " old"}, names("all"))
+}

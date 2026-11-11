@@ -3928,6 +3928,7 @@ WITH raw AS MATERIALIZED (
           JOIN pool_tokens credit_pt ON credit_pt.voucher_id=credit_v.id AND credit_pt.is_allowed
           WHERE rv.report_id=r.id AND credit_pt.pool_id=ANY($5::BIGINT[])
       ))
+      AND ($20::TIMESTAMPTZ IS NULL OR r.created_at >= $20)
 ), filtered AS MATERIALIZED (
     SELECT * FROM raw
     WHERE (COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[]))

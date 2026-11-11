@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -264,6 +265,114 @@ func TestParseCatalogRelationshipSearchRejectsInvalidVouchers(t *testing.T) {
 		if _, err := parseCatalogRelationshipSearch(c); err == nil {
 			t.Errorf("%s: expected validation error", name)
 		}
+	}
+}
+
+func parseReportSearchQuery(t *testing.T, rawQuery string) (catalogSearchRequest, error) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/reports?"+rawQuery, nil)
+	c := echo.New().NewContext(req, httptest.NewRecorder())
+	return parseReportRelationshipSearch(c)
+}
+
+func TestParsePostedWindow(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	for name, tc := range map[string]struct {
+		raw     string
+		want    string
+		wantNil bool
+		months  int
+		years   int
+		wantErr error
+	}{
+		"omitted": {raw: "", want: "1m", months: -1},
+		"padded":  {raw: " 1m ", want: "1m", months: -1},
+		"three":   {raw: "3m", want: "3m", months: -3},
+		"six":     {raw: "6m", want: "6m", months: -6},
+		"year":    {raw: "1y", want: "1y", years: -1},
+		"all":     {raw: "all", want: "all", wantNil: true},
+		"ALL":     {raw: "ALL", want: "all", wantNil: true},
+		"garbage": {raw: "2m", wantErr: errInvalidPosted},
+		"week":    {raw: "1w", wantErr: errInvalidPosted},
+		"numeric": {raw: "30", wantErr: errInvalidPosted},
+	} {
+		t.Run(name, func(t *testing.T) {
+			window, err := parsePostedWindow(tc.raw)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+			if tc.wantErr != nil {
+				return
+			}
+			if window != tc.want {
+				t.Fatalf("window = %q, want %q", window, tc.want)
+			}
+			got := postedAfter(window, now)
+			if tc.wantNil {
+				if got != nil {
+					t.Fatalf("PostedAfter = %v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("PostedAfter is nil")
+			}
+			want := now.AddDate(tc.years, tc.months, 0)
+			if !got.Equal(want) {
+				t.Fatalf("PostedAfter = %s, want %s", got.UTC(), want)
+			}
+		})
+	}
+}
+
+func TestParseReportRelationshipSearchDefaultsPostedToOneMonth(t *testing.T) {
+	before := time.Now().UTC().AddDate(0, -1, 0)
+	got, err := parseReportSearchQuery(t, "")
+	if err != nil {
+		t.Fatalf("parseReportRelationshipSearch() error = %v", err)
+	}
+	if got.posted != "1m" {
+		t.Errorf("posted = %q, want 1m", got.posted)
+	}
+	if got.filter.PostedAfter == nil {
+		t.Fatal("omitted posted must set PostedAfter")
+	}
+	after := time.Now().UTC().AddDate(0, -1, 0)
+	if got.filter.PostedAfter.Before(before.Add(-2*time.Second)) ||
+		got.filter.PostedAfter.After(after.Add(2*time.Second)) {
+		t.Errorf("PostedAfter = %s, want ~1 month ago", got.filter.PostedAfter.UTC())
+	}
+}
+
+func TestParseReportRelationshipSearchPostedAllClearsTheWindow(t *testing.T) {
+	got, err := parseReportSearchQuery(t, "posted=all")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if got.posted != "all" {
+		t.Errorf("posted = %q, want all", got.posted)
+	}
+	if got.filter.PostedAfter != nil {
+		t.Errorf("PostedAfter = %v, want nil", got.filter.PostedAfter)
+	}
+}
+
+func TestParseReportRelationshipSearchRejectsUnknownPosted(t *testing.T) {
+	if _, err := parseReportSearchQuery(t, "posted=2m"); !errors.Is(err, errInvalidPosted) {
+		t.Errorf("error = %v, want errInvalidPosted", err)
+	}
+}
+
+func TestParseCatalogSearchIgnoresPosted(t *testing.T) {
+	got, err := parseSearchQuery(t, "posted=1m")
+	if err != nil {
+		t.Fatalf("parseCatalogSearch() error = %v", err)
+	}
+	if got.posted != "" {
+		t.Errorf("posted = %q, want empty on voucher/pool parsers", got.posted)
+	}
+	if got.filter.PostedAfter != nil {
+		t.Errorf("PostedAfter = %v, want nil on voucher/pool parsers", got.filter.PostedAfter)
 	}
 }
 
