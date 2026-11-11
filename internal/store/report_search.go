@@ -201,6 +201,66 @@ func reportCursorPredicate(args *sqlArgs, cursor ReportCursor, hasCursor bool) s
 	return "(r.updated_at, r.id) < (" + updatedAt + ", " + id + ")"
 }
 
+func reportDistanceExpression(lat, lng, originLat, originLng string) string {
+	return `2 * 6371008.8 * asin(sqrt(least(1.0, greatest(0.0,
+            power(sin(radians(` + lat + ` - ` + originLat + `::float8) / 2), 2) +
+            cos(radians(` + originLat + `::float8)) * cos(radians(` + lat + `)) *
+            power(sin(radians(` + lng + ` - ` + originLng + `::float8) / 2), 2)
+        ))))`
+}
+
+func reportSortedCursorPredicate(args *sqlArgs, cursor ReportCursor, hasCursor bool) string {
+	if !hasCursor {
+		return ""
+	}
+	distance := args.bind(cursor.Distance)
+	updatedAt := args.bind(cursor.UpdatedAt)
+	id := args.bind(cursor.ID)
+	return "(c.distance_meters > " + distance +
+		" OR (c.distance_meters = " + distance +
+		" AND (c.updated_at, c.id) < (" + updatedAt + ", " + id + ")))"
+}
+
+func composeNearestReportPage(
+	filter CatalogFilter,
+	cursor ReportCursor,
+	hasCursor bool,
+	limit uint64,
+) composed {
+	args := &sqlArgs{}
+	originLat := args.bind(filter.SortOrigin.Lat)
+	originLng := args.bind(filter.SortOrigin.Lng)
+	distance := reportDistanceExpression("r.geo_lat", "r.geo_lng", originLat, originLng)
+
+	candidates := `WITH candidates AS MATERIALIZED (
+    SELECT r.id, r.updated_at, ` + distance + ` AS distance_meters
+    FROM reports r` + whereClause(
+		"r.status = 'APPROVED' AND NOT account_retiring(r.author_address)",
+		"r.geo_lat BETWEEN -90 AND 90 AND r.geo_lng BETWEEN -180 AND 180",
+		catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
+		ownerPredicate(args, "r.author_address", filter),
+		reportSearchPredicate(args, filter),
+		reportTagPredicate(args, filter),
+		reportVoucherPredicate(args, filter),
+		reportPoolPredicate(args, filter),
+		reportCreditablePoolPredicate(args, filter),
+	) + `
+),
+page AS MATERIALIZED (
+    SELECT c.id, c.distance_meters
+    FROM candidates c` + whereClause(reportSortedCursorPredicate(args, cursor, hasCursor)) + `
+    ORDER BY c.distance_meters ASC, c.updated_at DESC, c.id DESC
+    LIMIT ` + args.bind(limit) + `
+)
+SELECT ` + reportSummaryColumns + `,
+    page.distance_meters AS distance_meters
+FROM reports r
+INNER JOIN page ON page.id = r.id
+ORDER BY page.distance_meters ASC, r.updated_at DESC, r.id DESC;`
+
+	return composed{sql: candidates, args: args.values}
+}
+
 // composeReportPage builds one filtered report page.
 //
 // The match set is materialized before ordering and limiting, for the reason migration 011
@@ -218,6 +278,9 @@ func composeReportPage(
 	hasCursor bool,
 	limit uint64,
 ) composed {
+	if filter.SortOrigin != nil {
+		return composeNearestReportPage(filter, cursor, hasCursor, limit)
+	}
 	args := &sqlArgs{}
 
 	if filter.Term == "" {

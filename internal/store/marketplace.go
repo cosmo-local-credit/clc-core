@@ -34,10 +34,14 @@ type (
 		Unit                 *string   `db:"unit" json:"unit"`
 		PoolCount            *uint64   `db:"pool_count" json:"poolCount"`
 		VoucherCount         *uint64   `db:"voucher_count" json:"voucherCount"`
+		RelatedKind          *string   `db:"related_kind" json:"relatedKind"`
+		RelatedName          *string   `db:"related_name" json:"relatedName"`
+		RelatedSymbol        *string   `db:"related_symbol" json:"relatedSymbol"`
 		Rank                 int       `db:"rank" json:"-"`
 		CreatedAt            time.Time `db:"created_at" json:"createdAt"`
 		UpdatedAt            time.Time `db:"updated_at" json:"updatedAt"`
 		TagFacets            []byte    `db:"tag_facets" json:"-"`
+		TotalCount           uint64    `db:"total_count" json:"-"`
 	}
 
 	MarketplaceCursor struct {
@@ -62,20 +66,26 @@ func (pg *Pg) ListMarketplace(
 ) ([]MarketplaceResult, error) {
 	lat, lng, minLng, minLat, maxLng, maxLat := 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 	isNearby := nearby != nil
+	origin := filter.SortOrigin
 	if nearby != nil {
-		lat, lng = nearby.Lat, nearby.Lng
+		origin = nearby
 		bounds := nearby.bounds()
 		minLng, minLat, maxLng, maxLat = bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat
+	}
+	isSorted := origin != nil
+	if origin != nil {
+		lat, lng = origin.Lat, origin.Lng
 	}
 	hasBounds, boundMinLng, boundMinLat, boundMaxLng, boundMaxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(filter.Bounds)
 	rows := []MarketplaceResult{}
 	err := pgxscan.Select(ctx, tx, &rows, pg.queries.ListMarketplace,
 		filter.likeTerm(), filter.prefixOnly(), filter.Tags, filter.TagMatch == TagMatchAll,
-		filter.PoolIDs, kinds, isNearby, lat, lng, minLng, minLat, maxLng, maxLat,
+		filter.PoolIDs, kinds, isSorted, lat, lng, minLng, minLat, maxLng, maxLat,
 		cursor.Rank, cursor.Distance, cursor.UpdatedAt, cursor.Kind, cursor.ID, limit,
 		includeFacets,
 		hasBounds, boundMinLng, boundMinLat, boundMaxLng, boundMaxLat,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+		isNearby,
 	)
 	return rows, err
 }

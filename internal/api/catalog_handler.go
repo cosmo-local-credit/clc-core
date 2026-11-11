@@ -171,6 +171,9 @@ func (a *API) offeringsListHandler(c *echo.Context) error {
 	if handled, readErr := a.resolveNearbyCatalog(c, tx, &search); handled || readErr != nil {
 		return readErr
 	}
+	if handled, readErr := a.resolveNearestCatalog(c, tx, &search); handled || readErr != nil {
+		return readErr
+	}
 	if handled, readErr := a.resolvePoolFilter(c, tx, &search); handled || readErr != nil {
 		return readErr
 	}
@@ -225,8 +228,9 @@ func offeringCursorScope(c *echo.Context, filter store.CatalogFilter) string {
 		TagMatch store.TagMatch
 		Pools    []uint64
 		Nearby   *store.CatalogLocation
+		Sort     *store.CatalogLocation
 		Bounds   []store.CatalogBounds
-	}{caller, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, filter.Nearby, filter.Bounds})
+	}{caller, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, filter.Nearby, filter.SortOrigin, filter.Bounds})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }

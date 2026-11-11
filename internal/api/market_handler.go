@@ -121,7 +121,7 @@ func (a *API) voucherByAddressHandler(c *echo.Context) error {
 // deliberately sends no credentials.
 func setMarketCacheHeaders(c *echo.Context) {
 	header := c.Response().Header()
-	if c.QueryParam("nearby") == "true" {
+	if c.QueryParam("nearby") == "true" || c.QueryParam("sort") == "nearest" {
 		header.Set("Cache-Control", "private, no-store")
 		return
 	}

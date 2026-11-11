@@ -51,7 +51,22 @@ func TestMarketplaceDiscoveryQueryExecutesDB(t *testing.T) {
 			{MinLng: -180, MinLat: -10, MaxLng: -170, MaxLat: 10},
 			{MinLng: 170, MinLat: -10, MaxLng: 180, MaxLat: 10},
 		}},
-		[]string{"offering", "pool", "voucher", "want", "catalog"},
+		[]string{"offering", "pool", "post", "voucher", "want", "catalog"},
+		nil,
+		MarketplaceCursor{},
+		2,
+		true,
+	)
+	require.NoError(t, err)
+
+	_, err = pg.ListMarketplace(
+		ctx,
+		tx,
+		CatalogFilter{
+			Bounds:     []CatalogBounds{{MinLng: 39.5, MinLat: -4.2, MaxLng: 39.8, MaxLat: -3.9}},
+			SortOrigin: &CatalogLocation{Lat: -4.05, Lng: 39.65},
+		},
+		[]string{"catalog", "pool", "post", "voucher", "want"},
 		nil,
 		MarketplaceCursor{},
 		2,
