@@ -208,6 +208,24 @@ func linkReportPool(t *testing.T, a *API, reportID, poolID uint64) {
 	}
 }
 
+func linkVoucherToReportPool(
+	t *testing.T,
+	a *API,
+	poolID, voucherID uint64,
+	allowed bool,
+) func() {
+	t.Helper()
+	if _, err := a.store.Pool().Exec(context.Background(), `
+		INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed)
+		VALUES ($1, $2, $3)`, poolID, voucherID, allowed); err != nil {
+		t.Fatalf("link voucher to report pool: %v", err)
+	}
+	return func() {
+		_, _ = a.store.Pool().Exec(context.Background(), `
+			DELETE FROM pool_tokens WHERE pool_id = $1 AND voucher_id = $2`, poolID, voucherID)
+	}
+}
+
 // seedApprovedReport commits one approved report and its direct tags, returning its id and a
 // cleanup that removes it.
 func seedApprovedReport(t *testing.T, a *API, title, description string, tags ...string) (uint64, func()) {
@@ -512,6 +530,76 @@ func TestReportsEndpointFiltersAndFacetsByPool(t *testing.T) {
 	}
 }
 
+func TestReportsEndpointPoolFilterIncludesActiveAllowedVoucherRelationships(t *testing.T) {
+	a, token := newReportSearchAPI(t)
+	marker := reportSearchToken + "PoolVoucher"
+
+	poolID, poolAddress, cleanPool := seedReportPool(t, a, marker+" Pool", "RFPV")
+	defer cleanPool()
+	allowedVoucherID, _, cleanAllowedVoucher := seedReportVoucher(t, a, marker+" Allowed", "RFPA")
+	defer cleanAllowedVoucher()
+	disallowedVoucherID, _, cleanDisallowedVoucher := seedReportVoucher(t, a, marker+" Disallowed", "RFPD")
+	defer cleanDisallowedVoucher()
+	inactiveVoucherID, _, cleanInactiveVoucher := seedReportVoucher(t, a, marker+" Inactive", "RFPI")
+	defer cleanInactiveVoucher()
+
+	directID, cleanDirect := seedApprovedReport(t, a, marker+" direct", "x")
+	defer cleanDirect()
+	indirectID, cleanIndirect := seedApprovedReport(t, a, marker+" indirect", "x")
+	defer cleanIndirect()
+	deduplicatedID, cleanDeduplicated := seedApprovedReport(t, a, marker+" deduplicated", "x")
+	defer cleanDeduplicated()
+	disallowedID, cleanDisallowed := seedApprovedReport(t, a, marker+" disallowed", "x")
+	defer cleanDisallowed()
+	inactiveID, cleanInactive := seedApprovedReport(t, a, marker+" inactive", "x")
+	defer cleanInactive()
+
+	linkReportPool(t, a, directID, poolID)
+	linkReportVoucher(t, a, indirectID, allowedVoucherID)
+	linkReportPool(t, a, deduplicatedID, poolID)
+	linkReportVoucher(t, a, deduplicatedID, allowedVoucherID)
+	linkReportVoucher(t, a, disallowedID, disallowedVoucherID)
+	linkReportVoucher(t, a, inactiveID, inactiveVoucherID)
+	defer linkVoucherToReportPool(t, a, poolID, allowedVoucherID, true)()
+	defer linkVoucherToReportPool(t, a, poolID, disallowedVoucherID, false)()
+	defer linkVoucherToReportPool(t, a, poolID, inactiveVoucherID, true)()
+	if _, err := a.store.Pool().Exec(context.Background(),
+		`UPDATE vouchers SET active = FALSE WHERE id = $1`, inactiveVoucherID); err != nil {
+		t.Fatalf("retire report voucher: %v", err)
+	}
+
+	res, page := getReportPage(t, a, token, map[string][]string{
+		"q":      {marker},
+		"pools":  {"42220:" + poolAddress},
+		"facets": {"true"},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	ids := make([]uint64, 0, len(page.Reports))
+	for _, report := range page.Reports {
+		ids = append(ids, report.ID)
+	}
+	slices.Sort(ids)
+	want := []uint64{directID, indirectID, deduplicatedID}
+	slices.Sort(want)
+	if !slices.Equal(ids, want) {
+		t.Errorf("pool-related reports = %v, want direct, indirect, and deduplicated %v", ids, want)
+	}
+	if page.PoolFacets == nil {
+		t.Fatal("facets=true must return poolFacets")
+	}
+	count := uint64(0)
+	for _, facet := range *page.PoolFacets {
+		if facet.ID == poolID {
+			count = facet.Count
+		}
+	}
+	if count != 3 {
+		t.Errorf("pool facet count = %d, want 3 distinct reports", count)
+	}
+}
+
 func TestReportsEndpointReturnsTagFacetsOnTheFirstPageOnly(t *testing.T) {
 	a, token := newReportSearchAPI(t)
 	marker := reportSearchToken + "Facets"
@@ -584,6 +672,70 @@ func setReportCreatedAt(t *testing.T, a *API, id uint64, createdAt time.Time) {
 	if _, err := a.store.Pool().Exec(context.Background(),
 		`UPDATE reports SET created_at = $2 WHERE id = $1`, id, createdAt); err != nil {
 		t.Fatalf("backdate report %d: %v", id, err)
+	}
+}
+
+func setReportPeriod(t *testing.T, a *API, id uint64, from, to *time.Time) {
+	t.Helper()
+	if _, err := a.store.Pool().Exec(context.Background(), `
+		UPDATE reports SET period_from = $2, period_to = $3 WHERE id = $1`, id, from, to); err != nil {
+		t.Fatalf("set report %d period: %v", id, err)
+	}
+}
+
+func TestReportsEndpointFiltersByScheduleTiming(t *testing.T) {
+	a, token := newReportSearchAPI(t)
+	marker := reportSearchToken + "Timing"
+	now := time.Now().UTC()
+	pastStart, pastEnd := now.Add(-2*time.Hour), now.Add(-time.Hour)
+	activeStart, activeEnd := now.Add(-time.Hour), now.Add(time.Hour)
+	upcomingStart, upcomingEnd := now.Add(time.Hour), now.Add(2*time.Hour)
+	startOnly := now.Add(-time.Hour)
+	endOnly := now.Add(time.Hour)
+
+	seed := func(suffix string, from, to *time.Time) uint64 {
+		t.Helper()
+		id, clean := seedApprovedReport(t, a, marker+" "+suffix, "x")
+		deferCleanups := clean
+		t.Cleanup(deferCleanups)
+		setReportPeriod(t, a, id, from, to)
+		return id
+	}
+	pastID := seed("past", &pastStart, &pastEnd)
+	activeID := seed("active", &activeStart, &activeEnd)
+	upcomingID := seed("upcoming", &upcomingStart, &upcomingEnd)
+	startOnlyID := seed("start-only", &startOnly, nil)
+	endOnlyID := seed("end-only", nil, &endOnly)
+	unscheduledID := seed("unscheduled", nil, nil)
+
+	ids := func(timing string) []uint64 {
+		t.Helper()
+		res, page := getReportPage(t, a, token, map[string][]string{
+			"q": {marker}, "timing": {timing}, "perPage": {"100"},
+		})
+		if res.Code != http.StatusOK {
+			t.Fatalf("timing=%s status = %d, body = %s", timing, res.Code, res.Body.String())
+		}
+		out := make([]uint64, 0, len(page.Reports))
+		for _, report := range page.Reports {
+			out = append(out, report.ID)
+		}
+		slices.Sort(out)
+		return out
+	}
+
+	future := []uint64{activeID, upcomingID, startOnlyID, endOnlyID, unscheduledID}
+	slices.Sort(future)
+	if got := ids("future"); !slices.Equal(got, future) {
+		t.Errorf("future IDs = %v, want active, upcoming, open-ended, and unscheduled %v", got, future)
+	}
+	if got := ids("past"); !slices.Equal(got, []uint64{pastID}) {
+		t.Errorf("past IDs = %v, want [%d]", got, pastID)
+	}
+	all := append([]uint64{pastID}, future...)
+	slices.Sort(all)
+	if got := ids("all"); !slices.Equal(got, all) {
+		t.Errorf("all IDs = %v, want %v", got, all)
 	}
 }
 

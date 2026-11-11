@@ -2515,6 +2515,64 @@
             "description": "Verified pool references as chainId:address. Repeat the parameter or use commas."
           },
           {
+            "name": "postTiming",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "future",
+                "past",
+                "all"
+              ]
+            },
+            "description": "Schedule filter for Posts only. Future includes posts with no end time or an end time at or after the database transaction time. Cannot be combined with posted."
+          },
+          {
+            "name": "postVouchers",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Post Voucher references as chainId:address. Repeat the parameter or use commas. Other resource kinds are unchanged."
+          },
+          {
+            "name": "postVoucherMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            }
+          },
+          {
+            "name": "postPools",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Post Pool references as chainId:address. A Post matches a direct Pool link or an active linked Voucher currently allowed by the Pool. Other resource kinds are unchanged."
+          },
+          {
+            "name": "postPoolMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            }
+          },
+          {
             "name": "posted",
             "in": "query",
             "required": false,
@@ -2616,6 +2674,64 @@
               "type": "string"
             },
             "description": "Matches the name, symbol, description, tags and related names of a row."
+          },
+          {
+            "name": "postTiming",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "future",
+                "past",
+                "all"
+              ]
+            },
+            "description": "Schedule filter for Posts only. Future includes posts with no end time or an end time at or after the database transaction time. Cannot be combined with posted."
+          },
+          {
+            "name": "postVouchers",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Post Voucher references as chainId:address. Repeat the parameter or use commas. Other resource kinds are unchanged."
+          },
+          {
+            "name": "postVoucherMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            }
+          },
+          {
+            "name": "postPools",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Post Pool references as chainId:address. A Post matches a direct Pool link or an active linked Voucher currently allowed by the Pool. Other resource kinds are unchanged."
+          },
+          {
+            "name": "postPoolMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            }
           },
           {
             "name": "tags",
@@ -7421,7 +7537,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Repeat the parameter or use a comma-separated list of 'chainId:address' values. At most 12 distinct values. Every pool must exist."
+            "description": "Repeat the parameter or use a comma-separated list of 'chainId:address' values. At most 12 distinct values. Every pool must exist. A Pool matches when the Post directly links it or links an active Voucher currently allowed by it."
           },
           {
             "name": "poolMatch",
@@ -7435,7 +7551,7 @@
               ],
               "default": "any"
             },
-            "description": "A post must link any of the pools, or all of the pools."
+            "description": "A Post must match any or all selected Pools. A Pool matches a direct link or an active linked Voucher currently allowed by it."
           },
           {
             "name": "creditablePools",
@@ -7464,6 +7580,20 @@
               "default": false
             },
             "description": "Show only posts with coordinates within 1000 km of the saved profile location of the caller. The order does not change. A caller without a saved location gets '400 E04'."
+          },
+          {
+            "name": "timing",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "future",
+                "past",
+                "all"
+              ]
+            },
+            "description": "Schedule filter. Future includes posts with no end time or an end time at or after the database transaction time. Past includes posts whose end time is before that time. Cannot be combined with posted."
           },
           {
             "name": "posted",

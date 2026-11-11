@@ -33,9 +33,19 @@ var (
 		"pools must contain chainId:address values with a positive chain ID and a valid hex address")
 	errUnknownPoolRef = errors.New(
 		"pools contains a pool that does not exist in the catalog")
-	errReportTooManyPools = errors.New("pools must contain at most 12 values")
-	errUnknownPoolMatch   = errors.New(`poolMatch must be "any" or "all"`)
-	errInvalidPosted      = errors.New(`posted must be "1m", "3m", "6m", "1y", or "all"`)
+	errReportTooManyPools    = errors.New("pools must contain at most 12 values")
+	errUnknownPoolMatch      = errors.New(`poolMatch must be "any" or "all"`)
+	errInvalidPosted         = errors.New(`posted must be "1m", "3m", "6m", "1y", or "all"`)
+	errInvalidTiming         = errors.New(`timing must be "future", "past", or "all"`)
+	errTimingPosted          = errors.New("timing and posted cannot be combined")
+	errInvalidPostTiming     = errors.New(`postTiming must be "future", "past", or "all"`)
+	errPostTimingPosted      = errors.New("postTiming and posted cannot be combined")
+	errInvalidPostVoucherRef = errors.New(
+		"postVouchers must contain chainId:address values with a positive chain ID and a valid hex address")
+	errInvalidPostPoolRef = errors.New(
+		"postPools must contain chainId:address values with a positive chain ID and a valid hex address")
+	errUnknownPostVoucherMatch = errors.New(`postVoucherMatch must be "any" or "all"`)
+	errUnknownPostPoolMatch    = errors.New(`postPoolMatch must be "any" or "all"`)
 	// The vocabulary is named as `facets=true` rather than as /api/v2/token-tags
 	// because this endpoint is public and that one is not: a signed-out caller
 	// can filter but cannot read the tag list from there. The facet response is
@@ -63,6 +73,10 @@ type (
 		poolRefs           []store.PoolRef
 		poolMatch          store.TagMatch
 		creditablePoolRefs []store.PoolRef
+		postVoucherRefs    []store.VoucherRef
+		postVoucherMatch   store.TagMatch
+		postPoolRefs       []store.PoolRef
+		postPoolMatch      store.TagMatch
 		// facets asks for the tag facet alongside the page. It is honoured on
 		// the first page only: a facet describes the whole filtered set rather
 		// than the page, so recomputing it per cursor page would return the
@@ -72,7 +86,8 @@ type (
 		nearest bool
 		// posted is the public post time window: 1m, 3m, 6m, 1y, or all.
 		// Empty means the parser never read the parameter.
-		posted string
+		posted     string
+		postTiming store.ReportTiming
 	}
 
 	catalogRelationshipRef struct {
@@ -263,10 +278,63 @@ func parseReportRelationshipSearch(c *echo.Context) (catalogSearchRequest, error
 			Address: ref.address,
 		})
 	}
-	if err := applyPostedWindow(&search, c.Request().URL.Query().Get("posted"), time.Now().UTC()); err != nil {
+	query := c.Request().URL.Query()
+	if query.Has("timing") && query.Has("posted") {
+		return catalogSearchRequest{}, errTimingPosted
+	}
+	if query.Has("timing") {
+		if err := applyReportTiming(&search, query.Get("timing"), errInvalidTiming); err != nil {
+			return catalogSearchRequest{}, err
+		}
+	} else if err := applyPostedWindow(&search, query.Get("posted"), time.Now().UTC()); err != nil {
 		return catalogSearchRequest{}, err
 	}
 	return search, nil
+}
+
+// parsePostDiscoverySearch adds Post-only relationships and schedule timing to
+// mixed marketplace requests. The caller chooses whether omitted timing keeps
+// the market map's legacy one-month window or leaves Posts unrestricted.
+func parsePostDiscoverySearch(c *echo.Context, search *catalogSearchRequest, legacyPosted bool) error {
+	refs, err := parseCatalogRelationshipRefs(
+		c, "postVouchers", store.CatalogMaxVouchers, errInvalidPostVoucherRef, store.ErrCatalogTooManyVouchers,
+	)
+	if err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		search.postVoucherRefs = append(search.postVoucherRefs, store.VoucherRef{ChainID: ref.chainID, Address: ref.address})
+	}
+	search.postVoucherMatch, err = relationshipMatch(c.QueryParam("postVoucherMatch"), errUnknownPostVoucherMatch)
+	if err != nil {
+		return err
+	}
+
+	refs, err = parseCatalogRelationshipRefs(
+		c, "postPools", store.CatalogMaxPools, errInvalidPostPoolRef, store.ErrCatalogTooManyPools,
+	)
+	if err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		search.postPoolRefs = append(search.postPoolRefs, store.PoolRef{ChainID: ref.chainID, Address: ref.address})
+	}
+	search.postPoolMatch, err = relationshipMatch(c.QueryParam("postPoolMatch"), errUnknownPostPoolMatch)
+	if err != nil {
+		return err
+	}
+
+	query := c.Request().URL.Query()
+	if query.Has("postTiming") && query.Has("posted") {
+		return errPostTimingPosted
+	}
+	if query.Has("postTiming") {
+		return applyReportTiming(search, query.Get("postTiming"), errInvalidPostTiming)
+	}
+	if legacyPosted {
+		return applyPostedWindow(search, query.Get("posted"), time.Now().UTC())
+	}
+	return nil
 }
 
 func parseCatalogRelationshipRefs(
@@ -323,6 +391,25 @@ func applyPostedWindow(search *catalogSearchRequest, raw string, now time.Time) 
 	}
 	search.posted = window
 	search.filter.PostedAfter = postedAfter(window, now)
+	return nil
+}
+
+func applyReportTiming(search *catalogSearchRequest, raw string, invalid error) error {
+	var timing store.ReportTiming
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "future":
+		timing = store.ReportTimingFuture
+	case "past":
+		timing = store.ReportTimingPast
+	case "all":
+		timing = store.ReportTimingAll
+	default:
+		return invalid
+	}
+	search.postTiming = timing
+	search.filter.ReportTiming = timing
+	search.filter.PostedAfter = nil
+	search.posted = ""
 	return nil
 }
 
@@ -489,6 +576,56 @@ func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearc
 	search.filter, err = search.filter.WithPoolIDsMatch(ids, search.poolMatch)
 	if err != nil {
 		return true, respondCatalogSearchError(c, err)
+	}
+	return false, nil
+}
+
+// resolveDiscoveryPoolFilter keeps the marketplace-wide pool dimension
+// separate from Post relationship filters.
+func (a *API) resolveDiscoveryPoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearchRequest) (bool, error) {
+	if len(search.poolRefs) == 0 {
+		return false, nil
+	}
+	ids, err := a.store.ResolvePoolRefs(c.Request().Context(), tx, search.poolRefs)
+	if err != nil {
+		return true, handlePostgresError(c, err)
+	}
+	if len(ids) != len(search.poolRefs) {
+		return true, respondCatalogSearchError(c, errUnknownPoolRef)
+	}
+	search.filter, err = search.filter.WithDiscoveryPoolIDs(ids)
+	if err != nil {
+		return true, respondCatalogSearchError(c, err)
+	}
+	return false, nil
+}
+
+func (a *API) resolvePostDiscoveryFilters(c *echo.Context, tx pgx.Tx, search *catalogSearchRequest) (bool, error) {
+	if len(search.postVoucherRefs) > 0 {
+		ids, err := a.store.ResolveVoucherRefs(c.Request().Context(), tx, search.postVoucherRefs)
+		if err != nil {
+			return true, handlePostgresError(c, err)
+		}
+		if len(ids) != len(search.postVoucherRefs) {
+			return true, respondCatalogSearchError(c, errUnknownVoucherRef)
+		}
+		search.filter, err = search.filter.WithVoucherIDs(ids, search.postVoucherMatch)
+		if err != nil {
+			return true, respondCatalogSearchError(c, err)
+		}
+	}
+	if len(search.postPoolRefs) > 0 {
+		ids, err := a.store.ResolvePoolRefs(c.Request().Context(), tx, search.postPoolRefs)
+		if err != nil {
+			return true, handlePostgresError(c, err)
+		}
+		if len(ids) != len(search.postPoolRefs) {
+			return true, respondCatalogSearchError(c, errUnknownPoolRef)
+		}
+		search.filter, err = search.filter.WithPoolIDsMatch(ids, search.postPoolMatch)
+		if err != nil {
+			return true, respondCatalogSearchError(c, err)
+		}
 	}
 	return false, nil
 }

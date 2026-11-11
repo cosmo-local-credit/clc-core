@@ -3865,6 +3865,35 @@ WITH raw AS MATERIALIZED (
 	          JOIN pool_tokens credit_pt ON credit_pt.voucher_id=credit_v.id AND credit_pt.is_allowed
 	          WHERE rv.report_id=r.id AND credit_pt.pool_id=ANY($5::BIGINT[])
 	      ))
+	      AND (COALESCE(cardinality($32::BIGINT[]),0)=0 OR CASE WHEN $33::BOOLEAN THEN (
+	          SELECT count(*) FROM report_vouchers selected_rv
+	          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($32::BIGINT[])
+	      )=cardinality($32::BIGINT[]) ELSE EXISTS (
+	          SELECT 1 FROM report_vouchers selected_rv
+	          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($32::BIGINT[])
+	      ) END)
+	      AND (COALESCE(cardinality($34::BIGINT[]),0)=0 OR CASE WHEN $35::BOOLEAN THEN (
+	          SELECT count(DISTINCT matched.pool_id) FROM (
+	              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+	              UNION
+	              SELECT pt.pool_id FROM report_vouchers rv
+	              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+	              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+	              WHERE rv.report_id=r.id
+	          ) matched WHERE matched.pool_id=ANY($34::BIGINT[])
+	      )=cardinality($34::BIGINT[]) ELSE EXISTS (
+	          SELECT 1 FROM (
+	              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+	              UNION
+	              SELECT pt.pool_id FROM report_vouchers rv
+	              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+	              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+	              WHERE rv.report_id=r.id
+	          ) matched WHERE matched.pool_id=ANY($34::BIGINT[])
+	      ) END)
+	      AND ($36::TEXT='' OR $36::TEXT='all'
+	          OR ($36::TEXT='future' AND (r.period_to IS NULL OR r.period_to>=CURRENT_TIMESTAMP))
+	          OR ($36::TEXT='past' AND r.period_to<CURRENT_TIMESTAMP))
 ), scored AS MATERIALIZED (
     SELECT raw.*,
         CASE WHEN $1='' THEN 0
@@ -4053,6 +4082,35 @@ WITH raw AS MATERIALIZED (
           WHERE rv.report_id=r.id AND credit_pt.pool_id=ANY($5::BIGINT[])
       ))
       AND ($20::TIMESTAMPTZ IS NULL OR r.created_at >= $20)
+      AND (COALESCE(cardinality($21::BIGINT[]),0)=0 OR CASE WHEN $22::BOOLEAN THEN (
+          SELECT count(*) FROM report_vouchers selected_rv
+          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($21::BIGINT[])
+      )=cardinality($21::BIGINT[]) ELSE EXISTS (
+          SELECT 1 FROM report_vouchers selected_rv
+          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($21::BIGINT[])
+      ) END)
+      AND (COALESCE(cardinality($23::BIGINT[]),0)=0 OR CASE WHEN $24::BOOLEAN THEN (
+          SELECT count(DISTINCT matched.pool_id) FROM (
+              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+              UNION
+              SELECT pt.pool_id FROM report_vouchers rv
+              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+              WHERE rv.report_id=r.id
+          ) matched WHERE matched.pool_id=ANY($23::BIGINT[])
+      )=cardinality($23::BIGINT[]) ELSE EXISTS (
+          SELECT 1 FROM (
+              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+              UNION
+              SELECT pt.pool_id FROM report_vouchers rv
+              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+              WHERE rv.report_id=r.id
+          ) matched WHERE matched.pool_id=ANY($23::BIGINT[])
+      ) END)
+      AND ($25::TEXT='' OR $25::TEXT='all'
+          OR ($25::TEXT='future' AND (r.period_to IS NULL OR r.period_to>=CURRENT_TIMESTAMP))
+          OR ($25::TEXT='past' AND r.period_to<CURRENT_TIMESTAMP))
 ), filtered AS MATERIALIZED (
     SELECT * FROM raw
     WHERE (COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[]))
