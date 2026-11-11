@@ -51,8 +51,10 @@ func marketplaceOrigin(caller uint64, filter store.CatalogFilter, kinds []string
 	if origin != nil {
 		lat, lng = origin.Lat, origin.Lng
 	}
-	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%t:%.17g:%.17g:%s:%v:%d:%v:%v:%v",
-		caller, origin != nil, lat, lng, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, kinds, filter.Bounds))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%t:%.17g:%.17g:%s:%v:%d:%v:%v:%d:%v:%d:%s:%v:%v",
+		caller, origin != nil, lat, lng, filter.Term, filter.Tags, filter.TagMatch,
+		filter.DiscoveryPoolIDs, filter.VoucherIDs, filter.VoucherMatch, filter.PoolIDs,
+		filter.PoolMatch, filter.ReportTiming, kinds, filter.Bounds))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -88,6 +90,9 @@ func (a *API) marketplaceListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	if err := parsePostDiscoverySearch(c, &search, false); err != nil {
+		return respondCatalogSearchError(c, err)
+	}
 	kinds, err := parseMarketplaceKinds(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
@@ -99,7 +104,13 @@ func (a *API) marketplaceListHandler(c *echo.Context) error {
 			}
 			return nil, errCuratedHandled
 		}
-		if handled, readErr := a.resolvePoolFilter(c, tx, &search); handled || readErr != nil {
+		if handled, readErr := a.resolveDiscoveryPoolFilter(c, tx, &search); handled || readErr != nil {
+			if readErr != nil {
+				return nil, readErr
+			}
+			return nil, errCuratedHandled
+		}
+		if handled, readErr := a.resolvePostDiscoveryFilters(c, tx, &search); handled || readErr != nil {
 			if readErr != nil {
 				return nil, readErr
 			}

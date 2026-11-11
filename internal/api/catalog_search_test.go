@@ -388,6 +388,73 @@ func TestParseReportRelationshipSearchRejectsUnknownPosted(t *testing.T) {
 	}
 }
 
+func TestParseReportRelationshipSearchTiming(t *testing.T) {
+	for raw, want := range map[string]store.ReportTiming{
+		"future": store.ReportTimingFuture,
+		"past":   store.ReportTimingPast,
+		"all":    store.ReportTimingAll,
+	} {
+		got, err := parseReportSearchQuery(t, "timing="+raw)
+		if err != nil {
+			t.Fatalf("timing=%s: %v", raw, err)
+		}
+		if got.filter.ReportTiming != want || got.filter.PostedAfter != nil {
+			t.Errorf("timing=%s: timing=%q PostedAfter=%v", raw, got.filter.ReportTiming, got.filter.PostedAfter)
+		}
+	}
+	if _, err := parseReportSearchQuery(t, "timing=soon"); !errors.Is(err, errInvalidTiming) {
+		t.Errorf("unknown timing: error = %v, want errInvalidTiming", err)
+	}
+	if _, err := parseReportSearchQuery(t, "timing=future&posted=all"); !errors.Is(err, errTimingPosted) {
+		t.Errorf("timing + posted: error = %v, want errTimingPosted", err)
+	}
+}
+
+func TestParsePostDiscoverySearchNormalizesPostOnlyFilters(t *testing.T) {
+	const (
+		voucher = "0x1111111111111111111111111111111111111111"
+		pool    = "0x2222222222222222222222222222222222222222"
+	)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v2/market-map?postTiming=past&postVouchers=100:"+voucher+
+			"&postVoucherMatch=all&postPools=100:"+pool+"&postPoolMatch=all", nil)
+	c := echo.New().NewContext(req, httptest.NewRecorder())
+	search, err := parseCatalogSearch(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := parsePostDiscoverySearch(c, &search, true); err != nil {
+		t.Fatal(err)
+	}
+	if search.postTiming != store.ReportTimingPast || search.postVoucherMatch != store.TagMatchAll ||
+		search.postPoolMatch != store.TagMatchAll || len(search.postVoucherRefs) != 1 || len(search.postPoolRefs) != 1 {
+		t.Fatalf("Post discovery search = %#v", search)
+	}
+}
+
+func TestParsePostDiscoverySearchRejectsInvalidCombinations(t *testing.T) {
+	for name, query := range map[string]string{
+		"unknown timing":  "postTiming=soon",
+		"legacy conflict": "postTiming=future&posted=all",
+		"voucher match":   "postVoucherMatch=sideways",
+		"pool match":      "postPoolMatch=sideways",
+		"voucher ref":     "postVouchers=not-a-ref",
+		"pool ref":        "postPools=not-a-ref",
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v2/market-map?"+query, nil)
+			c := echo.New().NewContext(req, httptest.NewRecorder())
+			search, err := parseCatalogSearch(c)
+			if err == nil {
+				err = parsePostDiscoverySearch(c, &search, true)
+			}
+			if err == nil {
+				t.Fatal("invalid Post discovery filter was accepted")
+			}
+		})
+	}
+}
+
 func TestParseCatalogSearchIgnoresPosted(t *testing.T) {
 	got, err := parseSearchQuery(t, "posted=1m")
 	if err != nil {

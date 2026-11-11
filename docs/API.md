@@ -2277,6 +2277,9 @@ Returns one mixed list of offerings, Wants, vouchers, pools and curated catalogs
 | `kinds` | string | commerce kinds | Values `catalog`, `offering`, `pool`, `post`, `voucher` and `want`. Repeat the parameter or use commas. `post` is included only when explicitly selected. The server ignores case and empty items. Another value returns `400` `E04`. |
 | `q` | string | none | Matches the name, symbol, description, tags and related names of a row. |
 | `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby`, `sort` | | | See section 7.1. The tags are the tags of each row. |
+| `postTiming` | string | legacy one-month window | `future`, `past`, or `all`. Applies only to explicitly selected Posts. Cannot be combined with legacy `posted`. |
+| `postVouchers`, `postVoucherMatch` | string | none, `any` | Voucher references in `chainId:address` form and `any` or `all` matching. Applies only to Posts. |
+| `postPools`, `postPoolMatch` | string | none, `any` | Pool references in `chainId:address` form and `any` or `all` matching. A Pool matches a directly linked Pool or an active linked Voucher currently allowed by the Pool. Applies only to Posts. |
 
 The server includes only rows that have coordinates. Offerings and vouchers must be available and active. The order is:
 
@@ -2382,10 +2385,13 @@ Returns one bounded set of lightweight Marketplace markers and server clusters f
 | `q` | string | none | Uses the search behavior of the selected resource kinds. |
 | `tags`, `tagMatch`, `facets` | | | See section 7.1. |
 | `creditablePools` | string | none | Verified pool references in `chainId:address` form. Repeat the parameter or use commas. |
+| `postTiming` | string | legacy one-month window | `future`, `past`, or `all`. Applies only to Posts. Cannot be combined with legacy `posted`. |
+| `postVouchers`, `postVoucherMatch` | string | none, `any` | Voucher references in `chainId:address` form and `any` or `all` matching. Applies only to Posts. |
+| `postPools`, `postPoolMatch` | string | none, `any` | Pool references in `chainId:address` form and `any` or `all` matching. A Pool matches a directly linked Pool or an active linked Voucher currently allowed by the Pool. Applies only to Posts. |
 
 Below zoom 20, resources in the same 30-pixel Web Mercator grid cell become one cluster. Quarter-zoom buckets keep that footprint close to the rendered scale. At zoom 20 the response returns individual markers so coincident resources can be fanned out by the client. A response contains at most 2,000 features.
 
-Marker fields are `type`, `id`, `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon`, and `markerColor`. Cluster fields are `type`, `id`, `lat`, `lng`, `count`, `kinds`, and `expansionZoom`. `kinds` contains the count for each represented resource kind. `tagFacets` is returned when `facets=true`.
+Marker fields are `type`, `id`, `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon`, and `markerColor`. Cluster fields are `type`, `id`, `lat`, `lng`, `count`, `kinds`, and `expansionZoom`. `kinds` contains the count for each represented resource kind. `tagFacets`, `postVoucherFacets`, and `postPoolFacets` are returned when `facets=true`; the Post Pool facets include direct and active allowed-Voucher relationships without duplicate Post counts.
 
 Successful responses use `Cache-Control: public, max-age=15, stale-while-revalidate=60`. Identical cache misses coalesce into one database read. The in-process response cache has a 15-second TTL, a 64 MiB limit, and least-recently-used eviction.
 
@@ -3388,9 +3394,11 @@ The response has no `Cache-Control` header, except for `nearby=true`, which sets
 | `tagMatch` | `any` or `all` | `any` | A post must have any of the tags, or all of the tags. |
 | `vouchers` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every voucher must exist. |
 | `voucherMatch` | `any` or `all` | `any` | A post must link any of the vouchers, or all of the vouchers. |
-| `pools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every pool must exist. |
-| `poolMatch` | `any` or `all` | `any` | A post must link any of the pools, or all of the pools. |
+| `pools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every pool must exist. A Pool matches when the Post directly links it or links an active Voucher currently allowed by it. |
+| `poolMatch` | `any` or `all` | `any` | A Post must match any selected Pool or every selected Pool through either qualifying relationship. |
 | `creditablePools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. A post matches when it directly links one selected pool or links an active voucher currently allowed by one. At most 100 distinct values. Every pool must exist. |
+| `timing` | `future`, `past`, or `all` | legacy one-month window when omitted | `future` includes Posts with no end time or an end time at or after the database transaction time. `past` includes Posts whose end time is before that time. `all` does not restrict the schedule. Cannot be combined with `posted`. |
+| `posted` | `1m`, `3m`, `6m`, `1y`, or `all` | `1m` | Legacy creation-age filter for older clients. Cannot be combined with `timing`. |
 | `bbox` | string | none | See section 7.1. Only posts with coordinates inside either supplied box are returned. |
 | `nearby` | `true` or `false` | `false` | Show only posts with coordinates within 1000 km of the saved profile location of the caller. The order does not change. A caller without a saved location gets `400 E04`. |
 | `sort` | `nearest` | none | Use the valid profile location, else the center of `bbox`, for ordering without adding a radius filter. Cannot be combined with `nearby=true`. |
@@ -3406,7 +3414,7 @@ A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04
 | `next` | object or null | `{"updatedAt": "<RFC 3339 time>", "id": 4633}`. A nearest-sorted page also includes `distance` and an opaque `origin`; send all four cursor values back. The value is `null` when the page has fewer than `perPage` posts. A full last page can still give a `next` value, and the next page is then empty. |
 | `tagFacets` | array | Only with `facets=true` and no cursor. Items are `{"tag", "count"}`. It lists only tags that appear on a matching post. The count ignores `tags`. |
 | `voucherFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `vouchers`. |
-| `poolFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `pools`. |
+| `poolFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `pools` and includes direct and active allowed-Voucher relationships without counting a Post twice. |
 
 ```json
 {

@@ -80,12 +80,15 @@ func (pg *Pg) ListMarketplace(
 	rows := []MarketplaceResult{}
 	err := pgxscan.Select(ctx, tx, &rows, pg.queries.ListMarketplace,
 		filter.likeTerm(), filter.prefixOnly(), filter.Tags, filter.TagMatch == TagMatchAll,
-		filter.PoolIDs, kinds, isSorted, lat, lng, minLng, minLat, maxLng, maxLat,
+		filter.DiscoveryPoolIDs, kinds, isSorted, lat, lng, minLng, minLat, maxLng, maxLat,
 		cursor.Rank, cursor.Distance, cursor.UpdatedAt, cursor.Kind, cursor.ID, limit,
 		includeFacets,
 		hasBounds, boundMinLng, boundMinLat, boundMaxLng, boundMaxLat,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
 		isNearby,
+		filter.VoucherIDs, filter.VoucherMatch == TagMatchAll,
+		filter.PoolIDs, filter.PoolMatch == TagMatchAll,
+		filter.ReportTiming,
 	)
 	return rows, err
 }

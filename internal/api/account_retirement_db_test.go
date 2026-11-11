@@ -293,13 +293,24 @@ func TestAccountRetirementRegressions(t *testing.T) {
 		if res.Code != http.StatusOK {
 			t.Fatalf("preview = %d: %s", res.Code, res.Body.String())
 		}
-		preview, _ := result["preview"].(map[string]any)
-		previewed, err := time.Parse(time.RFC3339Nano, preview["closesAt"].(string))
+		preview, ok := result["preview"].(map[string]any)
+		if !ok {
+			t.Fatalf("preview payload = %#v, want object", result["preview"])
+		}
+		previewClosesAt, ok := preview["closesAt"].(string)
+		if !ok {
+			t.Fatalf("preview closesAt = %#v, want string", preview["closesAt"])
+		}
+		previewed, err := time.Parse(time.RFC3339Nano, previewClosesAt)
 		if err != nil {
 			t.Fatal(err)
 		}
 		_, retired := sendJSON(t, a, http.MethodPost, "/api/v2/users/me/retirement", userToken, `{"acknowledged":true}`)
-		stored, err := time.Parse(time.RFC3339Nano, retired["closesAt"].(string))
+		retiredClosesAt, ok := retired["closesAt"].(string)
+		if !ok {
+			t.Fatalf("retirement closesAt = %#v, want string", retired["closesAt"])
+		}
+		stored, err := time.Parse(time.RFC3339Nano, retiredClosesAt)
 		if err != nil {
 			t.Fatal(err)
 		}

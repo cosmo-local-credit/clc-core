@@ -81,6 +81,27 @@ func TestMarketMapKeyDistinguishesPostedWindow(t *testing.T) {
 	}
 }
 
+func TestMarketMapKeyDistinguishesPostTimingAndRelationships(t *testing.T) {
+	base, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map?postTiming=future"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	past, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map?postTiming=past"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, err := parseMarketMapSearch(marketMapTestContext(
+		"/api/v2/market-map?postTiming=future&postPools=100:0x1111111111111111111111111111111111111111"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := []string{"post"}
+	if marketMapKey(base, kinds, 10) == marketMapKey(past, kinds, 10) ||
+		marketMapKey(base, kinds, 10) == marketMapKey(pool, kinds, 10) {
+		t.Fatal("Post timing or relationships were omitted from map cache identity")
+	}
+}
+
 func TestParseMarketMapSearchDefaultsPostedToOneMonth(t *testing.T) {
 	search, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map"))
 	if err != nil {

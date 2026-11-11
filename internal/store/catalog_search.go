@@ -43,6 +43,9 @@ type (
 	// one facet; different facets always combine with AND.
 	TagMatch uint8
 
+	// ReportTiming classifies public Posts by their scheduled end.
+	ReportTiming string
+
 	// CatalogPage names one of the three cursor directions the public catalog
 	// contract exposes. The previous-page direction is part of that contract
 	// (`cursor > 0 and next = false`), so every filtered query must implement
@@ -69,14 +72,19 @@ type (
 		// never come directly from public input.
 		VoucherIDs   []uint64
 		VoucherMatch TagMatch
-		// PoolIDs are resolved from stable chain/address references. A voucher
-		// matches when an allowed pool_tokens row links it to any selected pool.
+		// PoolIDs are resolved from stable chain/address references. Voucher
+		// discovery uses allowed pool_tokens rows; Post discovery uses direct Pool
+		// links plus active linked Vouchers currently allowed by the Pool.
 		PoolIDs   []uint64
 		PoolMatch TagMatch
+		// DiscoveryPoolIDs narrow every marketplace resource through the
+		// existing Credit/output-pool relationship rules. They are deliberately
+		// separate from PoolIDs, which are Post-specific relationship filters.
+		DiscoveryPoolIDs []uint64
 		// CreditablePoolIDs apply only to Posts. A Post qualifies when it
 		// directly links one of these pools or links an active voucher allowed
-		// by one. They stay separate from PoolIDs, whose meaning is a direct
-		// report-pool relationship filter.
+		// by one. They stay separate from PoolIDs because Credit is an independent
+		// AND dimension from the Post relationship filter.
 		CreditablePoolIDs []uint64
 		// Owner restricts the page to rows belonging to one address: a voucher's
 		// owner_address, a report's author_address. Empty means no restriction.
@@ -94,6 +102,9 @@ type (
 		// Nil means all time. Report composers and the market-map post union
 		// are the only readers; voucher and pool catalogs ignore it.
 		PostedAfter *time.Time
+		// ReportTiming filters Posts by schedule. Empty preserves the legacy
+		// created-at behavior selected through PostedAfter.
+		ReportTiming ReportTiming
 	}
 
 	// VoucherRef is the stable public identity of a voucher. Numeric database
@@ -160,6 +171,10 @@ const (
 	TagMatchAny TagMatch = 0
 	// TagMatchAll returns entities carrying every requested tag.
 	TagMatchAll TagMatch = 1
+
+	ReportTimingFuture ReportTiming = "future"
+	ReportTimingPast   ReportTiming = "past"
+	ReportTimingAll    ReportTiming = "all"
 
 	CatalogFirstPage CatalogPage = 0
 	CatalogNextPage  CatalogPage = 1
@@ -290,6 +305,19 @@ func (f CatalogFilter) WithPoolIDsMatch(raw []uint64, match TagMatch) (CatalogFi
 	return f, nil
 }
 
+// WithDiscoveryPoolIDs narrows every marketplace resource through selected
+// pools without changing the meaning of Post relationship filters.
+func (f CatalogFilter) WithDiscoveryPoolIDs(raw []uint64) (CatalogFilter, error) {
+	ids := slices.Clone(raw)
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	if len(ids) > CatalogMaxPools {
+		return CatalogFilter{}, ErrCatalogTooManyPools
+	}
+	f.DiscoveryPoolIDs = ids
+	return f, nil
+}
+
 // WithCreditablePoolIDs narrows Posts to resources related to at least one
 // verified creditable pool, either directly or through an allowed voucher.
 func (f CatalogFilter) WithCreditablePoolIDs(raw []uint64) (CatalogFilter, error) {
@@ -341,7 +369,7 @@ func normalizeCatalogTags(raw []string) []string {
 // Active reports whether the filter narrows anything. When it does not, callers
 // use the existing static statements unchanged.
 func (f CatalogFilter) Active() bool {
-	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || len(f.PoolIDs) > 0 || len(f.CreditablePoolIDs) > 0 || f.Owner != "" || f.Nearby != nil || f.SortOrigin != nil || len(f.Bounds) > 0 || f.PostedAfter != nil
+	return f.Term != "" || len(f.Tags) > 0 || len(f.VoucherIDs) > 0 || len(f.PoolIDs) > 0 || len(f.DiscoveryPoolIDs) > 0 || len(f.CreditablePoolIDs) > 0 || f.Owner != "" || f.Nearby != nil || f.SortOrigin != nil || len(f.Bounds) > 0 || f.PostedAfter != nil || f.ReportTiming != ""
 }
 
 // prefixOnly reports whether the term is short enough that it matches as a

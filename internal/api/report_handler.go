@@ -75,9 +75,11 @@ const (
 // carried, and it is echoed back as `next`.
 //
 // Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, `pools`,
-// `poolMatch`, `creditablePools`, `bbox`, `posted`, and `facets` narrow the feed
-// (SEARCH_FILTER_PLAN.md Slice 4). `posted` is a created_at window: 1m, 3m, 6m,
-// 1y, or all. Omitted `posted` is 1m. `q` matches title and description; report
+// `poolMatch`, `creditablePools`, `bbox`, `timing`, legacy `posted`, and `facets`
+// narrow the feed (SEARCH_FILTER_PLAN.md Slice 4). `timing` classifies posts by
+// period_to as future, past, or all. `posted` remains a created_at window for
+// older clients: 1m, 3m, 6m, 1y, or all. Omitted `posted` is 1m when `timing`
+// is absent. `q` matches title and description; report
 // body search stays parked. Report tags are the reports' own `report_tags`, which
 // each row already returns, so a filtered row carries the tag that matched it.
 // The response shape is unchanged when the parameters are absent and gains the

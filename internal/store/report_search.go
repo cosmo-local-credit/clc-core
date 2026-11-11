@@ -136,19 +136,26 @@ func reportPoolPredicate(args *sqlArgs, filter CatalogFilter) string {
 		return ""
 	}
 	placeholder := args.bind(voucherIDsParam(filter.PoolIDs))
-	if filter.PoolMatch == TagMatchAll {
-		return `(
-            SELECT COUNT(*)
+	relationships := `(SELECT rp.pool_id
             FROM report_pools rp
             WHERE rp.report_id = r.id
-                AND rp.pool_id = ANY(` + placeholder + `::BIGINT[])
+            UNION
+            SELECT pt.pool_id
+            FROM report_vouchers rv
+            INNER JOIN vouchers v ON v.id = rv.voucher_id AND v.active
+            INNER JOIN pool_tokens pt ON pt.voucher_id = v.id AND pt.is_allowed
+            WHERE rv.report_id = r.id)`
+	if filter.PoolMatch == TagMatchAll {
+		return `(
+            SELECT COUNT(DISTINCT matched.pool_id)
+            FROM ` + relationships + ` matched
+            WHERE matched.pool_id = ANY(` + placeholder + `::BIGINT[])
         ) = cardinality(` + args.reuse() + `::BIGINT[])`
 	}
 	return `EXISTS (
             SELECT 1
-            FROM report_pools rp
-            WHERE rp.report_id = r.id
-                AND rp.pool_id = ANY(` + placeholder + `::BIGINT[])
+            FROM ` + relationships + ` matched
+            WHERE matched.pool_id = ANY(` + placeholder + `::BIGINT[])
         )`
 }
 
@@ -161,6 +168,19 @@ func reportPostedAfterPredicate(args *sqlArgs, filter CatalogFilter) string {
 		return ""
 	}
 	return "r.created_at >= " + args.bind(*filter.PostedAfter)
+}
+
+func reportTimingPredicate(filter CatalogFilter) string {
+	switch filter.ReportTiming {
+	case ReportTimingFuture:
+		return "(r.period_to IS NULL OR r.period_to >= CURRENT_TIMESTAMP)"
+	case ReportTimingPast:
+		return "r.period_to < CURRENT_TIMESTAMP"
+	case ReportTimingAll, "":
+		return ""
+	default:
+		return "FALSE"
+	}
 }
 
 func reportCreditablePoolPredicate(args *sqlArgs, filter CatalogFilter) string {
@@ -291,6 +311,7 @@ func composeReportPage(
 				nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 				ownerPredicate(args, "r.author_address", filter),
 				reportPostedAfterPredicate(args, filter),
+				reportTimingPredicate(filter),
 				reportTagPredicate(args, filter),
 				reportVoucherPredicate(args, filter),
 				reportPoolPredicate(args, filter),
@@ -312,6 +333,7 @@ func composeReportPage(
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			ownerPredicate(args, "r.author_address", filter),
 			reportPostedAfterPredicate(args, filter),
+			reportTimingPredicate(filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
@@ -363,6 +385,7 @@ func composeReportTagCounts(filter CatalogFilter) composed {
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			reportPostedAfterPredicate(args, filter),
+			reportTimingPredicate(filter),
 			reportSearchPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
 			reportPoolPredicate(args, filter),
@@ -393,6 +416,7 @@ func composeReportVoucherCounts(filter CatalogFilter) composed {
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			ownerPredicate(args, "r.author_address", filter),
 			reportPostedAfterPredicate(args, filter),
+			reportTimingPredicate(filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportPoolPredicate(args, filter),
@@ -420,17 +444,27 @@ func composeReportPoolCounts(filter CatalogFilter) composed {
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			reportPostedAfterPredicate(args, filter),
+			reportTimingPredicate(filter),
 			reportSearchPredicate(args, filter),
 			reportTagPredicate(args, filter),
 			reportVoucherPredicate(args, filter),
 			reportCreditablePoolPredicate(args, filter),
 		) + `
+), relationships AS (
+    SELECT c.id AS report_id, rp.pool_id
+    FROM candidates c
+    INNER JOIN report_pools rp ON rp.report_id = c.id
+    UNION
+    SELECT c.id AS report_id, pt.pool_id
+    FROM candidates c
+    INNER JOIN report_vouchers rv ON rv.report_id = c.id
+    INNER JOIN vouchers v ON v.id = rv.voucher_id AND v.active
+    INNER JOIN pool_tokens pt ON pt.voucher_id = v.id AND pt.is_allowed
 )
 SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name, p.symbol,
-    COUNT(*) AS match_count
-FROM candidates c
-INNER JOIN report_pools rp ON rp.report_id = c.id
-INNER JOIN pools p ON p.id = rp.pool_id
+    COUNT(DISTINCT relationships.report_id) AS match_count
+FROM relationships
+INNER JOIN pools p ON p.id = relationships.pool_id
 GROUP BY p.id, p.display_name, p.chain_id, p.address, p.name, p.symbol
 ORDER BY lower(COALESCE(p.display_name, p.name)), p.id;`
 	return composed{sql: sql, args: args.values}

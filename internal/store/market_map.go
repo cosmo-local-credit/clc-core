@@ -31,8 +31,10 @@ type (
 	}
 
 	MarketMapResult struct {
-		Features  []MarketMapFeature
-		TagFacets []TagFacet
+		Features          []MarketMapFeature
+		TagFacets         []TagFacet
+		PostVoucherFacets []VoucherFacet
+		PostPoolFacets    []PoolFacet
 	}
 )
 
@@ -48,11 +50,14 @@ func (pg *Pg) ListMarketMap(
 	rows := []MarketMapFeature{}
 	err := pgxscan.Select(ctx, tx, &rows, pg.queries.ListMarketMap,
 		filter.likeTerm(), filter.prefixOnly(), filter.Tags, filter.TagMatch == TagMatchAll,
-		filter.PoolIDs, kinds, zoom, includeFacets,
+		filter.DiscoveryPoolIDs, kinds, zoom, includeFacets,
 		hasBounds, minLng, minLat, maxLng, maxLat,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
 		MarketMapMaxFeatures,
 		filter.PostedAfter,
+		filter.VoucherIDs, filter.VoucherMatch == TagMatchAll,
+		filter.PoolIDs, filter.PoolMatch == TagMatchAll,
+		filter.ReportTiming,
 	)
 	if err != nil {
 		return MarketMapResult{}, err
