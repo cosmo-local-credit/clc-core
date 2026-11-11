@@ -19,6 +19,10 @@ type (
 		Name     *string `db:"name"`
 		Decimals *int32  `db:"decimals"`
 		IconURL  *string `db:"icon_url"`
+		// VoucherValue and VoucherUOA are the issuer's stated rate: one voucher
+		// is worth VoucherValue VoucherUOA. Either may be unset.
+		VoucherValue *string `db:"voucher_value"`
+		VoucherUOA   *string `db:"voucher_uoa"`
 	}
 
 	// VoucherProfile is a voucher's editable off-chain record.

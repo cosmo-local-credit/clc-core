@@ -13363,6 +13363,12 @@ components:
           format: date-time
         catalogActive:
           type: boolean
+        voucherValue:
+          type: string
+          description: Decimal number. The value of one voucher in 'voucherUoa'. Not present if the catalog has none.
+        voucherUoa:
+          type: string
+          description: Unit of account of 'voucherValue'. Not present if the catalog has none.
     User:
       type: object
       properties:

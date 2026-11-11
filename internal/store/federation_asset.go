@@ -31,6 +31,10 @@ type (
 		Balance       string    `db:"balance"         json:"balance"`
 		IconURL       *string   `db:"-"               json:"iconUrl,omitempty"`
 		LastDateBlock time.Time `db:"last_date_block" json:"lastDateBlock"`
+		// The issuer's stated rate from the catalog: one voucher is worth
+		// VoucherValue VoucherUOA. Omitted when the catalog has none.
+		VoucherValue *string `db:"-" json:"voucherValue,omitempty"`
+		VoucherUOA   *string `db:"-" json:"voucherUoa,omitempty"`
 	}
 
 	// FederationTransfer: same split as FederationTokenBalance — chain facts
