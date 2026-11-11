@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	marketplaceKinds = []string{"catalog", "offering", "pool", "voucher", "want"}
+	marketplaceKinds = []string{"catalog", "offering", "pool", "post", "voucher", "want"}
 )
 
 func parseMarketplaceKinds(c *echo.Context) ([]string, error) {
@@ -29,7 +29,7 @@ func parseMarketplaceKinds(c *echo.Context) ([]string, error) {
 				continue
 			}
 			if !slices.Contains(marketplaceKinds, kind) {
-				return nil, fmt.Errorf("kinds must contain only catalog, offering, pool, voucher, or want")
+				return nil, fmt.Errorf("kinds must contain only catalog, offering, pool, post, voucher, or want")
 			}
 			seen[kind] = struct{}{}
 		}
@@ -44,11 +44,15 @@ func parseMarketplaceKinds(c *echo.Context) ([]string, error) {
 
 func marketplaceOrigin(caller uint64, filter store.CatalogFilter, kinds []string) string {
 	lat, lng := 0.0, 0.0
-	if filter.Nearby != nil {
-		lat, lng = filter.Nearby.Lat, filter.Nearby.Lng
+	origin := filter.Nearby
+	if filter.SortOrigin != nil {
+		origin = filter.SortOrigin
+	}
+	if origin != nil {
+		lat, lng = origin.Lat, origin.Lng
 	}
 	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%t:%.17g:%.17g:%s:%v:%d:%v:%v:%v",
-		caller, filter.Nearby != nil, lat, lng, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, kinds, filter.Bounds))
+		caller, origin != nil, lat, lng, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, kinds, filter.Bounds))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -107,6 +111,12 @@ func (a *API) marketplaceListHandler(c *echo.Context) error {
 			}
 			return nil, errCuratedHandled
 		}
+		if handled, readErr := a.resolveNearestCatalog(c, tx, &search); handled || readErr != nil {
+			if readErr != nil {
+				return nil, readErr
+			}
+			return nil, errCuratedHandled
+		}
 		caller, _, _ := getUserClaims(c)
 		origin := marketplaceOrigin(caller, search.filter, kinds)
 		cursor, readErr := parseMarketplaceCursor(c.QueryParam("cursor"), origin)
@@ -117,6 +127,10 @@ func (a *API) marketplaceListHandler(c *echo.Context) error {
 		rows, readErr := a.store.ListMarketplace(c.Request().Context(), tx, search.filter, kinds, search.filter.Nearby, cursor, size+1, includeFacets)
 		if readErr != nil {
 			return nil, readErr
+		}
+		total := uint64(0)
+		if len(rows) > 0 {
+			total = rows[0].TotalCount
 		}
 		var next *string
 		if uint64(len(rows)) > size {
@@ -132,7 +146,7 @@ func (a *API) marketplaceListHandler(c *echo.Context) error {
 			})
 			next = &token
 		}
-		result := map[string]any{"results": rows, "nextCursor": next}
+		result := map[string]any{"results": rows, "nextCursor": next, "total": total}
 		if includeFacets {
 			facets := []store.TagFacet{}
 			if len(rows) > 0 && len(rows[0].TagFacets) > 0 {
