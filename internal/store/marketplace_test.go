@@ -16,6 +16,7 @@ func TestMarketplaceDiscoveryUsesOneStaticNamedQuery(t *testing.T) {
 		"'voucher'",
 		"'pool'",
 		"'catalog'",
+		"'post'",
 		"o.available AND v.active",
 		"pool_tokens",
 		"catalog_tags",
@@ -45,7 +46,7 @@ func TestMarketplaceQueryKeepsCursorAndFacetScopeInPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, fragment := range []string{
-		"COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[])",
+		"(COALESCE(cardinality($6::TEXT[]),0)=0 AND kind<>'post') OR kind=ANY($6::TEXT[])",
 		"COALESCE(cardinality($5::BIGINT[]),0)=0",
 		"rank>$14::INT",
 		"kind>$17::TEXT",
@@ -54,6 +55,7 @@ func TestMarketplaceQueryKeepsCursorAndFacetScopeInPostgres(t *testing.T) {
 		"NOT $21::BOOLEAN",
 		"point(geo_lng,geo_lat) <@ box(point($22,$23),point($24,$25))",
 		"$26::BOOLEAN AND point(geo_lng,geo_lat) <@ box(point($27,$28),point($29,$30))",
+		"(SELECT count(*)::BIGINT FROM scored) AS total_count",
 	} {
 		if !strings.Contains(queries.ListMarketplace, fragment) {
 			t.Errorf("marketplace keyset/facet query missing %q", fragment)

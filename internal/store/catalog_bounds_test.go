@@ -83,3 +83,46 @@ func TestNormalizeCatalogBoundsRejectsMoreThanTwoDistinctBoxes(t *testing.T) {
 		t.Fatalf("error = %v, want ErrTooManyCatalogBounds", err)
 	}
 }
+
+func TestCatalogBoundsCenter(t *testing.T) {
+	for name, tc := range map[string]struct {
+		bounds []CatalogBounds
+		lat    float64
+		lng    float64
+		ok     bool
+	}{
+		"ordinary fractional": {
+			bounds: []CatalogBounds{{MinLng: 39.5, MinLat: -4.2, MaxLng: 39.8, MaxLat: -3.9}},
+			lat:    -4.05,
+			lng:    39.65,
+			ok:     true,
+		},
+		"antimeridian": {
+			bounds: []CatalogBounds{
+				{MinLng: -180, MinLat: -20, MaxLng: -170, MaxLat: 20},
+				{MinLng: 170, MinLat: -20, MaxLng: 180, MaxLat: 20},
+			},
+			lat: 0,
+			lng: 180,
+			ok:  true,
+		},
+		"global": {
+			bounds: []CatalogBounds{{MinLng: -180, MinLat: -90, MaxLng: 180, MaxLat: 90}},
+			lat:    0,
+			lng:    0,
+			ok:     true,
+		},
+		"absent": {ok: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := CatalogBoundsCenter(tc.bounds)
+			ok := got != nil
+			if ok != tc.ok {
+				t.Fatalf("ok = %v, want %v", ok, tc.ok)
+			}
+			if ok && (got.Lat != tc.lat || got.Lng != tc.lng) {
+				t.Fatalf("center = %+v, want lat=%v lng=%v", got, tc.lat, tc.lng)
+			}
+		})
+	}
+}

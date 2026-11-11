@@ -123,6 +123,23 @@ func TestMarketMapMixedMarkersClustersFacetsAndCreditDB(t *testing.T) {
 	}
 	require.Equal(t, map[string]bool{"voucher": true, "want": true, "pool": true, "catalog": true}, listKinds)
 
+	// Posts stay out of the legacy omitted-kinds list, but an explicit desktop
+	// viewport selection returns them and a total for every underlying resource.
+	explicit, err := pg.ListMarketplace(ctx, tx, filter,
+		[]string{"catalog", "pool", "post", "voucher", "want"}, nil,
+		MarketplaceCursor{}, 10, false)
+	require.NoError(t, err)
+	require.Len(t, explicit, 5)
+	require.Equal(t, uint64(5), explicit[0].TotalCount)
+	explicitKinds := map[string]bool{}
+	for _, row := range explicit {
+		explicitKinds[row.Kind] = true
+		require.Equal(t, uint64(5), row.TotalCount)
+	}
+	for _, kind := range []string{"catalog", "pool", "post", "voucher", "want"} {
+		require.True(t, explicitKinds[kind], "explicit marketplace missing %s", kind)
+	}
+
 	// Every kind must also respect a nearby, non-overlapping decimal box.
 	filter.Bounds = []CatalogBounds{{MinLng: 39.84, MinLat: -3.8, MaxLng: 39.85, MaxLat: -3.2}}
 	emptyMap, err := pg.ListMarketMap(ctx, tx, filter, nil, 16, true)

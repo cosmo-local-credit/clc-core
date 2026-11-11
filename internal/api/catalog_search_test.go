@@ -202,6 +202,31 @@ func TestParseCatalogSearchWithoutParametersIsInactive(t *testing.T) {
 	}
 }
 
+func TestParseCatalogSearchNearestSort(t *testing.T) {
+	got, err := parseSearchQuery(t, "sort=nearest&bbox=39.5,-4.2,39.8,-3.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.nearest {
+		t.Fatal("sort=nearest was not retained")
+	}
+	if got.nearby {
+		t.Fatal("nearest viewport ordering must not enable radius filtering")
+	}
+	if !got.filter.Active() {
+		t.Fatal("nearest bounded discovery must use the filtered query path")
+	}
+}
+
+func TestParseCatalogSearchRejectsInvalidAndAmbiguousSort(t *testing.T) {
+	if _, err := parseSearchQuery(t, "sort=newest"); !errors.Is(err, errInvalidCatalogSort) {
+		t.Errorf("unknown sort: error = %v, want errInvalidCatalogSort", err)
+	}
+	if _, err := parseSearchQuery(t, "nearby=true&sort=nearest"); err == nil {
+		t.Error("nearby=true with sort=nearest was accepted")
+	}
+}
+
 func TestParseCatalogSearchNormalizesRepeatedBounds(t *testing.T) {
 	got, err := parseSearchQuery(t,
 		"bbox=179,-2,180,2&bbox=-180,-2,-179,2")

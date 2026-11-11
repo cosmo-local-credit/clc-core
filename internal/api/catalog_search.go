@@ -23,8 +23,9 @@ import (
 // parameters, and `tagMatch` selects a compile-time constant fragment.
 
 var (
-	errInvalidFacets     = errors.New("facets must be true or false")
-	errInvalidVoucherRef = errors.New(
+	errInvalidFacets      = errors.New("facets must be true or false")
+	errInvalidCatalogSort = errors.New(`sort must be "nearest"`)
+	errInvalidVoucherRef  = errors.New(
 		"vouchers must contain chainId:address values with a positive chain ID and a valid hex address")
 	errUnknownVoucherRef = errors.New(
 		"vouchers contains a voucher that does not exist in the catalog")
@@ -66,8 +67,9 @@ type (
 		// the first page only: a facet describes the whole filtered set rather
 		// than the page, so recomputing it per cursor page would return the
 		// same answer at the same cost.
-		facets bool
-		nearby bool
+		facets  bool
+		nearby  bool
+		nearest bool
 		// posted is the public post time window: 1m, 3m, 6m, 1y, or all.
 		// Empty means the parser never read the parameter.
 		posted string
@@ -134,7 +136,16 @@ func parseCatalogSearch(c *echo.Context) (catalogSearchRequest, error) {
 	if nearby == "true" && len(filter.Bounds) > 0 {
 		return catalogSearchRequest{}, errors.New("nearby and bbox cannot be combined")
 	}
-	return catalogSearchRequest{filter: filter, facets: facets, nearby: nearby == "true"}, nil
+	sortMode := strings.ToLower(strings.TrimSpace(query.Get("sort")))
+	if sortMode != "" && sortMode != "nearest" {
+		return catalogSearchRequest{}, errInvalidCatalogSort
+	}
+	if nearby == "true" && sortMode == "nearest" {
+		return catalogSearchRequest{}, errors.New("nearby and sort cannot be combined")
+	}
+	return catalogSearchRequest{
+		filter: filter, facets: facets, nearby: nearby == "true", nearest: sortMode == "nearest",
+	}, nil
 }
 
 // parseMarketDiscoverySearch adds the selected-pool relationship filter used

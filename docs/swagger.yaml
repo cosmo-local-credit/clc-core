@@ -1588,7 +1588,7 @@ paths:
       tags:
       - Vouchers and offerings
       summary: Return available offerings of active vouchers
-      description: 'Returns available offerings of active vouchers. An offering must have a location. The location is the offering location, or the voucher location when the offering has none. The order is newest first, or nearest first with ''nearby=true''. Access: Public. A user session is needed when ''nearby=true''.'
+      description: 'Returns available offerings of active vouchers. An offering must have a location. The location is the offering location, or the voucher location when the offering has none. The order is newest first, nearest first within 1000 km with ''nearby=true'', or nearest first without a radius with ''sort=nearest''. For ''sort=nearest'', an authenticated profile location is preferred; otherwise the center of ''bbox'' is used. Access: Public. A user session is needed when ''nearby=true''.'
       operationId: getOfferings
       parameters:
       - name: perPage
@@ -1653,6 +1653,14 @@ paths:
         schema:
           type: boolean
         description: '''true'' or ''false''. Other values return ''400'' ''E04''.'
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - nearest
+        description: '''nearest'' orders without adding a radius filter. The server uses a valid authenticated profile location, then the center of ''bbox''. It falls back to the existing order when neither origin exists. Cannot be combined with ''nearby=true''.'
       responses:
         '200':
           description: Offerings.
@@ -1794,8 +1802,8 @@ paths:
     get:
       tags:
       - Vouchers and offerings
-      summary: List offerings, Wants, vouchers, pools and catalogs together
-      description: 'Returns one mixed list of offerings, Wants, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has ''Cache-Control: no-store''. Access: Public. A user session is needed when ''nearby=true''.'
+      summary: List Marketplace resources together
+      description: 'Returns one mixed list of offerings, Wants, vouchers, pools and curated catalogs. Approved posts are included only when ''post'' is explicitly selected in ''kinds''; omitting ''kinds'' preserves the commerce-only response. The server does the ranking, total count and paging in one query. Every response has ''Cache-Control: no-store''. Access: Public. A user session is needed when ''nearby=true''.'
       operationId: getMarketplace
       parameters:
       - name: perPage
@@ -1818,7 +1826,7 @@ paths:
         required: false
         schema:
           type: string
-        description: Values 'catalog', 'offering', 'pool', 'voucher' and 'want'. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns '400' 'E04'.
+        description: Values 'catalog', 'offering', 'pool', 'post', 'voucher' and 'want'. Repeat the parameter or use commas. The server ignores case and empty items. Omitting this parameter returns commerce resources only. Another value returns '400' 'E04'.
       - name: q
         in: query
         required: false
@@ -1866,6 +1874,14 @@ paths:
         schema:
           type: boolean
         description: '''true'' or ''false''. Other values return ''400'' ''E04''.'
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - nearest
+        description: '''nearest'' orders without adding a radius filter. The server uses a valid authenticated profile location, then the center of ''bbox''. It falls back to the existing order when neither origin exists. Search relevance remains the primary order. Cannot be combined with ''nearby=true''.'
       responses:
         '200':
           description: Success
@@ -1890,7 +1906,7 @@ paths:
                           properties:
                             kind:
                               type: string
-                              description: '''offering'', ''voucher'', ''pool'' or ''catalog''.'
+                              description: '''offering'', ''want'', ''voucher'', ''pool'', ''catalog'' or explicitly selected ''post''.'
                             id:
                               type: integer
                               description: ID in the table of the kind.
@@ -1945,7 +1961,7 @@ paths:
                               type:
                               - number
                               - 'null'
-                              description: Set with 'nearby=true'.
+                              description: Set when a distance origin is available, including 'nearby=true' and 'sort=nearest'.
                             tags:
                               type: array
                               items:
@@ -1990,6 +2006,21 @@ paths:
                               - integer
                               - 'null'
                               description: For a pool row and a catalog row.
+                            relatedKind:
+                              type:
+                              - string
+                              - 'null'
+                              description: The kind of the first related resource for a post row.
+                            relatedName:
+                              type:
+                              - string
+                              - 'null'
+                              description: The name of the first related resource for a post row.
+                            relatedSymbol:
+                              type:
+                              - string
+                              - 'null'
+                              description: The symbol of the first related resource for a post row.
                             createdAt:
                               type: string
                               format: date-time
@@ -2003,6 +2034,10 @@ paths:
                         type:
                         - string
                         - 'null'
+                      total:
+                        type: integer
+                        minimum: 0
+                        description: Complete filtered count before cursor pagination.
                 required:
                 - ok
                 - description
@@ -2039,6 +2074,7 @@ paths:
                     createdAt: '2025-01-15T10:30:00Z'
                     updatedAt: '2025-01-15T10:30:00Z'
                   nextCursor: null
+                  total: 1
         '400':
           $ref: '#/components/responses/BadRequest'
           description: 'E04: perPage, kinds, a search parameter or a pools reference is not valid. E04: nearby=true and the caller has no saved location.'
@@ -4938,7 +4974,7 @@ paths:
       tags:
       - Posts
       summary: Return a page of APPROVED posts
-      description: 'Returns a page of ''APPROVED'' posts. The order is ''updatedAt'' descending, then ''id'' descending. A request with ''nearby=true'' and no valid session returns ''401 E06''. A service token returns ''403 E10''. The response has no ''Cache-Control'' header, except for ''nearby=true'', which sets ''private, no-store''. Access: Public. With ''nearby=true'', a user session is required.'
+      description: 'Returns a page of ''APPROVED'' posts. The default order is ''updatedAt'' descending, then ''id'' descending. With ''sort=nearest'', the server uses a valid authenticated profile location, then the center of ''bbox'', and otherwise keeps the default order. A request with ''nearby=true'' and no valid session returns ''401 E06''. A service token returns ''403 E10''. The response has no ''Cache-Control'' header, except for location-aware requests, which set ''private, no-store''. Access: Public. With ''nearby=true'', a user session is required.'
       operationId: getReports
       parameters:
       - name: perPage
@@ -4960,6 +4996,19 @@ paths:
         schema:
           type: integer
         description: Positive integer. Send with 'cursorUpdatedAt'.
+      - name: cursorDistance
+        in: query
+        required: false
+        schema:
+          type: number
+          minimum: 0
+        description: Distance position for a nearest-sorted page. Send with 'cursorUpdatedAt', 'cursorId' and 'cursorOrigin'.
+      - name: cursorOrigin
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Opaque origin identity returned by the previous nearest-sorted page. Send with 'cursorUpdatedAt', 'cursorId' and 'cursorDistance'.
       - name: q
         in: query
         required: false
@@ -5046,6 +5095,14 @@ paths:
           - all
           default: 1m
         description: Restrict to posts whose 'createdAt' is within this calendar window. Omitted is '1m'. 'all' is every approved post. Another value returns '400' 'E04'.
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - nearest
+        description: '''nearest'' orders without adding a radius filter. The server uses a valid authenticated profile location, then the center of ''bbox''. It falls back to the default order when neither origin exists. Cannot be combined with ''nearby=true''.'
       - name: facets
         in: query
         required: false
@@ -5085,6 +5142,11 @@ paths:
                               type: number
                             geoLng:
                               type: number
+                            distanceMeters:
+                              type:
+                              - number
+                              - 'null'
+                              description: Set when a nearest-order origin is available.
                             periodFrom:
                               description: The value can be null.
                             periodTo:
@@ -5131,6 +5193,11 @@ paths:
                             format: date-time
                           id:
                             type: integer
+                          distance:
+                            type: number
+                            minimum: 0
+                          origin:
+                            type: string
                 required:
                 - ok
                 - description
@@ -5163,6 +5230,8 @@ paths:
                   next:
                     updatedAt: '2026-08-02T08:00:00Z'
                     id: 4633
+                    distance: 1250.5
+                    origin: 6680119d1f68094b
         '400':
           $ref: '#/components/responses/BadRequest'
           description: E04:.
