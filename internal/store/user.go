@@ -35,6 +35,10 @@ type (
 		MaxWants          int       `db:"max_wants" json:"maxWants"`
 		CreatedAt         time.Time `db:"created_at"       json:"createdAt"`
 		UpdatedAt         time.Time `db:"updated_at"       json:"updatedAt"`
+		// Lifecycle and ClosesAt are projected only by the admin directory; every
+		// other read leaves them empty and out of the response.
+		Lifecycle string     `db:"lifecycle"        json:"lifecycle,omitempty"`
+		ClosesAt  *time.Time `db:"closes_at"        json:"closesAt,omitempty"`
 	}
 
 	// UserAccess is the narrow authoritative account state needed by request
@@ -44,6 +48,10 @@ type (
 		EthereumAddress string
 		Role            string
 		Status          string
+		// Lifecycle is the account's retirement state, LifecycleActive when no
+		// retirement row is open. ClosesAt is set only while it is not.
+		Lifecycle string
+		ClosesAt  *time.Time
 	}
 
 	UserProfileUpdate struct {
@@ -146,6 +154,8 @@ func (pg *Pg) GetUserAccessByID(ctx context.Context, id uint64) (UserAccess, err
 		&access.EthereumAddress,
 		&access.Role,
 		&access.Status,
+		&access.Lifecycle,
+		&access.ClosesAt,
 	)
 	return access, err
 }

@@ -223,7 +223,7 @@ func composeReportPage(
 	if filter.Term == "" {
 		body := reportProjection +
 			whereClause(
-				"r.status = 'APPROVED'",
+				"r.status = 'APPROVED' AND NOT account_retiring(r.author_address)",
 				catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 				nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 				ownerPredicate(args, "r.author_address", filter),
@@ -244,7 +244,7 @@ func composeReportPage(
 		"    SELECT r.id, r.updated_at\n" +
 		"    FROM reports r" +
 		whereClause(
-			"r.status = 'APPROVED'",
+			"r.status = 'APPROVED' AND NOT account_retiring(r.author_address)",
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			ownerPredicate(args, "r.author_address", filter),
@@ -296,7 +296,7 @@ func composeReportTagCounts(filter CatalogFilter) composed {
     SELECT r.id
     FROM reports r` +
 		whereClause(
-			"r.status = 'APPROVED'",
+			"r.status = 'APPROVED' AND NOT account_retiring(r.author_address)",
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			reportPostedAfterPredicate(args, filter),
@@ -325,7 +325,7 @@ func composeReportVoucherCounts(filter CatalogFilter) composed {
     SELECT r.id
     FROM reports r` +
 		whereClause(
-			"r.status = 'APPROVED'",
+			"r.status = 'APPROVED' AND NOT account_retiring(r.author_address)",
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			ownerPredicate(args, "r.author_address", filter),
@@ -353,7 +353,7 @@ func composeReportPoolCounts(filter CatalogFilter) composed {
     SELECT r.id
     FROM reports r` +
 		whereClause(
-			"r.status = 'APPROVED'",
+			"r.status = 'APPROVED' AND NOT account_retiring(r.author_address)",
 			catalogBoundsPredicate(args, filter.Bounds, "r.geo_lat", "r.geo_lng"),
 			nearbyPredicate(args, filter.Nearby, "r.geo_lat", "r.geo_lng"),
 			reportPostedAfterPredicate(args, filter),

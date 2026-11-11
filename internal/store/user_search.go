@@ -66,6 +66,9 @@ type (
 		Status UserStatus
 		// Roles narrows to any of the selected roles. Empty means every role.
 		Roles []UserRole
+		// Retired narrows to accounts with an open retirement. It is set by the
+		// handler from the lifecycle parameter, not by NewUserFilter.
+		Retired bool
 	}
 )
 
@@ -91,9 +94,11 @@ SELECT u.id, u.blockchain_address AS ethereum_address, u.username, u.name,
     COALESCE(u.country, '') AS country,
     u.preferred_currency, u.bio, u.website,
     u.location_name, u.geo_lat, u.geo_lng, u.avatar_url, u.role, u.status,
-    u.max_pools, u.max_tokens, u.max_catalogs, u.max_offers, u.max_wants, u.created_at, u.updated_at
+    u.max_pools, u.max_tokens, u.max_catalogs, u.max_offers, u.max_wants, u.created_at, u.updated_at,
+    COALESCE(ar.state, 'ACTIVE') AS lifecycle, ar.closes_at
 FROM page
 INNER JOIN users u ON u.id = page.id
+LEFT JOIN account_retirements ar ON ar.user_id = u.id AND ar.restored_at IS NULL
 ORDER BY u.id DESC;`
 )
 
@@ -177,6 +182,7 @@ func composeUserPage(filter UserFilter, page CatalogPage, cursor, limit uint64) 
 			whereClause(
 				userStatusPredicate(args, filter),
 				userRolesPredicate(args, filter),
+				userRetiredPredicate(filter),
 				cursorPredicate(args, "u.id", page, cursor),
 			) +
 			"\n    ORDER BY u.id " + pageOrder(page) +
@@ -192,6 +198,7 @@ func composeUserPage(filter UserFilter, page CatalogPage, cursor, limit uint64) 
 			userSearchPredicate(args, filter),
 			userStatusPredicate(args, filter),
 			userRolesPredicate(args, filter),
+			userRetiredPredicate(filter),
 		) +
 		"\n),\npage AS MATERIALIZED (\n" +
 		"    SELECT m.id\n" +
@@ -260,6 +267,16 @@ func userStatusPredicate(args *sqlArgs, filter UserFilter) string {
 		return ""
 	}
 	return "u.status = " + args.bind(string(filter.Status)) + "::user_status"
+}
+
+// userRetiredPredicate narrows to accounts with an open retirement. The
+// lifecycle table is small and partial-indexed on the open rows, so an EXISTS is
+// enough.
+func userRetiredPredicate(filter UserFilter) string {
+	if !filter.Retired {
+		return ""
+	}
+	return "EXISTS (SELECT 1 FROM account_retirements r WHERE r.user_id = u.id AND r.restored_at IS NULL)"
 }
 
 func userRolesPredicate(args *sqlArgs, filter UserFilter) string {

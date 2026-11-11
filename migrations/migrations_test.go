@@ -180,7 +180,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "071_reserved_noop.sql" ||
 				name == "072_reserved_noop.sql" ||
 				name == "073_drop_recovery_objects.sql" ||
-				name == "074_messaging.sql",
+				name == "074_messaging.sql" ||
+				name == "075_account_retirement.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -264,6 +265,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"072_reserved_noop.sql",
 		"073_drop_recovery_objects.sql",
 		"074_messaging.sql",
+		"075_account_retirement.sql",
 	}, files)
 }
 

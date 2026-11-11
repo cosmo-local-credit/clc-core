@@ -76,15 +76,24 @@ func (a *API) publicPoolVouchersList(c *echo.Context) error {
 		func(v publicResourceProjection[store.PoolVoucher]) uint64 { return v.value.ID },
 		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
 			rows, err := a.store.ListPoolVouchers(ctx, tx, address, limit)
-			return publicResources(rows, publicContactFields...), err
+			if err != nil {
+				return nil, err
+			}
+			return projectWithClosures(ctx, tx, rows, func(v store.PoolVoucher) *string { return v.OwnerAddress }, publicContactFields...)
 		},
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
 			rows, err := a.store.ListPoolVouchersNext(ctx, tx, address, cursor, limit)
-			return publicResources(rows, publicContactFields...), err
+			if err != nil {
+				return nil, err
+			}
+			return projectWithClosures(ctx, tx, rows, func(v store.PoolVoucher) *string { return v.OwnerAddress }, publicContactFields...)
 		},
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
 			rows, err := a.store.ListPoolVouchersPrevious(ctx, tx, address, cursor, limit)
-			return publicResources(rows, publicContactFields...), err
+			if err != nil {
+				return nil, err
+			}
+			return projectWithClosures(ctx, tx, rows, func(v store.PoolVoucher) *string { return v.OwnerAddress }, publicContactFields...)
 		}, hooks,
 	)
 }

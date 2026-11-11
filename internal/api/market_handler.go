@@ -93,6 +93,11 @@ func (a *API) voucherByAddressHandler(c *echo.Context) error {
 		return handlePostgresError(c, err)
 	}
 
+	projected, err := projectWithClosure(ctx, tx, voucher, voucher.OwnerAddress, publicContactFields...)
+	if err != nil {
+		return err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -103,7 +108,7 @@ func (a *API) voucherByAddressHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: "Market voucher",
 		Result: map[string]any{
-			"voucher": publicResource(voucher, publicContactFields...),
+			"voucher": projected,
 		},
 	})
 }

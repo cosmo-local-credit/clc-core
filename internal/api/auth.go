@@ -168,6 +168,7 @@ func (a *API) storageTokenHandler(c *echo.Context) error {
 //	"callerUserID"  → uint64 user id (user callers only)
 //	"callerAddress" → lowercase Ethereum address
 //	"callerRole"    → "USER", "ADMIN", "SUPERADMIN", or "SERVICE"
+//	"callerLifecycle" → the account's retirement state (user callers only)
 func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -187,10 +188,6 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 	// 1. Try user JWT from __clc_auth cookie.
 	if cookie, err := c.Cookie(userAuthCookieName); err == nil && cookie.Value != "" {
 		if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil && a.userSessionCurrent(c, claims) {
-			c.Set("callerType", "user")
-			c.Set("callerUserID", claims.UserID)
-			c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
-			c.Set("callerRole", claims.Role)
 			return true
 		}
 	}
@@ -233,22 +230,26 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 
 	// 2b. Fall back to user JWT — allows clients to send Bearer <user-jwt>.
 	if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil && a.userSessionCurrent(c, claims) {
-		c.Set("callerType", "user")
-		c.Set("callerUserID", claims.UserID)
-		c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
-		c.Set("callerRole", claims.Role)
 		return true
 	}
 
 	return false
 }
 
-// userSessionCurrent reports whether a user JWT still names the address its
-// account holds. Replacing a sign-in card moves the account to a new address in
-// place, keeping its user id, so a token issued for the old address — including
-// any copy held by whoever compromised that card — must stop authenticating the
-// moment the rotation commits. It is one primary-key lookup per request; a
-// failed lookup counts as signed out rather than trusting the token.
+// userSessionCurrent reports whether a user JWT is still current, and on success
+// sets the caller context keys authenticateCaller documents.
+//
+// Two things make a token stale. Replacing a sign-in card moves the account to a
+// new address in place, keeping its user id, so a token issued for the old
+// address -- including any copy held by whoever compromised that card -- must
+// stop authenticating the moment the rotation commits. And a ban
+// (users.status REJECTED) must end every open session at once, not only block
+// the next sign-in. It is one primary-key lookup per request; a failed lookup
+// counts as signed out rather than trusting the token.
+//
+// A retiring account stays signed in but loses its stored role for the request:
+// callerRole is USER, so no administrative guard admits it, and
+// enforceRecoveryAccess limits what it may write.
 func (a *API) userSessionCurrent(c *echo.Context, claims *UserJWTClaims) bool {
 	if a.store == nil {
 		return false
@@ -261,7 +262,30 @@ func (a *API) userSessionCurrent(c *echo.Context, claims *UserJWTClaims) bool {
 		}
 		return false
 	}
-	return strings.EqualFold(access.EthereumAddress, claims.EthereumAddress)
+	if !strings.EqualFold(access.EthereumAddress, claims.EthereumAddress) {
+		return false
+	}
+	// Only a ban ends a session here. A pending account keeps the access it had
+	// before this check existed; sign-in is what gates approval.
+	if access.Status == "REJECTED" {
+		return false
+	}
+
+	lifecycle := access.Lifecycle
+	if lifecycle == "" {
+		lifecycle = store.LifecycleActive
+	}
+	role := claims.Role
+	if lifecycle != store.LifecycleActive {
+		role = string(store.UserRoleUser)
+	}
+	c.Set("callerType", "user")
+	c.Set("callerUserID", claims.UserID)
+	c.Set("callerAddress", common.HexToAddress(claims.EthereumAddress).Hex())
+	c.Set("callerRole", role)
+	c.Set("callerLifecycle", lifecycle)
+	c.Set("callerClosesAt", access.ClosesAt)
+	return true
 }
 
 // requireUserAuth rejects requests that arrived via a service JWT.

@@ -5181,15 +5181,17 @@ The response has the shape of section 4.11 and sets no cookie. The rotation is r
 
 **Access:** Administrative.
 
-Set the status of an account. `approve` sets `APPROVED`. `reject` sets `REJECTED`. The route does not check the old status or the role of the account.
+Set the status of an account. `approve` sets `APPROVED`. `reject` sets `REJECTED` and is the Ban action; moving a `REJECTED` account back to `APPROVED` is the Unban action. A ban ends every open session of the account at once.
+
+The role hierarchy applies. An `ADMIN` acts on `USER` accounts. A `SUPERADMIN` acts on `USER` and `ADMIN` accounts. No caller acts on a `SUPERADMIN` or on their own account; those requests return `403`.
+
+The request body is optional: `{"reason": "text"}`, at most 2000 characters. Setting the status an account already has changes nothing and records nothing. Each real Ban or Unban appends one event, which `GET /api/v2/admin/users/:address/moderation-history` returns as `result.events` (newest first, each with `action`, `previousStatus`, `newStatus`, `reason`, `actorAddress`, `createdAt`).
 
 **Path parameters**
 
 | Parameter | Type | Description |
 |---|---|---|
 | `address` | string | Account address. |
-
-The request has no body.
 
 **Response 200**
 
@@ -5213,6 +5215,33 @@ The example shows only some fields of `user`.
 |---|---|---|
 | `400` | `E04` | `address` is not a valid address. |
 | `404` | `E07` | No user has this address. |
+
+
+### 15.3a Account retirement
+
+An account can be retired. Retirement is reversible, takes effect at once, and is independent of Ban and Unban: a retiring account keeps whatever moderation status it had, a restore never lifts a ban, and an unban never cancels a retirement.
+
+A retiring account has `accountLifecycle` `RETIREMENT_SCHEDULED` and a `closesAt` six calendar months after the request. Until then:
+
+- Its public posts, reviews, replies, wants, catalogs and recipient-search entries are hidden. The records are not changed, so a restore brings back exactly what was eligible.
+- Its vouchers and pools stay active. Their public responses carry `managerClosure`: `null`, or `{"state": "SCHEDULED", "closesAt": "..."}`, or `{"state": "CLOSED", "closesAt": null}`. The field names no account and carries no reason.
+- Its session is limited to recovery. Every write outside the recovery allowlist returns `403` with code `E23`. Messaging reads are also refused. The stored role is ignored, so a retiring `ADMIN` has no administrative access.
+- Wallet operations are signed transactions sent to the relayer, which this API does not gate. A retired account can still sign them.
+
+`GET /auth/session` returns `accountLifecycle`, `closesAt` and `capabilities` (`canUseApp`, `canRecoverAssets`, `canTransferResources`, `canRestoreAccount`). Clients render the capabilities rather than inferring permission from one field.
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/api/v2/users/me/retirement/preview` | User session | What a retirement would hide and leave in place. |
+| POST | `/api/v2/users/me/retirement` | User session | Retire the caller. Body `{"acknowledged": true, "reason": "optional"}`; `acknowledged` is required. Repeating the call returns the current state. A `SUPERADMIN` is refused. |
+| POST | `/api/v2/users/me/retirement/restore` | User session | Restore before `closesAt`. `409` after it. |
+| GET | `/api/v2/admin/users/:address/retirement` | Administrative | State, lifecycle events and preview for an account. |
+| POST | `/api/v2/admin/users/:address/retirement` | Administrative | Retire an account. Body `{"reason": "optional"}`. |
+| POST | `/api/v2/admin/users/:address/retirement/restore` | Administrative | Restore an account. |
+
+The admin routes follow the role hierarchy of section 15.3. `GET /api/v2/admin/users` accepts `lifecycle=retired` and returns `lifecycle` and `closesAt` on each user.
+
+**Direct retirement of vouchers and pools.** `PUT /api/v2/admin/vouchers/:address/retire` and `PUT /api/v2/admin/pools/:address/retire` retire a resource through the same request and event tables as an owner's request. Body: `{"reason": "optional", "acknowledgeBalances": true}`; `acknowledgeBalances` is required when the resource has positive balances (`409` otherwise). A pending owner request is approved instead of duplicated. Otherwise one approved request with `source: "ADMIN"` records the transition. An already retired resource answers with `changed: false` and writes nothing.
 
 ### 15.4 `PUT /api/v2/admin/users/:address/limits`
 
