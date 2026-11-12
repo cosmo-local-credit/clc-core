@@ -271,11 +271,13 @@ type (
 		ListReportTagVocabulary     string `query:"list-report-tag-vocabulary"`
 		ListOfferingTagVocabulary   string `query:"list-offering-tag-vocabulary"`
 		ListOfferingsFilteredGlobal string `query:"list-offerings-filtered-global"`
+		ListOfferingsFilteredSorted string `query:"list-offerings-filtered-sorted"`
 		ListOfferingsFilteredNearby string `query:"list-offerings-filtered-nearby"`
 		ListOfferingTagCountsGlobal string `query:"list-offering-tag-counts-global"`
 		ListOfferingTagCountsNearby string `query:"list-offering-tag-counts-nearby"`
 		ListMarketplace             string `query:"list-marketplace"`
 		ListMarketMap               string `query:"list-market-map"`
+		ListMarketMapDiscovery      string `query:"list-market-map-discovery"`
 		ListWants                   string `query:"list-wants"`
 		ListWantsNext               string `query:"list-wants-next"`
 		ListWantsPrev               string `query:"list-wants-prev"`

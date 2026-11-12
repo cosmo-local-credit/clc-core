@@ -91,23 +91,24 @@ type (
 	// parsed at read time: Body is markdown, and images, attachments and the
 	// field-report form were extracted from the editor document at write time.
 	Report struct {
-		ID          uint64          `db:"id"             json:"id"`
-		Title       string          `db:"title"          json:"title"`
-		Description string          `db:"description"    json:"description"`
-		ImageURL    *string         `db:"image_url"      json:"imageUrl"`
-		GeoLat      *float64        `db:"geo_lat"        json:"geoLat"`
-		GeoLng      *float64        `db:"geo_lng"        json:"geoLng"`
-		PeriodFrom  *time.Time      `db:"period_from"    json:"periodFrom"`
-		PeriodTo    *time.Time      `db:"period_to"      json:"periodTo"`
-		MarkerIcon  string          `db:"marker_icon"    json:"markerIcon"`
-		MarkerColor string          `db:"marker_color"   json:"markerColor"`
-		AuthorAddr  string          `db:"author_address" json:"authorAddress"`
-		Status      string          `db:"status"         json:"status,omitempty"`
-		CreatedAt   time.Time       `db:"created_at"     json:"createdAt"`
-		UpdatedAt   time.Time       `db:"updated_at"     json:"updatedAt"`
-		Tags        []string        `db:"tags"           json:"tags"`
-		Vouchers    []ReportVoucher `db:"vouchers"       json:"vouchers"`
-		Pools       []ReportPool    `db:"pools"          json:"pools"`
+		ID             uint64          `db:"id"             json:"id"`
+		Title          string          `db:"title"          json:"title"`
+		Description    string          `db:"description"    json:"description"`
+		ImageURL       *string         `db:"image_url"      json:"imageUrl"`
+		GeoLat         *float64        `db:"geo_lat"        json:"geoLat"`
+		GeoLng         *float64        `db:"geo_lng"        json:"geoLng"`
+		DistanceMeters *float64        `db:"distance_meters" json:"distanceMeters,omitempty"`
+		PeriodFrom     *time.Time      `db:"period_from"    json:"periodFrom"`
+		PeriodTo       *time.Time      `db:"period_to"      json:"periodTo"`
+		MarkerIcon     string          `db:"marker_icon"    json:"markerIcon"`
+		MarkerColor    string          `db:"marker_color"   json:"markerColor"`
+		AuthorAddr     string          `db:"author_address" json:"authorAddress"`
+		Status         string          `db:"status"         json:"status,omitempty"`
+		CreatedAt      time.Time       `db:"created_at"     json:"createdAt"`
+		UpdatedAt      time.Time       `db:"updated_at"     json:"updatedAt"`
+		Tags           []string        `db:"tags"           json:"tags"`
+		Vouchers       []ReportVoucher `db:"vouchers"       json:"vouchers"`
+		Pools          []ReportPool    `db:"pools"          json:"pools"`
 
 		// Detail-only. Body is the prose as markdown and is empty on all but
 		// 310 of the imported reports, whose content lives in Description. The
@@ -127,6 +128,8 @@ type (
 	ReportCursor struct {
 		UpdatedAt time.Time
 		ID        uint64
+		Distance  float64
+		Origin    string
 	}
 
 	// ReportWrite is the complete editable half of a report. The handler builds

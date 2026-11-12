@@ -27,7 +27,7 @@ const (
 	recipientProjection = `WITH recipients AS (
     SELECT 'user'::TEXT AS kind, username AS name,
            username AS alias, blockchain_address AS address, $2::BIGINT AS chain_id
-    FROM users WHERE username IS NOT NULL AND status = 'APPROVED'
+    FROM users WHERE username IS NOT NULL AND status = 'APPROVED' AND NOT user_retiring(id)
     UNION ALL
     SELECT 'pool', COALESCE(display_name, name), COALESCE(display_name, name), address,
            chain_id
@@ -42,7 +42,7 @@ const (
     u.blockchain_address AS address, $2::BIGINT AS chain_id
 FROM identity_claims c JOIN users u ON lower(u.blockchain_address) = c.owner_key
 WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
-  AND c.owner_kind = 'user' AND u.username IS NOT NULL AND u.status = 'APPROVED'
+  AND c.owner_kind = 'user' AND u.username IS NOT NULL AND u.status = 'APPROVED' AND NOT user_retiring(u.id)
 UNION ALL
 SELECT 'pool', COALESCE(p.display_name, p.name), COALESCE(p.display_name, p.name),
     p.address, p.chain_id
@@ -63,7 +63,7 @@ WHERE c.namespace = 'recipient' AND c.name = normalize_identity_name($1)
     username AS name, username AS alias,
     blockchain_address AS address, $2::BIGINT AS chain_id
 FROM users
-WHERE username IS NOT NULL AND status = 'APPROVED' AND ($3 = '' OR $3 = 'user')
+WHERE username IS NOT NULL AND status = 'APPROVED' AND NOT user_retiring(id) AND ($3 = '' OR $3 = 'user')
   AND regexp_replace(phone, '[^0-9]', '', 'g') = $1
 ORDER BY lower(username), blockchain_address LIMIT 20`
 

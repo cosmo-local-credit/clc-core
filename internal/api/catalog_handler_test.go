@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -246,5 +248,43 @@ func TestReportCursorRequiresBothHalves(t *testing.T) {
 		if testCase.wantSet && cursor.ID != 42 {
 			t.Fatalf("%s: cursor id = %d, want 42", testCase.name, cursor.ID)
 		}
+	}
+}
+
+func TestNearestReportCursorIsolatedToOrigin(t *testing.T) {
+	origin := &store.CatalogLocation{Lat: -4.05, Lng: 39.65}
+	values := url.Values{
+		"cursorUpdatedAt": {"2026-07-20T12:00:00Z"},
+		"cursorId":        {"42"},
+		"cursorDistance":  {"125.5"},
+		"cursorOrigin":    {catalogSortOriginIdentity(origin)},
+	}
+	cursor, hasCursor, err := parsePublicReportCursor(values, origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCursor || cursor.ID != 42 || cursor.Distance != 125.5 {
+		t.Fatalf("cursor = %+v, hasCursor = %v", cursor, hasCursor)
+	}
+
+	values.Set("cursorOrigin", "another-view")
+	if _, _, err := parsePublicReportCursor(values, origin); !errors.Is(err, errReportCursorOrigin) {
+		t.Fatalf("origin mismatch error = %v, want %v", err, errReportCursorOrigin)
+	}
+}
+
+func TestNearestReportCursorRequiresDistanceAndRejectsUnsortedExtras(t *testing.T) {
+	origin := &store.CatalogLocation{Lat: -4.05, Lng: 39.65}
+	missing := url.Values{
+		"cursorUpdatedAt": {"2026-07-20T12:00:00Z"},
+		"cursorId":        {"42"},
+	}
+	if _, _, err := parsePublicReportCursor(missing, origin); !errors.Is(err, errReportCursorSort) {
+		t.Fatalf("missing nearest cursor fields error = %v, want %v", err, errReportCursorSort)
+	}
+
+	unsorted := url.Values{"cursorDistance": {"1"}, "cursorOrigin": {"x"}}
+	if _, _, err := parsePublicReportCursor(unsorted, nil); !errors.Is(err, errReportCursorSort) {
+		t.Fatalf("unsorted extras error = %v, want %v", err, errReportCursorSort)
 	}
 }

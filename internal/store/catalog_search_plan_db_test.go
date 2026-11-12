@@ -605,10 +605,11 @@ func seedFivefoldReports(t *testing.T, tx pgx.Tx) {
 	rows := scaleSeedCount(t, tx, countApprovedReports)
 
 	rebuild := dropIndexesForScaleSeeding(t, tx,
-		"reports_approved_title_trgm_idx", "reports_approved_description_trgm_idx")
+		"reports_approved_title_trgm_idx", "reports_approved_description_trgm_idx",
+		"reports_approved_period_to_idx")
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO reports (title, description, status, author_address, created_at, updated_at)
+		INSERT INTO reports (title, description, status, author_address, created_at, updated_at, period_to)
 		SELECT
 		    (ARRAY['Harvest','Nursery','Cleanup','Training','Market','Weaving','Honey','Cassava',
 		           'Maize','Soil','Water','Solar','Compost','Seedling','Beekeeping','Repair',
@@ -619,7 +620,8 @@ func seedFivefoldReports(t *testing.T, tx pgx.Tx) {
 		        || ' ' || g,
 		    'Field description for entry ' || g,
 		    'APPROVED', '0x0000000000000000000000000000000000000001',
-		    now() - (g || ' minutes')::INTERVAL, now() - (g || ' minutes')::INTERVAL
+		    now() - (g || ' minutes')::INTERVAL, now() - (g || ' minutes')::INTERVAL,
+		    CASE WHEN g % 500 = 0 THEN now() - INTERVAL '1 day' ELSE now() + INTERVAL '1 year' END
 		FROM generate_series(1, $1) g`, rows); err != nil {
 		t.Fatalf("seed reports at scale: %v", err)
 	}
@@ -749,6 +751,25 @@ func TestReportTagOnlyFilterKeepsTheFeedIndexed(t *testing.T) {
 	}
 }
 
+// Ended Posts are normally a small part of the approved feed. The partial
+// period_to index must drive the Past schedule filter rather than walking the
+// newest-first feed and applying the schedule as a row filter.
+func TestReportPastTimingUsesPeriodIndex(t *testing.T) {
+	_, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+
+	seedFivefoldReports(t, tx)
+	query := composeReportPage(
+		CatalogFilter{ReportTiming: ReportTimingPast}, ReportCursor{}, false, 20,
+	)
+	plan := explainGenericPlan(t, tx, query.sql)
+
+	assertIndexDrives(t, "past report timing", plan, "reports_approved_period_to_idx")
+	if strings.Contains(plan, "Seq Scan on reports") {
+		t.Errorf("past report timing fell back to a sequential scan.\nplan:\n%s", plan)
+	}
+}
+
 // The unfiltered report feed keeps its measured plan: with no search predicate the existing
 // (status, updated_at, id) index walk is correct, and the composer must not be reached at all.
 func TestUnfilteredReportFeedKeepsItsMeasuredPlan(t *testing.T) {
@@ -779,5 +800,19 @@ func TestMarketMapViewportUsesVoucherSpatialIndex(t *testing.T) {
 	plan := explainGenericPlan(t, tx, pg.queries.ListMarketMap)
 	if !strings.Contains(plan, "vouchers_geo_gist_idx") {
 		t.Errorf("market map viewport is not driven by the voucher spatial index.\nplan:\n%s", plan)
+	}
+}
+
+// The facets mode of the discovery query counts one viewport, so it must keep
+// the spatial index. The points mode shares the statement and reads every
+// mappable row by design.
+func TestMarketMapDiscoveryUsesVoucherSpatialIndex(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+
+	seedFivefoldVouchers(t, tx)
+	plan := explainGenericPlan(t, tx, pg.queries.ListMarketMapDiscovery)
+	if !strings.Contains(plan, "vouchers_geo_gist_idx") {
+		t.Errorf("market map facets are not driven by the voucher spatial index.\nplan:\n%s", plan)
 	}
 }

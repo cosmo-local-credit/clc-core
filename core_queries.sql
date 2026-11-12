@@ -764,9 +764,11 @@ FROM users
 WHERE id = $1;
 
 --name: get-user-access-by-id
-SELECT blockchain_address, role, status
-FROM users
-WHERE id = $1;
+SELECT u.blockchain_address, u.role, u.status,
+    COALESCE(r.state, 'ACTIVE') AS lifecycle, r.closes_at
+FROM users u
+LEFT JOIN account_retirements r ON r.user_id = u.id AND r.restored_at IS NULL
+WHERE u.id = $1;
 
 -- Key rotation (migration 069). The account moves from $1 (old address) to $2
 -- (new address); both are checksummed, and each column keeps the case it is
@@ -1468,7 +1470,8 @@ WHERE keystore_id = (SELECT id FROM keystore WHERE public_key = $1)
 -- (chain_data_v2.tokens / sarafu_network.vouchers) — the local catalog is the
 -- single home for living voucher attributes.
 --name: list-voucher-metadata-by-addresses
-SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url, active
+SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url, active,
+    voucher_value::text AS voucher_value, voucher_uoa
 FROM vouchers
 WHERE lower(address) = ANY($1);
 
@@ -2187,6 +2190,79 @@ INNER JOIN offerings o ON o.id = page.id
 INNER JOIN vouchers v ON v.id = o.voucher_id
 ORDER BY page.id DESC;
 
+-- Nearest ordering without a radius filter. The origin is used only for the
+-- stable keyset order; optional viewport boxes continue to define visibility.
+--name: list-offerings-filtered-sorted
+WITH candidates AS MATERIALIZED (
+    SELECT o.id,
+        2 * 6371008.8 * asin(sqrt(least(1.0, greatest(0.0,
+            power(sin(radians(COALESCE(o.geo_lat, v.geo_lat) - $6::float8) / 2), 2) +
+            cos(radians($6::float8)) * cos(radians(COALESCE(o.geo_lat, v.geo_lat))) *
+            power(sin(radians(COALESCE(o.geo_lng, v.geo_lng) - $7::float8) / 2), 2)
+        )))) AS distance_meters
+    FROM offerings o
+    INNER JOIN vouchers v ON v.id = o.voucher_id
+    WHERE o.available AND v.active
+      AND COALESCE(o.geo_lat, v.geo_lat) BETWEEN -90 AND 90
+      AND COALESCE(o.geo_lng, v.geo_lng) BETWEEN -180 AND 180
+      AND ($1 = '' OR CASE WHEN $2 THEN (
+            lower(o.commodity_name) LIKE lower($1) || '%' ESCAPE '\'
+         OR lower(o.description) LIKE lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_name, v.name, '')) LIKE lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\'
+         OR EXISTS (SELECT 1 FROM offering_tags search_ot WHERE search_ot.offering_id = o.id
+                     AND lower(search_ot.tag_value) LIKE lower($1) || '%' ESCAPE '\')
+        ) ELSE (
+            lower(o.commodity_name) LIKE '%' || lower($1) || '%' ESCAPE '\'
+         OR lower(o.description) LIKE '%' || lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_name, v.name, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
+         OR EXISTS (SELECT 1 FROM offering_tags search_ot WHERE search_ot.offering_id = o.id
+                     AND lower(search_ot.tag_value) LIKE '%' || lower($1) || '%' ESCAPE '\')
+        ) END)
+      AND (cardinality($3::TEXT[]) = 0 OR CASE WHEN $4 THEN
+            (SELECT COUNT(*) FROM offering_tags selected_ot
+             WHERE selected_ot.offering_id = o.id
+               AND selected_ot.tag_value = ANY($3::TEXT[])) = cardinality($3::TEXT[])
+          ELSE EXISTS (SELECT 1 FROM offering_tags selected_ot
+                       WHERE selected_ot.offering_id = o.id
+                         AND selected_ot.tag_value = ANY($3::TEXT[])) END)
+      AND (cardinality($5::BIGINT[]) = 0 OR EXISTS (
+            SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id = v.id AND pt.is_allowed
+              AND pt.pool_id = ANY($5::BIGINT[])))
+      AND (NOT $8::BOOLEAN OR
+          point(COALESCE(o.geo_lng,v.geo_lng),COALESCE(o.geo_lat,v.geo_lat)) <@ box(point($9,$10),point($11,$12)) OR
+          ($13::BOOLEAN AND point(COALESCE(o.geo_lng,v.geo_lng),COALESCE(o.geo_lat,v.geo_lat)) <@ box(point($14,$15),point($16,$17))))
+), page AS MATERIALIZED (
+    SELECT id, distance_meters FROM candidates
+    WHERE $19::BIGINT = 0 OR (distance_meters, id) > ($18::float8, $19)
+    ORDER BY distance_meters ASC, id ASC
+    LIMIT $20
+)
+SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    v.voucher_uoa AS voucher_uoa,
+    CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
+        AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
+        THEN (o.price * v.voucher_value)::TEXT END AS price_in_unit_of_account,
+    v.decimals AS voucher_decimals, v.icon_url AS voucher_image_url,
+    v.location_name AS voucher_location_name, v.geo_lat AS voucher_geo_lat,
+    v.geo_lng AS voucher_geo_lng, o.seller_address, o.commodity_name,
+    o.description, o.quantity::TEXT AS quantity, o.unit,
+    o.frequency, o.price::TEXT AS price, o.available, o.location_name,
+    o.geo_lat, o.geo_lng, o.image_url,
+    COALESCE(o.location_name, v.location_name) AS effective_location_name,
+    COALESCE(o.geo_lat, v.geo_lat) AS effective_geo_lat,
+    COALESCE(o.geo_lng, v.geo_lng) AS effective_geo_lng,
+    page.distance_meters,
+    COALESCE((SELECT array_agg(ot.tag_value ORDER BY ot.tag_value)
+              FROM offering_tags ot WHERE ot.offering_id = o.id), ARRAY[]::TEXT[]) AS tags,
+    o.created_at, o.updated_at
+FROM page
+INNER JOIN offerings o ON o.id = page.id
+INNER JOIN vouchers v ON v.id = o.voucher_id
+ORDER BY page.distance_meters ASC, page.id ASC;
+
 --name: list-offerings-filtered-nearby
 WITH candidates AS MATERIALIZED (
     SELECT o.id,
@@ -2563,7 +2639,7 @@ SELECT r.id, r.title, r.description,
         WHERE rp.report_id = r.id
     ), '[]'::JSONB) AS pools
 FROM reports r
-WHERE r.status = 'APPROVED'
+WHERE r.status = 'APPROVED' AND NOT account_retiring(r.author_address)
 ORDER BY r.updated_at DESC, r.id DESC
 LIMIT $1;
 
@@ -2596,7 +2672,7 @@ SELECT r.id, r.title, r.description,
         WHERE rp.report_id = r.id
     ), '[]'::JSONB) AS pools
 FROM reports r
-WHERE r.status = 'APPROVED'
+WHERE r.status = 'APPROVED' AND NOT account_retiring(r.author_address)
     AND (r.updated_at, r.id) < ($1, $2)
 ORDER BY r.updated_at DESC, r.id DESC
 LIMIT $3;
@@ -2663,7 +2739,7 @@ SELECT r.id, r.title, r.body, r.description,
         WHERE rp.report_id = r.id
     ), '[]'::JSONB) AS pools
 FROM reports r
-WHERE r.id = $1 AND ($2 OR r.status = 'APPROVED');
+WHERE r.id = $1 AND ($2 OR (r.status = 'APPROVED' AND NOT account_retiring(r.author_address)));
 
 -- One post in any status, for its own author or for an operator.
 --
@@ -2962,7 +3038,7 @@ ORDER BY pt.tag_value;
 SELECT DISTINCT rt.tag_value
 FROM report_tags rt
 INNER JOIN reports r ON r.id = rt.report_id
-WHERE r.status = 'APPROVED'
+WHERE r.status = 'APPROVED' AND NOT account_retiring(r.author_address)
 ORDER BY rt.tag_value;
 
 -- Dashboard snapshot: lifetime stock plus windowed report creations.
@@ -3094,13 +3170,13 @@ SELECT c.id,c.name,c.description,c.image_url,c.location_name,c.geo_lat,c.geo_lng
     (SELECT count(*) FROM catalog_vouchers cv JOIN vouchers v ON v.id=cv.voucher_id WHERE cv.catalog_id=c.id AND v.active) AS voucher_count,
     NULL::float8 AS distance_meters,
     COALESCE((SELECT array_agg(ct.tag_value ORDER BY ct.tag_value) FROM catalog_tags ct WHERE ct.catalog_id=c.id), ARRAY[]::TEXT[]) AS tags
-FROM catalogs c JOIN users u ON u.id=c.owner_user_id WHERE c.id=$1;
+FROM catalogs c JOIN users u ON u.id=c.owner_user_id WHERE c.id=$1 AND NOT user_retiring(c.owner_user_id);
 
 --name: list-curated-catalogs-global
 WITH candidates AS MATERIALIZED (
     SELECT c.id, NULL::float8 AS distance_meters
     FROM catalogs c
-    WHERE ($1::BIGINT=0 OR c.owner_user_id=$1)
+    WHERE ($1::BIGINT=0 OR c.owner_user_id=$1) AND NOT user_retiring(c.owner_user_id)
       AND ($2='' OR CASE WHEN $3 THEN (
             lower(c.name) LIKE lower($2)||'%' ESCAPE '\'
          OR lower(c.location_name) LIKE lower($2)||'%' ESCAPE '\'
@@ -3147,7 +3223,7 @@ WITH candidates AS MATERIALIZED (
             power(sin(radians(c.geo_lng-$8::float8)/2),2)
         )))) AS distance_meters
     FROM catalogs c
-    WHERE ($1::BIGINT=0 OR c.owner_user_id=$1)
+    WHERE ($1::BIGINT=0 OR c.owner_user_id=$1) AND NOT user_retiring(c.owner_user_id)
       AND point(c.geo_lng,c.geo_lat) <@ box(point($9,$10),point($11,$12))
       AND CASE WHEN c.geo_lat BETWEEN -90 AND 90 AND c.geo_lng BETWEEN -180 AND 180
           THEN 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
@@ -3201,7 +3277,7 @@ INSERT INTO catalog_tags(catalog_id,tag_value) VALUES($1,$2);
 --name: list-curated-catalog-tag-facets-global
 WITH eligible AS (
     SELECT c.id FROM catalogs c
-    WHERE ($1::BIGINT=0 OR c.owner_user_id=$1)
+    WHERE ($1::BIGINT=0 OR c.owner_user_id=$1) AND NOT user_retiring(c.owner_user_id)
       AND ($2='' OR CASE WHEN $3 THEN (
             lower(c.name) LIKE lower($2)||'%' ESCAPE '\'
          OR lower(c.location_name) LIKE lower($2)||'%' ESCAPE '\'
@@ -3228,7 +3304,7 @@ GROUP BY tt.value ORDER BY tt.value;
 --name: list-curated-catalog-tag-facets-nearby
 WITH eligible AS (
     SELECT c.id FROM catalogs c
-    WHERE ($1::BIGINT=0 OR c.owner_user_id=$1)
+    WHERE ($1::BIGINT=0 OR c.owner_user_id=$1) AND NOT user_retiring(c.owner_user_id)
       AND ($2='' OR CASE WHEN $3 THEN (
             lower(c.name) LIKE lower($2)||'%' ESCAPE '\'
          OR lower(c.location_name) LIKE lower($2)||'%' ESCAPE '\'
@@ -3303,7 +3379,7 @@ WITH eligible AS (
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id
     ) wt ON true
-    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+    WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
       AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND ($1='' OR CASE WHEN $2::BOOLEAN
           THEN lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\'
@@ -3342,7 +3418,7 @@ WITH page AS (
             )))) END AS distance_meters,w.created_at,w.updated_at
         FROM wants w JOIN users u ON u.id=w.owner_user_id
         LEFT JOIN LATERAL (SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id) wt ON true
-        WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+        WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
           AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
           AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR CASE WHEN $4::BOOLEAN THEN (SELECT count(DISTINCT tag) FROM unnest(COALESCE(wt.tags,ARRAY[]::TEXT[])) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[]) ELSE COALESCE(wt.tags,ARRAY[]::TEXT[]) && $3::TEXT[] END)
           AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($5::BIGINT[])))
@@ -3374,7 +3450,7 @@ WITH page AS (
             )))) END AS distance_meters,w.created_at,w.updated_at
         FROM wants w JOIN users u ON u.id=w.owner_user_id
         LEFT JOIN LATERAL (SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id) wt ON true
-        WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+        WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
           AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
           AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR CASE WHEN $4::BOOLEAN THEN (SELECT count(DISTINCT tag) FROM unnest(COALESCE(wt.tags,ARRAY[]::TEXT[])) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[]) ELSE COALESCE(wt.tags,ARRAY[]::TEXT[]) && $3::TEXT[] END)
           AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($5::BIGINT[])))
@@ -3394,7 +3470,7 @@ SELECT * FROM page ORDER BY id DESC;
 WITH eligible AS (
     SELECT w.id FROM wants w JOIN users u ON u.id=w.owner_user_id
     LEFT JOIN LATERAL (SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id) wt ON true
-    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+    WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND ($1='' OR CASE WHEN $2::BOOLEAN THEN lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE lower($1)||'%' ESCAPE '\' ELSE lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wt.tags,' '))) LIKE '%'||lower($1)||'%' ESCAPE '\' END)
       AND (COALESCE(cardinality($3::BIGINT[]),0)=0 OR EXISTS (SELECT 1 FROM vouchers v JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address) AND pt.pool_id=ANY($3::BIGINT[])))
       AND (NOT $4::BOOLEAN OR
@@ -3416,7 +3492,7 @@ SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo
     COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
     NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
 FROM wants w JOIN users u ON u.id=w.owner_user_id
-WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
   AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
   AND $2::BIGINT=0
 ORDER BY w.id DESC LIMIT $3;
@@ -3429,7 +3505,7 @@ SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo
     COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
     NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
 FROM wants w JOIN users u ON u.id=w.owner_user_id
-WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
   AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
   AND w.id<$2 ORDER BY w.id DESC LIMIT $3;
 
@@ -3441,7 +3517,7 @@ SELECT * FROM (
         w.marker_icon,w.marker_color,COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
         NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
     FROM wants w JOIN users u ON u.id=w.owner_user_id
-    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+    WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
       AND w.id>$2 ORDER BY w.id ASC LIMIT $3
 ) page ORDER BY id DESC;
@@ -3457,7 +3533,7 @@ SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS na
 FROM wants w
 JOIN users creator ON creator.id=w.owner_user_id
 JOIN vouchers v ON lower(v.owner_address)=lower(creator.blockchain_address) AND v.active
-WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+WHERE w.id=$1 AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
   AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
   AND $2::BIGINT=0
 ORDER BY v.id DESC LIMIT $3;
@@ -3469,7 +3545,7 @@ SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS na
 FROM wants w
 JOIN users creator ON creator.id=w.owner_user_id
 JOIN vouchers v ON lower(v.owner_address)=lower(creator.blockchain_address) AND v.active
-WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+WHERE w.id=$1 AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
   AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
   AND v.id<$2
 ORDER BY v.id DESC LIMIT $3;
@@ -3482,7 +3558,7 @@ SELECT * FROM (
     FROM wants w
     JOIN users creator ON creator.id=w.owner_user_id
     JOIN vouchers v ON lower(v.owner_address)=lower(creator.blockchain_address) AND v.active
-    WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+    WHERE w.id=$1 AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
       AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND v.id>$2
     ORDER BY v.id ASC LIMIT $3
@@ -3499,7 +3575,7 @@ SELECT p.id,p.chain_id,p.address,COALESCE(p.display_name,p.name,p.address) AS na
 FROM wants w
 JOIN users creator ON creator.id=w.owner_user_id
 JOIN pools p ON true
-WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+WHERE w.id=$1 AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
   AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
   AND EXISTS (
       SELECT 1 FROM pool_tokens allowed
@@ -3518,7 +3594,7 @@ SELECT p.id,p.chain_id,p.address,COALESCE(p.display_name,p.name,p.address) AS na
 FROM wants w
 JOIN users creator ON creator.id=w.owner_user_id
 JOIN pools p ON true
-WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+WHERE w.id=$1 AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
   AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
   AND EXISTS (
       SELECT 1 FROM pool_tokens allowed
@@ -3538,7 +3614,7 @@ SELECT * FROM (
     FROM wants w
     JOIN users creator ON creator.id=w.owner_user_id
     JOIN pools p ON true
-    WHERE w.id=$1 AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+    WHERE w.id=$1 AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
       AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND EXISTS (
           SELECT 1 FROM pool_tokens allowed
@@ -3570,7 +3646,7 @@ SELECT w.id,w.owner_user_id,w.name,w.description,w.location_name,w.geo_lat,w.geo
     NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
 FROM wants w JOIN users u ON u.id=w.owner_user_id
 WHERE w.id=$1 AND (($2::BIGINT IS NOT NULL AND w.owner_user_id=$2) OR
-    ($2::BIGINT IS NULL AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)));
+    ($2::BIGINT IS NULL AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)));
 
 --name: lock-want-owner
 SELECT owner_user_id FROM wants WHERE id=$1 FOR UPDATE;
@@ -3622,7 +3698,8 @@ WITH raw AS MATERIALIZED (
         CASE WHEN o.price>0 AND NULLIF(BTRIM(o.unit),'') IS NOT NULL
                   AND v.voucher_value>0 AND NULLIF(BTRIM(v.voucher_uoa),'') IS NOT NULL
              THEN (o.price*v.voucher_value)::TEXT END AS price_in_unit_of_account,
-        o.unit,NULL::BIGINT AS pool_count,NULL::BIGINT AS voucher_count,
+	        o.unit,NULL::BIGINT AS pool_count,NULL::BIGINT AS voucher_count,
+	        NULL::TEXT AS related_kind,NULL::TEXT AS related_name,NULL::TEXT AS related_symbol,
         o.created_at,o.updated_at,
         lower(o.commodity_name) AS direct_name,
         lower(concat_ws(' ',o.commodity_name,o.description,array_to_string(ot.tags,' '),
@@ -3645,7 +3722,8 @@ WITH raw AS MATERIALIZED (
         'voucher'::TEXT AS voucher_kind,
         v.location_name,v.geo_lat::FLOAT8,v.geo_lng::FLOAT8,
         COALESCE(vt.tags,ARRAY[]::TEXT[]),
-        NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,NULL::BIGINT,
+	        NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,NULL::BIGINT,
+	        NULL::TEXT,NULL::TEXT,NULL::TEXT,
         v.created_at,v.updated_at,
         lower(COALESCE(v.display_name,v.name,v.address)),
         lower(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,v.description,
@@ -3679,7 +3757,8 @@ WITH raw AS MATERIALIZED (
         p.location_name,p.geo_lat::FLOAT8,p.geo_lng::FLOAT8,
         COALESCE(ptags.tags,ARRAY[]::TEXT[]),
         NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,
-        (SELECT count(*) FROM pool_tokens x JOIN vouchers v ON v.id=x.voucher_id WHERE x.pool_id=p.id AND x.is_allowed AND v.active)::BIGINT,
+	        (SELECT count(*) FROM pool_tokens x JOIN vouchers v ON v.id=x.voucher_id WHERE x.pool_id=p.id AND x.is_allowed AND v.active)::BIGINT,
+	        NULL::TEXT,NULL::TEXT,NULL::TEXT,
         p.created_at,p.updated_at,
         lower(COALESCE(p.display_name,p.name,p.address)),
         lower(concat_ws(' ',COALESCE(p.display_name,p.name),p.symbol,p.description,
@@ -3702,7 +3781,8 @@ WITH raw AS MATERIALIZED (
         w.image_url,w.marker_icon,w.marker_color,NULL::TEXT,
         w.location_name,w.geo_lat::FLOAT8,w.geo_lng::FLOAT8,
         COALESCE(wtags.tags,ARRAY[]::TEXT[]),
-        NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,NULL::BIGINT,
+	        NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,NULL::BIGINT,
+	        NULL::TEXT,NULL::TEXT,NULL::TEXT,
         w.created_at,w.updated_at,lower(w.name),
         lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wtags.tags,' ')))
     FROM wants w
@@ -3710,7 +3790,7 @@ WITH raw AS MATERIALIZED (
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id
     ) wtags ON true
-    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+    WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
       AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND (point(w.geo_lng,w.geo_lat) <@ box(
               point(CASE WHEN $21::BOOLEAN THEN $22::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $21::BOOLEAN THEN $23::FLOAT8 ELSE -90::FLOAT8 END),
@@ -3730,19 +3810,91 @@ WITH raw AS MATERIALIZED (
         COALESCE(ctags.tags,ARRAY[]::TEXT[]),
         NULL,NULL,NULL,NULL,NULL,NULL,
         (SELECT count(*) FROM catalog_pools cp JOIN pools visible_pool ON visible_pool.id=cp.pool_id AND visible_pool.active WHERE cp.catalog_id=c.id)::BIGINT,
-        (SELECT count(*) FROM catalog_vouchers cv JOIN vouchers v ON v.id=cv.voucher_id WHERE cv.catalog_id=c.id AND v.active)::BIGINT,
+	        (SELECT count(*) FROM catalog_vouchers cv JOIN vouchers v ON v.id=cv.voucher_id WHERE cv.catalog_id=c.id AND v.active)::BIGINT,
+	        NULL::TEXT,NULL::TEXT,NULL::TEXT,
         c.created_at,c.updated_at,lower(c.name),
         lower(concat_ws(' ',c.name,c.description,c.location_name,array_to_string(ctags.tags,' ')))
     FROM catalogs c
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM catalog_tags x WHERE x.catalog_id=c.id
     ) ctags ON true
-    WHERE COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+	    WHERE NOT user_retiring(c.owner_user_id) AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
         SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($5::BIGINT[])
         UNION ALL
         SELECT 1 FROM catalog_vouchers cv JOIN pool_tokens x ON x.voucher_id=cv.voucher_id AND x.is_allowed
         WHERE cv.catalog_id=c.id AND x.pool_id=ANY($5::BIGINT[])
-    )
+	    ))
+
+	    UNION ALL
+	    SELECT 'post',r.id::BIGINT,NULL::BIGINT,NULL::TEXT,r.title,r.description,NULL::TEXT,
+	        CASE WHEN left(r.image_url,8) ~* '^https?://' THEN r.image_url END,
+	        r.marker_icon,r.marker_color,NULL::TEXT,NULL::TEXT,
+	        r.geo_lat::FLOAT8,r.geo_lng::FLOAT8,COALESCE(rtags.tags,ARRAY[]::TEXT[]),
+	        NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,NULL::BIGINT,
+	        CASE WHEN related_voucher.name IS NOT NULL THEN 'voucher'::TEXT
+	             WHEN related_pool.name IS NOT NULL THEN 'pool'::TEXT END,
+	        COALESCE(related_voucher.name,related_pool.name),
+	        COALESCE(related_voucher.symbol,related_pool.symbol),
+	        r.created_at,r.updated_at,lower(r.title),
+	        lower(concat_ws(' ',r.title,r.description,array_to_string(rtags.tags,' '),
+	            related_voucher.name,related_voucher.symbol,related_pool.name,related_pool.symbol))
+	    FROM reports r
+	    LEFT JOIN LATERAL (
+	        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags
+	        FROM report_tags x WHERE x.report_id=r.id
+	    ) rtags ON true
+	    LEFT JOIN LATERAL (
+	        SELECT COALESCE(v.display_name,v.name,v.address) AS name,v.symbol
+	        FROM report_vouchers rv JOIN vouchers v ON v.id=rv.voucher_id
+	        WHERE rv.report_id=r.id ORDER BY v.id LIMIT 1
+	    ) related_voucher ON true
+	    LEFT JOIN LATERAL (
+	        SELECT COALESCE(p.display_name,p.name,p.address) AS name,p.symbol
+	        FROM report_pools rp JOIN pools p ON p.id=rp.pool_id
+	        WHERE rp.report_id=r.id ORDER BY p.id LIMIT 1
+	    ) related_pool ON true
+	    WHERE r.status='APPROVED' AND NOT account_retiring(r.author_address) AND r.geo_lat IS NOT NULL AND r.geo_lng IS NOT NULL
+	      AND (point(r.geo_lng,r.geo_lat) <@ box(
+	              point(CASE WHEN $21::BOOLEAN THEN $22::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $21::BOOLEAN THEN $23::FLOAT8 ELSE -90::FLOAT8 END),
+	              point(CASE WHEN $21::BOOLEAN THEN $24::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $21::BOOLEAN THEN $25::FLOAT8 ELSE 90::FLOAT8 END)) OR
+	          ($26::BOOLEAN AND point(r.geo_lng,r.geo_lat) <@ box(point($27::FLOAT8,$28::FLOAT8),point($29::FLOAT8,$30::FLOAT8))))
+	      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+	          SELECT 1 FROM report_pools rp WHERE rp.report_id=r.id AND rp.pool_id=ANY($5::BIGINT[])
+	      ) OR EXISTS (
+	          SELECT 1 FROM report_vouchers rv
+	          JOIN vouchers credit_v ON credit_v.id=rv.voucher_id AND credit_v.active
+	          JOIN pool_tokens credit_pt ON credit_pt.voucher_id=credit_v.id AND credit_pt.is_allowed
+	          WHERE rv.report_id=r.id AND credit_pt.pool_id=ANY($5::BIGINT[])
+	      ))
+	      AND (COALESCE(cardinality($32::BIGINT[]),0)=0 OR CASE WHEN $33::BOOLEAN THEN (
+	          SELECT count(*) FROM report_vouchers selected_rv
+	          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($32::BIGINT[])
+	      )=cardinality($32::BIGINT[]) ELSE EXISTS (
+	          SELECT 1 FROM report_vouchers selected_rv
+	          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($32::BIGINT[])
+	      ) END)
+	      AND (COALESCE(cardinality($34::BIGINT[]),0)=0 OR CASE WHEN $35::BOOLEAN THEN (
+	          SELECT count(DISTINCT matched.pool_id) FROM (
+	              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+	              UNION
+	              SELECT pt.pool_id FROM report_vouchers rv
+	              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+	              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+	              WHERE rv.report_id=r.id
+	          ) matched WHERE matched.pool_id=ANY($34::BIGINT[])
+	      )=cardinality($34::BIGINT[]) ELSE EXISTS (
+	          SELECT 1 FROM (
+	              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+	              UNION
+	              SELECT pt.pool_id FROM report_vouchers rv
+	              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+	              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+	              WHERE rv.report_id=r.id
+	          ) matched WHERE matched.pool_id=ANY($34::BIGINT[])
+	      ) END)
+	      AND ($36::TEXT='' OR $36::TEXT='all'
+	          OR ($36::TEXT='future' AND (r.period_to IS NULL OR r.period_to>=CURRENT_TIMESTAMP))
+	          OR ($36::TEXT='past' AND r.period_to<CURRENT_TIMESTAMP))
 ), scored AS MATERIALIZED (
     SELECT raw.*,
         CASE WHEN $1='' THEN 0
@@ -3758,7 +3910,7 @@ WITH raw AS MATERIALIZED (
                 power(sin(radians(geo_lng-$9::FLOAT8)/2),2)
             )))) END AS distance_meters
     FROM raw
-    WHERE (COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[]))
+	    WHERE ((COALESCE(cardinality($6::TEXT[]),0)=0 AND kind<>'post') OR kind=ANY($6::TEXT[]))
       AND ($1='' OR CASE WHEN $2::BOOLEAN
             THEN search_text LIKE lower($1)||'%' ESCAPE '\'
             ELSE search_text LIKE '%'||lower($1)||'%' ESCAPE '\' END)
@@ -3767,7 +3919,7 @@ WITH raw AS MATERIALIZED (
               (SELECT count(DISTINCT tag) FROM unnest(tags) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[])
           ELSE tags && $3::TEXT[] END
       ))
-      AND (NOT $7::BOOLEAN OR (
+	      AND (NOT $31::BOOLEAN OR (
           point(geo_lng,geo_lat) <@ box(point($10,$11),point($12,$13))
           AND 2 * 6371008.8 * asin(sqrt(least(1.0,greatest(0.0,
               power(sin(radians(geo_lat-$8::FLOAT8)/2),2)+
@@ -3801,11 +3953,13 @@ WITH raw AS MATERIALIZED (
 )
 SELECT kind,id,chain_id,address,name,description,symbol,image_url,marker_icon,marker_color,voucher_kind,location_name,geo_lat,geo_lng,
     distance_meters,tags,voucher_address,voucher_name,voucher_symbol,voucher_uoa,
-    price_in_unit_of_account,unit,pool_count,voucher_count,rank,created_at,updated_at,
+	    price_in_unit_of_account,unit,pool_count,voucher_count,related_kind,related_name,related_symbol,
+	    rank,created_at,updated_at,
     CASE WHEN $20::BOOLEAN THEN COALESCE((
         SELECT jsonb_agg(jsonb_build_object('tag',tag,'count',count) ORDER BY tag)
         FROM facet_counts
-    ),'[]'::JSONB) ELSE '[]'::JSONB END AS tag_facets
+	    ),'[]'::JSONB) ELSE '[]'::JSONB END AS tag_facets,
+	    (SELECT count(*)::BIGINT FROM scored) AS total_count
 FROM page
 ORDER BY rank ASC,CASE WHEN $7::BOOLEAN THEN distance_meters END ASC NULLS LAST,
     updated_at DESC,kind ASC,id DESC;
@@ -3850,7 +4004,7 @@ WITH raw AS MATERIALIZED (
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id
     ) wtags ON true
-    WHERE w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+    WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
       AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
       AND (point(w.geo_lng,w.geo_lat) <@ box(
               point(CASE WHEN $9::BOOLEAN THEN $10::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $11::FLOAT8 ELSE -90::FLOAT8 END),
@@ -3894,7 +4048,7 @@ WITH raw AS MATERIALIZED (
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM catalog_tags x WHERE x.catalog_id=c.id
     ) ctags ON true
-    WHERE c.geo_lat IS NOT NULL AND c.geo_lng IS NOT NULL
+    WHERE c.geo_lat IS NOT NULL AND c.geo_lng IS NOT NULL AND NOT user_retiring(c.owner_user_id)
       AND (point(c.geo_lng,c.geo_lat) <@ box(
               point(CASE WHEN $9::BOOLEAN THEN $10::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $11::FLOAT8 ELSE -90::FLOAT8 END),
               point(CASE WHEN $9::BOOLEAN THEN $12::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $13::FLOAT8 ELSE 90::FLOAT8 END)) OR
@@ -3914,7 +4068,7 @@ WITH raw AS MATERIALIZED (
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM report_tags x WHERE x.report_id=r.id
     ) rtags ON true
-    WHERE r.status='APPROVED' AND r.geo_lat IS NOT NULL AND r.geo_lng IS NOT NULL
+    WHERE r.status='APPROVED' AND NOT account_retiring(r.author_address) AND r.geo_lat IS NOT NULL AND r.geo_lng IS NOT NULL
       AND (point(r.geo_lng,r.geo_lat) <@ box(
               point(CASE WHEN $9::BOOLEAN THEN $10::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $11::FLOAT8 ELSE -90::FLOAT8 END),
               point(CASE WHEN $9::BOOLEAN THEN $12::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $9::BOOLEAN THEN $13::FLOAT8 ELSE 90::FLOAT8 END)) OR
@@ -3928,6 +4082,36 @@ WITH raw AS MATERIALIZED (
           JOIN pool_tokens credit_pt ON credit_pt.voucher_id=credit_v.id AND credit_pt.is_allowed
           WHERE rv.report_id=r.id AND credit_pt.pool_id=ANY($5::BIGINT[])
       ))
+      AND ($20::TIMESTAMPTZ IS NULL OR r.created_at >= $20)
+      AND (COALESCE(cardinality($21::BIGINT[]),0)=0 OR CASE WHEN $22::BOOLEAN THEN (
+          SELECT count(*) FROM report_vouchers selected_rv
+          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($21::BIGINT[])
+      )=cardinality($21::BIGINT[]) ELSE EXISTS (
+          SELECT 1 FROM report_vouchers selected_rv
+          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($21::BIGINT[])
+      ) END)
+      AND (COALESCE(cardinality($23::BIGINT[]),0)=0 OR CASE WHEN $24::BOOLEAN THEN (
+          SELECT count(DISTINCT matched.pool_id) FROM (
+              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+              UNION
+              SELECT pt.pool_id FROM report_vouchers rv
+              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+              WHERE rv.report_id=r.id
+          ) matched WHERE matched.pool_id=ANY($23::BIGINT[])
+      )=cardinality($23::BIGINT[]) ELSE EXISTS (
+          SELECT 1 FROM (
+              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+              UNION
+              SELECT pt.pool_id FROM report_vouchers rv
+              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+              WHERE rv.report_id=r.id
+          ) matched WHERE matched.pool_id=ANY($23::BIGINT[])
+      ) END)
+      AND ($25::TEXT='' OR $25::TEXT='all'
+          OR ($25::TEXT='future' AND (r.period_to IS NULL OR r.period_to>=CURRENT_TIMESTAMP))
+          OR ($25::TEXT='past' AND r.period_to<CURRENT_TIMESTAMP))
 ), filtered AS MATERIALIZED (
     SELECT * FROM raw
     WHERE (COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[]))
@@ -3998,6 +4182,190 @@ SELECT feature_type,feature_id,kind,resource_id,name,geo_lat,geo_lng,marker_icon
         FROM facet_counts
     ),'[]'::JSONB) ELSE '[]'::JSONB END AS tag_facets
 FROM features;
+
+-- Every mappable resource that matches the Marketplace filters, for the map to
+-- cluster on the client. $7 selects the mode: false returns points (bounds off,
+-- ordered by kind and id so a stack keeps its first member, $18 is the ceiling
+-- plus one); true returns the tag facets of the points inside the bounds.
+--name: list-market-map-discovery
+WITH raw AS MATERIALIZED (
+    SELECT 'voucher'::TEXT AS kind,v.id::BIGINT AS id,v.address::TEXT AS resource_id,
+        COALESCE(v.display_name,v.name,v.address)::TEXT AS name,
+        v.geo_lat::FLOAT8 AS geo_lat,v.geo_lng::FLOAT8 AS geo_lng,
+        v.marker_icon::TEXT AS marker_icon,v.marker_color::TEXT AS marker_color,
+        COALESCE(vtags.tags,ARRAY[]::TEXT[]) AS tags,
+        lower(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,v.description,
+            array_to_string(vtags.tags,' '),related.text)) AS search_text
+    FROM vouchers v
+    LEFT JOIN LATERAL (
+        SELECT array_agg(tag ORDER BY tag) AS tags FROM (
+            SELECT x.tag_value AS tag FROM voucher_tags x WHERE x.voucher_id=v.id
+            UNION
+            SELECT x.tag_value FROM offerings o2 JOIN offering_tags x ON x.offering_id=o2.id
+            WHERE o2.voucher_id=v.id AND o2.available
+        ) valueset
+    ) vtags ON true
+    LEFT JOIN LATERAL (
+        SELECT string_agg(concat_ws(' ',o2.commodity_name,o2.description),' ') AS text
+        FROM offerings o2 WHERE o2.voucher_id=v.id AND o2.available
+    ) related ON true
+    WHERE v.active AND v.geo_lat IS NOT NULL AND v.geo_lng IS NOT NULL
+      AND (point(v.geo_lng,v.geo_lat) <@ box(
+              point(CASE WHEN $8::BOOLEAN THEN $9::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $10::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $8::BOOLEAN THEN $11::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $12::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($13::BOOLEAN AND point(v.geo_lng,v.geo_lat) <@ box(point($14::FLOAT8,$15::FLOAT8),point($16::FLOAT8,$17::FLOAT8))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+          SELECT 1 FROM pool_tokens pt WHERE pt.voucher_id=v.id AND pt.is_allowed AND pt.pool_id=ANY($5::BIGINT[])
+      ))
+
+    UNION ALL
+    SELECT 'want',w.id::BIGINT,w.id::TEXT,w.name,w.geo_lat::FLOAT8,w.geo_lng::FLOAT8,
+        w.marker_icon,w.marker_color,COALESCE(wtags.tags,ARRAY[]::TEXT[]),
+        lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wtags.tags,' ')))
+    FROM wants w
+    JOIN users u ON u.id=w.owner_user_id
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM want_tags x WHERE x.want_id=w.id
+    ) wtags ON true
+    WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP
+      AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND (point(w.geo_lng,w.geo_lat) <@ box(
+              point(CASE WHEN $8::BOOLEAN THEN $9::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $10::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $8::BOOLEAN THEN $11::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $12::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($13::BOOLEAN AND point(w.geo_lng,w.geo_lat) <@ box(point($14::FLOAT8,$15::FLOAT8),point($16::FLOAT8,$17::FLOAT8))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+          SELECT 1 FROM vouchers v
+          JOIN pool_tokens pt ON pt.voucher_id=v.id AND pt.is_allowed
+          WHERE v.active AND lower(v.owner_address)=lower(u.blockchain_address)
+            AND pt.pool_id=ANY($5::BIGINT[])
+      ))
+
+    UNION ALL
+    SELECT 'pool',p.id::BIGINT,p.address::TEXT,COALESCE(p.display_name,p.name,p.address),
+        p.geo_lat::FLOAT8,p.geo_lng::FLOAT8,NULL::TEXT,NULL::TEXT,
+        COALESCE(ptags.tags,ARRAY[]::TEXT[]),
+        lower(concat_ws(' ',COALESCE(p.display_name,p.name),p.symbol,p.description,
+            array_to_string(ptags.tags,' '),related.text))
+    FROM pools p
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM pool_tags x WHERE x.pool_id=p.id
+    ) ptags ON true
+    LEFT JOIN LATERAL (
+        SELECT string_agg(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,o.commodity_name,o.description),' ') AS text
+        FROM pool_tokens x JOIN vouchers v ON v.id=x.voucher_id AND v.active
+        LEFT JOIN offerings o ON o.voucher_id=v.id AND o.available
+        WHERE x.pool_id=p.id AND x.is_allowed
+    ) related ON true
+    WHERE p.geo_lat IS NOT NULL AND p.geo_lng IS NOT NULL
+      AND (point(p.geo_lng,p.geo_lat) <@ box(
+              point(CASE WHEN $8::BOOLEAN THEN $9::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $10::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $8::BOOLEAN THEN $11::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $12::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($13::BOOLEAN AND point(p.geo_lng,p.geo_lat) <@ box(point($14::FLOAT8,$15::FLOAT8),point($16::FLOAT8,$17::FLOAT8))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR p.id=ANY($5::BIGINT[]))
+
+    UNION ALL
+    SELECT 'catalog',c.id::BIGINT,c.id::TEXT,c.name,c.geo_lat::FLOAT8,c.geo_lng::FLOAT8,
+        NULL::TEXT,NULL::TEXT,COALESCE(ctags.tags,ARRAY[]::TEXT[]),
+        lower(concat_ws(' ',c.name,c.description,c.location_name,array_to_string(ctags.tags,' ')))
+    FROM catalogs c
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM catalog_tags x WHERE x.catalog_id=c.id
+    ) ctags ON true
+    WHERE c.geo_lat IS NOT NULL AND c.geo_lng IS NOT NULL AND NOT user_retiring(c.owner_user_id)
+      AND (point(c.geo_lng,c.geo_lat) <@ box(
+              point(CASE WHEN $8::BOOLEAN THEN $9::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $10::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $8::BOOLEAN THEN $11::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $12::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($13::BOOLEAN AND point(c.geo_lng,c.geo_lat) <@ box(point($14::FLOAT8,$15::FLOAT8),point($16::FLOAT8,$17::FLOAT8))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+        SELECT 1 FROM catalog_pools cp WHERE cp.catalog_id=c.id AND cp.pool_id=ANY($5::BIGINT[])
+        UNION ALL
+        SELECT 1 FROM catalog_vouchers cv JOIN pool_tokens x ON x.voucher_id=cv.voucher_id AND x.is_allowed
+        WHERE cv.catalog_id=c.id AND x.pool_id=ANY($5::BIGINT[])
+      ))
+
+    UNION ALL
+    SELECT 'post',r.id::BIGINT,r.id::TEXT,r.title,r.geo_lat::FLOAT8,r.geo_lng::FLOAT8,
+        r.marker_icon,r.marker_color,COALESCE(rtags.tags,ARRAY[]::TEXT[]),
+        lower(concat_ws(' ',r.title,r.description))
+    FROM reports r
+    LEFT JOIN LATERAL (
+        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM report_tags x WHERE x.report_id=r.id
+    ) rtags ON true
+    WHERE r.status='APPROVED' AND NOT account_retiring(r.author_address) AND r.geo_lat IS NOT NULL AND r.geo_lng IS NOT NULL
+      AND (point(r.geo_lng,r.geo_lat) <@ box(
+              point(CASE WHEN $8::BOOLEAN THEN $9::FLOAT8 ELSE -180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $10::FLOAT8 ELSE -90::FLOAT8 END),
+              point(CASE WHEN $8::BOOLEAN THEN $11::FLOAT8 ELSE 180::FLOAT8 END,CASE WHEN $8::BOOLEAN THEN $12::FLOAT8 ELSE 90::FLOAT8 END)) OR
+          ($13::BOOLEAN AND point(r.geo_lng,r.geo_lat) <@ box(point($14::FLOAT8,$15::FLOAT8),point($16::FLOAT8,$17::FLOAT8))))
+      AND (COALESCE(cardinality($5::BIGINT[]),0)=0 OR EXISTS (
+          SELECT 1 FROM report_pools rp
+          WHERE rp.report_id=r.id AND rp.pool_id=ANY($5::BIGINT[])
+      ) OR EXISTS (
+          SELECT 1 FROM report_vouchers rv
+          JOIN vouchers credit_v ON credit_v.id=rv.voucher_id AND credit_v.active
+          JOIN pool_tokens credit_pt ON credit_pt.voucher_id=credit_v.id AND credit_pt.is_allowed
+          WHERE rv.report_id=r.id AND credit_pt.pool_id=ANY($5::BIGINT[])
+      ))
+      AND ($19::TIMESTAMPTZ IS NULL OR r.created_at >= $19)
+      AND (COALESCE(cardinality($20::BIGINT[]),0)=0 OR CASE WHEN $21::BOOLEAN THEN (
+          SELECT count(*) FROM report_vouchers selected_rv
+          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($20::BIGINT[])
+      )=cardinality($20::BIGINT[]) ELSE EXISTS (
+          SELECT 1 FROM report_vouchers selected_rv
+          WHERE selected_rv.report_id=r.id AND selected_rv.voucher_id=ANY($20::BIGINT[])
+      ) END)
+      AND (COALESCE(cardinality($22::BIGINT[]),0)=0 OR CASE WHEN $23::BOOLEAN THEN (
+          SELECT count(DISTINCT matched.pool_id) FROM (
+              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+              UNION
+              SELECT pt.pool_id FROM report_vouchers rv
+              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+              WHERE rv.report_id=r.id
+          ) matched WHERE matched.pool_id=ANY($22::BIGINT[])
+      )=cardinality($22::BIGINT[]) ELSE EXISTS (
+          SELECT 1 FROM (
+              SELECT rp.pool_id FROM report_pools rp WHERE rp.report_id=r.id
+              UNION
+              SELECT pt.pool_id FROM report_vouchers rv
+              JOIN vouchers related_v ON related_v.id=rv.voucher_id AND related_v.active
+              JOIN pool_tokens pt ON pt.voucher_id=related_v.id AND pt.is_allowed
+              WHERE rv.report_id=r.id
+          ) matched WHERE matched.pool_id=ANY($22::BIGINT[])
+      ) END)
+      AND ($24::TEXT='' OR $24::TEXT='all'
+          OR ($24::TEXT='future' AND (r.period_to IS NULL OR r.period_to>=CURRENT_TIMESTAMP))
+          OR ($24::TEXT='past' AND r.period_to<CURRENT_TIMESTAMP))
+), filtered AS MATERIALIZED (
+    SELECT * FROM raw
+    WHERE (COALESCE(cardinality($6::TEXT[]),0)=0 OR kind=ANY($6::TEXT[]))
+      AND ($1='' OR CASE WHEN $2::BOOLEAN
+            THEN search_text LIKE lower($1)||'%' ESCAPE '\'
+            ELSE search_text LIKE '%'||lower($1)||'%' ESCAPE '\' END)
+      AND (COALESCE(cardinality($3::TEXT[]),0)=0 OR (
+          CASE WHEN $4::BOOLEAN THEN
+              (SELECT count(DISTINCT tag) FROM unnest(tags) tag WHERE tag=ANY($3::TEXT[]))=cardinality($3::TEXT[])
+          ELSE tags && $3::TEXT[] END
+      ))
+), points AS (
+    SELECT kind,id,resource_id,COALESCE(name,'')::TEXT AS name,geo_lat,geo_lng,marker_icon,marker_color
+    FROM filtered
+    WHERE NOT $7::BOOLEAN
+    ORDER BY kind,id
+    LIMIT $18
+), facet_counts AS (
+    SELECT tag,count(DISTINCT kind||':'||id::TEXT)::BIGINT AS count
+    FROM filtered CROSS JOIN LATERAL unnest(tags) tag
+    WHERE $7::BOOLEAN
+    GROUP BY tag
+)
+SELECT kind,id AS sort_id,resource_id,name,geo_lat,geo_lng,marker_icon,marker_color,
+    NULL::TEXT AS tag,NULL::BIGINT AS tag_count
+FROM points
+UNION ALL
+SELECT NULL::TEXT,NULL::BIGINT,NULL::TEXT,NULL::TEXT,NULL::FLOAT8,NULL::FLOAT8,NULL::TEXT,NULL::TEXT,
+    tag,count
+FROM facet_counts
+ORDER BY kind,sort_id,tag;
 
 --name: lock-quota-user
 SELECT id FROM users WHERE id = $1 FOR UPDATE;

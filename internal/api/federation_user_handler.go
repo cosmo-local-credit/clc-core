@@ -92,6 +92,8 @@ func (a *API) enrichTokenBalances(ctx context.Context, items []store.FederationT
 		}
 		items[i].IconURL = m.IconURL
 		items[i].CatalogActive = &m.Active
+		items[i].VoucherValue = m.VoucherValue
+		items[i].VoucherUOA = m.VoucherUOA
 	}
 	return nil
 }

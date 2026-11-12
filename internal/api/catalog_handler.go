@@ -76,15 +76,24 @@ func (a *API) publicPoolVouchersList(c *echo.Context) error {
 		func(v publicResourceProjection[store.PoolVoucher]) uint64 { return v.value.ID },
 		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
 			rows, err := a.store.ListPoolVouchers(ctx, tx, address, limit)
-			return publicResources(rows, publicContactFields...), err
+			if err != nil {
+				return nil, err
+			}
+			return projectWithClosures(ctx, tx, rows, func(v store.PoolVoucher) *string { return v.OwnerAddress }, publicContactFields...)
 		},
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
 			rows, err := a.store.ListPoolVouchersNext(ctx, tx, address, cursor, limit)
-			return publicResources(rows, publicContactFields...), err
+			if err != nil {
+				return nil, err
+			}
+			return projectWithClosures(ctx, tx, rows, func(v store.PoolVoucher) *string { return v.OwnerAddress }, publicContactFields...)
 		},
 		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]publicResourceProjection[store.PoolVoucher], error) {
 			rows, err := a.store.ListPoolVouchersPrevious(ctx, tx, address, cursor, limit)
-			return publicResources(rows, publicContactFields...), err
+			if err != nil {
+				return nil, err
+			}
+			return projectWithClosures(ctx, tx, rows, func(v store.PoolVoucher) *string { return v.OwnerAddress }, publicContactFields...)
 		}, hooks,
 	)
 }
@@ -162,6 +171,9 @@ func (a *API) offeringsListHandler(c *echo.Context) error {
 	if handled, readErr := a.resolveNearbyCatalog(c, tx, &search); handled || readErr != nil {
 		return readErr
 	}
+	if handled, readErr := a.resolveNearestCatalog(c, tx, &search); handled || readErr != nil {
+		return readErr
+	}
 	if handled, readErr := a.resolvePoolFilter(c, tx, &search); handled || readErr != nil {
 		return readErr
 	}
@@ -216,8 +228,9 @@ func offeringCursorScope(c *echo.Context, filter store.CatalogFilter) string {
 		TagMatch store.TagMatch
 		Pools    []uint64
 		Nearby   *store.CatalogLocation
+		Sort     *store.CatalogLocation
 		Bounds   []store.CatalogBounds
-	}{caller, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, filter.Nearby, filter.Bounds})
+	}{caller, filter.Term, filter.Tags, filter.TagMatch, filter.PoolIDs, filter.Nearby, filter.SortOrigin, filter.Bounds})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }

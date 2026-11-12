@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeCatalogTermCollapsesWhitespace(t *testing.T) {
@@ -113,6 +114,7 @@ func TestNewCatalogFilterRejectsUnknownTagMatch(t *testing.T) {
 }
 
 func TestCatalogFilterActive(t *testing.T) {
+	postedAfter := time.Now().AddDate(0, -1, 0)
 	for name, tc := range map[string]struct {
 		filter CatalogFilter
 		want   bool
@@ -123,6 +125,7 @@ func TestCatalogFilterActive(t *testing.T) {
 		"vouchers only": {filter: CatalogFilter{VoucherIDs: []uint64{42}}, want: true},
 		"pools only":    {filter: CatalogFilter{PoolIDs: []uint64{42}}, want: true},
 		"term and tags": {filter: CatalogFilter{Term: "sar", Tags: []string{"Art"}}, want: true},
+		"posted after":  {filter: CatalogFilter{PostedAfter: &postedAfter}, want: true},
 	} {
 		if got := tc.filter.Active(); got != tc.want {
 			t.Errorf("%s: Active() = %v, want %v", name, got, tc.want)
@@ -776,8 +779,11 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 			query := composeReportPage(filter, ReportCursor{}, false, 20)
 			assertPlaceholdersMatchArgs(t, "report pools", query)
 			if !strings.Contains(query.sql, "FROM report_pools rp") ||
-				!strings.Contains(query.sql, "rp.pool_id = ANY(") {
-				t.Errorf("report page must filter through report_pools:\n%s", query.sql)
+				!strings.Contains(query.sql, "FROM report_vouchers rv") ||
+				!strings.Contains(query.sql, "JOIN pool_tokens pt") ||
+				!strings.Contains(query.sql, "pt.is_allowed") ||
+				!strings.Contains(query.sql, "matched.pool_id = ANY(") {
+				t.Errorf("report page must filter through direct and voucher-derived pools:\n%s", query.sql)
 			}
 			if gotAll := strings.Contains(query.sql, ") = cardinality("); gotAll != tc.wantAll {
 				t.Errorf("all-match fragment = %v, want %v:\n%s", gotAll, tc.wantAll, query.sql)
@@ -837,6 +843,31 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 	}
 }
 
+func TestReportTimingPredicatesApplyToPagesAndFacets(t *testing.T) {
+	for timing, fragment := range map[ReportTiming]string{
+		ReportTimingFuture: "period_to IS NULL OR r.period_to >= CURRENT_TIMESTAMP",
+		ReportTimingPast:   "r.period_to < CURRENT_TIMESTAMP",
+	} {
+		filter := CatalogFilter{ReportTiming: timing}
+		for name, query := range map[string]composed{
+			"page":           composeReportPage(filter, ReportCursor{}, false, 20),
+			"tag facets":     composeReportTagCounts(filter),
+			"voucher facets": composeReportVoucherCounts(filter),
+			"pool facets":    composeReportPoolCounts(filter),
+		} {
+			assertPlaceholdersMatchArgs(t, name, query)
+			if !strings.Contains(query.sql, fragment) {
+				t.Errorf("%s timing %q is missing %q:\n%s", name, timing, fragment, query.sql)
+			}
+		}
+	}
+
+	query := composeReportPage(CatalogFilter{ReportTiming: ReportTimingAll}, ReportCursor{}, false, 20)
+	if strings.Contains(query.sql, "CURRENT_TIMESTAMP") {
+		t.Errorf("all timing must not add a schedule predicate:\n%s", query.sql)
+	}
+}
+
 func TestReportCreditablePoolsApplyToPageAndEveryFacet(t *testing.T) {
 	filter := CatalogFilter{CreditablePoolIDs: []uint64{7, 11}}
 	for name, query := range map[string]composed{
@@ -868,6 +899,35 @@ func TestReportCreditablePoolsApplyToPageAndEveryFacet(t *testing.T) {
 			}
 			if !slices.Equal(boundPools[0], []int64{7, 11}) {
 				t.Fatalf("creditable pool IDs = %#v", boundPools[0])
+			}
+		})
+	}
+}
+
+func TestReportPostedAfterAppliesToPageAndEveryFacet(t *testing.T) {
+	after := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	filter := CatalogFilter{PostedAfter: &after}
+	for name, query := range map[string]composed{
+		"page":           composeReportPage(filter, ReportCursor{}, false, 20),
+		"search page":    composeReportPage(CatalogFilter{Term: "harvest", PostedAfter: &after}, ReportCursor{}, false, 20),
+		"tag facets":     composeReportTagCounts(filter),
+		"voucher facets": composeReportVoucherCounts(filter),
+		"pool facets":    composeReportPoolCounts(filter),
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertPlaceholdersMatchArgs(t, name, query)
+			if !strings.Contains(query.sql, "r.created_at >= ") {
+				t.Errorf("posted window is missing from %s:\n%s", name, query.sql)
+			}
+			found := false
+			for _, arg := range query.args {
+				if instant, ok := arg.(time.Time); ok && instant.Equal(after) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("PostedAfter was not bound in %s: %#v", name, query.args)
 			}
 		})
 	}
@@ -922,6 +982,19 @@ func TestLoadCatalogSearchQueries(t *testing.T) {
 	if !strings.Contains(queries.SetCatalogStatementTimeout, "set_config('statement_timeout', $1, true)") {
 		t.Errorf("statement timeout must be transaction-local and parameterized:\n%s", queries.SetCatalogStatementTimeout)
 	}
+	if queries.ListMarketMap == "" {
+		t.Error("expected list-market-map query to be loaded")
+	}
+	if !strings.Contains(queries.ListMarketMap, "$20::TIMESTAMPTZ IS NULL OR r.created_at >= $20") {
+		t.Errorf("list-market-map post branch must accept a nullable created_at window:\n%s",
+			queries.ListMarketMap)
+	}
+	if !strings.Contains(queries.ListMarketMap, "$25::TEXT='future'") ||
+		!strings.Contains(queries.ListMarketMap, "JOIN pool_tokens pt") {
+		t.Errorf("list-market-map post branch must apply schedule and indirect Pool filters:\n%s",
+			queries.ListMarketMap)
+	}
+
 	if queries.ResolveVoucherRefs == "" {
 		t.Error("expected resolve-voucher-refs query to be loaded")
 	}

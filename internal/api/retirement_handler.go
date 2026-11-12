@@ -408,3 +408,65 @@ func (a *API) adminRestorePoolHandler(c *echo.Context) error {
 	}
 	return retirementOK(c, map[string]any{"pool": pool})
 }
+
+// adminRetireResourceHandler retires a voucher or pool on an operator's behalf,
+// through the same request and event tables as an owner's request. A pending
+// owner request is approved rather than duplicated; otherwise one approved
+// ADMIN-sourced request records the transition. An already retired resource
+// answers with its current state and writes nothing, so a double click adds no
+// event. Ownership and balances are re-read inside the transaction, and nothing
+// moves on chain.
+func (a *API) adminRetireResourceHandler(c *echo.Context) error {
+	if !validRetirementCaller(c) {
+		return handleForbiddenError(c, "this endpoint requires an account")
+	}
+	address, handled, err := adminUserAddress(c)
+	if handled || err != nil {
+		return err
+	}
+	body, err := retirementReason(c, false)
+	if err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	resource, err := store.GetRetirementResource(ctx, tx, retirementKind(c), address, a.chainID, true)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if !resource.Active {
+		return retirementOK(c, map[string]any{"resource": resource, "changed": false})
+	}
+	preview, err := a.retirementPreview(ctx, tx, resource)
+	if err != nil {
+		return retirementPreviewError(c, err)
+	}
+	if preview.HasPositiveBalances && !body.AcknowledgeBalances {
+		return handleConflictError(c, "Confirm the remaining balances before retiring")
+	}
+	_, caller, _ := getUserClaims(c)
+	pending, err := store.ListRetirementRequests(ctx, tx, store.RetirementFilter{Resource: &resource, Status: "pending"})
+	if err != nil {
+		return err
+	}
+	var request store.RetirementRequest
+	if len(pending) > 0 {
+		request, err = store.DecideRetirementRequest(ctx, tx, resource, pending[0].ID, "approved", caller, body.Reason, &preview)
+	} else {
+		request, err = store.RetireResourceDirect(ctx, tx, resource, caller, body.Reason, preview)
+	}
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err = store.SetRetirementResourceActive(ctx, tx, resource, false); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	return retirementOK(c, map[string]any{"request": request, "changed": true})
+}

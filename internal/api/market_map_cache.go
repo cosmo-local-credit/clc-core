@@ -8,8 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/cosmo-local-credit/clc-core/internal/store"
 )
 
 const (
@@ -26,7 +24,7 @@ var (
 type (
 	marketMapCacheEntry struct {
 		key       string
-		result    store.MarketMapResult
+		result    any
 		loadedAt  time.Time
 		sizeBytes int
 	}
@@ -57,27 +55,27 @@ func newMarketMapCache(now func() time.Time) *marketMapCache {
 	}
 }
 
-func (c *marketMapCache) get(key string) (store.MarketMapResult, bool) {
+func (c *marketMapCache) get(key string) (any, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	element, ok := c.entries[key]
 	if !ok {
-		return store.MarketMapResult{}, false
+		return nil, false
 	}
 	entry, ok := element.Value.(*marketMapCacheEntry)
 	if !ok {
 		c.removeInvalidElement(key, element)
-		return store.MarketMapResult{}, false
+		return nil, false
 	}
 	if c.now().Sub(entry.loadedAt) >= c.ttl {
 		c.remove(element)
-		return store.MarketMapResult{}, false
+		return nil, false
 	}
 	c.order.MoveToFront(element)
 	return entry.result, true
 }
 
-func (c *marketMapCache) set(key string, result store.MarketMapResult) {
+func (c *marketMapCache) set(key string, result any) {
 	encoded, err := json.Marshal(result)
 	if err != nil || len(encoded) > c.maxBytes {
 		return
@@ -118,18 +116,18 @@ func newMarketMapExecutor() *marketMapExecutor {
 
 func (e *marketMapExecutor) run(
 	ctx context.Context,
-	load func(context.Context) (store.MarketMapResult, error),
-) (store.MarketMapResult, error) {
+	load func(context.Context) (any, error),
+) (any, error) {
 	if e.pending.Add(1) > marketMapConcurrency+marketMapQueue {
 		e.pending.Add(-1)
-		return store.MarketMapResult{}, errMarketMapCapacity
+		return nil, errMarketMapCapacity
 	}
 	defer e.pending.Add(-1)
 	select {
 	case e.slots <- struct{}{}:
 		defer func() { <-e.slots }()
 	case <-ctx.Done():
-		return store.MarketMapResult{}, ctx.Err()
+		return nil, ctx.Err()
 	}
 	return load(ctx)
 }

@@ -8,7 +8,7 @@ import (
 )
 
 // OfferingCursor is the stable keyset for global and distance-ordered offering
-// discovery. Distance is used only when Nearby is active.
+// discovery. Distance is used for nearby reads and nearest sorting.
 type (
 	OfferingCursor struct {
 		ID       uint64  `json:"id"`
@@ -46,6 +46,15 @@ func offeringPageQuery(queries *Queries, filter CatalogFilter, cursor OfferingCu
 			bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat,
 			cursor.Distance, cursor.ID, limit,
 		}
+	} else if filter.SortOrigin != nil {
+		query = queries.ListOfferingsFilteredSorted
+		args = []any{
+			term, filter.prefixOnly(), tags, allTags, pools,
+			filter.SortOrigin.Lat, filter.SortOrigin.Lng,
+			hasBounds, minLng, minLat, maxLng, maxLat,
+			hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+			cursor.Distance, cursor.ID, limit,
+		}
 	}
 	return query, args
 }
@@ -71,7 +80,8 @@ func offeringFacetQuery(queries *Queries, filter CatalogFilter) (string, []any) 
 }
 
 // ListOfferingsFiltered returns only public, available offerings with an
-// effective location, ordered newest-first globally or nearest-first nearby.
+// effective location, ordered newest-first globally or nearest-first when an
+// origin is available.
 // SQL shape selection stays in Go; filtering, location fallback, distance,
 // pagination, and price conversion are all performed by named statements.
 func (pg *Pg) ListOfferingsFiltered(

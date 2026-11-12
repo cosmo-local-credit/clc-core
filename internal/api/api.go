@@ -226,7 +226,9 @@ func New(o APIOpts) *API {
 	siweGroup.POST("/verify", a.siweVerifyHandler)
 
 	// Authenticated profile routes
-	profileAuthGroup := router.Group("/auth", a.flexibleAuthMiddleware(), a.requireUserAuth())
+	// enforceRecoveryAccess applies here too: a retired account may not edit its
+	// profile or fetch a storage token through the /auth writes.
+	profileAuthGroup := router.Group("/auth", a.flexibleAuthMiddleware(), a.requireUserAuth(), a.enforceRecoveryAccess())
 	profileAuthGroup.GET("/profile", a.profileGetHandler)
 	profileAuthGroup.POST("/profile", a.profileUpdateHandler)
 	// A readable copy of the session token, for uploads to the image service.
@@ -253,6 +255,8 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/wants/:id/pools", a.wantCreatorPoolsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/marketplace", a.marketplaceListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/market-map", a.marketMapHandler)
+	router.GET(apiVersion+"/market-map/points", a.marketMapPointsHandler)
+	router.GET(apiVersion+"/market-map/facets", a.marketMapFacetsHandler)
 	// User-curated catalogs are public to browse; nearby discovery uses the
 	// viewer's saved profile location and therefore requires a user session.
 	router.GET(apiVersion+"/catalogs", a.curatedCatalogListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
@@ -277,6 +281,7 @@ func New(o APIOpts) *API {
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())
 	apiGroup.Use(a.revalidatePrivilegedRole())
+	apiGroup.Use(a.enforceRecoveryAccess())
 	apiGroup.GET("/vouchers/:address/info", a.voucherInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/pools/:address/info", a.poolInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/wants/:id/contact", a.wantContactHandler, a.requireUserAuth())
@@ -426,6 +431,9 @@ func New(o APIOpts) *API {
 	userGroup.GET("/me/owned-pools/:address", a.ownerPoolByAddressHandler)
 	userGroup.GET("/me/owned-pools/:address/vouchers", a.ownerPoolVouchersListHandler)
 	userGroup.GET("/me/retirement-requests", a.ownRetirementRequestsHandler)
+	userGroup.GET("/me/retirement/preview", a.userRetirementPreviewHandler)
+	userGroup.POST("/me/retirement", a.userRetireHandler)
+	userGroup.POST("/me/retirement/restore", a.userRestoreHandler)
 	userGroup.GET("/me/deployments", a.userDeploymentsHandler)
 	userGroup.GET("/me/safes", a.userSafesHandler)
 	userGroup.GET("/me/key-rotations", a.userKeyRotationsHandler)
@@ -446,6 +454,10 @@ func New(o APIOpts) *API {
 	adminGroup.POST("/users/:address/key-rotation", a.adminKeyRotationHandler, a.requireSuperAdmin())
 	adminGroup.PUT("/users/:address/approve", a.adminApproveUserHandler)
 	adminGroup.PUT("/users/:address/reject", a.adminRejectUserHandler)
+	adminGroup.GET("/users/:address/moderation-history", a.adminModerationHistoryHandler)
+	adminGroup.GET("/users/:address/retirement", a.adminAccountRetirementHandler)
+	adminGroup.POST("/users/:address/retirement", a.adminRetireAccountHandler)
+	adminGroup.POST("/users/:address/retirement/restore", a.adminRestoreAccountHandler)
 	adminGroup.PUT("/users/:address/limits", a.adminUpdateUserLimitsHandler)
 	adminGroup.PUT("/users/:address/profile", a.adminUpdateUserProfileHandler)
 	adminGroup.GET("/users/:address/pools", a.adminAccountPoolsHandler)
@@ -467,6 +479,8 @@ func New(o APIOpts) *API {
 	adminGroup.GET("/vouchers", a.adminVouchersListHandler)
 	adminGroup.GET("/vouchers/:address", a.adminVoucherByAddressHandler)
 	adminGroup.PUT("/vouchers/:address/restore", a.adminRestoreVoucherHandler)
+	adminGroup.PUT("/vouchers/:address/retire", a.adminRetireResourceHandler)
+	adminGroup.PUT("/pools/:address/retire", a.adminRetireResourceHandler)
 	adminGroup.GET("/deployments", a.adminListDeploymentsHandler)
 	adminGroup.GET("/vocabulary", a.adminVocabularyHandler)
 	adminGroup.PUT("/vocabulary/tags", a.adminRenameTokenTagHandler)

@@ -94,17 +94,21 @@ func GetReviewPool(ctx context.Context, tx pgx.Tx, address string, lock bool) (R
 
 func ListVoucherReviews(ctx context.Context, tx pgx.Tx, voucherID uint64, stars int, before uint64) (ReviewPage, error) {
 	return listResourceReviews(ctx, tx, voucherID, stars, before,
-		`SELECT stars, count(*) AS count FROM voucher_reviews WHERE voucher_id=$1 AND NOT hidden GROUP BY stars`,
-		`SELECT id, stars, comment, reply FROM voucher_reviews
-        WHERE voucher_id=$1 AND NOT hidden AND ($2::int=0 OR stars=$2) AND ($3::bigint=0 OR id<$3)
+		`SELECT stars, count(*) AS count FROM voucher_reviews WHERE voucher_id=$1 AND NOT hidden AND NOT account_retiring(reviewer_address) GROUP BY stars`,
+		`SELECT id, stars, comment,
+            CASE WHEN account_retiring(reply_author_address) THEN NULL ELSE reply END AS reply
+        FROM voucher_reviews
+        WHERE voucher_id=$1 AND NOT hidden AND NOT account_retiring(reviewer_address) AND ($2::int=0 OR stars=$2) AND ($3::bigint=0 OR id<$3)
         ORDER BY id DESC LIMIT 21`)
 }
 
 func ListPoolReviews(ctx context.Context, tx pgx.Tx, poolID uint64, stars int, before uint64) (ReviewPage, error) {
 	return listResourceReviews(ctx, tx, poolID, stars, before,
-		`SELECT stars, count(*) AS count FROM pool_reviews WHERE pool_id=$1 AND NOT hidden GROUP BY stars`,
-		`SELECT id, stars, comment, reply FROM pool_reviews
-        WHERE pool_id=$1 AND NOT hidden AND ($2::int=0 OR stars=$2) AND ($3::bigint=0 OR id<$3)
+		`SELECT stars, count(*) AS count FROM pool_reviews WHERE pool_id=$1 AND NOT hidden AND NOT account_retiring(reviewer_address) GROUP BY stars`,
+		`SELECT id, stars, comment,
+            CASE WHEN account_retiring(reply_author_address) THEN NULL ELSE reply END AS reply
+        FROM pool_reviews
+        WHERE pool_id=$1 AND NOT hidden AND NOT account_retiring(reviewer_address) AND ($2::int=0 OR stars=$2) AND ($3::bigint=0 OR id<$3)
         ORDER BY id DESC LIMIT 21`)
 }
 

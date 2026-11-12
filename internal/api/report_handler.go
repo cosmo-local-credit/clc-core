@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -22,27 +23,28 @@ type (
 	reportCursorError string
 
 	publicReportResponse struct {
-		ID           uint64                   `json:"id"`
-		Title        string                   `json:"title"`
-		Description  string                   `json:"description"`
-		ImageURL     *string                  `json:"imageUrl"`
-		GeoLat       *float64                 `json:"geoLat"`
-		GeoLng       *float64                 `json:"geoLng"`
-		PeriodFrom   *time.Time               `json:"periodFrom"`
-		PeriodTo     *time.Time               `json:"periodTo"`
-		MarkerIcon   string                   `json:"markerIcon"`
-		MarkerColor  string                   `json:"markerColor"`
-		CreatedAt    time.Time                `json:"createdAt"`
-		UpdatedAt    time.Time                `json:"updatedAt"`
-		Tags         []string                 `json:"tags"`
-		Vouchers     []store.ReportVoucher    `json:"vouchers"`
-		Pools        []store.ReportPool       `json:"pools"`
-		Body         *string                  `json:"body,omitempty"`
-		HostName     *string                  `json:"hostName,omitempty"`
-		Participants *string                  `json:"participants,omitempty"`
-		TimeTaken    *string                  `json:"timeTaken,omitempty"`
-		Images       []store.ReportImage      `json:"images,omitempty"`
-		Attachments  []store.ReportAttachment `json:"attachments,omitempty"`
+		ID             uint64                   `json:"id"`
+		Title          string                   `json:"title"`
+		Description    string                   `json:"description"`
+		ImageURL       *string                  `json:"imageUrl"`
+		GeoLat         *float64                 `json:"geoLat"`
+		GeoLng         *float64                 `json:"geoLng"`
+		DistanceMeters *float64                 `json:"distanceMeters,omitempty"`
+		PeriodFrom     *time.Time               `json:"periodFrom"`
+		PeriodTo       *time.Time               `json:"periodTo"`
+		MarkerIcon     string                   `json:"markerIcon"`
+		MarkerColor    string                   `json:"markerColor"`
+		CreatedAt      time.Time                `json:"createdAt"`
+		UpdatedAt      time.Time                `json:"updatedAt"`
+		Tags           []string                 `json:"tags"`
+		Vouchers       []store.ReportVoucher    `json:"vouchers"`
+		Pools          []store.ReportPool       `json:"pools"`
+		Body           *string                  `json:"body,omitempty"`
+		HostName       *string                  `json:"hostName,omitempty"`
+		Participants   *string                  `json:"participants,omitempty"`
+		TimeTaken      *string                  `json:"timeTaken,omitempty"`
+		Images         []store.ReportImage      `json:"images,omitempty"`
+		Attachments    []store.ReportAttachment `json:"attachments,omitempty"`
 	}
 
 	reportWriteRelations struct {
@@ -59,6 +61,9 @@ const (
 	errReportCursorIncomplete reportCursorError = "cursorUpdatedAt and cursorId must be sent together"
 	errReportCursorTime       reportCursorError = "cursorUpdatedAt must be an RFC3339 timestamp"
 	errReportCursorID         reportCursorError = "cursorId must be a positive integer"
+	errReportCursorSort       reportCursorError = "nearest report cursors require cursorDistance and cursorOrigin"
+	errReportCursorDistance   reportCursorError = "cursorDistance must be a non-negative number"
+	errReportCursorOrigin     reportCursorError = "report cursor does not match the current nearest origin"
 )
 
 // reportsListHandler serves the approved report feed, newest update first.
@@ -70,11 +75,14 @@ const (
 // carried, and it is echoed back as `next`.
 //
 // Optional `q`, `tags`, `tagMatch`, `vouchers`, `voucherMatch`, `pools`,
-// `poolMatch`, `creditablePools`, `bbox`, and `facets` narrow the feed
-// (SEARCH_FILTER_PLAN.md Slice 4). `q` matches title and description; report body
-// search stays parked. Report tags are the reports' own `report_tags`, which each
-// row already returns, so a filtered row carries the tag that matched it. The
-// response shape is unchanged when the parameters are absent and gains the
+// `poolMatch`, `creditablePools`, `bbox`, `timing`, legacy `posted`, and `facets`
+// narrow the feed (SEARCH_FILTER_PLAN.md Slice 4). `timing` classifies posts by
+// period_to as future, past, or all. `posted` remains a created_at window for
+// older clients: 1m, 3m, 6m, 1y, or all. Omitted `posted` is 1m when `timing`
+// is absent. `q` matches title and description; report
+// body search stays parked. Report tags are the reports' own `report_tags`, which
+// each row already returns, so a filtered row carries the tag that matched it.
+// The response shape is unchanged when the parameters are absent and gains the
 // additive `tagFacets` and `voucherFacets` keys when `facets=true` is asked for
 // on a first page.
 func (a *API) reportsListHandler(c *echo.Context) error {
@@ -83,11 +91,6 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	perPage, handled, err := reportPerPageParam(c)
 	if handled || err != nil {
 		return err
-	}
-
-	cursor, hasCursor, err := parseReportCursor(query.Get("cursorUpdatedAt"), query.Get("cursorId"))
-	if err != nil {
-		return reportValidationError(c, err.Error())
 	}
 
 	if _, exists := query["author"]; exists {
@@ -116,6 +119,13 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	// filter that was never applied.
 	if handled, vErr := a.resolveNearbyCatalog(c, tx, &search); handled || vErr != nil {
 		return vErr
+	}
+	if handled, vErr := a.resolveNearestCatalog(c, tx, &search); handled || vErr != nil {
+		return vErr
+	}
+	cursor, hasCursor, err := parsePublicReportCursor(query, search.filter.SortOrigin)
+	if err != nil {
+		return reportValidationError(c, err.Error())
 	}
 	if handled, vErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || vErr != nil {
 		return vErr
@@ -180,10 +190,15 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	}
 	if uint64(len(reports)) == perPage {
 		last := reports[len(reports)-1]
-		result["next"] = map[string]any{
+		next := map[string]any{
 			"updatedAt": last.UpdatedAt.UTC().Format(time.RFC3339Nano),
 			"id":        last.ID,
 		}
+		if search.filter.SortOrigin != nil && last.DistanceMeters != nil {
+			next["distance"] = *last.DistanceMeters
+			next["origin"] = catalogSortOriginIdentity(search.filter.SortOrigin)
+		}
+		result["next"] = next
 	}
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
@@ -465,27 +480,28 @@ func reportUpdateStatus(callerRole string) *string {
 
 func publicReport(report store.Report) publicReportResponse {
 	return publicReportResponse{
-		ID:           report.ID,
-		Title:        report.Title,
-		Description:  report.Description,
-		ImageURL:     report.ImageURL,
-		GeoLat:       report.GeoLat,
-		GeoLng:       report.GeoLng,
-		PeriodFrom:   report.PeriodFrom,
-		PeriodTo:     report.PeriodTo,
-		MarkerIcon:   report.MarkerIcon,
-		MarkerColor:  report.MarkerColor,
-		CreatedAt:    report.CreatedAt,
-		UpdatedAt:    report.UpdatedAt,
-		Tags:         report.Tags,
-		Vouchers:     report.Vouchers,
-		Pools:        report.Pools,
-		Body:         report.Body,
-		HostName:     report.HostName,
-		Participants: report.Participants,
-		TimeTaken:    report.TimeTaken,
-		Images:       report.Images,
-		Attachments:  report.Attachments,
+		ID:             report.ID,
+		Title:          report.Title,
+		Description:    report.Description,
+		ImageURL:       report.ImageURL,
+		GeoLat:         report.GeoLat,
+		GeoLng:         report.GeoLng,
+		DistanceMeters: report.DistanceMeters,
+		PeriodFrom:     report.PeriodFrom,
+		PeriodTo:       report.PeriodTo,
+		MarkerIcon:     report.MarkerIcon,
+		MarkerColor:    report.MarkerColor,
+		CreatedAt:      report.CreatedAt,
+		UpdatedAt:      report.UpdatedAt,
+		Tags:           report.Tags,
+		Vouchers:       report.Vouchers,
+		Pools:          report.Pools,
+		Body:           report.Body,
+		HostName:       report.HostName,
+		Participants:   report.Participants,
+		TimeTaken:      report.TimeTaken,
+		Images:         report.Images,
+		Attachments:    report.Attachments,
 	}
 }
 
@@ -785,6 +801,40 @@ func parseReportCursor(updatedAt, id string) (store.ReportCursor, bool, error) {
 		return store.ReportCursor{}, false, errReportCursorID
 	}
 	return store.ReportCursor{UpdatedAt: parsedTime, ID: parsedID}, true, nil
+}
+
+func parsePublicReportCursor(query url.Values, origin *store.CatalogLocation) (store.ReportCursor, bool, error) {
+	cursor, hasCursor, err := parseReportCursor(query.Get("cursorUpdatedAt"), query.Get("cursorId"))
+	if err != nil {
+		return store.ReportCursor{}, false, err
+	}
+	distanceRaw := query.Get("cursorDistance")
+	originRaw := query.Get("cursorOrigin")
+	if origin == nil {
+		if distanceRaw != "" || originRaw != "" {
+			return store.ReportCursor{}, false, errReportCursorSort
+		}
+		return cursor, hasCursor, nil
+	}
+	if !hasCursor {
+		if distanceRaw != "" || originRaw != "" {
+			return store.ReportCursor{}, false, errReportCursorSort
+		}
+		return cursor, false, nil
+	}
+	if distanceRaw == "" || originRaw == "" {
+		return store.ReportCursor{}, false, errReportCursorSort
+	}
+	distance, err := strconv.ParseFloat(distanceRaw, 64)
+	if err != nil || math.IsNaN(distance) || math.IsInf(distance, 0) || distance < 0 {
+		return store.ReportCursor{}, false, errReportCursorDistance
+	}
+	if originRaw != catalogSortOriginIdentity(origin) {
+		return store.ReportCursor{}, false, errReportCursorOrigin
+	}
+	cursor.Distance = distance
+	cursor.Origin = originRaw
+	return cursor, true, nil
 }
 
 func (e reportCursorError) Error() string { return string(e) }

@@ -56,6 +56,7 @@ type (
 		OwnerAddress     string             `db:"owner_address" json:"ownerAddress"`
 		Reason           string             `db:"reason" json:"reason"`
 		Status           string             `db:"status" json:"status"`
+		Source           string             `db:"source" json:"source"`
 		Snapshot         RetirementPreview  `db:"snapshot" json:"snapshot"`
 		RequestedAt      time.Time          `db:"requested_at" json:"requestedAt"`
 		DecisionAt       *time.Time         `db:"decision_at" json:"decisionAt"`
@@ -89,7 +90,7 @@ const (
     COALESCE(v.address,p.address) AS resource_address,
     COALESCE(v.display_name,v.name,p.display_name,p.name,'') AS resource_name,
     COALESCE(v.symbol,p.symbol,'') AS symbol,COALESCE(v.chain_id,p.chain_id) AS chain_id,
-    r.requester_address,r.owner_address,r.reason,r.status,r.snapshot,r.requested_at,
+    r.requester_address,r.owner_address,r.reason,r.status,r.source,r.snapshot,r.requested_at,
     r.decision_at,r.decision_by,r.decision_reason,r.decision_snapshot
     FROM retirement_requests r LEFT JOIN vouchers v ON v.id=r.voucher_id LEFT JOIN pools p ON p.id=r.pool_id`
 )
@@ -214,6 +215,24 @@ func DecideRetirementRequest(ctx context.Context, tx pgx.Tx, resource Retirement
 		return RetirementRequest{}, ErrRetirementState
 	}
 	if err = InsertRetirementEvent(ctx, tx, resource, &id, status, actor, reason); err != nil {
+		return RetirementRequest{}, err
+	}
+	return GetRetirementRequest(ctx, tx, id, false)
+}
+
+// RetireResourceDirect records an operator-initiated retirement as one approved
+// request and one event, for a resource no owner asked to retire. The reason is
+// optional here; it stays on the request and is never appended to the resource.
+func RetireResourceDirect(ctx context.Context, tx pgx.Tx, resource RetirementResource, actor, reason string, preview RetirementPreview) (RetirementRequest, error) {
+	voucherID, poolID := retirementResourceIDs(resource)
+	var id uint64
+	err := tx.QueryRow(ctx, `INSERT INTO retirement_requests(voucher_id,pool_id,requester_address,owner_address,reason,status,source,snapshot,decision_at,decision_by,decision_reason,decision_snapshot)
+        VALUES($1,$2,$3,$4,$5,'approved','ADMIN',$6,CURRENT_TIMESTAMP,$3,$5,$6) RETURNING id`,
+		voucherID, poolID, strings.ToLower(actor), strings.ToLower(resource.OwnerAddress), strings.TrimSpace(reason), preview).Scan(&id)
+	if err != nil {
+		return RetirementRequest{}, err
+	}
+	if err = InsertRetirementEvent(ctx, tx, resource, &id, "approved", actor, strings.TrimSpace(reason)); err != nil {
 		return RetirementRequest{}, err
 	}
 	return GetRetirementRequest(ctx, tx, id, false)
