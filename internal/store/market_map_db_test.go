@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 )
@@ -200,6 +201,7 @@ func TestDiscoveryBoundsParametersRetainFloatPrecisionDB(t *testing.T) {
 	}{
 		{"map", pg.queries.ListMarketMap, []int{10, 11, 12, 13, 15, 16, 17, 18}},
 		{"marketplace", pg.queries.ListMarketplace, []int{22, 23, 24, 25, 27, 28, 29, 30}},
+		{"map discovery", pg.queries.ListMarketMapDiscovery, []int{9, 10, 11, 12, 14, 15, 16, 17}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			statement, err := tx.Conn().Prepare(context.Background(), "precision_"+test.name, test.sql)
@@ -308,4 +310,219 @@ func TestMarketMapFractionalAntimeridianBoundsDB(t *testing.T) {
 	list, err := pg.ListMarketplace(ctx, tx, filter, []string{"voucher"}, nil, MarketplaceCursor{}, 20, false)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
+}
+
+func TestMarketMapPointsEveryKindFiltersAndStableOrderDB(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	const term = "Zqvxmappoints"
+	var ownerID uint64
+	var ownerAddress string
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO users(blockchain_address,name,email)
+		VALUES('0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),$1,gen_random_uuid()::text||'@map.test')
+		RETURNING id,blockchain_address`, term+" owner").Scan(&ownerID, &ownerAddress))
+
+	// Fractional coordinates in every quadrant, far apart: no viewport holds them all.
+	voucherID := seedSearchVoucher(t, tx, term+" voucher", "ZPTS")
+	_, err := tx.Exec(ctx, `UPDATE vouchers SET owner_address=$1,geo_lat=-3.6884991293904363,geo_lng=39.830381973540625 WHERE id=$2`, ownerAddress, voucherID)
+	require.NoError(t, err)
+	var poolID uint64
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO pools(chain_id,address,name,symbol,geo_lat,geo_lng)
+		VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),$1,'ZPP',51.507351,-0.127758)
+		RETURNING id`, term+" pool").Scan(&poolID))
+	_, err = tx.Exec(ctx, `INSERT INTO pool_tokens(pool_id,voucher_id,is_allowed) VALUES($1,$2,true)`, poolID, voucherID)
+	require.NoError(t, err)
+	var wantID uint64
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO wants(owner_user_id,name,description,location_name,geo_lat,geo_lng,status,contact_text)
+		VALUES($1,$2,'Map fixture','Map fixture',-33.868820,151.209296,'OPEN','Public contact')
+		RETURNING id`, ownerID, term+" want").Scan(&wantID))
+	var catalogID uint64
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO catalogs(owner_user_id,name,description,location_name,geo_lat,geo_lng)
+		VALUES($1,$2,'Map fixture','Map fixture',40.712776,-74.005974)
+		RETURNING id`, ownerID, term+" catalog").Scan(&catalogID))
+	_, err = tx.Exec(ctx, `INSERT INTO catalog_vouchers(catalog_id,voucher_id) VALUES($1,$2)`, catalogID, voucherID)
+	require.NoError(t, err)
+	var reportID, endedReportID uint64
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO reports(title,description,author_address,status,geo_lat,geo_lng)
+		VALUES($1,'Map fixture',$2,'APPROVED',-1.292066,36.821945)
+		RETURNING id`, term+" post", ownerAddress).Scan(&reportID))
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO reports(title,description,author_address,status,geo_lat,geo_lng,period_from,period_to)
+		VALUES($1,'Map fixture',$2,'APPROVED',-1.292066,36.821945,CURRENT_TIMESTAMP - interval '2 hours',CURRENT_TIMESTAMP - interval '1 hour')
+		RETURNING id`, term+" ended post", ownerAddress).Scan(&endedReportID))
+	for _, id := range []uint64{reportID, endedReportID} {
+		_, err = tx.Exec(ctx, `INSERT INTO report_vouchers(report_id,voucher_id) VALUES($1,$2)`, id, voucherID)
+		require.NoError(t, err)
+	}
+	var tag string
+	require.NoError(t, tx.QueryRow(ctx, `SELECT value FROM token_tag ORDER BY value LIMIT 1`).Scan(&tag))
+	_, err = tx.Exec(ctx, `INSERT INTO voucher_tags(voucher_id,tag_value) VALUES($1,$2)`, voucherID, tag)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `INSERT INTO want_tags(want_id,tag_value) VALUES($1,$2)`, wantID, tag)
+	require.NoError(t, err)
+
+	allKinds := []string{"catalog", "pool", "post", "voucher", "want"}
+	filter, err := NewCatalogFilter(term, nil, TagMatchAny)
+	require.NoError(t, err)
+	filter.ReportTiming = ReportTimingFuture
+	// A viewport on the filter must not narrow the points.
+	filter.Bounds = []CatalogBounds{{MinLng: 39.7, MinLat: -3.8, MaxLng: 40.2, MaxLat: -3.2}}
+
+	result, err := pg.ListMarketMapPoints(ctx, tx, filter, allKinds)
+	require.NoError(t, err)
+	require.False(t, result.Truncated)
+	located := make([]MarketMapPoint, 0, len(result.Points))
+	for _, point := range result.Points {
+		if point.Kind == "post" || point.Kind == "want" {
+			require.NotNil(t, point.MarkerIcon, "%s keeps its default marker", point.Kind)
+		}
+		point.MarkerIcon, point.MarkerColor = nil, nil
+		located = append(located, point)
+	}
+	require.Equal(t, []MarketMapPoint{
+		{Kind: "catalog", ResourceID: strconv.FormatUint(catalogID, 10), Name: term + " catalog", GeoLat: 40.712776, GeoLng: -74.005974},
+		{Kind: "pool", ResourceID: pointResourceID(t, tx, "pools", poolID), Name: term + " pool", GeoLat: 51.507351, GeoLng: -0.127758},
+		{Kind: "post", ResourceID: strconv.FormatUint(reportID, 10), Name: term + " post", GeoLat: -1.292066, GeoLng: 36.821945},
+		{Kind: "voucher", ResourceID: pointResourceID(t, tx, "vouchers", voucherID), Name: term + " voucher", GeoLat: -3.6884991293904363, GeoLng: 39.830381973540625},
+		{Kind: "want", ResourceID: strconv.FormatUint(wantID, 10), Name: term + " want", GeoLat: -33.868820, GeoLng: 151.209296},
+	}, located, "every kind, ordered by kind then id, with fractional coordinates intact")
+
+	again, err := pg.ListMarketMapPoints(ctx, tx, filter, allKinds)
+	require.NoError(t, err)
+	require.Equal(t, result.Points, again.Points, "order must be stable: a stack is keyed by its first member")
+
+	kindsOf := func(points []MarketMapPoint) []string {
+		kinds := []string{}
+		for _, point := range points {
+			kinds = append(kinds, point.Kind)
+		}
+		return kinds
+	}
+
+	subset, err := pg.ListMarketMapPoints(ctx, tx, filter, []string{"want", "pool"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"pool", "want"}, kindsOf(subset.Points))
+
+	tagged := filter
+	tagged.Tags = []string{tag}
+	taggedPoints, err := pg.ListMarketMapPoints(ctx, tx, tagged, allKinds)
+	require.NoError(t, err)
+	require.Equal(t, []string{"voucher", "want"}, kindsOf(taggedPoints.Points))
+
+	credit, err := filter.WithDiscoveryPoolIDs([]uint64{poolID})
+	require.NoError(t, err)
+	creditPoints, err := pg.ListMarketMapPoints(ctx, tx, credit, allKinds)
+	require.NoError(t, err)
+	require.Equal(t, []string{"catalog", "pool", "post", "voucher", "want"}, kindsOf(creditPoints.Points))
+
+	past := filter
+	past.ReportTiming = ReportTimingPast
+	pastPoints, err := pg.ListMarketMapPoints(ctx, tx, past, []string{"post"})
+	require.NoError(t, err)
+	require.Len(t, pastPoints.Points, 1)
+	require.Equal(t, strconv.FormatUint(endedReportID, 10), pastPoints.Points[0].ResourceID)
+
+	byVoucher, err := filter.WithVoucherIDs([]uint64{voucherID}, TagMatchAny)
+	require.NoError(t, err)
+	byVoucher.ReportTiming = ReportTimingAll
+	voucherPosts, err := pg.ListMarketMapPoints(ctx, tx, byVoucher, []string{"post"})
+	require.NoError(t, err)
+	require.Len(t, voucherPosts.Points, 2)
+
+	none, err := NewCatalogFilter(term+"nothing", nil, TagMatchAny)
+	require.NoError(t, err)
+	empty, err := pg.ListMarketMapPoints(ctx, tx, none, allKinds)
+	require.NoError(t, err)
+	require.NotNil(t, empty.Points, "an empty result must serialize as []")
+	require.Empty(t, empty.Points)
+	require.False(t, empty.Truncated)
+}
+
+func pointResourceID(t *testing.T, tx pgx.Tx, table string, id uint64) string {
+	t.Helper()
+	var address string
+	require.NoError(t, tx.QueryRow(context.Background(), `SELECT address FROM `+table+` WHERE id=$1`, id).Scan(&address))
+	return address
+}
+
+func TestMarketMapPointsCeilingSetsTruncatedDB(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	const term = "Zqvxmapceiling"
+
+	_, err := tx.Exec(ctx, `
+		INSERT INTO vouchers(chain_id,address,name,geo_lat,geo_lng)
+		SELECT 100,'0x'||lpad(to_hex(800000000000000000+series),40,'0'),$1||series::text,
+			-4.0+(series::FLOAT8/1000000.0),39.0+(series::FLOAT8/1000000.0)
+		FROM generate_series(1,$2::INT) series`, term, MarketMapPointsCeiling)
+	require.NoError(t, err)
+	filter, err := NewCatalogFilter(term, nil, TagMatchAny)
+	require.NoError(t, err)
+
+	atCeiling, err := pg.ListMarketMapPoints(ctx, tx, filter, []string{"voucher"})
+	require.NoError(t, err)
+	require.Len(t, atCeiling.Points, MarketMapPointsCeiling)
+	require.False(t, atCeiling.Truncated, "exactly the ceiling is complete")
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO vouchers(chain_id,address,name,geo_lat,geo_lng)
+		VALUES(100,'0x'||lpad(to_hex(800000000000000000+$2::BIGINT),40,'0'),$1,-3.5,39.5)`,
+		term+"extra", MarketMapPointsCeiling+1)
+	require.NoError(t, err)
+	over, err := pg.ListMarketMapPoints(ctx, tx, filter, []string{"voucher"})
+	require.NoError(t, err)
+	require.Len(t, over.Points, MarketMapPointsCeiling)
+	require.True(t, over.Truncated, "one point over the ceiling must be reported, not dropped silently")
+}
+
+func TestMarketMapTagFacetsAreScopedToTheViewportDB(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	const term = "Zqvxmapfacets"
+
+	var tag string
+	require.NoError(t, tx.QueryRow(ctx, `SELECT value FROM token_tag ORDER BY value LIMIT 1`).Scan(&tag))
+	for index, coordinate := range []struct{ lat, lng float64 }{
+		{-3.68, 179.98}, {-3.68, -179.98}, {-3.68, 39.83},
+	} {
+		id := seedSearchVoucher(t, tx, fmt.Sprintf("%s%d", term, index), fmt.Sprintf("ZFAC%d", index))
+		_, err := tx.Exec(ctx, `UPDATE vouchers SET geo_lat=$1,geo_lng=$2 WHERE id=$3`, coordinate.lat, coordinate.lng, id)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `INSERT INTO voucher_tags(voucher_id,tag_value) VALUES($1,$2)`, id, tag)
+		require.NoError(t, err)
+	}
+	filter, err := NewCatalogFilter(term, nil, TagMatchAny)
+	require.NoError(t, err)
+
+	world, err := pg.ListMarketMapTagFacets(ctx, tx, filter, []string{"voucher"})
+	require.NoError(t, err)
+	require.Equal(t, []TagFacet{{Tag: tag, Count: 3}}, world)
+
+	filter.Bounds = []CatalogBounds{{MinLng: 39.82, MinLat: -3.69, MaxLng: 39.84, MaxLat: -3.67}}
+	box, err := pg.ListMarketMapTagFacets(ctx, tx, filter, []string{"voucher"})
+	require.NoError(t, err)
+	require.Equal(t, []TagFacet{{Tag: tag, Count: 1}}, box)
+
+	filter.Bounds = []CatalogBounds{
+		{MinLng: -180, MinLat: -3.69, MaxLng: -179.97, MaxLat: -3.67},
+		{MinLng: 179.97, MinLat: -3.69, MaxLng: 180, MaxLat: -3.67},
+	}
+	antimeridian, err := pg.ListMarketMapTagFacets(ctx, tx, filter, []string{"voucher"})
+	require.NoError(t, err)
+	require.Equal(t, []TagFacet{{Tag: tag, Count: 2}}, antimeridian)
+
+	filter.Bounds = []CatalogBounds{{MinLng: 10, MinLat: 10, MaxLng: 10.5, MaxLat: 10.5}}
+	none, err := pg.ListMarketMapTagFacets(ctx, tx, filter, []string{"voucher"})
+	require.NoError(t, err)
+	require.NotNil(t, none)
+	require.Empty(t, none)
 }

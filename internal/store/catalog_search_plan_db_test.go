@@ -802,3 +802,17 @@ func TestMarketMapViewportUsesVoucherSpatialIndex(t *testing.T) {
 		t.Errorf("market map viewport is not driven by the voucher spatial index.\nplan:\n%s", plan)
 	}
 }
+
+// The facets mode of the discovery query counts one viewport, so it must keep
+// the spatial index. The points mode shares the statement and reads every
+// mappable row by design.
+func TestMarketMapDiscoveryUsesVoucherSpatialIndex(t *testing.T) {
+	pg, tx, cleanup := newCatalogSearchTestPg(t)
+	defer cleanup()
+
+	seedFivefoldVouchers(t, tx)
+	plan := explainGenericPlan(t, tx, pg.queries.ListMarketMapDiscovery)
+	if !strings.Contains(plan, "vouchers_geo_gist_idx") {
+		t.Errorf("market map facets are not driven by the voucher spatial index.\nplan:\n%s", plan)
+	}
+}
