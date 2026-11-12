@@ -574,4 +574,7 @@ const (
 	// cancelled, so no OTX will ever be written for it and polling cannot
 	// succeed (HTTP 410). The description carries the job's own error.
 	ErrCodeTrackingFailed = "E22"
+	// ErrCodeAccountRetired: the account is retired and its session is limited
+	// to recovery actions (HTTP 403).
+	ErrCodeAccountRetired = "E23"
 )

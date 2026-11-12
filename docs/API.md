@@ -1860,7 +1860,7 @@ These routes share the behavior in this part:
 
 #### Access
 
-These routes are public. A caller does not need a session. The routes `GET /api/v2/vouchers`, `GET /api/v2/offerings` and `GET /api/v2/marketplace` need a user session when the request has `nearby=true`.
+These routes are public. A caller does not need a session. The routes `GET /api/v2/vouchers`, `GET /api/v2/offerings` and `GET /api/v2/marketplace` need a user session when the request has `nearby=true`. A `sort=nearest` request may use an authenticated profile location, so its response is private and not cached.
 
 #### Rate limit
 
@@ -1888,8 +1888,8 @@ A successful `200` response from these routes has one of two cache policies.
 
 | Condition | `Cache-Control` | `Vary` |
 |---|---|---|
-| `nearby` is not `true` | `public, max-age=60, stale-while-revalidate=300` | `Origin` is added to any existing value |
-| `nearby=true` | `private, no-store` | not changed |
+| neither `nearby=true` nor `sort=nearest` | `public, max-age=60, stale-while-revalidate=300` | `Origin` is added to any existing value |
+| `nearby=true` or `sort=nearest` | `private, no-store` | not changed |
 
 The routes that use the public policy are `GET /api/v2/vouchers`, `GET /api/v2/vouchers/:address`, `GET /api/v2/vouchers/:address/offerings`, `GET /api/v2/vouchers/:address/offerings/:id` and `GET /api/v2/offerings`. A guest and a signed-in user get the same representation, so a shared cache can store it.
 
@@ -1915,13 +1915,22 @@ These query parameters are common to the list routes. A route can accept a subse
 | `pools` | string | none | Pool references in the form `chainId:address`. Repeat the parameter or use commas. At most 100 distinct references. The chain ID must be a positive integer. A voucher matches when at least one selected pool allows it. |
 | `bbox` | string | none | A public viewport in the form `minLng,minLat,maxLng,maxLat`. Repeat once with two non-overlapping boxes for a viewport split at the antimeridian. Each box uses finite coordinates in longitude `[-180,180]` and latitude `[-90,90]`, with each minimum not above its maximum. At most two values are accepted. |
 | `nearby` | string | none | `true` or `false`. Other values return `400` `E04`. |
+| `sort` | string | none | `nearest` or absent. An unsupported value returns `400` `E04`. The origin is the valid authenticated profile location, else the center of `bbox`, including an antimeridian split. Without either origin, the route keeps its existing order. |
 
 Validation rules for these parameters:
 
 - A value outside the rules returns `400` with code `E04`. The description names the parameter.
 - A `tags` value outside the tag vocabulary returns `400` `E04`. To read the valid values, retry without `tags` and with `facets=true`.
 - A `pools` reference that does not exist returns `400` `E04`. The server never drops it.
-- `bbox` and `nearby=true` cannot be combined. A bounded request excludes rows without an effective location; an unbounded request preserves the Global catalog behavior.
+- `bbox` and `nearby=true` cannot be combined. `sort=nearest` and `nearby=true` cannot be combined. A bounded request excludes rows without an effective location; an unbounded request preserves the Global catalog behavior.
+
+#### Nearest ordering without a radius
+
+`sort=nearest` changes ordering and does not add a distance or radius filter. When a valid signed-in profile location exists, it is the origin. Otherwise the server uses the center of `bbox`; a two-box antimeridian viewport is centered across ±180 rather than through Greenwich. With no valid profile location and no bounds, the route retains its existing relevance/newest order.
+
+- Search rank remains ahead of distance. Distance orders equally relevant matches.
+- A cursor is isolated to the resolved origin, bounds, kinds, filters and caller. Changing one requires a fresh first page.
+- `distanceMeters` may be returned for ordering. A client should display it as the person's distance only when it independently has a real GPS or profile origin.
 
 #### Nearby search
 
@@ -2230,14 +2239,14 @@ Status `200`, description `Offering`. The `result` is `{"offering": {...}}` (see
 
 **Access:** Public. A user session is needed when `nearby=true`. See section 7.1 for the rate limit and the cache headers.
 
-Returns available offerings of active vouchers. An offering must have a location. The location is the offering location, or the voucher location when the offering has none. The order is newest first, or nearest first with `nearby=true`.
+Returns available offerings of active vouchers. An offering must have a location. The location is the offering location, or the voucher location when the offering has none. The order is newest first, or nearest first with `nearby=true` or `sort=nearest`.
 
 | Parameter | Type | Default | Rules |
 |---|---|---|---|
 | `perPage` | integer | `20` | From 1 to 100. |
 | `cursor` | string | none | The `nextCursor` of the previous response. |
 | `q` | string | none | Matches the offering name, the offering description, the voucher name, the voucher symbol and the offering tags. |
-| `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby` | | | See section 7.1. The tags are the offering tags. Bounds use the offering location, falling back to its voucher location. |
+| `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby`, `sort` | | | See section 7.1. The tags are the offering tags. Bounds use the offering location, falling back to its voucher location. |
 
 Status `200`, description `Offerings`. The `result` has these fields:
 
@@ -2259,20 +2268,23 @@ Status `200`, description `Offerings`. The `result` has these fields:
 
 **Access:** Public. A user session is needed when `nearby=true`. See section 7.1 for the rate limit.
 
-Returns one mixed list of offerings, Wants, vouchers, pools and curated catalogs. The server does the ranking and the paging in one query. Every response has `Cache-Control: no-store`.
+Returns one mixed list of offerings, Wants, vouchers, pools and curated catalogs. Posts are also available when `kinds` explicitly contains `post`; omitting `kinds` preserves the commerce-only list. The server does ranking, totals and paging in one query. Every response has `Cache-Control: no-store`.
 
 | Parameter | Type | Default | Rules |
 |---|---|---|---|
 | `perPage` | integer | `20` | From 1 to 100. |
 | `cursor` | string | none | The `nextCursor` of the previous response. |
-| `kinds` | string | all kinds | Values `catalog`, `offering`, `pool`, `voucher` and `want`. Repeat the parameter or use commas. The server ignores case and empty items. Another value returns `400` `E04`. |
+| `kinds` | string | commerce kinds | Values `catalog`, `offering`, `pool`, `post`, `voucher` and `want`. Repeat the parameter or use commas. `post` is included only when explicitly selected. The server ignores case and empty items. Another value returns `400` `E04`. |
 | `q` | string | none | Matches the name, symbol, description, tags and related names of a row. |
-| `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby` | | | See section 7.1. The tags are the tags of each row. |
+| `tags`, `tagMatch`, `facets`, `pools`, `bbox`, `nearby`, `sort` | | | See section 7.1. The tags are the tags of each row. |
+| `postTiming` | string | legacy one-month window | `future`, `past`, or `all`. Applies only to explicitly selected Posts. Cannot be combined with legacy `posted`. |
+| `postVouchers`, `postVoucherMatch` | string | none, `any` | Voucher references in `chainId:address` form and `any` or `all` matching. Applies only to Posts. |
+| `postPools`, `postPoolMatch` | string | none, `any` | Pool references in `chainId:address` form and `any` or `all` matching. A Pool matches a directly linked Pool or an active linked Voucher currently allowed by the Pool. Applies only to Posts. |
 
 The server includes only rows that have coordinates. Offerings and vouchers must be available and active. The order is:
 
 1. Match rank, from the best match to the worst. The rank is used only with `q`. An exact name or symbol match is best, then a name prefix, then a tag match, then a name substring, then any other match.
-2. Distance, nearest first, with `nearby=true`.
+2. Distance, nearest first, with `nearby=true` or a resolved `sort=nearest` origin.
 3. `updatedAt`, newest first.
 4. `kind`, ascending.
 5. `id`, descending.
@@ -2283,13 +2295,14 @@ Status `200`. The response has no description. The `result` has these fields:
 |---|---|---|
 | `results` | array | Rows. Empty array when none. |
 | `nextCursor` | string or null | |
+| `total` | integer | Number of rows in the complete filtered set before pagination. |
 | `tagFacets` | array | Only with `facets=true` and no `cursor`. Rows of `{"tag": string, "count": integer}`. The counts cover the rows that match the current filter, including the selected tags. |
 
 Row fields:
 
 | Field | Type | Notes |
 |---|---|---|
-| `kind` | string | `offering`, `voucher`, `pool` or `catalog`. |
+| `kind` | string | `offering`, `want`, `voucher`, `pool`, `catalog` or explicitly selected `post`. |
 | `id` | integer | ID in the table of the kind. |
 | `chainId` | integer or null | `null` for a catalog. |
 | `address` | string or null | The voucher address for an offering. `null` for a catalog. |
@@ -2306,6 +2319,7 @@ Row fields:
 | `priceInUnitOfAccount`, `unit` | string or null | For an offering row only. |
 | `poolCount` | integer or null | For a catalog row only. |
 | `voucherCount` | integer or null | For a pool row and a catalog row. |
+| `relatedKind`, `relatedName`, `relatedSymbol` | string or null | For a Post row, one related voucher or pool summary when available. |
 | `createdAt`, `updatedAt` | string | RFC 3339 time. |
 
 ```json
@@ -2371,10 +2385,13 @@ Returns one bounded set of lightweight Marketplace markers and server clusters f
 | `q` | string | none | Uses the search behavior of the selected resource kinds. |
 | `tags`, `tagMatch`, `facets` | | | See section 7.1. |
 | `creditablePools` | string | none | Verified pool references in `chainId:address` form. Repeat the parameter or use commas. |
+| `postTiming` | string | legacy one-month window | `future`, `past`, or `all`. Applies only to Posts. Cannot be combined with legacy `posted`. |
+| `postVouchers`, `postVoucherMatch` | string | none, `any` | Voucher references in `chainId:address` form and `any` or `all` matching. Applies only to Posts. |
+| `postPools`, `postPoolMatch` | string | none, `any` | Pool references in `chainId:address` form and `any` or `all` matching. A Pool matches a directly linked Pool or an active linked Voucher currently allowed by the Pool. Applies only to Posts. |
 
 Below zoom 20, resources in the same 30-pixel Web Mercator grid cell become one cluster. Quarter-zoom buckets keep that footprint close to the rendered scale. At zoom 20 the response returns individual markers so coincident resources can be fanned out by the client. A response contains at most 2,000 features.
 
-Marker fields are `type`, `id`, `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon`, and `markerColor`. Cluster fields are `type`, `id`, `lat`, `lng`, `count`, `kinds`, and `expansionZoom`. `kinds` contains the count for each represented resource kind. `tagFacets` is returned when `facets=true`.
+Marker fields are `type`, `id`, `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon`, and `markerColor`. Cluster fields are `type`, `id`, `lat`, `lng`, `count`, `kinds`, and `expansionZoom`. `kinds` contains the count for each represented resource kind. `tagFacets`, `postVoucherFacets`, and `postPoolFacets` are returned when `facets=true`; the Post Pool facets include direct and active allowed-Voucher relationships without duplicate Post counts.
 
 Successful responses use `Cache-Control: public, max-age=15, stale-while-revalidate=60`. Identical cache misses coalesce into one database read. The in-process response cache has a 15-second TTL, a 64 MiB limit, and least-recently-used eviction.
 
@@ -3331,6 +3348,7 @@ A post list item has the fields below. The detail response has more fields.
 | `imageUrl` | string or null | Yes | Yes | Cover image. The value is null when the stored value is not an `http` or `https` URL. |
 | `geoLat` | number or null | Yes | Yes | Latitude. |
 | `geoLng` | number or null | Yes | Yes | Longitude. |
+| `distanceMeters` | number or null | Yes | No | Present on a nearest-sorted list row when an ordering origin is resolved. |
 | `periodFrom` | string or null | Yes | Yes | RFC 3339 time. |
 | `periodTo` | string or null | Yes | Yes | RFC 3339 time. |
 | `markerIcon` | string | Yes | Yes | `post`, `event`, or `announcement`. Legacy writes default to `post`. |
@@ -3356,7 +3374,7 @@ The service stores only `http` and `https` URLs for images and attachments.
 **Access:** Public. With `nearby=true`, a user session is required.
 
 Returns a page of `APPROVED` posts.
-The order is `updatedAt` descending, then `id` descending.
+The order is `updatedAt` descending, then `id` descending. With `sort=nearest` and a resolved origin, distance is first and the existing pair breaks ties.
 The route uses the market limit (section 7.1).
 A request with `nearby=true` and no valid session returns `401 E06`.
 A service token returns `403 E10`.
@@ -3369,16 +3387,21 @@ The response has no `Cache-Control` header, except for `nearby=true`, which sets
 | `perPage` | integer | `20` | `0` or no value means 20. A value above 100 becomes 100. A value that is not a non-negative integer returns `400 E04`. |
 | `cursorUpdatedAt` | string | none | RFC 3339 time (nanoseconds allowed). Send with `cursorId`. |
 | `cursorId` | integer | none | Positive integer. Send with `cursorUpdatedAt`. |
+| `cursorDistance` | number | none | Required with the other cursor fields for a nearest-sorted page. Use `next.distance`. |
+| `cursorOrigin` | string | none | Required with the other cursor fields for a nearest-sorted page. Use `next.origin`; changing the origin returns `400 E04`. |
 | `q` | string | none | Search in `title` and `description`. The length must be 2 to 64 characters after trimming. A term of 2 characters matches the start of the text. A longer term matches any part of the text. |
 | `tags` | string | none | Repeat the parameter or use a comma-separated list. At most 12 distinct values. Each value must exist in the tag vocabulary. |
 | `tagMatch` | `any` or `all` | `any` | A post must have any of the tags, or all of the tags. |
 | `vouchers` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every voucher must exist. |
 | `voucherMatch` | `any` or `all` | `any` | A post must link any of the vouchers, or all of the vouchers. |
-| `pools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every pool must exist. |
-| `poolMatch` | `any` or `all` | `any` | A post must link any of the pools, or all of the pools. |
+| `pools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. At most 12 distinct values. Every pool must exist. A Pool matches when the Post directly links it or links an active Voucher currently allowed by it. |
+| `poolMatch` | `any` or `all` | `any` | A Post must match any selected Pool or every selected Pool through either qualifying relationship. |
 | `creditablePools` | string | none | Repeat the parameter or use a comma-separated list of `chainId:address` values. A post matches when it directly links one selected pool or links an active voucher currently allowed by one. At most 100 distinct values. Every pool must exist. |
+| `timing` | `future`, `past`, or `all` | legacy one-month window when omitted | `future` includes Posts with no end time or an end time at or after the database transaction time. `past` includes Posts whose end time is before that time. `all` does not restrict the schedule. Cannot be combined with `posted`. |
+| `posted` | `1m`, `3m`, `6m`, `1y`, or `all` | `1m` | Legacy creation-age filter for older clients. Cannot be combined with `timing`. |
 | `bbox` | string | none | See section 7.1. Only posts with coordinates inside either supplied box are returned. |
 | `nearby` | `true` or `false` | `false` | Show only posts with coordinates within 1000 km of the saved profile location of the caller. The order does not change. A caller without a saved location gets `400 E04`. |
+| `sort` | `nearest` | none | Use the valid profile location, else the center of `bbox`, for ordering without adding a radius filter. Cannot be combined with `nearby=true`. |
 | `facets` | `true` or `false` | `false` | With `true` and no cursor, add `tagFacets`, `voucherFacets`, and `poolFacets`. |
 
 A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04`. A bad time or ID returns `400 E04`. A tag that is not in the vocabulary returns `400 E04`. A voucher or pool that is not valid, or does not exist, returns `400 E04`. The obsolete public `author` parameter is rejected with `400 E04` so a caller cannot enumerate a wallet's public posts.
@@ -3388,10 +3411,10 @@ A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04
 | Field | Type | Description |
 |---|---|---|
 | `reports` | array of post | The page. The array is empty when there are no matches. |
-| `next` | object or null | `{"updatedAt": "<RFC 3339 time>", "id": 4633}`. Send the two values as `cursorUpdatedAt` and `cursorId` to get the next page. The value is `null` when the page has fewer than `perPage` posts. A full last page can still give a `next` value, and the next page is then empty. |
+| `next` | object or null | `{"updatedAt": "<RFC 3339 time>", "id": 4633}`. A nearest-sorted page also includes `distance` and an opaque `origin`; send all four cursor values back. The value is `null` when the page has fewer than `perPage` posts. A full last page can still give a `next` value, and the next page is then empty. |
 | `tagFacets` | array | Only with `facets=true` and no cursor. Items are `{"tag", "count"}`. It lists only tags that appear on a matching post. The count ignores `tags`. |
 | `voucherFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `vouchers`. |
-| `poolFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `pools`. |
+| `poolFacets` | array | Only with `facets=true` and no cursor. Items are `{"id", "chainId", "address", "name", "symbol", "count"}`. The count ignores `pools` and includes direct and active allowed-Voucher relationships without counting a Post twice. |
 
 ```json
 {
@@ -5185,15 +5208,17 @@ The response has the shape of section 4.11 and sets no cookie. The rotation is r
 
 **Access:** Administrative.
 
-Set the status of an account. `approve` sets `APPROVED`. `reject` sets `REJECTED`. The route does not check the old status or the role of the account.
+Set the status of an account. `approve` sets `APPROVED`. `reject` sets `REJECTED` and is the Ban action; moving a `REJECTED` account back to `APPROVED` is the Unban action. A ban ends every open session of the account at once.
+
+The role hierarchy applies. An `ADMIN` acts on `USER` accounts. A `SUPERADMIN` acts on `USER` and `ADMIN` accounts. No caller acts on a `SUPERADMIN` or on their own account; those requests return `403`.
+
+The request body is optional: `{"reason": "text"}`, at most 2000 characters. Setting the status an account already has changes nothing and records nothing. Each real Ban or Unban appends one event, which `GET /api/v2/admin/users/:address/moderation-history` returns as `result.events` (newest first, each with `action`, `previousStatus`, `newStatus`, `reason`, `actorAddress`, `createdAt`).
 
 **Path parameters**
 
 | Parameter | Type | Description |
 |---|---|---|
 | `address` | string | Account address. |
-
-The request has no body.
 
 **Response 200**
 
@@ -5217,6 +5242,33 @@ The example shows only some fields of `user`.
 |---|---|---|
 | `400` | `E04` | `address` is not a valid address. |
 | `404` | `E07` | No user has this address. |
+
+
+### 15.3a Account retirement
+
+An account can be retired. Retirement is reversible, takes effect at once, and is independent of Ban and Unban: a retiring account keeps whatever moderation status it had, a restore never lifts a ban, and an unban never cancels a retirement.
+
+A retiring account has `accountLifecycle` `RETIREMENT_SCHEDULED` and a `closesAt` six calendar months after the request. Until then:
+
+- Its public posts, reviews, replies, wants, catalogs and recipient-search entries are hidden. The records are not changed, so a restore brings back exactly what was eligible.
+- Its vouchers and pools stay active. Their public responses carry `managerClosure`: `null`, or `{"state": "SCHEDULED", "closesAt": "..."}`, or `{"state": "CLOSED", "closesAt": null}`. The field names no account and carries no reason.
+- Its session is limited to recovery. Every write outside the recovery allowlist returns `403` with code `E23`. Messaging reads are also refused. The stored role is ignored, so a retiring `ADMIN` has no administrative access.
+- Wallet operations are signed transactions sent to the relayer, which this API does not gate. A retired account can still sign them.
+
+`GET /auth/session` returns `accountLifecycle`, `closesAt` and `capabilities` (`canUseApp`, `canRecoverAssets`, `canTransferResources`, `canRestoreAccount`). Clients render the capabilities rather than inferring permission from one field.
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/api/v2/users/me/retirement/preview` | User session | What a retirement would hide and leave in place. |
+| POST | `/api/v2/users/me/retirement` | User session | Retire the caller. Body `{"acknowledged": true, "reason": "optional"}`; `acknowledged` is required. Repeating the call returns the current state. A `SUPERADMIN` is refused. |
+| POST | `/api/v2/users/me/retirement/restore` | User session | Restore before `closesAt`. `409` after it. |
+| GET | `/api/v2/admin/users/:address/retirement` | Administrative | State, lifecycle events and preview for an account. |
+| POST | `/api/v2/admin/users/:address/retirement` | Administrative | Retire an account. Body `{"reason": "optional"}`. |
+| POST | `/api/v2/admin/users/:address/retirement/restore` | Administrative | Restore an account. |
+
+The admin routes follow the role hierarchy of section 15.3. `GET /api/v2/admin/users` accepts `lifecycle=retired` and returns `lifecycle` and `closesAt` on each user.
+
+**Direct retirement of vouchers and pools.** `PUT /api/v2/admin/vouchers/:address/retire` and `PUT /api/v2/admin/pools/:address/retire` retire a resource through the same request and event tables as an owner's request. Body: `{"reason": "optional", "acknowledgeBalances": true}`; `acknowledgeBalances` is required when the resource has positive balances (`409` otherwise). A pending owner request is approved instead of duplicated. Otherwise one approved request with `source: "ADMIN"` records the transition. An already retired resource answers with `changed: false` and writes nothing.
 
 ### 15.4 `PUT /api/v2/admin/users/:address/limits`
 

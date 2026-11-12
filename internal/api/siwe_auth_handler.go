@@ -477,14 +477,33 @@ func (a *API) sessionHandler(c *echo.Context) error {
 		a.clearUserAuthCookie(c)
 		return c.NoContent(http.StatusNoContent)
 	}
-	if user.Role != token.Role {
-		refreshed, signErr := a.generateUserToken(user)
+	retirement, retired, err := store.GetOpenAccountRetirement(ctx, tx, user.ID, false)
+	if err != nil {
+		return err
+	}
+	lifecycle := store.LifecycleActive
+	var closesAt *time.Time
+	if retired {
+		lifecycle = retirement.State
+		closesAt = &retirement.ClosesAt
+	}
+	// A retiring account has no administrative role for the session, whatever
+	// the table says: the same rule authenticateCaller applies per request.
+	role := user.Role
+	if retired {
+		role = string(store.UserRoleUser)
+	}
+	if role != token.Role {
+		refreshed := user
+		refreshed.Role = role
+		token, signErr := a.generateUserToken(refreshed)
 		if signErr != nil {
 			return signErr
 		}
-		a.setUserAuthCookie(c, refreshed)
+		a.setUserAuthCookie(c, token)
 	}
 
+	c.Response().Header().Set("Cache-Control", "private, no-store")
 	return c.JSON(http.StatusOK, map[string]any{
 		// Always emit the EIP-55 checksummed form, even for legacy lowercase
 		// tokens, so clients receive a consistent canonical address.
@@ -493,7 +512,10 @@ func (a *API) sessionHandler(c *echo.Context) error {
 		// The role the signin response already returns. Without it a client that
 		// gates on privilege has to re-derive it after every reload by probing an
 		// admin endpoint and reading the 403.
-		"role": user.Role,
+		"role":             role,
+		"accountLifecycle": lifecycle,
+		"closesAt":         closesAt,
+		"capabilities":     lifecycleSessionCapabilities(lifecycle, closesAt),
 	})
 }
 

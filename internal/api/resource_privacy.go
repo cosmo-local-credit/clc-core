@@ -11,6 +11,8 @@ type (
 	publicResourceProjection[T any] struct {
 		value  T
 		remove []string
+		// extra holds fields the store type does not carry, added at the boundary.
+		extra map[string]any
 	}
 )
 
@@ -27,19 +29,18 @@ func (p publicResourceProjection[T]) MarshalJSON() ([]byte, error) {
 	for _, field := range p.remove {
 		delete(fields, field)
 	}
+	for key, value := range p.extra {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		fields[key] = encoded
+	}
 	return json.Marshal(fields)
 }
 
 func publicResource[T any](value T, remove ...string) publicResourceProjection[T] {
 	return publicResourceProjection[T]{value: value, remove: remove}
-}
-
-func publicResources[T any](values []T, remove ...string) []publicResourceProjection[T] {
-	projected := make([]publicResourceProjection[T], 0, len(values))
-	for _, value := range values {
-		projected = append(projected, publicResource(value, remove...))
-	}
-	return projected
 }
 
 var (

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -122,6 +123,61 @@ func TestMarketMapMixedMarkersClustersFacetsAndCreditDB(t *testing.T) {
 		listKinds[row.Kind] = true
 	}
 	require.Equal(t, map[string]bool{"voucher": true, "want": true, "pool": true, "catalog": true}, listKinds)
+
+	// Posts stay out of the legacy omitted-kinds list, but an explicit desktop
+	// viewport selection returns them and a total for every underlying resource.
+	explicit, err := pg.ListMarketplace(ctx, tx, filter,
+		[]string{"catalog", "pool", "post", "voucher", "want"}, nil,
+		MarketplaceCursor{}, 10, false)
+	require.NoError(t, err)
+	require.Len(t, explicit, 5)
+	require.Equal(t, uint64(5), explicit[0].TotalCount)
+	explicitKinds := map[string]bool{}
+	for _, row := range explicit {
+		explicitKinds[row.Kind] = true
+		require.Equal(t, uint64(5), row.TotalCount)
+	}
+	for _, kind := range []string{"catalog", "pool", "post", "voucher", "want"} {
+		require.True(t, explicitKinds[kind], "explicit marketplace missing %s", kind)
+	}
+
+	// Schedule timing must select the same Post set in the clustered map query
+	// and the exact paginated viewport list without narrowing commerce kinds.
+	var endedReportID uint64
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO reports(title,description,author_address,status,geo_lat,geo_lng,period_from,period_to)
+		VALUES($1,'Map fixture',$2,'APPROVED',-3.68,39.83,CURRENT_TIMESTAMP - interval '2 hours',CURRENT_TIMESTAMP - interval '1 hour')
+		RETURNING id`, term+" ended post", ownerAddress).Scan(&endedReportID))
+	_, err = tx.Exec(ctx, `INSERT INTO report_vouchers(report_id,voucher_id) VALUES($1,$2)`, endedReportID, voucherID)
+	require.NoError(t, err)
+
+	filter.ReportTiming = ReportTimingFuture
+	futureMap, err := pg.ListMarketMap(ctx, tx, filter,
+		[]string{"catalog", "pool", "post", "voucher", "want"}, 20, false)
+	require.NoError(t, err)
+	require.Len(t, futureMap.Features, 5)
+	futureList, err := pg.ListMarketplace(ctx, tx, filter,
+		[]string{"catalog", "pool", "post", "voucher", "want"}, nil,
+		MarketplaceCursor{}, 10, false)
+	require.NoError(t, err)
+	require.Len(t, futureList, 5)
+	mapPostIDs := []string{}
+	for _, feature := range futureMap.Features {
+		if feature.Kind != nil && *feature.Kind == "post" && feature.ResourceID != nil {
+			mapPostIDs = append(mapPostIDs, *feature.ResourceID)
+		}
+	}
+	listPostIDs := []string{}
+	for _, row := range futureList {
+		if row.Kind == "post" {
+			listPostIDs = append(listPostIDs, strconv.FormatUint(row.ID, 10))
+		}
+	}
+	require.Equal(t, []string{strconv.FormatUint(reportID, 10)}, mapPostIDs)
+	require.Equal(t, mapPostIDs, listPostIDs)
+	for _, row := range futureList {
+		require.NotEqual(t, endedReportID, row.ID)
+	}
 
 	// Every kind must also respect a nearby, non-overlapping decimal box.
 	filter.Bounds = []CatalogBounds{{MinLng: 39.84, MinLat: -3.8, MaxLng: 39.85, MaxLat: -3.2}}

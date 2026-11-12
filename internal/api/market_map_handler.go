@@ -35,15 +35,20 @@ type (
 	}
 
 	marketMapCacheIdentity struct {
-		Term           string                `json:"term"`
-		Tags           []string              `json:"tags"`
-		TagMatch       store.TagMatch        `json:"tagMatch"`
-		Bounds         []store.CatalogBounds `json:"bounds"`
-		CreditablePool []store.PoolRef       `json:"creditablePools"`
-		Kinds          []string              `json:"kinds"`
-		Zoom           float64               `json:"zoom"`
-		Facets         bool                  `json:"facets"`
-		Posted         string                `json:"posted"`
+		Term             string                `json:"term"`
+		Tags             []string              `json:"tags"`
+		TagMatch         store.TagMatch        `json:"tagMatch"`
+		Bounds           []store.CatalogBounds `json:"bounds"`
+		CreditablePool   []store.PoolRef       `json:"creditablePools"`
+		Kinds            []string              `json:"kinds"`
+		Zoom             float64               `json:"zoom"`
+		Facets           bool                  `json:"facets"`
+		Posted           string                `json:"posted"`
+		PostTiming       store.ReportTiming    `json:"postTiming"`
+		PostVouchers     []store.VoucherRef    `json:"postVouchers"`
+		PostVoucherMatch store.TagMatch        `json:"postVoucherMatch"`
+		PostPools        []store.PoolRef       `json:"postPools"`
+		PostPoolMatch    store.TagMatch        `json:"postPoolMatch"`
 	}
 )
 
@@ -99,7 +104,7 @@ func parseMarketMapSearch(c *echo.Context) (catalogSearchRequest, error) {
 		}
 		return strings.Compare(strings.ToLower(left.Address), strings.ToLower(right.Address))
 	})
-	if err := applyPostedWindow(&search, c.Request().URL.Query().Get("posted"), time.Now().UTC()); err != nil {
+	if err := parsePostDiscoverySearch(c, &search, true); err != nil {
 		return catalogSearchRequest{}, err
 	}
 	return search, nil
@@ -124,6 +129,9 @@ func marketMapKey(search catalogSearchRequest, kinds []string, zoom float64) str
 		Term: search.filter.Term, Tags: search.filter.Tags, TagMatch: search.filter.TagMatch,
 		Bounds: search.filter.Bounds, CreditablePool: search.creditablePoolRefs,
 		Kinds: canonicalKinds, Zoom: zoom, Facets: search.facets, Posted: search.posted,
+		PostTiming: search.postTiming, PostVouchers: search.postVoucherRefs,
+		PostVoucherMatch: search.postVoucherMatch, PostPools: search.postPoolRefs,
+		PostPoolMatch: search.postPoolMatch,
 	}
 	encoded, _ := json.Marshal(identity)
 	sum := sha256.Sum256(encoded)
@@ -174,7 +182,33 @@ func (a *API) marketMapHandler(c *echo.Context) error {
 			if len(ids) != len(search.creditablePoolRefs) {
 				return store.MarketMapResult{}, errUnknownPoolRef
 			}
-			filter, resolveErr = filter.WithPoolIDsMatch(ids, store.TagMatchAny)
+			filter, resolveErr = filter.WithDiscoveryPoolIDs(ids)
+			if resolveErr != nil {
+				return store.MarketMapResult{}, resolveErr
+			}
+		}
+		if len(search.postVoucherRefs) > 0 {
+			ids, resolveErr := a.store.ResolveVoucherRefs(ctx, tx, search.postVoucherRefs)
+			if resolveErr != nil {
+				return store.MarketMapResult{}, resolveErr
+			}
+			if len(ids) != len(search.postVoucherRefs) {
+				return store.MarketMapResult{}, errUnknownVoucherRef
+			}
+			filter, resolveErr = filter.WithVoucherIDs(ids, search.postVoucherMatch)
+			if resolveErr != nil {
+				return store.MarketMapResult{}, resolveErr
+			}
+		}
+		if len(search.postPoolRefs) > 0 {
+			ids, resolveErr := a.store.ResolvePoolRefs(ctx, tx, search.postPoolRefs)
+			if resolveErr != nil {
+				return store.MarketMapResult{}, resolveErr
+			}
+			if len(ids) != len(search.postPoolRefs) {
+				return store.MarketMapResult{}, errUnknownPoolRef
+			}
+			filter, resolveErr = filter.WithPoolIDsMatch(ids, search.postPoolMatch)
 			if resolveErr != nil {
 				return store.MarketMapResult{}, resolveErr
 			}
@@ -182,6 +216,19 @@ func (a *API) marketMapHandler(c *echo.Context) error {
 		result, readErr := a.store.ListMarketMap(ctx, tx, filter, kinds, zoom, search.facets)
 		if readErr != nil {
 			return store.MarketMapResult{}, readErr
+		}
+		if search.facets && slices.Contains(kinds, "post") {
+			postFilter := filter
+			postFilter.CreditablePoolIDs = postFilter.DiscoveryPoolIDs
+			postFilter.DiscoveryPoolIDs = nil
+			result.PostVoucherFacets, readErr = a.store.ListReportVoucherFacets(ctx, tx, postFilter)
+			if readErr != nil {
+				return store.MarketMapResult{}, readErr
+			}
+			result.PostPoolFacets, readErr = a.store.ListReportPoolFacets(ctx, tx, postFilter)
+			if readErr != nil {
+				return store.MarketMapResult{}, readErr
+			}
 		}
 		if commitErr := tx.Commit(ctx); commitErr != nil {
 			return store.MarketMapResult{}, commitErr
@@ -210,7 +257,7 @@ func (a *API) marketMapHandler(c *echo.Context) error {
 					Description: "market map capacity is temporarily full",
 				})
 			}
-			if errors.Is(loaded.Err, errUnknownTagValue) || errors.Is(loaded.Err, errUnknownPoolRef) {
+			if errors.Is(loaded.Err, errUnknownTagValue) || errors.Is(loaded.Err, errUnknownPoolRef) || errors.Is(loaded.Err, errUnknownVoucherRef) {
 				return respondCatalogSearchError(c, loaded.Err)
 			}
 			return handlePostgresError(c, loaded.Err)
@@ -262,6 +309,10 @@ func respondMarketMap(c *echo.Context, result store.MarketMapResult) error {
 	header.Add("Vary", "Origin")
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
 		Ok: true, Description: "Market map",
-		Result: map[string]any{"features": result.Features, "tagFacets": result.TagFacets},
+		Result: map[string]any{
+			"features": result.Features, "tagFacets": result.TagFacets,
+			"postVoucherFacets": result.PostVoucherFacets,
+			"postPoolFacets":    result.PostPoolFacets,
+		},
 	})
 }

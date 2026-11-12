@@ -88,8 +88,12 @@ func (a *API) poolsListHandler(c *echo.Context) error {
 		last = pools[len(pools)-1].ID
 	}
 
+	projectedPools, err := projectWithClosures(ctx, tx, pools, func(p store.Pool) *string { return p.OwnerAddress }, publicContactFields...)
+	if err != nil {
+		return err
+	}
 	result := map[string]any{
-		"pools": publicResources(pools, publicContactFields...),
+		"pools": projectedPools,
 		"first": first,
 		"last":  last,
 	}
@@ -138,6 +142,11 @@ func (a *API) poolsByAddressHandler(c *echo.Context) error {
 		return poolProfileNotFoundError(c)
 	}
 
+	projected, err := projectWithClosure(ctx, tx, pool, pool.OwnerAddress, publicContactFields...)
+	if err != nil {
+		return err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
@@ -147,7 +156,7 @@ func (a *API) poolsByAddressHandler(c *echo.Context) error {
 		Ok:          true,
 		Description: fmt.Sprintf("Pool at address %s", address),
 		Result: map[string]any{
-			"pool": publicResource(pool, publicContactFields...),
+			"pool": projected,
 		},
 	})
 }

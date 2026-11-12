@@ -129,6 +129,57 @@ func TestReportFeedKeysetCoversEveryRowExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestReportFeedNearestViewportOrderingAndCursor(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	base := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+
+	ids := []uint64{
+		seedReport(t, tx, "APPROVED", base, ""),
+		seedReport(t, tx, "APPROVED", base.Add(time.Minute), ""),
+		seedReport(t, tx, "APPROVED", base.Add(2*time.Minute), ""),
+	}
+	for index, id := range ids {
+		_, err := tx.Exec(ctx, `UPDATE reports SET title='Zqvxnearestreports', geo_lat=0, geo_lng=$1 WHERE id=$2`,
+			[]float64{0.01, 1, 2}[index], id)
+		if err != nil {
+			t.Fatalf("set report coordinates: %v", err)
+		}
+	}
+
+	filter, err := NewCatalogFilter("Zqvxnearestreports", nil, TagMatchAny)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter.Bounds = []CatalogBounds{{MinLng: -1, MinLat: -1, MaxLng: 3, MaxLat: 1}}
+	filter.SortOrigin = &CatalogLocation{Lat: 0, Lng: 0}
+	first, err := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{}, false, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 2 || first[0].ID != ids[0] || first[1].ID != ids[1] {
+		t.Fatalf("first nearest page = %#v, want ids %v", first, ids[:2])
+	}
+	if first[0].DistanceMeters == nil || first[1].DistanceMeters == nil ||
+		*first[0].DistanceMeters >= *first[1].DistanceMeters {
+		t.Fatalf("nearest distances = %v, %v", first[0].DistanceMeters, first[1].DistanceMeters)
+	}
+
+	last := first[len(first)-1]
+	second, err := pg.ListReportsFiltered(ctx, tx, filter, ReportCursor{
+		Distance:  *last.DistanceMeters,
+		UpdatedAt: last.UpdatedAt,
+		ID:        last.ID,
+	}, true, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 1 || second[0].ID != ids[2] {
+		t.Fatalf("second nearest page = %#v, want id %d", second, ids[2])
+	}
+}
+
 // The detail route reads media from its own relations rather than re-parsing a
 // document, so what it returns is whatever write time put there, in ordinal
 // order — including the caption and intrinsic size the old query dropped.

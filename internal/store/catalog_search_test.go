@@ -779,8 +779,11 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 			query := composeReportPage(filter, ReportCursor{}, false, 20)
 			assertPlaceholdersMatchArgs(t, "report pools", query)
 			if !strings.Contains(query.sql, "FROM report_pools rp") ||
-				!strings.Contains(query.sql, "rp.pool_id = ANY(") {
-				t.Errorf("report page must filter through report_pools:\n%s", query.sql)
+				!strings.Contains(query.sql, "FROM report_vouchers rv") ||
+				!strings.Contains(query.sql, "JOIN pool_tokens pt") ||
+				!strings.Contains(query.sql, "pt.is_allowed") ||
+				!strings.Contains(query.sql, "matched.pool_id = ANY(") {
+				t.Errorf("report page must filter through direct and voucher-derived pools:\n%s", query.sql)
 			}
 			if gotAll := strings.Contains(query.sql, ") = cardinality("); gotAll != tc.wantAll {
 				t.Errorf("all-match fragment = %v, want %v:\n%s", gotAll, tc.wantAll, query.sql)
@@ -837,6 +840,31 @@ func TestVoucherRelationshipPredicatesAndFacets(t *testing.T) {
 	if !strings.Contains(poolCounts.sql, "voucher_id = ANY(") ||
 		!strings.Contains(poolCounts.sql, "tag_value = ANY(") {
 		t.Errorf("report pool facets must retain tag and voucher filters:\n%s", poolCounts.sql)
+	}
+}
+
+func TestReportTimingPredicatesApplyToPagesAndFacets(t *testing.T) {
+	for timing, fragment := range map[ReportTiming]string{
+		ReportTimingFuture: "period_to IS NULL OR r.period_to >= CURRENT_TIMESTAMP",
+		ReportTimingPast:   "r.period_to < CURRENT_TIMESTAMP",
+	} {
+		filter := CatalogFilter{ReportTiming: timing}
+		for name, query := range map[string]composed{
+			"page":           composeReportPage(filter, ReportCursor{}, false, 20),
+			"tag facets":     composeReportTagCounts(filter),
+			"voucher facets": composeReportVoucherCounts(filter),
+			"pool facets":    composeReportPoolCounts(filter),
+		} {
+			assertPlaceholdersMatchArgs(t, name, query)
+			if !strings.Contains(query.sql, fragment) {
+				t.Errorf("%s timing %q is missing %q:\n%s", name, timing, fragment, query.sql)
+			}
+		}
+	}
+
+	query := composeReportPage(CatalogFilter{ReportTiming: ReportTimingAll}, ReportCursor{}, false, 20)
+	if strings.Contains(query.sql, "CURRENT_TIMESTAMP") {
+		t.Errorf("all timing must not add a schedule predicate:\n%s", query.sql)
 	}
 }
 
@@ -959,6 +987,11 @@ func TestLoadCatalogSearchQueries(t *testing.T) {
 	}
 	if !strings.Contains(queries.ListMarketMap, "$20::TIMESTAMPTZ IS NULL OR r.created_at >= $20") {
 		t.Errorf("list-market-map post branch must accept a nullable created_at window:\n%s",
+			queries.ListMarketMap)
+	}
+	if !strings.Contains(queries.ListMarketMap, "$25::TEXT='future'") ||
+		!strings.Contains(queries.ListMarketMap, "JOIN pool_tokens pt") {
+		t.Errorf("list-market-map post branch must apply schedule and indirect Pool filters:\n%s",
 			queries.ListMarketMap)
 	}
 

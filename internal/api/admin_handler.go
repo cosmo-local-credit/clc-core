@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -64,6 +66,7 @@ func (a *API) adminListUsersHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	filter.Retired = strings.EqualFold(c.QueryParam("lifecycle"), "retired")
 
 	return adminPagedList(c, a, pagination, "users", "Users list",
 		func(u store.User) uint64 { return u.ID },
@@ -148,10 +151,20 @@ func (a *API) adminRejectUserHandler(c *echo.Context) error {
 	return a.adminSetUserStatus(c, "REJECTED")
 }
 
+// adminSetUserStatus approves or bans an account. A ban is users.status
+// REJECTED, and an unban is the move back to APPROVED; both honour the role
+// hierarchy, take an optional reason, append one history event per real
+// transition and are idempotent, so a repeated click writes nothing.
 func (a *API) adminSetUserStatus(c *echo.Context, status string) error {
-	address, handled, err := adminUserAddress(c)
-	if handled || err != nil {
-		return err
+	var body moderationWrite
+	if c.Request().ContentLength != 0 {
+		if err := c.Bind(&body); err != nil {
+			return handleBindError(c, err)
+		}
+	}
+	body.Reason = strings.TrimSpace(body.Reason)
+	if utf8.RuneCountInString(body.Reason) > store.MaxAccountRetirementReason {
+		return echo.NewHTTPError(http.StatusBadRequest, "Reason must be at most 2000 characters")
 	}
 
 	ctx := c.Request().Context()
@@ -162,7 +175,30 @@ func (a *API) adminSetUserStatus(c *echo.Context, status string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	user, err := a.store.UpdateUserStatus(ctx, tx, address, status)
+	targetID, address, previous, handled, err := a.adminAccountTarget(c, tx)
+	if handled || err != nil {
+		return err
+	}
+
+	if previous != status {
+		if _, err := a.store.UpdateUserStatus(ctx, tx, address, status); err != nil {
+			return handlePostgresError(c, err)
+		}
+		action := ""
+		switch {
+		case status == "REJECTED":
+			action = "ban"
+		case previous == "REJECTED":
+			action = "unban"
+		}
+		if action != "" {
+			actorID, _, _ := getUserClaims(c)
+			if err := store.RecordModerationEvent(ctx, tx, targetID, actorID, action, previous, status, body.Reason); err != nil {
+				return err
+			}
+		}
+	}
+	user, err := a.store.GetUserByID(ctx, tx, targetID)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}

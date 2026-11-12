@@ -102,3 +102,24 @@ func catalogBoundsQueryArgs(bounds []CatalogBounds) (bool, float64, float64, flo
 		len(bounds) > 1,
 		values[1].MinLng, values[1].MinLat, values[1].MaxLng, values[1].MaxLat
 }
+
+// CatalogBoundsCenter returns the geographic center of a canonical viewport.
+// Two boxes are the matching halves of one antimeridian-crossing viewport, so
+// their longitude midpoint must be measured across +180/-180 rather than
+// through Greenwich.
+func CatalogBoundsCenter(bounds []CatalogBounds) *CatalogLocation {
+	if len(bounds) == 0 {
+		return nil
+	}
+	lat := (bounds[0].MinLat + bounds[0].MaxLat) / 2
+	if len(bounds) == 1 {
+		return &CatalogLocation{Lat: lat, Lng: (bounds[0].MinLng + bounds[0].MaxLng) / 2}
+	}
+	left, right := bounds[0], bounds[1]
+	width := (180 - right.MinLng) + (left.MaxLng + 180)
+	lng := right.MinLng + width/2
+	if lng > 180 {
+		lng -= 360
+	}
+	return &CatalogLocation{Lat: lat, Lng: lng}
+}
