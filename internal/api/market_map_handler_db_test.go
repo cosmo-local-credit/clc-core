@@ -10,6 +10,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 func TestMarketMapFractionalViewportEndpointDB(t *testing.T) {
@@ -180,4 +181,149 @@ func TestMarketMapPostedWindowHidesOldPostPinsDB(t *testing.T) {
 
 	require.Equal(t, []string{marker + " recent"}, names(""))
 	require.ElementsMatch(t, []string{marker + " recent", marker + " old"}, names("all"))
+}
+
+func TestMarketMapPointsEndpointIgnoresViewportDB(t *testing.T) {
+	a := newMarketAPIWithStore(t)
+	marker := fmt.Sprintf("%sMapPoints%d", searchTokenAPI, time.Now().UnixNano())
+	ids, cleanup := seedSearchFixtures(t, a, marker, []searchFixture{
+		{name: marker + " Nairobi", symbol: "MPTNBO"},
+		{name: marker + " Mombasa", symbol: "MPTMBA"},
+	})
+	t.Cleanup(cleanup)
+	coordinates := [][2]float64{{-1.2920659, 36.8219462}, {-4.0434771, 39.6682065}}
+	for i, id := range ids {
+		_, err := a.store.Pool().Exec(t.Context(), `UPDATE vouchers SET geo_lat=$1,geo_lng=$2 WHERE id=$3`,
+			coordinates[i][0], coordinates[i][1], id)
+		require.NoError(t, err)
+	}
+	now := time.Now()
+	a.marketMapCache = newMarketMapCache(func() time.Time { return now })
+
+	type pointsEnvelope struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Points    []store.MarketMapPoint `json:"points"`
+			Truncated *bool                  `json:"truncated"`
+			Features  any                    `json:"features"`
+		} `json:"result"`
+	}
+	get := func(params map[string][]string) (*httptest.ResponseRecorder, pointsEnvelope) {
+		t.Helper()
+		params["q"] = []string{marker}
+		params["kinds"] = []string{"voucher"}
+		req := httptest.NewRequest(http.MethodGet, searchURL("/api/v2/market-map/points", params), nil)
+		req.RemoteAddr = "198.51.100.93:5000"
+		res := httptest.NewRecorder()
+		a.router.ServeHTTP(res, req)
+		require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+		require.Equal(t, "public, max-age=15, stale-while-revalidate=60", res.Header().Get("Cache-Control"))
+		require.Empty(t, res.Header().Values("Set-Cookie"))
+		var envelope pointsEnvelope
+		require.NoError(t, json.Unmarshal(res.Body.Bytes(), &envelope))
+		require.True(t, envelope.OK)
+		return res, envelope
+	}
+
+	// A viewport over Nairobi only, at a zoom that would cluster: both points.
+	first, body := get(map[string][]string{"bbox": {"36.7,-1.4,36.9,-1.2"}, "zoom": {"5.5"}})
+	require.NotNil(t, body.Result.Truncated)
+	require.False(t, *body.Result.Truncated)
+	require.Nil(t, body.Result.Features, "points carry no server clusters")
+	require.Len(t, body.Result.Points, 2)
+	byName := map[string]store.MarketMapPoint{}
+	for _, point := range body.Result.Points {
+		require.Equal(t, "voucher", point.Kind)
+		require.NotEmpty(t, point.ResourceID)
+		byName[point.Name] = point
+	}
+	require.InDelta(t, -1.2920659, byName[marker+" Nairobi"].GeoLat, 1e-9)
+	require.InDelta(t, 36.8219462, byName[marker+" Nairobi"].GeoLng, 1e-9)
+	require.InDelta(t, -4.0434771, byName[marker+" Mombasa"].GeoLat, 1e-9)
+	require.InDelta(t, 39.6682065, byName[marker+" Mombasa"].GeoLng, 1e-9)
+
+	// Another viewport and zoom is the same cache entry: a rename is not seen
+	// until the entry expires.
+	_, err := a.store.Pool().Exec(t.Context(), `UPDATE vouchers SET name=$1 WHERE id=$2`, marker+" Renamed", ids[0])
+	require.NoError(t, err)
+	moved, _ := get(map[string][]string{"bbox": {"39.5,-4.2,39.8,-3.9"}, "zoom": {"13"}})
+	require.JSONEq(t, first.Body.String(), moved.Body.String())
+	unbounded, _ := get(map[string][]string{})
+	require.JSONEq(t, first.Body.String(), unbounded.Body.String())
+
+	now = now.Add(marketMapCacheTTL)
+	_, refreshed := get(map[string][]string{})
+	names := []string{}
+	for _, point := range refreshed.Result.Points {
+		names = append(names, point.Name)
+	}
+	require.ElementsMatch(t, []string{marker + " Renamed", marker + " Mombasa"}, names)
+}
+
+func TestMarketMapFacetsEndpointCountsTheViewportDB(t *testing.T) {
+	a := newMarketAPIWithStore(t)
+	marker := fmt.Sprintf("%sMapFacets%d", searchTokenAPI, time.Now().UnixNano())
+	var tag string
+	require.NoError(t, a.store.Pool().QueryRow(t.Context(), `SELECT value FROM token_tag ORDER BY value LIMIT 1`).Scan(&tag))
+	ids, cleanup := seedSearchFixtures(t, a, marker, []searchFixture{
+		{name: marker + " Inside", symbol: "MFCIN", tags: []string{tag}},
+		{name: marker + " Outside", symbol: "MFCOUT", tags: []string{tag}},
+	})
+	t.Cleanup(cleanup)
+	_, err := a.store.Pool().Exec(t.Context(), `UPDATE vouchers SET geo_lat=-4.0434771,geo_lng=39.6682065 WHERE id=$1`, ids[1])
+	require.NoError(t, err)
+
+	get := func(params map[string][]string) map[string]json.RawMessage {
+		t.Helper()
+		params["q"] = []string{marker}
+		req := httptest.NewRequest(http.MethodGet, searchURL("/api/v2/market-map/facets", params), nil)
+		req.RemoteAddr = "198.51.100.94:5000"
+		res := httptest.NewRecorder()
+		a.router.ServeHTTP(res, req)
+		require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+		var envelope struct {
+			Result map[string]json.RawMessage `json:"result"`
+		}
+		require.NoError(t, json.Unmarshal(res.Body.Bytes(), &envelope))
+		return envelope.Result
+	}
+
+	inside := get(map[string][]string{"bbox": {"36.7,-1.4,36.9,-1.2"}, "kinds": {"voucher"}})
+	require.JSONEq(t, fmt.Sprintf(`[{"tag":%q,"count":1}]`, tag), string(inside["tagFacets"]))
+	require.JSONEq(t, `[]`, string(inside["postVoucherFacets"]))
+	require.JSONEq(t, `[]`, string(inside["postPoolFacets"]))
+	require.NotContains(t, inside, "points")
+
+	both := get(map[string][]string{"bbox": {"36,-5,40,-1"}, "kinds": {"voucher", "post"}})
+	require.JSONEq(t, fmt.Sprintf(`[{"tag":%q,"count":2}]`, tag), string(both["tagFacets"]))
+	require.JSONEq(t, `[]`, string(both["postVoucherFacets"]), "no Post links these vouchers")
+
+	none := get(map[string][]string{"bbox": {"10,10,10.5,10.5"}, "kinds": {"voucher"}})
+	require.JSONEq(t, `[]`, string(none["tagFacets"]))
+}
+
+func TestMarketMapPointsRateLimitAndCapacityDB(t *testing.T) {
+	a := newMarketAPIWithStore(t)
+	a.marketMapGuestLimiter = newMarketRateLimiterWithCapacity(rate.Limit(0), 1, 10, true, time.Now)
+	request := func(path, term string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, searchURL(path, map[string][]string{"q": {term}}), nil)
+		req.RemoteAddr = "198.51.100.95:5000"
+		res := httptest.NewRecorder()
+		a.router.ServeHTTP(res, req)
+		return res
+	}
+	marker := fmt.Sprintf("%sMapLimit%d", searchTokenAPI, time.Now().UnixNano())
+	require.Equal(t, http.StatusOK, request("/api/v2/market-map/points", marker+"a").Code)
+	// The cached response spends no token.
+	require.Equal(t, http.StatusOK, request("/api/v2/market-map/points", marker+"a").Code)
+	limited := request("/api/v2/market-map/facets", marker+"b")
+	require.Equal(t, http.StatusTooManyRequests, limited.Code, limited.Body.String())
+	require.NotEmpty(t, limited.Header().Get("Retry-After"))
+
+	a.marketMapGuestLimiter = newMarketRateLimiterWithCapacity(rate.Inf, 1, 10, true, time.Now)
+	a.marketMapExecutor.pending.Store(marketMapConcurrency + marketMapQueue)
+	full := request("/api/v2/market-map/points", marker+"c")
+	require.Equal(t, http.StatusServiceUnavailable, full.Code, full.Body.String())
+	require.Equal(t, "1", full.Header().Get("Retry-After"))
 }

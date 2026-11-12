@@ -234,6 +234,8 @@ type (
 		SetCatalogStatementTimeout(context.Context, pgx.Tx) error
 		ListMarketplace(context.Context, pgx.Tx, CatalogFilter, []string, *CatalogLocation, MarketplaceCursor, uint64, bool) ([]MarketplaceResult, error)
 		ListMarketMap(context.Context, pgx.Tx, CatalogFilter, []string, float64, bool) (MarketMapResult, error)
+		ListMarketMapPoints(context.Context, pgx.Tx, CatalogFilter, []string) (MarketMapPoints, error)
+		ListMarketMapTagFacets(context.Context, pgx.Tx, CatalogFilter, []string) ([]TagFacet, error)
 		ListWants(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds, CatalogPage, uint64, uint64) ([]Want, error)
 		ListWantTagFacets(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds) ([]TagFacet, error)
 		ListPoolWants(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Want, error)

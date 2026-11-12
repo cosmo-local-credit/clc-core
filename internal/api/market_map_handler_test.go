@@ -154,3 +154,56 @@ func TestMarketMapGuestIdentityUsesClientIPWithoutSettingCookie(t *testing.T) {
 		t.Fatalf("guest map request created cookies: %v", cookies)
 	}
 }
+
+func TestMarketMapPointsKeyIgnoresViewportZoomAndFacets(t *testing.T) {
+	kinds := []string{"voucher"}
+	world, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map/points?q=market"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{
+		"/api/v2/market-map/points?q=market&bbox=35,-5,40,1&zoom=5",
+		"/api/v2/market-map/points?q=market&bbox=-180,-10,-170,10&bbox=170,-10,180,10&zoom=12.75",
+		"/api/v2/market-map/points?q=market&facets=true",
+	} {
+		search, err := parseMarketMapSearch(marketMapTestContext(target))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if marketMapPointsKey(search, kinds) != marketMapPointsKey(world, kinds) {
+			t.Fatalf("%s did not share the unfiltered points cache entry", target)
+		}
+	}
+	other, err := parseMarketMapSearch(marketMapTestContext("/api/v2/market-map/points?q=other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marketMapPointsKey(other, kinds) == marketMapPointsKey(world, kinds) {
+		t.Fatal("a different filter shared the points cache entry")
+	}
+	if marketMapPointsKey(world, kinds) == marketMapFacetsKey(world, kinds) ||
+		marketMapPointsKey(world, kinds) == marketMapKey(world, kinds, 0) {
+		t.Fatal("points shared a cache entry with another market map route")
+	}
+}
+
+func TestMarketMapFacetsKeyFollowsTheViewportButNotZoom(t *testing.T) {
+	kinds := []string{"voucher"}
+	parse := func(target string) catalogSearchRequest {
+		t.Helper()
+		search, err := parseMarketMapSearch(marketMapTestContext(target))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return search
+	}
+	near := parse("/api/v2/market-map/facets?bbox=35,-5,40,1&zoom=5")
+	nearDeeper := parse("/api/v2/market-map/facets?bbox=35,-5,40,1&zoom=9")
+	far := parse("/api/v2/market-map/facets?bbox=36,-5,41,1&zoom=5")
+	if marketMapFacetsKey(near, kinds) != marketMapFacetsKey(nearDeeper, kinds) {
+		t.Fatal("zoom changed the facets cache entry")
+	}
+	if marketMapFacetsKey(near, kinds) == marketMapFacetsKey(far, kinds) {
+		t.Fatal("two viewports shared one facets cache entry")
+	}
+}

@@ -1831,6 +1831,210 @@ paths:
       security:
       - {}
       - cookieAuth: []
+  /api/v2/market-map/points:
+    get:
+      tags:
+      - Vouchers and offerings
+      summary: List every Marketplace map point
+      description: Returns every mappable resource that matches the filters, for the client to cluster. The response does not depend on the viewport or zoom, so panning and zooming reuse it. Identical cache misses coalesce. Successful responses are publicly cacheable for 15 seconds. Access is public; a valid session selects the signed-in wallet rate-limit bucket.
+      operationId: getMarketMapPoints
+      parameters:
+      - name: kinds
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Values catalog, pool, post, voucher, and want. Repeat the parameter or use commas.
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: tags
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: tagMatch
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [any, all]
+          default: any
+      - name: creditablePools
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Verified pool references as chainId:address. Repeat the parameter or use commas.
+      - name: postTiming
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [future, past, all]
+        description: Schedule filter for Posts only. Future includes posts with no end time or an end time at or after the database transaction time. Cannot be combined with posted.
+      - name: postVouchers
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Post Voucher references as chainId:address. Repeat the parameter or use commas. Other resource kinds are unchanged.
+      - name: postVoucherMatch
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [any, all]
+          default: any
+      - name: postPools
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Post Pool references as chainId:address. A Post matches a direct Pool link or an active linked Voucher currently allowed by the Pool. Other resource kinds are unchanged.
+      - name: postPoolMatch
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [any, all]
+          default: any
+      - name: posted
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [1m, 3m, 6m, 1y, all]
+          default: 1m
+        description: Restricts the post layer to posts whose createdAt is within this calendar window. Omitted is 1m. all is every approved post pin. Other kinds are unchanged.
+      responses:
+        '200':
+          description: Every matching point, at most 50,000, and whether more matched.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: public, max-age=15, stale-while-revalidate=60
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OKResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      security:
+      - {}
+      - cookieAuth: []
+  /api/v2/market-map/facets:
+    get:
+      tags:
+      - Vouchers and offerings
+      summary: Count Marketplace map filter facets in a viewport
+      description: Returns the tag facets, and the Post Voucher and Pool facets when Posts are selected, of the resources inside the viewport. Shares the cache, coalescing and rate limit of the map routes. Access is public; a valid session selects the signed-in wallet rate-limit bucket.
+      operationId: getMarketMapFacets
+      parameters:
+      - name: bbox
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Viewport as minLng,minLat,maxLng,maxLat. Repeat once for an antimeridian split.
+      - name: kinds
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Values catalog, pool, post, voucher, and want. Repeat the parameter or use commas.
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: tags
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: tagMatch
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [any, all]
+          default: any
+      - name: creditablePools
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Verified pool references as chainId:address. Repeat the parameter or use commas.
+      - name: postTiming
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [future, past, all]
+        description: Schedule filter for Posts only. Future includes posts with no end time or an end time at or after the database transaction time. Cannot be combined with posted.
+      - name: postVouchers
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Post Voucher references as chainId:address. Repeat the parameter or use commas. Other resource kinds are unchanged.
+      - name: postVoucherMatch
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [any, all]
+          default: any
+      - name: postPools
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Post Pool references as chainId:address. A Post matches a direct Pool link or an active linked Voucher currently allowed by the Pool. Other resource kinds are unchanged.
+      - name: postPoolMatch
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [any, all]
+          default: any
+      - name: posted
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [1m, 3m, 6m, 1y, all]
+          default: 1m
+        description: Restricts the post layer to posts whose createdAt is within this calendar window. Omitted is 1m. all is every approved post pin. Other kinds are unchanged.
+      responses:
+        '200':
+          description: Tag, Post Voucher and Post Pool facets of the viewport.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: public, max-age=15, stale-while-revalidate=60
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OKResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      security:
+      - {}
+      - cookieAuth: []
   /api/v2/marketplace:
     get:
       tags:

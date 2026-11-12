@@ -54,9 +54,9 @@ func TestMarketMapCacheExpiresAndPromotesRecentEntries(t *testing.T) {
 func TestMarketMapExecutorRejectsBeyondQueueCapacity(t *testing.T) {
 	executor := newMarketMapExecutor()
 	executor.pending.Store(marketMapConcurrency + marketMapQueue)
-	_, err := executor.run(context.Background(), func(context.Context) (store.MarketMapResult, error) {
+	_, err := executor.run(context.Background(), func(context.Context) (any, error) {
 		t.Fatal("capacity-rejected load ran")
-		return store.MarketMapResult{}, nil
+		return nil, nil
 	})
 	if !errors.Is(err, errMarketMapCapacity) {
 		t.Fatalf("error = %v, want errMarketMapCapacity", err)
@@ -70,9 +70,9 @@ func TestMarketMapExecutorHonorsCancelledQueuedRequest(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := executor.run(ctx, func(context.Context) (store.MarketMapResult, error) {
+	_, err := executor.run(ctx, func(context.Context) (any, error) {
 		t.Fatal("cancelled load ran")
-		return store.MarketMapResult{}, nil
+		return nil, nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
@@ -109,7 +109,7 @@ func TestMarketMapLoadsCoalesceAndCacheHitsDoNotSpendTokens(t *testing.T) {
 	const waiters = 10_000
 	results := make([]<-chan singleflight.Result, 0, waiters)
 	for range waiters {
-		results = append(results, api.loadMarketMap("shared", limiter, "guest-ip", load))
+		results = append(results, loadMarketMap(api, "shared", limiter, "guest-ip", load))
 	}
 	<-started
 	close(release)
@@ -124,7 +124,7 @@ func TestMarketMapLoadsCoalesceAndCacheHitsDoNotSpendTokens(t *testing.T) {
 	}
 
 	var cachedLoadCalls atomic.Int64
-	cached := <-api.loadMarketMap("shared", limiter, "guest-ip", func(context.Context) (store.MarketMapResult, error) {
+	cached := <-loadMarketMap(api, "shared", limiter, "guest-ip", func(context.Context) (store.MarketMapResult, error) {
 		cachedLoadCalls.Add(1)
 		return store.MarketMapResult{}, nil
 	})
@@ -135,14 +135,14 @@ func TestMarketMapLoadsCoalesceAndCacheHitsDoNotSpendTokens(t *testing.T) {
 		t.Fatal("cache hit invoked the loader")
 	}
 
-	second := <-api.loadMarketMap("second", limiter, "guest-ip", func(context.Context) (store.MarketMapResult, error) {
+	second := <-loadMarketMap(api, "second", limiter, "guest-ip", func(context.Context) (store.MarketMapResult, error) {
 		return store.MarketMapResult{}, nil
 	})
 	if second.Err != nil {
 		t.Fatalf("cache hit spent the second limiter token: %v", second.Err)
 	}
 
-	third := <-api.loadMarketMap("third", limiter, "guest-ip", func(context.Context) (store.MarketMapResult, error) {
+	third := <-loadMarketMap(api, "third", limiter, "guest-ip", func(context.Context) (store.MarketMapResult, error) {
 		return store.MarketMapResult{}, nil
 	})
 	var limitErr marketMapRateLimitError

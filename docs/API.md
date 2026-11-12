@@ -2404,6 +2404,46 @@ The database executor runs up to 32 uncached map reads and queues 128. A full qu
 
 A limited miss returns `429` `E11` with `Retry-After`. When proxy trust is enabled, forwarded addresses are accepted only from a loopback or private direct Caddy peer.
 
+#### 7.8.1 `GET /api/v2/market-map/points`
+
+**Access:** Public, with the same rate-limit buckets as section 7.8.
+
+Returns every mappable resource that matches the filters, for the client to cluster. The response does not depend on the viewport: `bbox` and `zoom` are not read and are not part of the cache identity, so panning and zooming reuse one response and the unfiltered map is one shared cache entry.
+
+Parameters are those of section 7.8 except `bbox`, `zoom` and `facets`.
+
+Status `200`. The `result` has these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `points` | array | Each point has `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon` and `markerColor`. Ordered by kind, then by resource id, so the order is stable between responses. |
+| `truncated` | boolean | `true` when more than 50,000 points match. The first 50,000 are returned. |
+
+```json
+{
+  "ok": true,
+  "description": "Market map",
+  "result": {
+    "points": [
+      {"kind": "voucher", "resourceId": "0x5b4f7b0d4e9c2a8f1d6e3c0b9a8f7e6d5c4b3a29", "name": "Mama Mboga", "lat": -1.2920659, "lng": 36.8219462, "markerIcon": null, "markerColor": null}
+    ],
+    "truncated": false
+  }
+}
+```
+
+Caching, coalescing, the executor and the rate limit are those of section 7.8.
+
+#### 7.8.2 `GET /api/v2/market-map/facets`
+
+**Access:** Public, with the same rate-limit buckets as section 7.8.
+
+Counts the filter facets of the resources inside a viewport. Parameters are those of section 7.8 except `zoom` and `facets`; `bbox` sets the viewport and is part of the cache identity.
+
+Status `200`. The `result` has `tagFacets`, `postVoucherFacets` and `postPoolFacets`, with the shapes of section 7.8. The Post facets are empty arrays unless `kinds` includes `post`.
+
+Caching, coalescing, the executor and the rate limit are those of section 7.8.
+
 ### 7.9 Voucher reviews
 
 A review has 1 to 5 stars and an optional comment.
@@ -6988,6 +7028,8 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/offerings` | Public (user session if nearby=true) |
 | GET | `/api/v2/marketplace` | Public (user session if nearby=true) |
 | GET | `/api/v2/market-map` | Public (optional user session selects a wallet rate-limit bucket) |
+| GET | `/api/v2/market-map/points` | Public (optional user session selects a wallet rate-limit bucket) |
+| GET | `/api/v2/market-map/facets` | Public (optional user session selects a wallet rate-limit bucket) |
 | GET | `/api/v2/catalogs` | Public (user session if nearby=true) |
 | GET | `/api/v2/catalogs/:id` | Public |
 | GET | `/api/v2/catalogs/:id/pools` | Public |
