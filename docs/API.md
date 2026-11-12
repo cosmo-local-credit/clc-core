@@ -3992,7 +3992,9 @@ This route has no pagination.
         "balance": "100000",
         "iconUrl": "https://example.com/icon.png",
         "lastDateBlock": "2026-07-01T12:20:29Z",
-        "catalogActive": true
+        "catalogActive": true,
+        "voucherValue": "10",
+        "voucherUoa": "KES"
       }
     ]
   }
@@ -4012,6 +4014,8 @@ This route has no pagination.
 | `iconUrl` | string | From the catalog. Not present if there is none. |
 | `lastDateBlock` | string | Time of the last movement. |
 | `catalogActive` | boolean | `false` if the voucher is retired. Not present if the token is not in the catalog. |
+| `voucherValue` | string | Decimal number. The value of one voucher in `voucherUoa`, from the catalog. Not present if the catalog has none. |
+| `voucherUoa` | string | Unit of account of `voucherValue`, from the catalog. Not present if the catalog has none. |
 
 ### 12.2 `GET /api/v2/accounts/:address/tokens/issued`
 
