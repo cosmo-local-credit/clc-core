@@ -85,6 +85,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "075_account_retirement.sql")
 	assert.Contains(t, sqlFiles, "076_report_timing_index.sql")
 	assert.Contains(t, sqlFiles, "077_oracle_feed_metadata.sql")
+	assert.Contains(t, sqlFiles, "078_gnosis_usd_feed.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -186,7 +187,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "074_messaging.sql" ||
 				name == "075_account_retirement.sql" ||
 				name == "076_report_timing_index.sql" ||
-				name == "077_oracle_feed_metadata.sql",
+				name == "077_oracle_feed_metadata.sql" ||
+				name == "078_gnosis_usd_feed.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -273,6 +275,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"075_account_retirement.sql",
 		"076_report_timing_index.sql",
 		"077_oracle_feed_metadata.sql",
+		"078_gnosis_usd_feed.sql",
 	}, files)
 }
 
@@ -537,6 +540,20 @@ func TestOracleFeedMetadataMigration(t *testing.T) {
 	// Existing mappings keep their aggregator.
 	assert.Contains(t, up, "SET oracle_address = f.address")
 	assert.Contains(t, down, "DROP COLUMN IF EXISTS oracle_address")
+}
+
+func TestGnosisUSDFeedMigration(t *testing.T) {
+	content, err := os.ReadFile("078_gnosis_usd_feed.sql")
+	require.NoError(t, err)
+	up, down, found := strings.Cut(string(content), "---- create above / drop below ----")
+	require.True(t, found)
+
+	// Chainlink USDC / USD stands in for USD, with a margin over its 24 h heartbeat.
+	assert.Contains(t, up, "(100, 'USD', '0x26C31ac71010aF62E6B486D1132E266D6298857D', 'USDC / USD', 8, 93600)")
+	assert.Contains(t, up, "ON CONFLICT (chain_id, name) DO UPDATE")
+	// Tokens already mapped to the aggregator pick up the new row.
+	assert.Contains(t, up, "SET oracle_feed_id = f.id")
+	assert.Contains(t, down, "DELETE FROM oracle_feeds WHERE chain_id = 100 AND name = 'USD'")
 }
 
 func TestSendMessageSharesMigration(t *testing.T) {

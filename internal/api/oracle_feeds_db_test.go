@@ -21,7 +21,7 @@ func TestOracleFeedsListsGnosisRegistryWithMetadata(t *testing.T) {
 	if !ok {
 		t.Fatalf("result.feeds = %#v, want array", result["feeds"])
 	}
-	var eur map[string]any
+	byName := map[string]map[string]any{}
 	for _, raw := range feeds {
 		feed, ok := raw.(map[string]any)
 		if !ok {
@@ -30,24 +30,36 @@ func TestOracleFeedsListsGnosisRegistryWithMetadata(t *testing.T) {
 		if feed["chainId"] != float64(100) {
 			t.Errorf("chainId = %#v, want only chain 100 feeds", feed["chainId"])
 		}
-		if feed["name"] == "EUR" {
-			eur = feed
-		}
-	}
-	if eur == nil {
-		t.Fatalf("feeds = %#v, want the seeded EUR feed", feeds)
+		name, _ := feed["name"].(string)
+		byName[name] = feed
 	}
 
-	for key, want := range map[string]any{
-		"address":             "0xab70BCB260073d036d1660201e9d5405F5829b7a",
-		"description":         "EUR / USD",
-		"decimals":            float64(8),
-		"maxStalenessSeconds": float64(93600),
+	// EUR / USD, and USDC / USD standing in for USD, each with its heartbeat margin.
+	for name, want := range map[string]map[string]any{
+		"EUR": {
+			"address":             "0xab70BCB260073d036d1660201e9d5405F5829b7a",
+			"description":         "EUR / USD",
+			"decimals":            float64(8),
+			"maxStalenessSeconds": float64(93600),
+		},
+		"USD": {
+			"address":             "0x26C31ac71010aF62E6B486D1132E266D6298857D",
+			"description":         "USDC / USD",
+			"decimals":            float64(8),
+			"maxStalenessSeconds": float64(93600),
+		},
 	} {
-		if got := eur[key]; got != want {
-			t.Errorf("%s = %#v, want %#v", key, got, want)
+		feed := byName[name]
+		if feed == nil {
+			t.Fatalf("feeds = %#v, want the seeded %s feed", feeds, name)
+		}
+		for key, value := range want {
+			if got := feed[key]; got != value {
+				t.Errorf("%s.%s = %#v, want %#v", name, key, got, value)
+			}
 		}
 	}
+	eur := byName["EUR"]
 	for _, key := range []string{"id", "createdAt", "updatedAt"} {
 		if _, ok := eur[key]; !ok {
 			t.Errorf("feed is missing %s", key)
