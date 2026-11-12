@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgx/v5"
 )
@@ -138,11 +139,13 @@ func (pg *Pg) SetPoolTokenLimit(
 	return tag.RowsAffected(), nil
 }
 
-// SetPoolTokenOracle records which curated feed prices a token for a pool.
+// SetPoolTokenOracle records which aggregator prices a token for a pool, and the
+// curated feed it resolves to.
 //
-// Keyed on the quoter's address, which is what OracleUpdated carries. An
-// aggregator with no oracle_feeds row stores NULL: the pool can price the token
-// on chain, this service just cannot name the feed.
+// Keyed on the quoter's address, which is what OracleUpdated carries. The
+// aggregator is always stored, EIP-55 checksummed. An aggregator with no
+// oracle_feeds row stores a NULL feed id: the pool can price the token on chain,
+// this service just cannot name the feed.
 func (pg *Pg) SetPoolTokenOracle(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -150,14 +153,15 @@ func (pg *Pg) SetPoolTokenOracle(
 	tokenAddress string,
 	aggregatorAddress string,
 ) (int64, error) {
-	tag, err := tx.Exec(ctx, pg.queries.SetPoolTokenOracle, quoterAddress, tokenAddress, aggregatorAddress)
+	aggregator := common.HexToAddress(aggregatorAddress).Hex()
+	tag, err := tx.Exec(ctx, pg.queries.SetPoolTokenOracle, quoterAddress, tokenAddress, aggregator)
 	if err != nil {
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
 }
 
-// ClearPoolTokenOracle drops the feed a quoter no longer maps.
+// ClearPoolTokenOracle drops the feed and aggregator a quoter no longer maps.
 func (pg *Pg) ClearPoolTokenOracle(
 	ctx context.Context,
 	tx pgx.Tx,

@@ -10,12 +10,19 @@ import (
 
 type (
 	OracleFeed struct {
-		ID        uint64    `db:"id"         json:"id"`
-		ChainID   int64     `db:"chain_id"   json:"chainId"`
-		Name      string    `db:"name"       json:"name"`
-		Address   string    `db:"address"    json:"address"`
-		CreatedAt time.Time `db:"created_at" json:"createdAt"`
-		UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
+		ID      uint64 `db:"id"       json:"id"`
+		ChainID int64  `db:"chain_id" json:"chainId"`
+		Name    string `db:"name"     json:"name"`
+		Address string `db:"address"  json:"address"`
+		// Description is the feed's own description(), e.g. "EUR / USD".
+		Description *string `db:"description" json:"description"`
+		Decimals    *int16  `db:"decimals"    json:"decimals"`
+		// MaxStalenessSeconds is the per-feed freshness bound for
+		// setOracle(token, oracle, maxStaleness); nil defers to the quoter's
+		// global bound.
+		MaxStalenessSeconds *int32    `db:"max_staleness_seconds" json:"maxStalenessSeconds"`
+		CreatedAt           time.Time `db:"created_at"            json:"createdAt"`
+		UpdatedAt           time.Time `db:"updated_at"            json:"updatedAt"`
 	}
 )
 

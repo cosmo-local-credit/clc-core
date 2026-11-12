@@ -640,12 +640,12 @@ LIMIT 1;
 
 -- Oracle feeds
 --name: get-oracle-feed-by-name
-SELECT id, chain_id, name, address, created_at, updated_at
+SELECT id, chain_id, name, address, description, decimals, max_staleness_seconds, created_at, updated_at
 FROM oracle_feeds
 WHERE chain_id = $1 AND name = $2;
 
 --name: list-oracle-feeds
-SELECT id, chain_id, name, address, created_at, updated_at
+SELECT id, chain_id, name, address, description, decimals, max_staleness_seconds, created_at, updated_at
 FROM oracle_feeds
 WHERE chain_id = $1
 ORDER BY name;
@@ -1691,6 +1691,7 @@ ON CONFLICT (voucher_id, tag_value) DO NOTHING;
 --   is_allowed     the token registry (INDEX_ADD / INDEX_REMOVE)
 --   token_limit    the limiter        (LIMIT_SET)
 --   oracle_feed_id the quoter         (ORACLE_UPDATED / ORACLE_REMOVED)
+--   oracle_address the quoter         (ORACLE_UPDATED / ORACLE_REMOVED)
 --
 -- The two non-registry statements insert is_allowed = FALSE when they are the
 -- first to see a pair, because a cap or a price says nothing about membership;
@@ -1719,9 +1720,11 @@ ON CONFLICT (pool_id, voucher_id) DO UPDATE
 SET token_limit = EXCLUDED.token_limit,
     synced_at   = EXCLUDED.synced_at;
 
--- An aggregator with no oracle_feeds row resolves to NULL: the mapping is real
--- but this service cannot name the feed, which is a different fact from having
--- no mapping and is why the join is outer rather than inner.
+-- An aggregator with no oracle_feeds row resolves to a NULL feed id: the mapping
+-- is real but this service cannot name the feed, which is a different fact from
+-- having no mapping and is why the join is outer rather than inner. The
+-- aggregator itself is always kept in oracle_address, so an unregistered feed
+-- reads back as unverified rather than as no feed.
 --
 -- The lateral is not decoration. oracle_feeds is unique on name, not address, and
 -- some feeds share an aggregator — USDC and EURC both point at 0xc7A353Ba… — so a
@@ -1730,8 +1733,8 @@ SET token_limit = EXCLUDED.token_limit,
 -- command cannot affect row a second time". Picking the lowest id keeps one
 -- deterministic answer; by address the two feeds are the same contract anyway.
 --name: set-pool-token-oracle
-INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, oracle_feed_id, synced_at)
-SELECT p.id, v.id, FALSE, f.id, CURRENT_TIMESTAMP
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, oracle_feed_id, oracle_address, synced_at)
+SELECT p.id, v.id, FALSE, f.id, $3::TEXT, CURRENT_TIMESTAMP
 FROM pools p
 JOIN vouchers v ON v.chain_id = p.chain_id
 LEFT JOIN LATERAL (
@@ -1743,6 +1746,7 @@ WHERE lower(p.quoter_address) = lower($1)
   AND lower(v.address) = lower($2)
 ON CONFLICT (pool_id, voucher_id) DO UPDATE
 SET oracle_feed_id = EXCLUDED.oracle_feed_id,
+    oracle_address = EXCLUDED.oracle_address,
     synced_at      = EXCLUDED.synced_at;
 
 -- Removal only ever clears an existing pairing; it must not conjure a row for a
@@ -1750,6 +1754,7 @@ SET oracle_feed_id = EXCLUDED.oracle_feed_id,
 --name: clear-pool-token-oracle
 UPDATE pool_tokens pt
 SET oracle_feed_id = NULL,
+    oracle_address = NULL,
     synced_at      = CURRENT_TIMESTAMP
 FROM pools p, vouchers v
 WHERE pt.pool_id = p.id
@@ -1766,7 +1771,7 @@ SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.
     v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
     v.active, v.internal, pt.is_allowed, pt.token_limit::TEXT AS token_limit, pt.synced_at,
-    oracle.id AS oracle_feed_id, oracle.name AS oracle_name, oracle.address AS oracle_address,
+    oracle.id AS oracle_feed_id, oracle.name AS oracle_name, pt.oracle_address,
     (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id) AS offer_count,
     (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id AND o.available) AS available_offer_count,
     COALESCE((
@@ -1789,7 +1794,7 @@ SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.
     v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
     v.active, v.internal, pt.is_allowed, pt.token_limit::TEXT AS token_limit, pt.synced_at,
-    oracle.id AS oracle_feed_id, oracle.name AS oracle_name, oracle.address AS oracle_address,
+    oracle.id AS oracle_feed_id, oracle.name AS oracle_name, pt.oracle_address,
     (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id) AS offer_count,
     (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id AND o.available) AS available_offer_count,
     COALESCE((
@@ -1813,7 +1818,7 @@ SELECT * FROM (
         v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
         v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
         v.active, v.internal, pt.is_allowed, pt.token_limit::TEXT AS token_limit, pt.synced_at,
-        oracle.id AS oracle_feed_id, oracle.name AS oracle_name, oracle.address AS oracle_address,
+        oracle.id AS oracle_feed_id, oracle.name AS oracle_name, pt.oracle_address,
         (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id) AS offer_count,
         (SELECT COUNT(*) FROM offerings o WHERE o.voucher_id = v.id AND o.available) AS available_offer_count,
         COALESCE((

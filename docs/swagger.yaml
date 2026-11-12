@@ -4884,6 +4884,21 @@ paths:
                               type: string
                             address:
                               type: string
+                            description:
+                              type:
+                              - string
+                              - 'null'
+                              description: The feed's pair as its description() reports it, for example 'EUR / USD'.
+                            decimals:
+                              type:
+                              - integer
+                              - 'null'
+                              description: The decimals of the feed's answer.
+                            maxStalenessSeconds:
+                              type:
+                              - integer
+                              - 'null'
+                              description: The per-feed freshness bound to send with setOracle(token, oracle, maxStaleness). Null means the quoter's global bound applies.
                             createdAt:
                               type: string
                               format: date-time
@@ -4898,10 +4913,13 @@ paths:
                 description: Available oracle feeds
                 result:
                   feeds:
-                  - id: 1
-                    chainId: 42220
-                    name: KES/USD
-                    address: '0x1111111111111111111111111111111111111111'
+                  - id: 7
+                    chainId: 100
+                    name: EUR
+                    address: '0xab70BCB260073d036d1660201e9d5405F5829b7a'
+                    description: EUR / USD
+                    decimals: 8
+                    maxStalenessSeconds: 93600
                     createdAt: '2026-08-01T08:00:00Z'
                     updatedAt: '2026-08-01T08:00:00Z'
         '401':

@@ -2932,8 +2932,9 @@ Pool voucher fields:
 | `isAllowed` | boolean | Always `true` on this route. |
 | `tokenLimit` | string or null | The pool limit for this voucher, as decimal text. |
 | `syncedAt` | string | RFC 3339 time. |
-| `oracleFeedId` | integer or null | |
-| `oracleName`, `oracleAddress` | string or null | |
+| `oracleFeedId` | integer or null | The registered feed the quoter maps. `null` when the aggregator is not in the feed registry. |
+| `oracleName` | string or null | The registered feed's name. `null` when the aggregator is not in the feed registry. |
+| `oracleAddress` | string or null | The aggregator the quoter maps, EIP-55 checksummed, whether or not it is registered. `null` when no feed is set. |
 | `offerCount` | integer | All offerings of the voucher. |
 | `availableOfferCount` | integer | Available offerings of the voucher. |
 | `tags` | array of string | The tags on the voucher. |
@@ -3951,7 +3952,16 @@ Lists the price oracle feeds that a pool can use for oracle pricing, sorted by `
 |---|---|---|---|
 | `chainId` | integer | The chain ID of the service | Must be a positive integer. Another value returns `400 E04`. |
 
-Each feed has these fields: `id`, `chainId`, `name`, `address`, `createdAt`, `updatedAt`.
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | |
+| `chainId` | integer | |
+| `name` | string | Unique per chain. |
+| `address` | string | The aggregator: anything implementing `latestRoundData()` and `decimals()`. |
+| `description` | string or null | The feed's pair, as its `description()` reports it, for example `EUR / USD`. |
+| `decimals` | integer or null | The decimals of the feed's answer. |
+| `maxStalenessSeconds` | integer or null | The per-feed freshness bound to send with `setOracle(token, oracle, maxStaleness)`. `null` means the quoter's global bound applies. |
+| `createdAt`, `updatedAt` | string | RFC 3339 time. |
 
 ```json
 {
@@ -3960,10 +3970,13 @@ Each feed has these fields: `id`, `chainId`, `name`, `address`, `createdAt`, `up
   "result": {
     "feeds": [
       {
-        "id": 1,
-        "chainId": 42220,
-        "name": "KES/USD",
-        "address": "0x1111111111111111111111111111111111111111",
+        "id": 7,
+        "chainId": 100,
+        "name": "EUR",
+        "address": "0xab70BCB260073d036d1660201e9d5405F5829b7a",
+        "description": "EUR / USD",
+        "decimals": 8,
+        "maxStalenessSeconds": 93600,
         "createdAt": "2026-08-01T08:00:00Z",
         "updatedAt": "2026-08-01T08:00:00Z"
       }
@@ -5634,9 +5647,9 @@ Fields of a pool voucher:
 | `isAllowed` | boolean | `true` when the pool allows the voucher. |
 | `tokenLimit` | string or null | Pool limit for the voucher. |
 | `syncedAt` | string | RFC 3339 time of the last sync. |
-| `oracleFeedId` | integer or null | Oracle feed ID. |
-| `oracleName` | string or null | Oracle name. |
-| `oracleAddress` | string or null | Oracle address. |
+| `oracleFeedId` | integer or null | Registered oracle feed ID. `null` for an unregistered aggregator. |
+| `oracleName` | string or null | Registered oracle feed name. `null` for an unregistered aggregator. |
+| `oracleAddress` | string or null | Aggregator the quoter maps, registered or not. `null` when no feed is set. |
 | `offerCount` | integer | Number of offerings. |
 | `availableOfferCount` | integer | Number of available offerings. |
 | `tags` | array of strings | Tags. |

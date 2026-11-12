@@ -84,6 +84,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "074_messaging.sql")
 	assert.Contains(t, sqlFiles, "075_account_retirement.sql")
 	assert.Contains(t, sqlFiles, "076_report_timing_index.sql")
+	assert.Contains(t, sqlFiles, "077_oracle_feed_metadata.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -184,7 +185,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "073_drop_recovery_objects.sql" ||
 				name == "074_messaging.sql" ||
 				name == "075_account_retirement.sql" ||
-				name == "076_report_timing_index.sql",
+				name == "076_report_timing_index.sql" ||
+				name == "077_oracle_feed_metadata.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -270,6 +272,7 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"074_messaging.sql",
 		"075_account_retirement.sql",
 		"076_report_timing_index.sql",
+		"077_oracle_feed_metadata.sql",
 	}, files)
 }
 
@@ -515,6 +518,25 @@ func TestOracleFeedChainsMigration(t *testing.T) {
 	assert.Contains(t, s, "0x9a48d9b0AF457eF040281A9Af3867bc65522Fecd")
 	assert.Contains(t, s, "0x0826492a24b1dBd1d8fcB4701b38C557CE685e9D")
 	assert.Contains(t, s, "0x3D207061Dbe8E2473527611BFecB87Ff12b28dDa")
+}
+
+func TestOracleFeedMetadataMigration(t *testing.T) {
+	content, err := os.ReadFile("077_oracle_feed_metadata.sql")
+	require.NoError(t, err)
+	up, down, found := strings.Cut(string(content), "---- create above / drop below ----")
+	require.True(t, found)
+
+	assert.Contains(t, up, "ADD COLUMN IF NOT EXISTS description TEXT")
+	assert.Contains(t, up, "ADD COLUMN IF NOT EXISTS decimals SMALLINT")
+	assert.Contains(t, up, "ADD COLUMN IF NOT EXISTS max_staleness_seconds INT")
+	// Gnosis EUR / USD, with a margin over its 24 h heartbeat.
+	assert.Contains(t, up, "(100, 'EUR', '0xab70BCB260073d036d1660201e9d5405F5829b7a', 'EUR / USD', 8, 93600)")
+	assert.Contains(t, up, "ON CONFLICT (chain_id, name) DO UPDATE")
+	assert.Contains(t, up, "ADD COLUMN IF NOT EXISTS oracle_address TEXT")
+	assert.Contains(t, up, "oracle_address ~ '^0x[0-9a-fA-F]{40}$'")
+	// Existing mappings keep their aggregator.
+	assert.Contains(t, up, "SET oracle_address = f.address")
+	assert.Contains(t, down, "DROP COLUMN IF EXISTS oracle_address")
 }
 
 func TestSendMessageSharesMigration(t *testing.T) {
