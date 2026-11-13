@@ -472,6 +472,8 @@ func (s *Service) refreshPools(ctx context.Context, rows StateRows, pools []Pool
 		if pointersDiffer(p, params[i]) {
 			corrections++
 			s.fees.ForgetPool(addrs[i])
+		} else if p.ChainState != nil && p.ChainState.DefaultFeePPM != params[i].DefaultFeePPM {
+			s.fees.ForgetValue(addrs[i], p.ChainState.DefaultFeePPM)
 		}
 		if p.ChainState == nil || p.ChainState.QuoterVerified != verified[i] ||
 			p.ChainState.DefaultFeePPM != params[i].DefaultFeePPM ||

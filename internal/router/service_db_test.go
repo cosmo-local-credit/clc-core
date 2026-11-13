@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/router"
 	"github.com/cosmo-local-credit/clc-core/internal/router/routertest"
@@ -431,4 +432,35 @@ func TestConcurrentQuotesStayWalletSpecific(t *testing.T) {
 	assert.NotEqual(t, a.Digest, b.Digest)
 	assert.Equal(t, n.Wallet, a.Recipient)
 	assert.Equal(t, other, b.Recipient)
+}
+
+// A FeePolicy pair-fee event lands in the live graph for the pools using that
+// policy, and a removal returns them to the default.
+func TestPairFeeEventsReachTheLiveGraph(t *testing.T) {
+	_, n, svc := ready(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	svc.Run(ctx)
+	t.Cleanup(func() { cancel(); svc.Stop() })
+
+	legSource := func() (uint64, router.FeeSource) {
+		snap := svc.Snapshot()
+		pool, _ := snap.PoolByAddress(n.P2)
+		in, _ := snap.TokenByAddress(n.B)
+		out, _ := snap.TokenByAddress(n.C)
+		leg, _ := snap.LegFor(pool, in, out)
+		params, source := snap.LegParams(leg)
+		return params.FeePPM, source
+	}
+	policy := n.Chain.Pools[n.P2].FeePolicy
+	svc.Apply(router.PairFeeDelta{FeePolicy: policy, In: n.B, Out: n.C, FeePPM: 3_000, Block: 900})
+	require.Eventually(t, func() bool {
+		fee, source := legSource()
+		return fee == 3_000 && source == router.FeeSourcePair
+	}, 5*time.Second, 10*time.Millisecond)
+
+	svc.Apply(router.PairFeeDelta{FeePolicy: policy, In: n.B, Out: n.C, Removed: true, Block: 901})
+	require.Eventually(t, func() bool {
+		fee, source := legSource()
+		return fee == 0 && source == router.FeeSourceDefault
+	}, 5*time.Second, 10*time.Millisecond)
 }

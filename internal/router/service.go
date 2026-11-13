@@ -467,6 +467,8 @@ func (s *Service) Apply(deltas ...Delta) {
 					s.markDirty(party, d.Token)
 				}
 			}
+		case PairFeeDelta:
+			s.applyPairFee(d)
 		case RefreshPoolDelta:
 			select {
 			case s.refresh <- d.Address:
@@ -480,6 +482,35 @@ func (s *Service) Apply(deltas ...Delta) {
 				s.requestReload()
 			}
 		}
+	}
+}
+
+// applyPairFee updates the fee book for every pool whose fee policy emitted
+// the change, then republishes so eligibility sees the new fee.
+func (s *Service) applyPairFee(d PairFeeDelta) {
+	snap := s.Snapshot()
+	if snap == nil {
+		return
+	}
+	touched := false
+	for _, p := range snap.Pools {
+		if p.FeePolicy != d.FeePolicy || d.FeePolicy == (common.Address{}) {
+			continue
+		}
+		if d.Removed {
+			s.fees.Remove(p.Addr, d.In, d.Out, d.Block)
+		} else {
+			s.fees.Put(p.Addr, d.In, d.Out, d.FeePPM, d.Block)
+		}
+		touched = true
+	}
+	if !touched {
+		return
+	}
+	select {
+	case s.deltas <- republishDelta{}:
+	default:
+		s.requestReload()
 	}
 }
 

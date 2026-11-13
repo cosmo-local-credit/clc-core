@@ -308,3 +308,35 @@ func TestSettleRoutedSwapMapsTheSettlementEvent(t *testing.T) {
 	require.NoError(t, sub.settleRoutedSwap(context.Background(), nil, "", evt))
 	assert.Len(t, recorder.settlements, 2, "reverted, unrelated and untracked events settle nothing")
 }
+
+func TestFeeEventsReachTheRouter(t *testing.T) {
+	pair := routerSignals(trackerEvent.Event{
+		Success: true, TxType: "FEE_PAIR_UPDATED", ContractAddress: testQuoter, Block: 50,
+		Payload: map[string]any{"tokenIn": testToken, "tokenOut": testAggregator, "oldFee": "0", "newFee": "3000"},
+	})
+	require.Len(t, pair, 1)
+	d, ok := pair[0].(router.PairFeeDelta)
+	require.True(t, ok)
+	assert.Equal(t, uint64(3_000), d.FeePPM)
+	assert.False(t, d.Removed)
+	assert.Equal(t, uint64(50), d.Block)
+
+	removed := routerSignals(trackerEvent.Event{
+		Success: true, TxType: "FEE_PAIR_REMOVED", ContractAddress: testQuoter,
+		Payload: map[string]any{"tokenIn": testToken, "tokenOut": testAggregator},
+	})
+	require.Len(t, removed, 1)
+	r, ok := removed[0].(router.PairFeeDelta)
+	require.True(t, ok)
+	assert.True(t, r.Removed)
+
+	for _, kind := range []string{"FEE_DEFAULT_UPDATED", "PROTOCOL_FEE_UPDATED", "PROTOCOL_FEE_RECIPIENT_UPDATED", "PROTOCOL_FEE_ACTIVE_UPDATED"} {
+		signals := routerSignals(trackerEvent.Event{Success: true, TxType: kind, ContractAddress: testQuoter})
+		require.Len(t, signals, 1, kind)
+		assert.IsType(t, router.RefreshPoolDelta{}, signals[0], kind)
+	}
+	assert.Empty(t, routerSignals(trackerEvent.Event{
+		Success: true, TxType: "FEE_PAIR_UPDATED", ContractAddress: testQuoter,
+		Payload: map[string]any{"tokenIn": testToken, "tokenOut": testAggregator, "newFee": "2000000"},
+	}), "a fee above 100 % is refused")
+}

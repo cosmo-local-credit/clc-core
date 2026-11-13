@@ -31,6 +31,14 @@ const (
 	sealEvent          = "SEAL_STATE_CHANGE"
 	proxyUpgradeEvent  = "PROXY_UPGRADE"
 	quoterUpdatedEvent = "QUOTER_UPDATED"
+
+	// FeePolicy and ProtocolFeeController events (eth-tracker).
+	feeDefaultUpdatedEvent  = "FEE_DEFAULT_UPDATED"
+	feePairUpdatedEvent     = "FEE_PAIR_UPDATED"
+	feePairRemovedEvent     = "FEE_PAIR_REMOVED"
+	protocolFeeUpdatedEvent = "PROTOCOL_FEE_UPDATED"
+	protocolRecipientEvent  = "PROTOCOL_FEE_RECIPIENT_UPDATED"
+	protocolFeeActiveEvent  = "PROTOCOL_FEE_ACTIVE_UPDATED"
 )
 
 // decodeEvent reads a tracker message. The pinned eth-tracker module drops
@@ -98,8 +106,28 @@ func routerSignals(evt event.Event) []router.Delta {
 		if len(parties) > 0 {
 			return []router.Delta{router.TransferDelta{Token: contract, Parties: parties}}
 		}
-	case sealEvent, quoterUpdatedEvent:
+	case sealEvent, quoterUpdatedEvent, feeDefaultUpdatedEvent,
+		protocolFeeUpdatedEvent, protocolRecipientEvent, protocolFeeActiveEvent:
+		// The contract is the pool, its fee policy or its protocol fee
+		// controller; the refresh re-reads every pool that points at it.
 		return []router.Delta{router.RefreshPoolDelta{Address: contract}}
+	case feePairUpdatedEvent, feePairRemovedEvent:
+		in, okIn := addr("tokenIn")
+		out, okOut := addr("tokenOut")
+		if !okIn || !okOut {
+			return nil
+		}
+		d := router.PairFeeDelta{FeePolicy: contract, In: in, Out: out, Block: evt.Block,
+			Removed: evt.TxType == feePairRemovedEvent}
+		if !d.Removed {
+			fee, ok := payloadUint(evt, "newFee")
+			v, okV := parseUint256(fee)
+			if !ok || !okV || !v.IsUint64() || v.Uint64() > router.PPM {
+				return nil
+			}
+			d.FeePPM = v.Uint64()
+		}
+		return []router.Delta{d}
 	case proxyUpgradeEvent:
 		out := []router.Delta{router.RefreshPoolDelta{Address: contract}}
 		if proxy, ok := addr("proxy"); ok && proxy != contract {

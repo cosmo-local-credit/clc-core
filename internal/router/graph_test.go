@@ -202,3 +202,26 @@ func TestPlainTransferEligibility(t *testing.T) {
 	ok, _ = snap.TokenRoutable(0)
 	assert.True(t, ok)
 }
+
+func TestFeeBookKeepsTheNewestWrite(t *testing.T) {
+	book := NewFeeBook()
+	pool, in, out := common.HexToAddress("0x01"), common.HexToAddress("0x02"), common.HexToAddress("0x03")
+	book.Put(pool, in, out, 3_000, 10)
+	book.Remove(pool, in, out, 12)
+	_, ok := book.Get(pool, in, out)
+	assert.False(t, ok, "a removed override falls back to the default")
+	book.Put(pool, in, out, 9_000, 11)
+	_, ok = book.Get(pool, in, out)
+	assert.False(t, ok, "an older read cannot bring a removed override back")
+	book.Put(pool, in, out, 5_000, 13)
+	fee, ok := book.Get(pool, in, out)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(5_000), fee)
+
+	book.Put(pool, out, in, 0, 13)
+	book.ForgetValue(pool, 0)
+	_, ok = book.Get(pool, out, in)
+	assert.False(t, ok, "entries equal to the old default go when the default changes")
+	_, ok = book.Get(pool, in, out)
+	assert.True(t, ok, "real overrides stay")
+}

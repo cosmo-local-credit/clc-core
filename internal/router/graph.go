@@ -102,6 +102,8 @@ type (
 		Active        bool
 		Quoter        QuoterKind
 		QuoterAddress common.Address
+		FeePolicy     common.Address
+		Controller    common.Address
 		Verified      bool
 		ParamsKnown   bool
 		HasRegistry   bool
@@ -175,6 +177,9 @@ type (
 	feeEntry struct {
 		ppm   uint64
 		block uint64
+		// removed marks a pair fee the policy deleted: the pool's default
+		// applies, and an older read must not bring the override back.
+		removed bool
 	}
 
 	// BuildConfig carries what eligibility needs beyond the rows.
@@ -207,6 +212,13 @@ type (
 		FeesHeld     uint256.Int
 		HasBalance   bool
 		BalanceBlock uint64
+	}
+
+	// PairFee is one recorded pair fee.
+	PairFee struct {
+		Pool, In, Out common.Address
+		FeePPM        uint64
+		Block         uint64
 	}
 )
 
@@ -365,7 +377,7 @@ func (b *FeeBook) Get(pool, in, out common.Address) (uint64, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	entry, ok := b.fees[feeKey{pool, in, out}]
-	return entry.ppm, ok
+	return entry.ppm, ok && !entry.removed
 }
 
 // Put records a fee read at block, keeping the newer of two reads.
@@ -377,6 +389,31 @@ func (b *FeeBook) Put(pool, in, out common.Address, ppm, block uint64) {
 		return
 	}
 	b.fees[key] = feeEntry{ppm: ppm, block: block}
+}
+
+// ForgetValue drops a pool's recorded fees equal to ppm. After the pool's
+// default fee changes from ppm, those entries were the old default rather
+// than overrides, and would otherwise outlive it.
+func (b *FeeBook) ForgetValue(pool common.Address, ppm uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for key, entry := range b.fees {
+		if key.pool == pool && !entry.removed && entry.ppm == ppm {
+			delete(b.fees, key)
+		}
+	}
+}
+
+// Remove records that the pair's override was deleted at block, so the pool's
+// default fee applies.
+func (b *FeeBook) Remove(pool, in, out common.Address, block uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := feeKey{pool, in, out}
+	if current, ok := b.fees[key]; ok && current.block > block {
+		return
+	}
+	b.fees[key] = feeEntry{block: block, removed: true}
 }
 
 // ForgetPool drops every fee recorded for a pool, after its fee policy moved.
@@ -395,6 +432,20 @@ func (b *FeeBook) Len() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return len(b.fees)
+}
+
+// Entries lists every recorded pair fee, for export.
+func (b *FeeBook) Entries() []PairFee {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	out := make([]PairFee, 0, len(b.fees))
+	for k, v := range b.fees {
+		if v.removed {
+			continue
+		}
+		out = append(out, PairFee{Pool: k.pool, In: k.in, Out: k.out, FeePPM: v.ppm, Block: v.block})
+	}
+	return out
 }
 
 // NewState builds writer state from store rows.
@@ -494,6 +545,12 @@ func (st *State) Build(cfg BuildConfig, version uint64, fees *FeeBook) *Snapshot
 		}
 		if present(row.QuoterAddress) {
 			pool.QuoterAddress = common.HexToAddress(row.QuoterAddress)
+		}
+		if present(row.FeePolicyAddress) {
+			pool.FeePolicy = common.HexToAddress(row.FeePolicyAddress)
+		}
+		if present(row.ControllerAddress) {
+			pool.Controller = common.HexToAddress(row.ControllerAddress)
 		}
 		if cs := row.ChainState; cs != nil {
 			pool.ParamsKnown = true

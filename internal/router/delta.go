@@ -73,6 +73,17 @@ type (
 		Parties []common.Address
 	}
 
+	// PairFeeDelta records a FeePolicy pair fee change for every pool using
+	// that policy. Removed means the override was deleted and the default
+	// applies.
+	PairFeeDelta struct {
+		FeePolicy common.Address
+		In, Out   common.Address
+		FeePPM    uint64
+		Removed   bool
+		Block     uint64
+	}
+
 	// RefreshPoolDelta asks for one pool's parameters to be re-read, after a
 	// seal or proxy upgrade on the pool or its periphery.
 	RefreshPoolDelta struct {
@@ -102,6 +113,7 @@ func (ReloadDelta) isDelta()        {}
 func (DirtyDelta) isDelta()         {}
 func (TransferDelta) isDelta()      {}
 func (RefreshPoolDelta) isDelta()   {}
+func (PairFeeDelta) isDelta()       {}
 
 // Apply folds one delta into the state. It reports whether anything changed,
 // and whether the delta named a row the state does not hold, in which case the
