@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/keypair"
+	"github.com/cosmo-local-credit/clc-core/internal/router"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -87,10 +88,11 @@ type (
 		CatalogHasOwner(context.Context, pgx.Tx, int64, string) (bool, error)
 		SafeManagesAsset(context.Context, pgx.Tx, int64, string, string) (bool, error)
 		SafeExecutionsQueued(context.Context, pgx.Tx, []string) (map[string]bool, error)
-		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool) (int64, error)
-		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string) (int64, error)
-		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string) (int64, error)
-		ClearPoolTokenOracle(context.Context, pgx.Tx, string, string) (int64, error)
+		SetPoolTokenMembership(context.Context, pgx.Tx, string, string, bool, router.Position) ([]router.EdgeKey, error)
+		SetPoolTokenLimit(context.Context, pgx.Tx, string, string, string, router.Position) ([]router.EdgeKey, error)
+		SetPoolTokenOracle(context.Context, pgx.Tx, string, string, string, router.Position) ([]router.EdgeKey, error)
+		ClearPoolTokenOracle(context.Context, pgx.Tx, string, string, router.Position) ([]router.EdgeKey, error)
+		RouterStore
 		GetDeployedPoolByAddress(context.Context, pgx.Tx, string) (DeployedPool, error)
 		GetDeployedPoolByTrackingID(context.Context, pgx.Tx, string) (DeployedPool, error)
 		ListTakenPoolSymbols(context.Context, pgx.Tx, string) ([]string, error)

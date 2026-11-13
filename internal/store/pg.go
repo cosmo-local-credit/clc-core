@@ -105,6 +105,20 @@ type (
 		SetPoolTokenLimit            string `query:"set-pool-token-limit"`
 		SetPoolTokenOracle           string `query:"set-pool-token-oracle"`
 		ClearPoolTokenOracle         string `query:"clear-pool-token-oracle"`
+		SetPoolTokenPriceIndex       string `query:"set-pool-token-price-index"`
+		LoadRouterPools              string `query:"load-router-pools"`
+		LoadRouterVouchers           string `query:"load-router-vouchers"`
+		LoadRouterEdges              string `query:"load-router-edges"`
+		UpsertPoolTokenLiquidity     string `query:"upsert-pool-token-liquidity"`
+		UpsertPoolChainState         string `query:"upsert-pool-chain-state"`
+		CorrectPoolPointers          string `query:"correct-pool-pointers"`
+		SetPoolQuoterVerified        string `query:"set-pool-quoter-verified"`
+		InsertRoutedSwap             string `query:"insert-routed-swap"`
+		InsertRoutedSwapHop          string `query:"insert-routed-swap-hop"`
+		SettleRoutedSwapHop          string `query:"settle-routed-swap-hop"`
+		GetRoutedSwap                string `query:"get-routed-swap"`
+		ListRoutedSwaps              string `query:"list-routed-swaps"`
+		ListRoutedSwapHops           string `query:"list-routed-swap-hops"`
 		GetOracleFeedByName          string `query:"get-oracle-feed-by-name"`
 		ListOracleFeeds              string `query:"list-oracle-feeds"`
 		GetOTXByTrackingID           string `query:"get-otx-by-tracking-id"`
