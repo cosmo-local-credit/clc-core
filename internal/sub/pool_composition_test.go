@@ -339,4 +339,18 @@ func TestFeeEventsReachTheRouter(t *testing.T) {
 		Success: true, TxType: "FEE_PAIR_UPDATED", ContractAddress: testQuoter,
 		Payload: map[string]any{"tokenIn": testToken, "tokenOut": testAggregator, "newFee": "2000000"},
 	}), "a fee above 100 % is refused")
+
+	zero := routerSignals(trackerEvent.Event{
+		Success: true, TxType: "FEE_PAIR_UPDATED", ContractAddress: testQuoter,
+		Payload: map[string]any{"tokenIn": testToken, "tokenOut": testAggregator, "oldFee": "3000", "newFee": "0"},
+	})
+	require.Len(t, zero, 1)
+	z, ok := zero[0].(router.PairFeeDelta)
+	require.True(t, ok)
+	assert.True(t, z.Removed, "a zero pair fee means the default applies, as FeePolicy.getFee reads it")
+
+	assert.Empty(t, routerSignals(trackerEvent.Event{
+		Success: false, TxType: "FEE_PAIR_UPDATED", ContractAddress: testQuoter,
+		Payload: map[string]any{"tokenIn": testToken, "tokenOut": testAggregator, "newFee": "3000"},
+	}), "a reverted setter changed nothing")
 }

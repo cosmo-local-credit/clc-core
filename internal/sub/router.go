@@ -126,6 +126,9 @@ func routerSignals(evt event.Event) []router.Delta {
 				return nil
 			}
 			d.FeePPM = v.Uint64()
+			// FeePolicy stores 0 as "no override": getFee falls back to the
+			// default, and setPairFee(in, out, 0) emits no PairFeeRemoved.
+			d.Removed = d.FeePPM == 0
 		}
 		return []router.Delta{d}
 	case proxyUpgradeEvent:
