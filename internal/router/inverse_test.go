@@ -57,7 +57,7 @@ func capped(leg LegParams, headroom, liquidity uint64) LegParams {
 }
 
 func TestMaxInputSawtoothCase(t *testing.T) {
-	// ROUTER.md §6.5. Hop one: 1 % fee, 10 % protocol cut, so grosses 998
+	// Net is not monotone in gross. Hop one: 1 % fee, 10 % protocol cut, so grosses 998
 	// and 1000 net 989 while 999 nets 990. Hop two takes at most 989. A
 	// search that settles on 998 and scans down never finds 1000.
 	first := capped(relative(6, 6, 0, 0, 10_000, 100_000), 100_000, 100_000)

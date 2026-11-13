@@ -23,7 +23,7 @@ var (
 )
 
 type (
-	// creditDepthFilter is the server-resolved Credit filter (ROUTER.md §8): the
+	// creditDepthFilter is the server-resolved Credit filter: the
 	// pools the signed-in wallet can reach at creditDepth hops, so eligibility
 	// applies before paging, counts, facets and clustering.
 	creditDepthFilter struct {

@@ -163,7 +163,7 @@ func TestGrossRefusesWhereSolidityReverts(t *testing.T) {
 }
 
 func TestSettleMatchesProductionPool(t *testing.T) {
-	// §2.5: getAmountOut for 1,000,000 units through a 0-fee pool with the
+	// Measured on a production pool: getAmountOut for 1,000,000 units through a 0-fee pool with the
 	// 2 % protocol fee returns 999,800 — the 1 % floor times 2 %.
 	leg := relative(6, 6, 0, 0, 0, 20_000)
 	amount := u(1_000_000)
@@ -176,7 +176,7 @@ func TestSettleMatchesProductionPool(t *testing.T) {
 }
 
 func TestSettleFeeSawtooth(t *testing.T) {
-	// ROUTER.md §6.5: 1 % pool fee, 10 % protocol cut.
+	// 1 % pool fee, 10 % protocol cut: net is not monotone in gross.
 	for gross, want := range map[uint64]uint64{998: 989, 999: 990, 1000: 989, 1001: 990} {
 		g := u(gross)
 		_, _, net, err := Settle(&g, 10_000, 100_000)
@@ -302,7 +302,7 @@ func TestGrossAndSettleMatchReferenceOnRandomInputs(t *testing.T) {
 	}
 }
 
-// §6.3: g·K/D² <= net(g) < g·K/D² + 3 for every gross inside the fee domain.
+// The bounds SettleDenominator documents: g·K/D² <= net(g) < g·K/D² + 3 for every gross inside the fee domain.
 func TestSettleBoundsProperty(t *testing.T) {
 	rng := rand.New(rand.NewPCG(3, 4))
 	d2 := new(big.Int).SetUint64(PPM * PPM)

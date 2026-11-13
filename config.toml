@@ -103,7 +103,7 @@ sts_api_key = ""
 auto_execute = false
 
 [router]
-# Credit router (ROUTER.md). Discovery serves estimates from an in-memory graph
+# Credit router. Discovery serves estimates from an in-memory graph
 # kept current by the tracker events and four chain reconciliation loops; the
 # quote reads the pools at a pinned block and is the only authoritative answer.
 enabled = true
@@ -123,8 +123,8 @@ dirty_debounce_ms = 250
 stale_after_blocks = 120
 quote_deadline_secs = 300
 max_search_evaluations = 256
-# Proposal P5 (open): treat outputs within this margin as tied so an extra hop
-# is not chosen for a negligible gain. 0 compares exactly.
+# Treat two outputs within this margin (ppm) as tied, so an extra hop is not
+# chosen for a negligible gain. 0 compares exactly.
 tie_margin_ppm = 0
 holdings_cache_secs = 15
 chain_batch_size = 150

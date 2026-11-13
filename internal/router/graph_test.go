@@ -20,7 +20,7 @@ func addr(prefix byte, i int) string {
 	return a.Hex()
 }
 
-// syntheticRows builds a graph shaped like production (ROUTER.md §2.5): pools
+// syntheticRows builds a graph shaped like production on Gnosis: pools
 // with a median of about a dozen members, a few bridge vouchers sitting in
 // many pools, parity prices with some at 10x, most edges with headroom and
 // liquidity.

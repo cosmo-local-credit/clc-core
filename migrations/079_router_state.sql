@@ -1,4 +1,4 @@
--- Router state (ROUTER.md §4.1).
+-- Credit router state.
 --
 -- price_index is the RelativeQuoter price index, projected like token_limit.
 -- NULL means never heard; 0 is a real value and means parity on chain.

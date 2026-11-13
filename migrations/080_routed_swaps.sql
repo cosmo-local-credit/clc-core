@@ -1,4 +1,4 @@
--- Grouped receipts for routed exchanges (ROUTER.md §7.3).
+-- Grouped receipts for routed exchanges.
 --
 -- When the relay accepts a batch that decodes as a swap route, it records the
 -- route in the same transaction as the job, from the signed calldata alone.

@@ -1,6 +1,7 @@
 """Count eligible legs, two-hop routes and voucher pairs in a router fixture.
 
-An independent implementation of ROUTER.md §4.2's eligibility rules, so the Go
+An independent implementation of the router's leg eligibility rules
+(Snapshot.eligible in internal/router/graph.go), so the Go
 engine's counts on the production fixture are checked against something it
 does not share code with. Writes production_graph.expected.json next to the
 fixture:

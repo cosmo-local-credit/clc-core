@@ -5000,7 +5000,7 @@ SET status = $2::TEXT, resolved_by = $3::INT, resolved_at = CURRENT_TIMESTAMP
 WHERE id = $1::BIGINT AND status = 'open'
 RETURNING id;
 
--- Router (ROUTER.md). The graph is a cache of these rows: after any reload it
+-- Credit router. Its in-memory graph is a cache of these rows: after any reload it
 -- equals what the database holds.
 
 --name: load-router-pools
@@ -5112,7 +5112,8 @@ UPDATE pool_chain_state
 SET quoter_verified = $2::BOOLEAN, updated_at = CURRENT_TIMESTAMP
 WHERE pool_id = $1::INT AND block_number <= $3::BIGINT;
 
--- Routed swap receipts (ROUTER.md §7.3).
+-- Routed swap receipts: one record per relayed route, each hop filled from
+-- its settlement event.
 
 --name: insert-routed-swap
 INSERT INTO routed_swaps (tracking_id, chain_id, wallet, recipient, token_in, token_out,

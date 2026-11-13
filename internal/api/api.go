@@ -454,7 +454,7 @@ func New(o APIOpts) *API {
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
 	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)
 
-	// Credit router (ROUTER.md §8). Discovery is an estimate as of a block;
+	// Credit router. Discovery is an estimate as of a block;
 	// only the quote is authoritative, and it is rate-limited per user.
 	userGroup.GET("/me/credit", a.creditReachHandler)
 	userGroup.GET("/me/credit/routes", a.creditRoutesHandler)

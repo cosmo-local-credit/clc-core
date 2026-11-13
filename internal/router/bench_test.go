@@ -6,7 +6,7 @@ import (
 	"github.com/holiman/uint256"
 )
 
-// Production shape (ROUTER.md §2.5): 105 pools, ~1,250 vouchers; the largest
+// Production shape on Gnosis in November 2026: 105 pools, ~1,250 vouchers; the largest
 // wallet holds 66 vouchers. The 10x graph checks the engine scales.
 func benchSnapshot(b *testing.B, scale int) *Snapshot {
 	b.Helper()

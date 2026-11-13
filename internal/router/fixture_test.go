@@ -92,8 +92,8 @@ func countRoutes(snap *Snapshot) routeCounts {
 
 // The production graph, captured from public data at a pinned Gnosis block
 // (cmd/router-snapshot), must give the same counts as an independent
-// implementation of the eligibility rules (testdata/count_routes.py). ROUTER.md
-// §2.5 measured 27,578 one-hop and 119,109 two-hop routes at block 49,254,469.
+// implementation of the eligibility rules (testdata/count_routes.py). At block
+// 49,254,469 that is 27,578 one-hop and 119,109 two-hop routes.
 func TestProductionGraphCounts(t *testing.T) {
 	fixture, expected := loadProductionFixture(t)
 
