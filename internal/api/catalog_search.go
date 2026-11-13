@@ -565,6 +565,10 @@ func (a *API) resolveVoucherFilter(
 // resolvePoolFilter turns stable pool references into authoritative database
 // IDs. A short resolution fails the complete request rather than weakening it.
 func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearchRequest) (bool, error) {
+	if search.credit != nil {
+		search.filter = search.filter.WithReachablePoolRelationship(search.credit.poolIDs)
+		return false, nil
+	}
 	if len(search.poolRefs) == 0 {
 		return false, nil
 	}

@@ -2146,6 +2146,8 @@ Voucher summary fields:
 | 403 | `E10` | `nearby=true` and the caller uses a service token. |
 | 429 | `E11` | The rate limit is exceeded. |
 
+**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+
 ### 7.3 `GET /api/v2/vouchers/:address`
 
 **Access:** Public. See section 7.1 for the rate limit and the cache headers.
@@ -2285,6 +2287,8 @@ Status `200`, description `Offerings`. The `result` has these fields:
 | 401 | `E06` | `nearby=true` and the request has no valid session. |
 | 403 | `E10` | `nearby=true` and the caller uses a service token. |
 | 429 | `E11` | The rate limit is exceeded. |
+
+**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
 
 ### 7.7 `GET /api/v2/marketplace`
 
@@ -3219,6 +3223,8 @@ Each `tagFacets` item is `{"tag": "Art", "count": 3}`. The array has every tag o
   }
 }
 ```
+
+**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
 
 ### 9.3 `GET /api/v2/catalogs/:id`
 
@@ -5112,6 +5118,8 @@ Only relative-priced pools, and vouchers whose transfers move exactly the stated
 
 Every response is private: `Cache-Control: private, no-store`.
 
+Discovery screens use the same reachable set through `creditDepth=1|2`, resolved on the server: market-map (with `/points` and `/facets`), marketplace and reports filter by the reachable pools, and the voucher catalog, offerings, wants and curated catalogs by resources related to them.
+
 | State | Status | Code | Meaning |
 |---|---|---|---|
 | Result | `200` | | Possibly empty. An empty result is a real answer. |
@@ -5179,6 +5187,7 @@ The routes from the wallet's vouchers to one voucher, grouped by input voucher.
 - **Ranking.** Within one input voucher: with an `amount`, routes that carry it come first, by highest delivered output (`exactInput`) or lowest required input (`exactOutput`); routes that cannot carry it follow, each with its maximum and a `refusal` (`reason`, `hop`). Without an amount, routes are ordered by `rate`, the output for one whole input voucher. Ties go to fewer hops, then pool, bridge and input addresses. Different input vouchers are separate choices and are not ranked against each other. (`router.tie_margin_ppm` can treat near-equal outputs as tied; it is 0.)
 - **Maximum.** `maxAmountIn` is the most the wallet can spend through the route, and `maxIsExact: true` means every larger input has been ruled out. `null` means the maximum could not be established; the route stays listed and can still be quoted. `limitedBy` is `wallet`, `deposit_cap` or `liquidity`, on hop `limitedByHop`.
 - **Fees.** `feeSource` is `pair` once the exact pair fee has been read, `default` until then. `effectiveFeePpm` is `(feeFree − delivered) · 1e6 / feeFree` at `rate`.
+- **Route id.** `id` is derived from the route's pools and vouchers, so the same route has the same id in every listing.
 - **Paging.** 50 routes per page across the groups, never silently truncated. A cursor from a listing that has since changed returns `409` `E28`.
 - `fallbackPools` lists the pools that hold the target, with the vouchers each accepts, so a screen with no route still says where the voucher lives.
 

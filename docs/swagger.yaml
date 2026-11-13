@@ -899,6 +899,15 @@ paths:
           type: boolean
           default: false
         description: Value for Go 'ParseBool', for example 'true' or 'false'. The server computes tag facets on the first page only.
+      - name: creditDepth
+        in: query
+        required: false
+        schema:
+          type: integer
+          enum:
+          - 1
+          - 2
+        description: Narrow to resources related to the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
       - name: pools
         in: query
         required: false
@@ -1635,6 +1644,15 @@ paths:
           type: boolean
           default: false
         description: Value for Go 'ParseBool', for example 'true' or 'false'. The server computes tag facets on the first page only.
+      - name: creditDepth
+        in: query
+        required: false
+        schema:
+          type: integer
+          enum:
+          - 1
+          - 2
+        description: Narrow to resources related to the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
       - name: pools
         in: query
         required: false
@@ -2453,6 +2471,15 @@ paths:
           - all
           default: any
         description: A catalog must have any of the tags, or all of the tags.
+      - name: creditDepth
+        in: query
+        required: false
+        schema:
+          type: integer
+          enum:
+          - 1
+          - 2
+        description: Narrow to resources related to the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
       - name: pools
         in: query
         required: false

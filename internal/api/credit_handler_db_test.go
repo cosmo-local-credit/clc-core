@@ -401,3 +401,41 @@ func asString(t *testing.T, v any) string {
 	require.True(t, ok, "want a string, got %v", v)
 	return s
 }
+
+// Vouchers, offerings, wants and catalogs take creditDepth too, resolved on
+// the server without the cap on client-sent pool lists.
+func TestCreditDepthOnCatalogLists(t *testing.T) {
+	h := newCreditHarness(t, true)
+	n := h.net
+	fixture := map[string]string{}
+	for addr, label := range map[common.Address]string{n.A: "A", n.B: "B", n.C: "C", n.D: "D"} {
+		fixture[strings.ToLower(addr.Hex())] = label
+		// The market catalog lists only vouchers with a location.
+		_, err := h.api.store.Pool().Exec(context.Background(),
+			`UPDATE vouchers SET geo_lat = -1.29, geo_lng = 36.82 WHERE id = $1`, n.VoucherIDs[addr])
+		require.NoError(t, err)
+	}
+	vouchers := func(depth string) map[string]bool {
+		status, header, body := h.do(t, http.MethodGet, "/api/v2/vouchers?perPage=100&creditDepth="+depth, nil)
+		require.Equal(t, http.StatusOK, status, body)
+		assert.Equal(t, "private, no-store", header.Get("Cache-Control"))
+		out := map[string]bool{}
+		for _, v := range asList(t, result(t, body)["vouchers"]) {
+			address, _ := asMap(t, v)["address"].(string)
+			if label, ok := fixture[strings.ToLower(address)]; ok {
+				out[label] = true
+			}
+		}
+		return out
+	}
+	// Depth 1 reaches P1 {A, B} and P3 {A, C}; depth 2 adds P2 {B, C} and P4 {C, D}.
+	assert.Equal(t, map[string]bool{"A": true, "B": true, "C": true}, vouchers("1"))
+	assert.Equal(t, map[string]bool{"A": true, "B": true, "C": true, "D": true}, vouchers("2"))
+
+	for _, path := range []string{"/api/v2/offerings", "/api/v2/wants", "/api/v2/catalogs"} {
+		status, _, body := h.do(t, http.MethodGet, path+"?creditDepth=2", nil)
+		assert.Equal(t, http.StatusOK, status, "%s: %v", path, body)
+		status, _, _ = h.do(t, http.MethodGet, path+"?creditDepth=2&pools=100:"+n.P1.Hex(), nil)
+		assert.Equal(t, http.StatusBadRequest, status, "%s: creditDepth replaces pools", path)
+	}
+}

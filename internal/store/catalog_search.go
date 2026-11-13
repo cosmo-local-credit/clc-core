@@ -329,6 +329,17 @@ func (f CatalogFilter) WithReachablePoolIDs(raw []uint64) CatalogFilter {
 	return f
 }
 
+// WithReachablePoolRelationship is WithPoolIDsMatch(any) for a
+// server-resolved creditDepth set: vouchers, offerings, wants and catalogs
+// related to any reachable pool. The client-list cap does not apply.
+func (f CatalogFilter) WithReachablePoolRelationship(raw []uint64) CatalogFilter {
+	ids := slices.Clone(raw)
+	slices.Sort(ids)
+	f.PoolIDs = slices.Compact(ids)
+	f.PoolMatch = TagMatchAny
+	return f
+}
+
 // WithReachableCreditablePoolIDs is WithCreditablePoolIDs for a
 // server-resolved creditDepth set.
 func (f CatalogFilter) WithReachableCreditablePoolIDs(raw []uint64) CatalogFilter {
