@@ -97,6 +97,11 @@ func (a *API) marketplaceListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.poolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
 		if handled, readErr := a.rejectUnknownTags(c, tx, search.filter.Tags); handled || readErr != nil {
 			if readErr != nil {

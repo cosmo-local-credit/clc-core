@@ -73,10 +73,12 @@ type (
 		poolRefs           []store.PoolRef
 		poolMatch          store.TagMatch
 		creditablePoolRefs []store.PoolRef
-		postVoucherRefs    []store.VoucherRef
-		postVoucherMatch   store.TagMatch
-		postPoolRefs       []store.PoolRef
-		postPoolMatch      store.TagMatch
+		// credit is the server-resolved creditDepth set, nil when absent.
+		credit           *creditDepthFilter
+		postVoucherRefs  []store.VoucherRef
+		postVoucherMatch store.TagMatch
+		postPoolRefs     []store.PoolRef
+		postPoolMatch    store.TagMatch
 		// facets asks for the tag facet alongside the page. It is honoured on
 		// the first page only: a facet describes the whole filtered set rather
 		// than the page, so recomputing it per cursor page would return the
@@ -563,6 +565,11 @@ func (a *API) resolveVoucherFilter(
 // resolvePoolFilter turns stable pool references into authoritative database
 // IDs. A short resolution fails the complete request rather than weakening it.
 func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearchRequest) (bool, error) {
+	if search.credit != nil {
+		search.filter = search.filter.WithReachablePoolRelationship(search.credit.poolIDs).
+			WithCreditVoucherIDs(search.credit.heldVoucherIDs)
+		return false, nil
+	}
 	if len(search.poolRefs) == 0 {
 		return false, nil
 	}
@@ -583,6 +590,11 @@ func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearc
 // resolveDiscoveryPoolFilter keeps the marketplace-wide pool dimension
 // separate from Post relationship filters.
 func (a *API) resolveDiscoveryPoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearchRequest) (bool, error) {
+	if search.credit != nil {
+		search.filter = search.filter.WithReachablePoolIDs(search.credit.poolIDs).
+			WithCreditVoucherIDs(search.credit.heldVoucherIDs)
+		return false, nil
+	}
 	if len(search.poolRefs) == 0 {
 		return false, nil
 	}
@@ -635,6 +647,11 @@ func (a *API) resolveCreditablePoolFilter(
 	tx pgx.Tx,
 	search *catalogSearchRequest,
 ) (bool, error) {
+	if search.credit != nil {
+		search.filter = search.filter.WithReachableCreditablePoolIDs(search.credit.poolIDs).
+			WithCreditVoucherIDs(search.credit.heldVoucherIDs)
+		return false, nil
+	}
 	if len(search.creditablePoolRefs) == 0 {
 		return false, nil
 	}

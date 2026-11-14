@@ -95,6 +95,7 @@ func curatedCatalogPageQuery(queries *Queries, ownerID uint64, filter CatalogFil
 		filter.TagMatch == TagMatchAll, filter.PoolIDs, cursor.ID, limit,
 		hasBounds, minLng, minLat, maxLng, maxLat,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+		voucherIDsParam(filter.CreditVoucherIDs),
 	}
 	if origin != nil {
 		query = queries.ListCuratedCatalogsNearby
@@ -103,6 +104,7 @@ func curatedCatalogPageQuery(queries *Queries, ownerID uint64, filter CatalogFil
 			ownerID, filter.likeTerm(), filter.prefixOnly(), filter.Tags, filter.TagMatch == TagMatchAll, filter.PoolIDs, origin.Lat, origin.Lng,
 			bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat,
 			cursor.Distance, cursor.ID, limit,
+			voucherIDsParam(filter.CreditVoucherIDs),
 		}
 	}
 	return query, args
@@ -126,11 +128,13 @@ func (pg *Pg) ListCuratedCatalogTagFacets(ctx context.Context, tx pgx.Tx, ownerI
 		ownerID, filter.likeTerm(), filter.prefixOnly(), filter.PoolIDs,
 		hasBounds, minLng, minLat, maxLng, maxLat,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+		voucherIDsParam(filter.CreditVoucherIDs),
 	}
 	if origin != nil {
 		query = pg.queries.ListCuratedCatalogTagFacetsNearby
 		bounds := origin.bounds()
-		args = []any{ownerID, filter.likeTerm(), filter.prefixOnly(), filter.PoolIDs, origin.Lat, origin.Lng, bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat}
+		args = []any{ownerID, filter.likeTerm(), filter.prefixOnly(), filter.PoolIDs, origin.Lat, origin.Lng, bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat,
+			voucherIDsParam(filter.CreditVoucherIDs)}
 	}
 	rows := []TagFacet{}
 	err := pgxscan.Select(ctx, tx, &rows, query, args...)

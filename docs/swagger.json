@@ -301,6 +301,103 @@
           "409": {
             "$ref": "#/components/responses/Conflict",
             "description": "E17: The placeholder email of the new address is linked to another user. The address is not registered."
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone",
+            "description": "E20: The address is a replaced sign-in card. The service does not register it again."
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/key-rotation": {
+      "post": {
+        "tags": [
+          "Auth endpoints"
+        ],
+        "summary": "Replace a compromised sign-in card",
+        "description": "Moves the account from the old sign-in card to a new one. Both proofs sign a SIWE message whose statement is exactly \"Replace sign-in card <old address> with <new address>\", with checksummed addresses, its own nonce and the service chain id. If the old address has an active passkey, the old proof must be a passkey assertion. The account keeps its user id; posts, offerings, reviews, flags and retirement requests follow the address; passkeys move as 'moved'; the old address can never sign in or register again; the new address is queued for the AccountIndex. Catalog ownership changes only when the chain does. The response sets the session cookie for the new address, and a session for the old address stops working. A retry of a committed rotation with fresh proofs returns 'replayed: true'. Access: Public. The route checks proofs, not the session cookie.",
+        "operationId": "postAuthKeyRotation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "old": {
+                    "type": "object",
+                    "description": "Exactly one of siwe or webauthn.",
+                    "properties": {
+                      "siwe": {
+                        "$ref": "#/components/schemas/KeyRotationSIWEProof"
+                      },
+                      "nonce": {
+                        "type": "string",
+                        "description": "With webauthn. A fresh nonce from POST /auth/nonce, spent when the assertion verifies."
+                      },
+                      "webauthn": {
+                        "type": "object",
+                        "description": "A WebAuthn assertion by an active passkey of the old address, in the body shape of POST /auth/webauthn/verify. Its challenge is base64url (unpadded) of sha256(statement + \"\\n\" + nonce); a sign-in challenge is refused.",
+                        "properties": {
+                          "credentialId": {
+                            "type": "string"
+                          },
+                          "authenticatorData": {
+                            "type": "string"
+                          },
+                          "clientDataJSON": {
+                            "type": "string"
+                          },
+                          "signature": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "new": {
+                    "$ref": "#/components/schemas/KeyRotationSIWEProof"
+                  }
+                },
+                "required": [
+                  "old",
+                  "new"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sign-in card replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyRotationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E02 or E04: The body is not valid, a proof is missing, both old proofs are set, or a proof does not match the statement, signer, chain or nonce."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: The account is not APPROVED, or the old address has an active passkey and the request sent old.siwe (result.passkeyRequired is true)."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "E07: No account holds the old or the new address."
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict",
+            "description": "E16: The account no longer holds the old address, the new address already has an account, or a deployment of the account is in flight."
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone",
+            "description": "E20: The old address was already replaced with a different address."
           }
         },
         "security": []
@@ -567,7 +664,7 @@
                               },
                               "state": {
                                 "type": "string",
-                                "description": "'pending', 'active', 'failed', 'legacy' or 'unverified'."
+                                "description": "'pending', 'active', 'failed', 'legacy', 'unverified' or 'moved'. A moved credential came with the account in a key rotation and signs in once the new wallet registers it."
                               },
                               "createdAt": {
                                 "type": "string",
@@ -580,6 +677,14 @@
                                   "null"
                                 ],
                                 "description": "Set only while 'state' is 'pending'. Use it with 'GET /api/v2/relayer/track/:trackingId'."
+                              },
+                              "publicKeyX": {
+                                "type": "string",
+                                "description": "P-256 public key X as a decimal string. Needed to register a moved passkey on the new wallet."
+                              },
+                              "publicKeyY": {
+                                "type": "string",
+                                "description": "P-256 public key Y as a decimal string."
                               }
                             }
                           }
@@ -1223,6 +1328,16 @@
               "default": false
             },
             "description": "Value for Go 'ParseBool', for example 'true' or 'false'. The server computes tag facets on the first page only."
+          },
+          {
+            "name": "creditDepth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
           },
           {
             "name": "pools",
@@ -2306,6 +2421,16 @@
             "description": "Value for Go 'ParseBool', for example 'true' or 'false'. The server computes tag facets on the first page only."
           },
           {
+            "name": "creditDepth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
+          },
+          {
             "name": "pools",
             "in": "query",
             "required": false,
@@ -2515,6 +2640,16 @@
             "description": "Verified pool references as chainId:address. Repeat the parameter or use commas."
           },
           {
+            "name": "creditDepth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
+          },
+          {
             "name": "postTiming",
             "in": "query",
             "required": false,
@@ -2682,6 +2817,16 @@
               "type": "string"
             },
             "description": "Verified pool references as chainId:address. Repeat the parameter or use commas."
+          },
+          {
+            "name": "creditDepth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
           },
           {
             "name": "postTiming",
@@ -2862,6 +3007,16 @@
             "description": "Verified pool references as chainId:address. Repeat the parameter or use commas."
           },
           {
+            "name": "creditDepth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
+          },
+          {
             "name": "postTiming",
             "in": "query",
             "required": false,
@@ -3023,6 +3178,16 @@
             "description": "Matches the name, symbol, description, tags and related names of a row."
           },
           {
+            "name": "creditDepth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
+          },
+          {
             "name": "postTiming",
             "in": "query",
             "required": false,
@@ -3034,7 +3199,7 @@
                 "all"
               ]
             },
-            "description": "Schedule filter for Posts only. Future includes posts with no end time or an end time at or after the database transaction time. Cannot be combined with posted."
+            "description": "Schedule filter for explicitly selected Posts only. Future includes posts with no end time or an end time at or after the database transaction time. Cannot be combined with posted."
           },
           {
             "name": "postVouchers",
@@ -3323,16 +3488,6 @@
                                 ],
                                 "description": "For a pool row and a catalog row."
                               },
-                              "createdAt": {
-                                "type": "string",
-                                "format": "date-time",
-                                "description": "RFC 3339 time."
-                              },
-                              "updatedAt": {
-                                "type": "string",
-                                "format": "date-time",
-                                "description": "RFC 3339 time."
-                              },
                               "relatedKind": {
                                 "type": [
                                   "string",
@@ -3353,6 +3508,16 @@
                                   "null"
                                 ],
                                 "description": "The symbol of the first related resource for a post row."
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "description": "RFC 3339 time."
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "description": "RFC 3339 time."
                               }
                             }
                           },
@@ -3525,6 +3690,16 @@
               "default": "any"
             },
             "description": "A catalog must have any of the tags, or all of the tags."
+          },
+          {
+            "name": "creditDepth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
           },
           {
             "name": "pools",
@@ -7215,6 +7390,27 @@
                               "address": {
                                 "type": "string"
                               },
+                              "description": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "description": "The feed's pair as its description() reports it, for example 'EUR / USD'."
+                              },
+                              "decimals": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "description": "The decimals of the feed's answer."
+                              },
+                              "maxStalenessSeconds": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "description": "The per-feed freshness bound to send with setOracle(token, oracle, maxStaleness). Null means the quoter's global bound applies."
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time"
@@ -7240,10 +7436,13 @@
                   "result": {
                     "feeds": [
                       {
-                        "id": 1,
-                        "chainId": 42220,
-                        "name": "KES/USD",
-                        "address": "0x1111111111111111111111111111111111111111",
+                        "id": 7,
+                        "chainId": 100,
+                        "name": "EUR",
+                        "address": "0xab70BCB260073d036d1660201e9d5405F5829b7a",
+                        "description": "EUR / USD",
+                        "decimals": 8,
+                        "maxStalenessSeconds": 93600,
                         "createdAt": "2026-08-01T08:00:00Z",
                         "updatedAt": "2026-08-01T08:00:00Z"
                       }
@@ -7884,7 +8083,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Repeat the parameter or use a comma-separated list of 'chainId:address' values. At most 12 distinct values. Every pool must exist. A Pool matches when the Post directly links it or links an active Voucher currently allowed by it."
+            "description": "Repeat the parameter or use a comma-separated list of 'chainId:address' values. At most 12 distinct values. Every pool must exist."
           },
           {
             "name": "poolMatch",
@@ -7899,6 +8098,16 @@
               "default": "any"
             },
             "description": "A Post must match any or all selected Pools. A Pool matches a direct link or an active linked Voucher currently allowed by it."
+          },
+          {
+            "name": "creditDepth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
           },
           {
             "name": "creditablePools",
@@ -8022,6 +8231,13 @@
                               "geoLng": {
                                 "type": "number"
                               },
+                              "distanceMeters": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ],
+                                "description": "Set when a nearest-order origin is available."
+                              },
                               "periodFrom": {
                                 "description": "The value can be null."
                               },
@@ -8068,13 +8284,6 @@
                               "pools": {
                                 "type": "array",
                                 "items": {}
-                              },
-                              "distanceMeters": {
-                                "type": [
-                                  "number",
-                                  "null"
-                                ],
-                                "description": "Set when a nearest-order origin is available."
                               }
                             }
                           },
@@ -12037,6 +12246,1340 @@
         ]
       }
     },
+    "/api/v2/users/me/key-rotations": {
+      "get": {
+        "tags": [
+          "Current user"
+        ],
+        "summary": "List the sign-in cards this account replaced",
+        "description": "Lists the sign-in cards the account replaced, newest first, so the app can move what is left on an old card. GET /api/v2/users/me/owned-pools?owner=<oldAddress> lists the pools an old address still owns. Access: User session.",
+        "operationId": "getUsersMeKeyRotations",
+        "responses": {
+          "200": {
+            "description": "Replaced sign-in cards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "rotations": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "oldAddress": {
+                                "type": "string"
+                              },
+                              "newAddress": {
+                                "type": "string"
+                              },
+                              "initiatedBy": {
+                                "type": "string",
+                                "enum": [
+                                  "user",
+                                  "admin"
+                                ]
+                              },
+                              "adminUserId": {
+                                "type": "integer"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: No valid credential."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: The caller is a service token."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/users/me/credit": {
+      "get": {
+        "tags": [
+          "Current user"
+        ],
+        "summary": "Estimate what the session wallet can reach",
+        "description": "The vouchers and pools the wallet can probably reach in one or two hops, from an in-memory graph as of asOfBlock. An estimate; only a quote is authoritative. Private: Cache-Control private, no-store. Access: User session.",
+        "operationId": "getUsersMeCredit",
+        "parameters": [
+          {
+            "name": "depth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "max, or 1 to the router's maximum (3). A larger depth includes every smaller one. Default max."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estimated reach",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "asOfBlock": {
+                          "type": "integer"
+                        },
+                        "graphVersion": {
+                          "type": "integer"
+                        },
+                        "stale": {
+                          "type": "boolean"
+                        },
+                        "depth": {
+                          "type": "integer"
+                        },
+                        "digest": {
+                          "type": "string"
+                        },
+                        "inputs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "voucher": {
+                                "type": "string"
+                              },
+                              "balance": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              }
+                            }
+                          }
+                        },
+                        "vouchers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "minHops": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "pools": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "minHops": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E04: depth is not 1 or 2."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: no valid user session."
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable",
+            "description": "E27 router_unavailable: the graph or the RPC cannot be used. Retry. Never an empty result."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/users/me/credit/routes": {
+      "get": {
+        "tags": [
+          "Current user"
+        ],
+        "summary": "List routes to one voucher",
+        "description": "Routes from the wallet's vouchers to one voucher, grouped by input voucher and ranked within each group: with an amount, routes that carry it first by output (exactInput) or input (exactOutput); otherwise by rate. Ties go to fewer hops. 50 routes per page, never silently truncated. Estimates as of asOfBlock. Access: User session.",
+        "operationId": "getUsersMeCreditRoutes",
+        "parameters": [
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The voucher to obtain."
+          },
+          {
+            "name": "depth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(max|[1-5])$"
+            },
+            "description": "max, or 1 to the router's maximum (3). Default max."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only routes that spend this voucher."
+          },
+          {
+            "name": "amount",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Raw units. With it, each route reports carriesAmount."
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "exactInput",
+                "exactOutput"
+              ]
+            },
+            "description": "exactInput (default) or exactOutput."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "From a previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Routes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "asOfBlock": {
+                          "type": "integer"
+                        },
+                        "graphVersion": {
+                          "type": "integer"
+                        },
+                        "stale": {
+                          "type": "boolean"
+                        },
+                        "target": {
+                          "type": "object",
+                          "properties": {
+                            "address": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "decimals": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        "complete": {
+                          "type": "boolean"
+                        },
+                        "inputs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "voucher": {
+                                "type": "string"
+                              },
+                              "walletBalance": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "routes": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "hops": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "pool": {
+                                            "type": "object",
+                                            "properties": {
+                                              "address": {
+                                                "type": "string"
+                                              },
+                                              "name": {
+                                                "type": "string"
+                                              }
+                                            }
+                                          },
+                                          "tokenIn": {
+                                            "type": "string"
+                                          },
+                                          "tokenOut": {
+                                            "type": "string"
+                                          },
+                                          "feePpm": {
+                                            "type": "string"
+                                          },
+                                          "feeSource": {
+                                            "type": "string",
+                                            "enum": [
+                                              "pair",
+                                              "default"
+                                            ]
+                                          },
+                                          "protocolFeePpm": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "rate": {
+                                      "type": [
+                                        "object",
+                                        "null"
+                                      ],
+                                      "properties": {
+                                        "amountIn": {
+                                          "type": "string",
+                                          "description": "Raw token units as a decimal string."
+                                        },
+                                        "amountOut": {
+                                          "type": "string",
+                                          "description": "Raw token units as a decimal string."
+                                        }
+                                      }
+                                    },
+                                    "maxAmountIn": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "maxAmountOut": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "maxIsExact": {
+                                      "type": "boolean"
+                                    },
+                                    "limitedBy": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ],
+                                      "description": "wallet, deposit_cap or liquidity."
+                                    },
+                                    "limitedByHop": {
+                                      "type": "integer"
+                                    },
+                                    "carriesAmount": {
+                                      "type": "boolean"
+                                    },
+                                    "amountIn": {
+                                      "type": "string",
+                                      "description": "Raw token units as a decimal string."
+                                    },
+                                    "amountOut": {
+                                      "type": "string",
+                                      "description": "Raw token units as a decimal string."
+                                    },
+                                    "refusal": {
+                                      "type": "object",
+                                      "properties": {
+                                        "reason": {
+                                          "type": "string"
+                                        },
+                                        "hop": {
+                                          "type": "integer"
+                                        }
+                                      }
+                                    },
+                                    "effectiveFeePpm": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "fallbackPools": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "liquidity": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "accepts": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "cursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E04: to is missing, or a parameter is not valid."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: no valid user session."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "E03: the voucher is not in the catalog."
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict",
+            "description": "E28: the listing changed between pages; restart from the first page."
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable",
+            "description": "E27 router_unavailable: the graph or the RPC cannot be used. Retry. Never an empty result."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/users/me/credit/quote": {
+      "post": {
+        "tags": [
+          "Current user"
+        ],
+        "summary": "Quote a route and return the batch to sign",
+        "description": "Reads the pools and the wallet at one pinned block, reproduces the contract arithmetic, checks it against getAmountOut, simulates the batch, and returns the SignedBatchedCall fields and EIP-712 digest. Three calls per hop: approve(pool, 0), approve(pool, amountIn), bounded withdraw. Intermediate hops pay the wallet; hop i must deliver what hop i+1 spends. The final minimum is the quoted output (exactInput) or the requested amount (exactOutput); no tolerance. Nothing is stored. Rate limit 0.5 per second per user, burst 10. Access: User session.",
+        "operationId": "postUsersMeCreditQuote",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "route",
+                  "mode",
+                  "amount"
+                ],
+                "properties": {
+                  "route": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "pool",
+                        "tokenIn",
+                        "tokenOut"
+                      ],
+                      "properties": {
+                        "pool": {
+                          "type": "string"
+                        },
+                        "tokenIn": {
+                          "type": "string"
+                        },
+                        "tokenOut": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "exactInput",
+                      "exactOutput"
+                    ]
+                  },
+                  "amount": {
+                    "type": "string",
+                    "description": "Raw token units as a decimal string."
+                  },
+                  "recipient": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Final recipient; the wallet by default."
+                  },
+                  "keyHash": {
+                    "type": "string",
+                    "description": "Empty or zero for the root key (Sign-in Card); a passkey sends its key hash."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Quote and signable batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "quoteId": {
+                          "type": "string"
+                        },
+                        "block": {
+                          "type": "object",
+                          "properties": {
+                            "number": {
+                              "type": "integer"
+                            },
+                            "hash": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "expiresAt": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string"
+                        },
+                        "amountIn": {
+                          "type": "string",
+                          "description": "Raw token units as a decimal string."
+                        },
+                        "amountOut": {
+                          "type": "string",
+                          "description": "Raw token units as a decimal string."
+                        },
+                        "minAmountOut": {
+                          "type": "string",
+                          "description": "Raw token units as a decimal string."
+                        },
+                        "recipient": {
+                          "type": "string"
+                        },
+                        "hops": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "pool": {
+                                "type": "string"
+                              },
+                              "tokenIn": {
+                                "type": "string"
+                              },
+                              "tokenOut": {
+                                "type": "string"
+                              },
+                              "amountIn": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "grossOut": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "poolFee": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "protocolFee": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "netOut": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "minAmountOut": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "feePpm": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              },
+                              "protocolFeePpm": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              }
+                            }
+                          }
+                        },
+                        "fees": {
+                          "type": "object",
+                          "properties": {
+                            "feeFreeAmountOut": {
+                              "type": "string",
+                              "description": "Raw token units as a decimal string."
+                            },
+                            "effectiveFeePpm": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "surplus": {
+                          "type": "object",
+                          "properties": {
+                            "output": {
+                              "type": "string",
+                              "description": "Raw token units as a decimal string."
+                            },
+                            "bridge": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "voucher": {
+                                    "type": "string"
+                                  },
+                                  "amount": {
+                                    "type": "string",
+                                    "description": "Raw token units as a decimal string."
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "batch": {
+                          "type": "object",
+                          "properties": {
+                            "batchedCall": {
+                              "type": "object",
+                              "properties": {
+                                "calls": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "to": {
+                                        "type": "string"
+                                      },
+                                      "value": {
+                                        "type": "string"
+                                      },
+                                      "data": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                },
+                                "revertOnFailure": {
+                                  "type": "boolean"
+                                }
+                              }
+                            },
+                            "nonce": {
+                              "type": "string"
+                            },
+                            "keyHash": {
+                              "type": "string"
+                            },
+                            "executor": {
+                              "type": "string"
+                            },
+                            "deadline": {
+                              "type": "string"
+                            },
+                            "digest": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "simulation": {
+                          "type": "object",
+                          "properties": {
+                            "ok": {
+                              "type": "boolean"
+                            },
+                            "gasEstimate": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        },
+                        "delegated": {
+                          "type": "boolean"
+                        },
+                        "eoaNonce": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E02 or E04: a field fails a rule, or the route is not contiguous, repeats a pool or voucher, or is too long."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: no valid user session."
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict",
+            "description": "E24 route_unavailable (result.reason, result.hop), E25 quote_mismatch, or E26 simulation_failed (result.revert)."
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests",
+            "description": "E11: the quote rate limit is exceeded."
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable",
+            "description": "E27 router_unavailable: the graph or the RPC cannot be used. Retry. Never an empty result."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/users/me/routed-swaps": {
+      "get": {
+        "tags": [
+          "Current user"
+        ],
+        "summary": "List grouped receipts of routed exchanges",
+        "description": "Newest first, 20 per page. A routed exchange is one entry with its hops. Access: User session.",
+        "operationId": "getUsersMeRoutedSwaps",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "From a previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Routed swaps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "swap": {
+                                "type": "object",
+                                "properties": {
+                                  "trackingId": {
+                                    "type": "string"
+                                  },
+                                  "chainId": {
+                                    "type": "integer"
+                                  },
+                                  "wallet": {
+                                    "type": "string"
+                                  },
+                                  "recipient": {
+                                    "type": "string"
+                                  },
+                                  "tokenIn": {
+                                    "type": "string"
+                                  },
+                                  "tokenOut": {
+                                    "type": "string"
+                                  },
+                                  "amountIn": {
+                                    "type": "string",
+                                    "description": "Raw token units as a decimal string."
+                                  },
+                                  "minAmountOut": {
+                                    "type": "string",
+                                    "description": "Raw token units as a decimal string."
+                                  },
+                                  "hopCount": {
+                                    "type": "integer"
+                                  },
+                                  "bounded": {
+                                    "type": "boolean"
+                                  },
+                                  "deadline": {
+                                    "type": [
+                                      "integer",
+                                      "null"
+                                    ]
+                                  },
+                                  "createdAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "txHash": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "status": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "description": "Dispatch status of the relayed transaction."
+                                  },
+                                  "hops": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "index": {
+                                          "type": "integer"
+                                        },
+                                        "pool": {
+                                          "type": "string"
+                                        },
+                                        "tokenIn": {
+                                          "type": "string"
+                                        },
+                                        "tokenOut": {
+                                          "type": "string"
+                                        },
+                                        "amountIn": {
+                                          "type": "string",
+                                          "description": "Raw token units as a decimal string."
+                                        },
+                                        "minAmountOut": {
+                                          "type": "string",
+                                          "description": "Raw token units as a decimal string."
+                                        },
+                                        "recipient": {
+                                          "type": "string"
+                                        },
+                                        "txHash": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "block": {
+                                          "type": [
+                                            "integer",
+                                            "null"
+                                          ]
+                                        },
+                                        "logIndex": {
+                                          "type": [
+                                            "integer",
+                                            "null"
+                                          ]
+                                        },
+                                        "settledAmountIn": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "quotedAmountOut": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "nominalAmountOut": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "amountOut": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "poolFee": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "protocolFee": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "settledAt": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ],
+                                          "format": "date-time"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "settled": {
+                                "type": "boolean"
+                              },
+                              "bridgeRemainder": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "voucher": {
+                                      "type": "string"
+                                    },
+                                    "amount": {
+                                      "type": "string",
+                                      "description": "Raw token units as a decimal string."
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "cursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E04: the cursor is not valid."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: no valid user session."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/users/me/routed-swaps/{trackingId}": {
+      "get": {
+        "tags": [
+          "Current user"
+        ],
+        "summary": "Read the grouped receipt of one routed exchange",
+        "description": "Recorded from the signed calldata when the relay accepted the route; each hop is filled from its settlement event. Another wallet's tracking id reads as not found. Access: User session.",
+        "operationId": "getUsersMeRoutedSwap",
+        "parameters": [
+          {
+            "name": "trackingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Routed swap",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "swap": {
+                          "type": "object",
+                          "properties": {
+                            "trackingId": {
+                              "type": "string"
+                            },
+                            "chainId": {
+                              "type": "integer"
+                            },
+                            "wallet": {
+                              "type": "string"
+                            },
+                            "recipient": {
+                              "type": "string"
+                            },
+                            "tokenIn": {
+                              "type": "string"
+                            },
+                            "tokenOut": {
+                              "type": "string"
+                            },
+                            "amountIn": {
+                              "type": "string",
+                              "description": "Raw token units as a decimal string."
+                            },
+                            "minAmountOut": {
+                              "type": "string",
+                              "description": "Raw token units as a decimal string."
+                            },
+                            "hopCount": {
+                              "type": "integer"
+                            },
+                            "bounded": {
+                              "type": "boolean"
+                            },
+                            "deadline": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "txHash": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "status": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "description": "Dispatch status of the relayed transaction."
+                            },
+                            "hops": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "index": {
+                                    "type": "integer"
+                                  },
+                                  "pool": {
+                                    "type": "string"
+                                  },
+                                  "tokenIn": {
+                                    "type": "string"
+                                  },
+                                  "tokenOut": {
+                                    "type": "string"
+                                  },
+                                  "amountIn": {
+                                    "type": "string",
+                                    "description": "Raw token units as a decimal string."
+                                  },
+                                  "minAmountOut": {
+                                    "type": "string",
+                                    "description": "Raw token units as a decimal string."
+                                  },
+                                  "recipient": {
+                                    "type": "string"
+                                  },
+                                  "txHash": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "block": {
+                                    "type": [
+                                      "integer",
+                                      "null"
+                                    ]
+                                  },
+                                  "logIndex": {
+                                    "type": [
+                                      "integer",
+                                      "null"
+                                    ]
+                                  },
+                                  "settledAmountIn": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "quotedAmountOut": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "nominalAmountOut": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "amountOut": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "poolFee": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "protocolFee": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "settledAt": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "format": "date-time"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "settled": {
+                          "type": "boolean"
+                        },
+                        "bridgeRemainder": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "voucher": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string",
+                                "description": "Raw token units as a decimal string."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E04: trackingId is not a UUID."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: no valid user session."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "E03: no receipt for this wallet."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/v2/users/me/shares/{txHash}": {
       "post": {
         "tags": [
@@ -12842,6 +14385,86 @@
           "409": {
             "$ref": "#/components/responses/Conflict",
             "description": "E16: The target is a SUPERADMIN."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/admin/users/{address}/key-rotation": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Move an account to a new sign-in card",
+        "description": "Moves the account at the address to a new sign-in card without proof from the old card, for a forgotten password with no passkey. The old wallet's assets stay on chain. The new card signs a SIWE message with the statement \"Replace sign-in card <address> with <new address>\". Sets no cookie. Not allowed for the caller's own account or a SUPERADMIN. Access: Superadmin.",
+        "operationId": "postAdminUsersByAddressKeyRotation",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The account's current address."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "new": {
+                    "$ref": "#/components/schemas/KeyRotationSIWEProof"
+                  }
+                },
+                "required": [
+                  "new"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sign-in card replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyRotationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest",
+            "description": "E02 or E04: The address or the proof is not valid."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: The credential is missing or not valid."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: The caller is not a current SUPERADMIN, the target is the caller, or the target is a SUPERADMIN."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound",
+            "description": "E07: No account holds the address."
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict",
+            "description": "E16: As for POST /auth/key-rotation."
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone",
+            "description": "E20: The address was already replaced with a different address."
           }
         },
         "security": [
@@ -15762,15 +17385,15 @@
                       {
                         "id": 31,
                         "reviewId": 12,
+                        "resourceKind": "pool",
+                        "resourceAddress": "0x1111111111111111111111111111111111111111",
+                        "poolAddress": "0x1111111111111111111111111111111111111111",
                         "reason": "Abusive language",
                         "stars": 1,
                         "comment": "Bad comment",
                         "reportedStars": 1,
                         "reportedComment": "Bad comment",
-                        "createdAt": "2026-08-12T10:00:00Z",
-                        "resourceKind": "pool",
-                        "resourceAddress": "0x1111111111111111111111111111111111111111",
-                        "poolAddress": "0x1111111111111111111111111111111111111111"
+                        "createdAt": "2026-08-12T10:00:00Z"
                       }
                     ],
                     "next": null
@@ -17025,6 +18648,142 @@
         "security": [
           {
             "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/admin/router/stats": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Report the credit router's graph and chain loops",
+        "description": "Graph version, oldest balance block, head block, staleness, counts, and per loop (reload, structure, params, balances, pair_fees, dirty) its runs, last success, last error and corrections. Access: Admin.",
+        "operationId": "getAdminRouterStats",
+        "responses": {
+          "200": {
+            "description": "Router stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "stats": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: no valid user session."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: the caller is not an admin."
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable",
+            "description": "E27 router_unavailable: the graph or the RPC cannot be used. Retry. Never an empty result."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/admin/router/graph": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Export the credit router graph",
+        "description": "Every pool with its quoter, verification, fees and seal state, and each edge's membership, limit, price index, balance and held fees. Access: Admin.",
+        "operationId": "getAdminRouterGraph",
+        "responses": {
+          "200": {
+            "description": "Router graph",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "graphVersion": {
+                          "type": "integer"
+                        },
+                        "asOfBlock": {
+                          "type": "integer"
+                        },
+                        "legs": {
+                          "type": "integer"
+                        },
+                        "pools": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "description"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized",
+            "description": "E06: no valid user session."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden",
+            "description": "E10: the caller is not an admin."
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable",
+            "description": "E27 router_unavailable: the graph or the RPC cannot be used. Retry. Never an empty result."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ]
       }
@@ -18926,6 +20685,76 @@
           }
         }
       },
+      "KeyRotationSIWEProof": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "SIWE message whose statement is \"Replace sign-in card <old address> with <new address>\"."
+          },
+          "signature": {
+            "type": "string",
+            "description": "SIWE signature."
+          }
+        },
+        "required": [
+          "message",
+          "signature"
+        ]
+      },
+      "KeyRotationResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string",
+                "description": "The account's new address."
+              },
+              "oldAddress": {
+                "type": "string"
+              },
+              "movedPasskeys": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "credentialId": {
+                      "type": "string"
+                    },
+                    "publicKeyX": {
+                      "type": "string"
+                    },
+                    "publicKeyY": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "replayed": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "description"
+        ]
+      },
       "ErrorResponse": {
         "type": "object",
         "description": "Body of every error response.",
@@ -18941,7 +20770,7 @@
           },
           "code": {
             "type": "string",
-            "description": "Error code. Use it with the HTTP status. Some review routes send an empty string. E01 Internal error. E02 The body is not valid JSON or has the wrong shape. E03 The route does not exist. E04 Validation failed. E05 The method is not allowed. E06 Authentication failed. E07 No record found. E08 The body is too large. E09 The request timed out. E10 The caller is not allowed to do this. E11 A rate limit or quota is exceeded. E12 The relayer is disabled. E13 An EIP-7702 authorization is required. E14 The relayer executor does not match. E15 WebAuthn verification failed. E16 The request conflicts with existing data. E17 The email is linked to another account. E18 The phone number is linked to another account. E19 A private share or a confirmed send is not available."
+            "description": "Error code. Use it with the HTTP status. Some review routes send an empty string. E01 Internal error. E02 The body is not valid JSON or has the wrong shape. E03 The route does not exist. E04 Validation failed. E05 The method is not allowed. E06 Authentication failed. E07 No record found. E08 The body is too large. E09 The request timed out. E10 The caller is not allowed to do this. E11 A rate limit or quota is exceeded. E12 The relayer is disabled. E13 An EIP-7702 authorization is required. E14 The relayer executor does not match. E15 WebAuthn verification failed. E16 The request conflicts with existing data. E17 The email is linked to another account. E18 The phone number is linked to another account. E19 A private share or a confirmed send is not available. E20 The sign-in card was replaced. E21 The passkey waits for the new card to register it."
           },
           "result": {
             "type": "object",
@@ -20225,6 +22054,16 @@
       },
       "Conflict": {
         "description": "The request conflicts with existing data.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Gone": {
+        "description": "The sign-in card was replaced by a key rotation (E20).",
         "content": {
           "application/json": {
             "schema": {

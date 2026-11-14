@@ -177,20 +177,34 @@ func explainGenericPlan(t *testing.T, tx pgx.Tx, sql string) string {
 	return strings.Join(lines, "\n")
 }
 
-// indexScanPattern finds an index whose scan carries an Index Cond, which is
-// what "the index drives this query" means. An index named only in a Filter or
+// drivingIndexPattern finds an index that a scan node reads. That is what
+// "the index drives this query" means. An index named only in a Filter or
 // Recheck line does not count.
+//
+// The two EXPLAIN shapes name the index in different places. A bitmap scan
+// puts it after "on"; a btree or GiST scan puts it after "using", and "on"
+// there is the table:
+//
+//	Bitmap Index Scan on vouchers_active_display_name_trgm_idx
+//	Index Scan using reports_approved_period_to_idx on reports r
 var (
-	indexScanPattern = regexp.MustCompile(`Index Scan on (\S+)`)
+	drivingIndexPattern = regexp.MustCompile(
+		`(?:Bitmap Index Scan on|Index Only Scan(?: Backward)? using|Index Scan(?: Backward)? using) (\S+)`,
+	)
 )
+
+func drivingIndexes(plan string) map[string]bool {
+	found := map[string]bool{}
+	for _, match := range drivingIndexPattern.FindAllStringSubmatch(plan, -1) {
+		found[match[1]] = true
+	}
+	return found
+}
 
 func assertIndexDrives(t *testing.T, label, plan string, wantIndexes ...string) {
 	t.Helper()
 
-	driving := map[string]bool{}
-	for _, match := range indexScanPattern.FindAllStringSubmatch(plan, -1) {
-		driving[match[1]] = true
-	}
+	driving := drivingIndexes(plan)
 
 	for _, want := range wantIndexes {
 		if !driving[want] {
@@ -199,6 +213,49 @@ func assertIndexDrives(t *testing.T, label, plan string, wantIndexes ...string) 
 	}
 	if !strings.Contains(plan, "Index Cond:") {
 		t.Errorf("%s: generic plan carries no index condition at all.\nplan:\n%s", label, plan)
+	}
+}
+
+func TestDrivingIndexesRecognizesExplainScanShapes(t *testing.T) {
+	plan := `
+Limit
+  ->  Result
+        ->  Sort
+              Sort Key: r.updated_at DESC, r.id DESC
+              ->  Index Scan using reports_approved_period_to_idx on reports r
+                    Index Cond: (period_to < CURRENT_TIMESTAMP)
+                    Filter: (NOT account_retiring(author_address))
+              ->  Index Only Scan using report_tags_pkey on report_tags rt
+                    Index Cond: (report_id = r.id)
+              ->  Index Scan Backward using vouchers_pkey on vouchers v
+                    Index Cond: (id = rv.voucher_id)
+              ->  Bitmap Index Scan on report_pools_pkey
+                    Index Cond: (report_id = r.id)
+`
+	got := drivingIndexes(plan)
+	for _, want := range []string{
+		"reports_approved_period_to_idx",
+		"report_tags_pkey",
+		"vouchers_pkey",
+		"report_pools_pkey",
+	} {
+		if !got[want] {
+			t.Errorf("missing driving index %s from %#v", want, got)
+		}
+	}
+	if got["reports"] || got["r"] {
+		t.Errorf("table name counted as a driving index: %#v", got)
+	}
+
+	filtered := `
+Index Scan using reports_status_updated_idx on reports r
+  Index Cond: (status = 'APPROVED')
+  Filter: (period_to < CURRENT_TIMESTAMP)
+  Recheck Cond: (reports_approved_period_to_idx)
+`
+	only := drivingIndexes(filtered)
+	if !only["reports_status_updated_idx"] || only["reports_approved_period_to_idx"] || only["reports"] {
+		t.Errorf("filter and recheck names counted as scans: %#v", only)
 	}
 }
 

@@ -8,8 +8,10 @@ import (
 	"math/big"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/router"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/worker"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -28,6 +30,7 @@ var (
 	erc20ApproveSelector          = functionSelector("approve(address,uint256)")
 	poolWithdrawSelector          = functionSelector("withdraw(address,address,uint256)")
 	poolWithdrawRecipientSelector = functionSelector("withdraw(address,address,uint256,address)")
+	poolWithdrawBoundedSelector   = functionSelector("withdraw(address,address,uint256,address,uint256,uint256)")
 )
 
 func functionSelector(signature string) []byte {
@@ -74,93 +77,81 @@ func valuationVoucherAddresses(batch apiresp.CaliburSignedBatch) []string {
 	return poolSwapVoucherAddresses(batch)
 }
 
-// poolSwapVoucherAddresses validates the app's three-call-per-hop structure:
-// reset approval, exact approval, then SwapPool.withdraw. Both sides of every
-// hop are returned so their database claims are preserved before execution.
+// decodeBatchRoute recognises the three-call-per-hop swap shape with the
+// router's shared decoder: reset approval, exact approval, then any of the
+// SwapPool.withdraw trader overloads, including the bounded one. Every value
+// comes from the signed calldata; no client-supplied metadata is trusted.
+func decodeBatchRoute(batch apiresp.CaliburBatchedCall) ([]router.DecodedHop, bool) {
+	calls := make([]router.Call, len(batch.Calls))
+	for i, call := range batch.Calls {
+		value, ok := new(big.Int).SetString(call.Value, 10)
+		if !ok || !common.IsHexAddress(call.To) {
+			return nil, false
+		}
+		data, err := hexutil.Decode(call.Data)
+		if err != nil {
+			return nil, false
+		}
+		calls[i] = router.Call{To: common.HexToAddress(call.To), Value: value, Data: data}
+	}
+	return router.DecodeRouteShape(calls)
+}
+
+// poolSwapVoucherAddresses returns both sides of every hop of a well-formed
+// swap batch so their database claims are preserved before execution.
 func poolSwapVoucherAddresses(batch apiresp.CaliburSignedBatch) []string {
-	calls := batch.BatchedCall.Calls
-	if len(calls) == 0 || len(calls)%3 != 0 {
+	hops, ok := decodeBatchRoute(batch.BatchedCall)
+	if !ok || router.CheckHopValues(hops) != nil {
 		return nil
 	}
-
 	seen := make(map[common.Address]struct{})
-	addresses := make([]string, 0, len(calls)/3+1)
-	appendAddress := func(address common.Address) {
-		if _, exists := seen[address]; exists {
-			return
+	addresses := make([]string, 0, len(hops)+1)
+	for _, hop := range hops {
+		for _, address := range []common.Address{hop.TokenIn, hop.TokenOut} {
+			if _, exists := seen[address]; exists {
+				continue
+			}
+			seen[address] = struct{}{}
+			addresses = append(addresses, address.Hex())
 		}
-		seen[address] = struct{}{}
-		addresses = append(addresses, address.Hex())
-	}
-
-	for i := 0; i < len(calls); i += 3 {
-		resetToken, resetSpender, resetAmount, ok := decodeApproval(calls[i])
-		if !ok || resetAmount.Sign() != 0 {
-			return nil
-		}
-		approvedToken, approvedSpender, approvedAmount, ok := decodeApproval(calls[i+1])
-		if !ok || approvedAmount.Sign() <= 0 {
-			return nil
-		}
-		pool, tokenOut, tokenIn, withdrawnAmount, ok := decodePoolWithdraw(calls[i+2])
-		if !ok || tokenIn == tokenOut || resetToken != approvedToken || resetToken != tokenIn ||
-			resetSpender != approvedSpender || resetSpender != pool || approvedAmount.Cmp(withdrawnAmount) != 0 {
-			return nil
-		}
-		appendAddress(tokenIn)
-		appendAddress(tokenOut)
 	}
 	return addresses
 }
 
-func decodeApproval(call apiresp.CaliburCall) (token, spender common.Address, amount *big.Int, ok bool) {
-	if !zeroCallValue(call) || !common.IsHexAddress(call.To) {
-		return common.Address{}, common.Address{}, nil, false
+// routedSwapRecord describes a chained route for its grouped receipt.
+func routedSwapRecord(trackingID string, chainID int64, sender common.Address, hops []router.DecodedHop) store.RoutedSwapRecord {
+	last := hops[len(hops)-1]
+	record := store.RoutedSwapRecord{
+		TrackingID:   trackingID,
+		ChainID:      chainID,
+		Wallet:       sender.Hex(),
+		Recipient:    last.RecipientOr(sender).Hex(),
+		TokenIn:      hops[0].TokenIn.Hex(),
+		TokenOut:     last.TokenOut.Hex(),
+		AmountIn:     hops[0].Amount.String(),
+		MinAmountOut: "0",
+		Bounded:      true,
 	}
-	data, err := hexutil.Decode(call.Data)
-	if err != nil || len(data) != 68 || !bytes.Equal(data[:4], erc20ApproveSelector) {
-		return common.Address{}, common.Address{}, nil, false
-	}
-	spender, ok = calldataAddress(data, 0)
-	token = common.HexToAddress(call.To)
-	if !ok || token == (common.Address{}) || spender == (common.Address{}) {
-		return common.Address{}, common.Address{}, nil, false
-	}
-	return token, spender, calldataUint(data, 1), true
-}
-
-func decodePoolWithdraw(call apiresp.CaliburCall) (pool, tokenOut, tokenIn common.Address, amount *big.Int, ok bool) {
-	if !zeroCallValue(call) || !common.IsHexAddress(call.To) {
-		return common.Address{}, common.Address{}, common.Address{}, nil, false
-	}
-	data, err := hexutil.Decode(call.Data)
-	if err != nil {
-		return common.Address{}, common.Address{}, common.Address{}, nil, false
-	}
-	hasRecipient := len(data) == 132 && bytes.Equal(data[:4], poolWithdrawRecipientSelector)
-	if (len(data) != 100 || !bytes.Equal(data[:4], poolWithdrawSelector)) && !hasRecipient {
-		return common.Address{}, common.Address{}, common.Address{}, nil, false
-	}
-	tokenOut, ok = calldataAddress(data, 0)
-	if !ok {
-		return common.Address{}, common.Address{}, common.Address{}, nil, false
-	}
-	tokenIn, ok = calldataAddress(data, 1)
-	if !ok {
-		return common.Address{}, common.Address{}, common.Address{}, nil, false
-	}
-	if hasRecipient {
-		recipient, valid := calldataAddress(data, 3)
-		if !valid || recipient == (common.Address{}) {
-			return common.Address{}, common.Address{}, common.Address{}, nil, false
+	for _, hop := range hops {
+		minOut := "0"
+		if hop.Bounded {
+			minOut = hop.MinOut.String()
+			if hop.Deadline.IsUint64() && (record.Deadline == nil || hop.Deadline.Uint64() < *record.Deadline) {
+				d := hop.Deadline.Uint64()
+				record.Deadline = &d
+			}
+		} else {
+			record.Bounded = false
 		}
+		record.Hops = append(record.Hops, store.RoutedSwapHopRecord{
+			Pool: hop.Pool.Hex(), TokenIn: hop.TokenIn.Hex(), TokenOut: hop.TokenOut.Hex(),
+			AmountIn: hop.Amount.String(), MinAmountOut: minOut, Recipient: hop.RecipientOr(sender).Hex(),
+		})
 	}
-	pool = common.HexToAddress(call.To)
-	amount = calldataUint(data, 2)
-	if pool == (common.Address{}) || tokenOut == (common.Address{}) || tokenIn == (common.Address{}) || amount.Sign() <= 0 {
-		return common.Address{}, common.Address{}, common.Address{}, nil, false
+	if last.Bounded {
+		record.MinAmountOut = last.MinOut.String()
 	}
-	return pool, tokenOut, tokenIn, amount, true
+	return record
 }
 
 func zeroCallValue(call apiresp.CaliburCall) bool {
@@ -437,6 +428,20 @@ func (a *API) relayHandler(c *echo.Context) error {
 		registrationKeyHash = keyHash
 	}
 
+	// A batch shaped like a swap route must be a well-formed one. Batches of
+	// any other shape relay as they always have.
+	sender := common.HexToAddress(req.UserAddress)
+	routeHops, routeShaped := decodeBatchRoute(req.SignedBatch.BatchedCall)
+	if routeShaped {
+		if err := router.ValidateRoute(routeHops, sender, uint64(time.Now().Unix()), a.routeDeadlineHorizonSecs()); err != nil {
+			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeValidationFailed,
+				Description: err.Error(),
+			})
+		}
+	}
+
 	var operationDigest []byte
 	if req.OperationID != "" {
 		digest, err := relayOperationDigest(a.chainID, req)
@@ -504,6 +509,11 @@ func (a *API) relayHandler(c *echo.Context) error {
 
 	if _, err := a.queueClient.InsertTx(ctx, tx, args, &river.InsertOpts{MaxAttempts: 1}); err != nil {
 		return handlePostgresError(c, err)
+	}
+	if routeShaped && router.Chained(routeHops) {
+		if err := a.store.InsertRoutedSwap(ctx, tx, routedSwapRecord(trackingID, a.chainID, sender, routeHops)); err != nil {
+			return handlePostgresError(c, err)
+		}
 	}
 	valuationSnapshots := []store.VoucherClaimSnapshot{}
 	if tokenAddresses := valuationVoucherAddresses(req.SignedBatch); len(tokenAddresses) > 0 {

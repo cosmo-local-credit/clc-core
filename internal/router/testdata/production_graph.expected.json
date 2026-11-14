@@ -1,0 +1,16 @@
+{
+  "block": 49254469,
+  "plainGiftableOnly": {
+    "legs": 27578,
+    "oneHopPairs": 27563,
+    "twoHopRoutes": 119109,
+    "pairs": 91028
+  },
+  "withExternalERC20": {
+    "legs": 27578,
+    "oneHopPairs": 27563,
+    "twoHopRoutes": 119109,
+    "pairs": 91028
+  },
+  "externalERC20": []
+}

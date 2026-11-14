@@ -50,6 +50,11 @@ type (
 		PostVoucherMatch store.TagMatch        `json:"postVoucherMatch"`
 		PostPools        []store.PoolRef       `json:"postPools"`
 		PostPoolMatch    store.TagMatch        `json:"postPoolMatch"`
+		// creditDepth answers are per wallet: the key carries the wallet,
+		// the depth and the reach digest.
+		CreditWallet string `json:"creditWallet,omitempty"`
+		CreditDepth  int    `json:"creditDepth,omitempty"`
+		CreditDigest string `json:"creditDigest,omitempty"`
 	}
 )
 
@@ -134,6 +139,11 @@ func marketMapKey(search catalogSearchRequest, kinds []string, zoom float64) str
 		PostVoucherMatch: search.postVoucherMatch, PostPools: search.postPoolRefs,
 		PostPoolMatch: search.postPoolMatch,
 	}
+	if search.credit != nil {
+		identity.CreditWallet = search.credit.wallet
+		identity.CreditDepth = search.credit.depth
+		identity.CreditDigest = search.credit.digest
+	}
 	encoded, _ := json.Marshal(identity)
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:])
@@ -159,6 +169,11 @@ func (a *API) marketMapHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.creditablePoolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 	kinds, err := parseMarketMapKinds(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
@@ -194,6 +209,11 @@ func (a *API) marketMapPointsHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.creditablePoolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 	kinds, err := parseMarketMapKinds(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
@@ -212,6 +232,11 @@ func (a *API) marketMapFacetsHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.creditablePoolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 	kinds, err := parseMarketMapKinds(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
@@ -322,6 +347,9 @@ func (a *API) resolveMarketMapFilter(ctx context.Context, tx pgx.Tx, search cata
 	if len(unknown) > 0 {
 		return filter, errUnknownTagValue
 	}
+	if search.credit != nil {
+		filter = filter.WithReachablePoolIDs(search.credit.poolIDs).WithCreditVoucherIDs(search.credit.heldVoucherIDs)
+	}
 	if len(search.creditablePoolRefs) > 0 {
 		ids, err := a.store.ResolvePoolRefs(ctx, tx, search.creditablePoolRefs)
 		if err != nil {
@@ -421,7 +449,11 @@ func loadMarketMap[T any](
 
 func respondMarketMap(c *echo.Context, result map[string]any) error {
 	header := c.Response().Header()
-	header.Set("Cache-Control", "public, max-age=15, stale-while-revalidate=60")
+	// A creditDepth answer is the caller's own reachable set: it must never
+	// be stored by a shared cache.
+	if header.Get("Cache-Control") != "private, no-store" {
+		header.Set("Cache-Control", "public, max-age=15, stale-while-revalidate=60")
+	}
 	header.Add("Vary", "Origin")
 	return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "Market map", Result: result})
 }

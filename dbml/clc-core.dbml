@@ -442,16 +442,90 @@ Table "pool_tokens" {
   "is_allowed" bool [not null, default: true]
   "exchange_rate" numeric
   "token_limit" numeric
+  "price_index" numeric [note: 'RelativeQuoter price index. NULL: never heard; 0: parity on chain.']
+  "allowed_block" int8
+  "allowed_log_index" int4
+  "limit_block" int8
+  "limit_log_index" int4
+  "price_block" int8
+  "price_log_index" int4
+  "oracle_block" int8
+  "oracle_log_index" int4
   "synced_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
 
   Checks {
     `exchange_rate IS NULL OR exchange_rate >= 0` [name: 'pool_tokens_rate_nonneg']
     `token_limit IS NULL OR token_limit >= 0` [name: 'pool_tokens_limit_nonneg']
+    `price_index IS NULL OR price_index >= 0` [name: 'pool_tokens_price_index_nonneg']
   }
 
   Indexes {
     (pool_id, voucher_id) [pk, type: btree, name: "pool_tokens_pkey"]
     voucher_id [type: btree, name: "pool_tokens_voucher_id_idx"]
+  }
+}
+
+Table "pool_token_liquidity" {
+  "pool_id" int4 [not null]
+  "voucher_id" int4 [not null]
+  "balance" numeric [not null]
+  "fees_held" numeric [not null, default: 0]
+  "block_number" int8 [not null]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Indexes {
+    (pool_id, voucher_id) [pk, type: btree, name: "pool_token_liquidity_pkey"]
+  }
+}
+
+Table "pool_chain_state" {
+  "pool_id" int4 [pk, not null]
+  "default_fee_ppm" numeric [not null]
+  "protocol_fee_ppm" numeric [not null]
+  "protocol_fee_recipient" text
+  "seal_state" int2 [not null]
+  "quoter_verified" bool [not null, default: false]
+  "block_number" int8 [not null]
+  "updated_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+}
+
+Table "routed_swaps" {
+  "tracking_id" uuid [pk, not null]
+  "chain_id" int4 [not null]
+  "wallet" text [not null]
+  "recipient" text [not null]
+  "token_in" text [not null]
+  "token_out" text [not null]
+  "amount_in" numeric [not null]
+  "min_amount_out" numeric [not null]
+  "hop_count" int2 [not null]
+  "bounded" bool [not null]
+  "deadline" int8
+  "created_at" timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+}
+
+Table "routed_swap_hops" {
+  "tracking_id" uuid [not null]
+  "hop_index" int2 [not null]
+  "pool_address" text [not null]
+  "token_in" text [not null]
+  "token_out" text [not null]
+  "amount_in" numeric [not null]
+  "min_amount_out" numeric [not null]
+  "recipient" text [not null]
+  "tx_hash" text
+  "block_number" int8
+  "log_index" int4
+  "settled_amount_in" numeric
+  "quoted_amount_out" numeric
+  "nominal_amount_out" numeric
+  "amount_out" numeric
+  "pool_fee" numeric
+  "protocol_fee" numeric
+  "settled_at" timestamptz
+
+  Indexes {
+    (tracking_id, hop_index) [pk, type: btree, name: "routed_swap_hops_pkey"]
   }
 }
 
@@ -875,3 +949,11 @@ Ref "abuse_reports_message_id_fkey":"messages"."id" < "abuse_reports"."message_i
 Ref "abuse_reports_resolved_by_fkey":"users"."id" < "abuse_reports"."resolved_by"
 
 Ref "messaging_request_quota_user_id_fkey":"users"."id" < "messaging_request_quota"."user_id" [delete: cascade]
+
+Ref "pool_token_liquidity_pool_id_fkey":"pools"."id" < "pool_token_liquidity"."pool_id" [delete: cascade]
+
+Ref "pool_token_liquidity_voucher_id_fkey":"vouchers"."id" < "pool_token_liquidity"."voucher_id"
+
+Ref "pool_chain_state_pool_id_fkey":"pools"."id" - "pool_chain_state"."pool_id" [delete: cascade]
+
+Ref "routed_swap_hops_tracking_id_fkey":"routed_swaps"."tracking_id" < "routed_swap_hops"."tracking_id" [delete: cascade]

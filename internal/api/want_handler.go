@@ -136,6 +136,11 @@ func (a *API) wantsListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.poolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 	pagination := normalizePaginationWithMax(req, marketMaxPerPage)
 	return cursorPaginatedCatalogList(c, a, paginatedCatalogListCallbacks[store.Want]{
 		firstPage: func(ctx context.Context, tx pgx.Tx, limit uint64) ([]store.Want, error) {

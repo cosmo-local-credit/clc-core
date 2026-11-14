@@ -123,6 +123,7 @@ func (pg *Pg) ListWants(
 		filter.PoolIDs, hasBounds, minLng, minLat, maxLng, maxLat, cursor, limit,
 		nearby, originLat, originLng,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+		voucherIDsParam(filter.CreditVoucherIDs),
 	)
 	return rows, err
 }
@@ -151,6 +152,7 @@ func (pg *Pg) ListWantTagFacets(
 		filter.likeTerm(), filter.prefixOnly(), filter.PoolIDs,
 		hasBounds, minLng, minLat, maxLng, maxLat, nearby, originLat, originLng,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+		voucherIDsParam(filter.CreditVoucherIDs),
 	)
 	return rows, err
 }

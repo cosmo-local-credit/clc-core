@@ -2,10 +2,10 @@ package sub
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math/big"
 
+	"github.com/cosmo-local-credit/clc-core/internal/router"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	custodialEvent "github.com/cosmo-local-credit/clc-core/pkg/event"
 	"github.com/ethereum/go-ethereum/common"
@@ -15,15 +15,30 @@ import (
 
 func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) error {
 	s.logg.Debug("Sub processing event", "subject", msgSubject, "data", string(msg))
-	var chainEvent event.Event
 
-	if err := json.Unmarshal(msg, &chainEvent); err != nil {
+	chainEvent, err := decodeEvent(msg)
+	if err != nil {
 		return err
 	}
 
-	tx, err := s.store.Pool().Begin(ctx)
+	deltas, err := s.processEventTx(ctx, chainEvent)
 	if err != nil {
 		return err
+	}
+	// Phase two: the graph sees a change only after the database has
+	// committed it, so it can never reflect a rolled-back write.
+	if s.router != nil && len(deltas) > 0 {
+		s.router.Apply(deltas...)
+	}
+	return nil
+}
+
+// processEventTx runs every projection in one transaction and returns the
+// router deltas the committed writes imply.
+func (s *Sub) processEventTx(ctx context.Context, chainEvent event.Event) ([]router.Delta, error) {
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -33,13 +48,15 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	// Gating it on the OTX lookup below would mean the catalog only tracked
 	// transactions clc-core happened to sign.
 	if err := s.projectCatalogOwnership(ctx, tx, chainEvent); err != nil {
-		return err
+		return nil, err
 	}
-	if err := s.projectPoolComposition(ctx, tx, chainEvent); err != nil {
-		return err
+	deltas, err := s.projectPoolComposition(ctx, tx, chainEvent)
+	if err != nil {
+		return nil, err
 	}
+	deltas = append(deltas, routerSignals(chainEvent)...)
 	if err := s.projectSafeSigners(ctx, tx, chainEvent); err != nil {
-		return err
+		return nil, err
 	}
 
 	otx, err := s.store.GetOTXByTxHash(ctx, tx, chainEvent.TxHash)
@@ -47,9 +64,9 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Not ours to track, but the projection above may still have work to
 			// commit.
-			return tx.Commit(ctx)
+			return deltas, tx.Commit(ctx)
 		}
-		return err
+		return nil, err
 	}
 
 	updateDispatchStatus := store.DispatchTx{
@@ -63,28 +80,34 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 	}
 
 	if err := s.store.UpdateDispatchTxStatus(ctx, tx, updateDispatchStatus); err != nil {
-		return err
+		return nil, err
+	}
+
+	if err := s.settleRoutedSwap(ctx, tx, otx.TrackingID, chainEvent); err != nil {
+		return nil, err
 	}
 
 	switch otx.OTXType {
 	case store.TOKEN_PROXY_DEPLOY:
 		if chainEvent.Success {
 			if err := s.confirmToken(ctx, tx, otx.ID, chainEvent.ContractAddress); err != nil {
-				return err
+				return nil, err
 			}
 		} else {
 			if err := s.store.FailDeployedToken(ctx, tx, otx.ID); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	case store.POOL_PROXY_DEPLOY:
 		if chainEvent.Success {
 			if err := s.confirmPool(ctx, tx, otx.ID, chainEvent.ContractAddress); err != nil {
-				return err
+				return nil, err
 			}
+			// A new pool is a new graph node; reload rather than patch.
+			deltas = append(deltas, router.ReloadDelta{})
 		} else {
 			if err := s.store.FailDeployedPool(ctx, tx, otx.ID); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
@@ -94,7 +117,7 @@ func (s *Sub) processEvent(ctx context.Context, msgSubject string, msg []byte) e
 		Status:     updateDispatchStatus.Status,
 	})
 
-	return tx.Commit(ctx)
+	return deltas, tx.Commit(ctx)
 }
 
 // confirmToken finalizes a token deploy and promotes it into the voucher
@@ -157,10 +180,17 @@ const (
 // projectPoolComposition maintains pool_tokens from the chain.
 //
 // Nothing else writes that table, so without this a pool's membership, deposit
-// caps and price feeds only ever reflect whatever an importer last loaded. Each
-// branch touches one column and resolves the pool from the contract that emitted
-// the event, because that is the only address the event carries — a registry and
-// a limiter do not know which pools point at them.
+// caps, price indexes and price feeds only ever reflect whatever an importer
+// last loaded. Each branch touches one column and resolves the pool from the
+// contract that emitted the event, because that is the only address the event
+// carries — a registry, a limiter and a quoter do not know which pools point at
+// them.
+//
+// Every write carries the event's (block, log index) and lands only when that
+// is newer than the field's last write: NATS redelivers a failed message after
+// newer ones, and the older value must not win. The rows a write changed come
+// back as router deltas, which the caller applies once the transaction has
+// committed.
 //
 // A reverted transaction changes nothing on chain and so must change nothing
 // here; eth-tracker reports those with Success false, including calls it decoded
@@ -169,68 +199,90 @@ const (
 // An event naming a pool or voucher this service has not catalogued matches no
 // rows. That is expected for the wider network's contracts and is logged at
 // debug rather than failed, which would park the message and stall the consumer.
-func (s *Sub) projectPoolComposition(ctx context.Context, tx pgx.Tx, chainEvent event.Event) error {
+func (s *Sub) projectPoolComposition(ctx context.Context, tx pgx.Tx, chainEvent event.Event) ([]router.Delta, error) {
 	if !chainEvent.Success {
-		return nil
+		return nil, nil
 	}
 
 	var (
-		rows int64
-		err  error
+		keys   []router.EdgeKey
+		deltas []router.Delta
+		err    error
+		pos    = eventPosition(chainEvent)
 	)
 
 	switch chainEvent.TxType {
 	case indexAddEvent, indexRemoveEvent:
 		token, ok := payloadAddress(chainEvent, "address")
 		if !ok {
-			return nil
+			return nil, nil
 		}
-		rows, err = s.store.SetPoolTokenMembership(
-			ctx, tx, chainEvent.ContractAddress, token, chainEvent.TxType == indexAddEvent)
+		allowed := chainEvent.TxType == indexAddEvent
+		keys, err = s.store.SetPoolTokenMembership(ctx, tx, chainEvent.ContractAddress, token, allowed, pos)
+		deltas = edgeDeltas(keys, func(k router.EdgeKey) router.Delta {
+			return router.EdgeAllowedDelta{Key: k, Allowed: allowed, Pos: pos}
+		})
 
 	case limitSetEvent:
 		token, tokenOK := payloadAddress(chainEvent, "token")
 		holder, holderOK := payloadAddress(chainEvent, "holder")
 		value, valueOK := payloadUint(chainEvent, "value")
-		if !tokenOK || !holderOK || !valueOK {
-			return nil
+		limit, limitOK := parseUint256(value)
+		if !tokenOK || !holderOK || !valueOK || !limitOK {
+			return nil, nil
 		}
 		// The holder is the pool. A limit set for any other holder is not this
 		// pool's business and resolves to no rows.
-		rows, err = s.store.SetPoolTokenLimit(ctx, tx, holder, token, value)
+		keys, err = s.store.SetPoolTokenLimit(ctx, tx, holder, token, value, pos)
+		deltas = edgeDeltas(keys, func(k router.EdgeKey) router.Delta {
+			return router.EdgeLimitDelta{Key: k, Limit: limit, Pos: pos}
+		})
+
+	case quoterPriceEvent:
+		token, tokenOK := payloadAddress(chainEvent, "token")
+		value, valueOK := payloadUint(chainEvent, "exchangeRate")
+		index, indexOK := parseUint256(value)
+		if !tokenOK || !valueOK || !indexOK {
+			return nil, nil
+		}
+		keys, err = s.store.SetPoolTokenPriceIndex(ctx, tx, chainEvent.ContractAddress, token, value, pos)
+		deltas = edgeDeltas(keys, func(k router.EdgeKey) router.Delta {
+			return router.EdgePriceDelta{Key: k, Index: index, Pos: pos}
+		})
 
 	case oracleUpdatedEvent:
 		token, tokenOK := payloadAddress(chainEvent, "token")
 		aggregator, oracleOK := payloadAddress(chainEvent, "oracle")
 		if !tokenOK || !oracleOK {
-			return nil
+			return nil, nil
 		}
-		rows, err = s.store.SetPoolTokenOracle(ctx, tx, chainEvent.ContractAddress, token, aggregator)
+		// Oracle-priced pools are not routed, so the graph has nothing to apply.
+		keys, err = s.store.SetPoolTokenOracle(ctx, tx, chainEvent.ContractAddress, token, aggregator, pos)
 
 	case oracleRemovedEvent:
 		token, ok := payloadAddress(chainEvent, "token")
 		if !ok {
-			return nil
+			return nil, nil
 		}
-		rows, err = s.store.ClearPoolTokenOracle(ctx, tx, chainEvent.ContractAddress, token)
+		keys, err = s.store.ClearPoolTokenOracle(ctx, tx, chainEvent.ContractAddress, token, pos)
 
 	default:
-		return nil
+		return nil, nil
 	}
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if rows == 0 {
-		s.logg.Debug("Sub: pool composition event matched no catalog row",
+	if len(keys) == 0 {
+		s.logg.Debug("Sub: pool composition event changed no catalog row",
 			"type", chainEvent.TxType, "contract", chainEvent.ContractAddress, "tx", chainEvent.TxHash)
-		return nil
+		return nil, nil
 	}
 
 	s.logg.Info("Sub: projected pool composition from chain",
-		"type", chainEvent.TxType, "contract", chainEvent.ContractAddress, "rows", rows)
-	return nil
+		"type", chainEvent.TxType, "contract", chainEvent.ContractAddress, "rows", len(keys))
+	return deltas, nil
 }
 
 func payloadAddress(chainEvent event.Event, key string) (string, bool) {

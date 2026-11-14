@@ -96,6 +96,7 @@ func (pg *Pg) ListMarketMap(
 		filter.VoucherIDs, filter.VoucherMatch == TagMatchAll,
 		filter.PoolIDs, filter.PoolMatch == TagMatchAll,
 		filter.ReportTiming,
+		voucherIDsParam(filter.CreditVoucherIDs),
 	)
 	if err != nil {
 		return MarketMapResult{}, err
@@ -197,6 +198,7 @@ func (pg *Pg) listMarketMapDiscovery(
 		filter.VoucherIDs, filter.VoucherMatch == TagMatchAll,
 		filter.PoolIDs, filter.PoolMatch == TagMatchAll,
 		filter.ReportTiming,
+		voucherIDsParam(filter.CreditVoucherIDs),
 	)
 	return rows, err
 }

@@ -170,6 +170,11 @@ func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.poolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
 		ctx := c.Request().Context()
 		caller, address, _ := getUserClaims(c)

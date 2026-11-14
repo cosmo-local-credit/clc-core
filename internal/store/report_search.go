@@ -204,7 +204,21 @@ func reportCreditablePoolPredicate(args *sqlArgs, filter CatalogFilter) string {
                 AND credit_pt.is_allowed
             WHERE credit_rv.report_id = r.id
                 AND credit_pt.pool_id = ANY(` + args.reuse() + `::BIGINT[])
-        ))`
+        )` + reportHeldVoucherPredicate(args, filter) + `)`
+}
+
+// reportHeldVoucherPredicate admits reports about a voucher the wallet behind
+// the Credit filter already holds.
+func reportHeldVoucherPredicate(args *sqlArgs, filter CatalogFilter) string {
+	if len(filter.CreditVoucherIDs) == 0 {
+		return ""
+	}
+	return ` OR EXISTS (
+            SELECT 1
+            FROM report_vouchers held_rv
+            WHERE held_rv.report_id = r.id
+                AND held_rv.voucher_id = ANY(` + args.bind(voucherIDsParam(filter.CreditVoucherIDs)) + `::BIGINT[])
+        )`
 }
 
 // reportCursorPredicate returns the feed's keyset comparison.

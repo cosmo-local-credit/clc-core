@@ -2,12 +2,24 @@ package store
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
+	"github.com/cosmo-local-credit/clc-core/internal/router"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var (
+	testPosition atomic.Uint64
+)
+
+// nextPos hands each projection call in a test a strictly newer event
+// position, as a live chain would.
+func nextPos() router.Position {
+	return router.Position{Block: 1_000 + testPosition.Add(1), LogIndex: 0}
+}
 
 // seedComposablePool creates a catalog pool wired to its three dependency
 // contracts, plus one voucher on the same chain, and returns their ids.
@@ -65,22 +77,22 @@ func TestPoolCompositionConvergesInEitherOrder(t *testing.T) {
 				`SELECT address FROM oracle_feeds ORDER BY id LIMIT 1`).Scan(&feedAddress))
 
 			admit := func() {
-				rows, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true)
+				rows, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true, nextPos())
 				require.NoError(t, err)
-				assert.EqualValues(t, 1, rows)
+				assert.Len(t, rows, 1)
 			}
 
 			if registryFirst {
 				admit()
 			}
 
-			rows, err := pg.SetPoolTokenLimit(ctx, tx, pool, token, "1000000000")
+			rows, err := pg.SetPoolTokenLimit(ctx, tx, pool, token, "1000000000", nextPos())
 			require.NoError(t, err)
-			assert.EqualValues(t, 1, rows)
+			assert.Len(t, rows, 1)
 
-			rows, err = pg.SetPoolTokenOracle(ctx, tx, quoter, token, feedAddress)
+			rows, err = pg.SetPoolTokenOracle(ctx, tx, quoter, token, feedAddress, nextPos())
 			require.NoError(t, err)
-			assert.EqualValues(t, 1, rows)
+			assert.Len(t, rows, 1)
 
 			if !registryFirst {
 				// Before the registry speaks, the pair is recorded but not allowed,
@@ -107,11 +119,16 @@ func TestPoolCompositionIsIdempotent(t *testing.T) {
 
 	poolID, _, registry, _, _, pool, token := seedComposablePool(t, tx)
 
-	for range 3 {
-		_, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true)
+	// A redelivery carries the same position: the first write lands, the
+	// repeats change nothing and report no rows.
+	membership, limit := nextPos(), nextPos()
+	for i := range 3 {
+		rows, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true, membership)
 		require.NoError(t, err)
-		_, err = pg.SetPoolTokenLimit(ctx, tx, pool, token, "500")
+		assert.Len(t, rows, map[bool]int{true: 1, false: 0}[i == 0])
+		rows, err = pg.SetPoolTokenLimit(ctx, tx, pool, token, "500", limit)
 		require.NoError(t, err)
+		assert.Len(t, rows, map[bool]int{true: 1, false: 0}[i == 0])
 	}
 
 	var count int
@@ -139,9 +156,9 @@ func TestPoolCompositionHandlesAnAggregatorSharedByTwoFeeds(t *testing.T) {
 		"Shared aggregator first "+shared, "Shared aggregator second "+shared, shared)
 	require.NoError(t, err)
 
-	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, shared)
+	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, shared, nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, rows, "a shared aggregator must still write exactly one row")
+	assert.Len(t, rows, 1, "a shared aggregator must still write exactly one row")
 
 	_, _, feedID := readComposition(t, tx, poolID)
 	require.NotNil(t, feedID)
@@ -156,9 +173,9 @@ func TestPoolCompositionStoresAnUnknownAggregatorAsNoFeed(t *testing.T) {
 
 	poolID, _, _, _, quoter, _, token := seedComposablePool(t, tx)
 
-	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, randomAddress(t, tx))
+	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, randomAddress(t, tx), nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, rows)
+	assert.Len(t, rows, 1)
 
 	_, _, feedID := readComposition(t, tx, poolID)
 	assert.Nil(t, feedID)
@@ -174,15 +191,15 @@ func TestPoolCompositionIgnoresUnknownContracts(t *testing.T) {
 
 	_, _, _, _, quoter, _, token := seedComposablePool(t, tx)
 
-	rows, err := pg.SetPoolTokenMembership(ctx, tx, randomAddress(t, tx), token, true)
+	rows, err := pg.SetPoolTokenMembership(ctx, tx, randomAddress(t, tx), token, true, nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 0, rows)
+	assert.Empty(t, rows)
 
-	rows, err = pg.SetPoolTokenLimit(ctx, tx, randomAddress(t, tx), token, "1")
+	rows, err = pg.SetPoolTokenLimit(ctx, tx, randomAddress(t, tx), token, "1", nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 0, rows)
+	assert.Empty(t, rows)
 
-	rows, err = pg.ClearPoolTokenOracle(ctx, tx, quoter, token)
+	rows, err = pg.ClearPoolTokenOracle(ctx, tx, quoter, token, nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 0, rows, "removal must not conjure a row for an unpriced pair")
+	assert.Empty(t, rows, "removal must not conjure a row for an unpriced pair")
 }

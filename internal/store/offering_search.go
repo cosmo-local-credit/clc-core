@@ -32,10 +32,12 @@ func offeringPageQuery(queries *Queries, filter CatalogFilter, cursor OfferingCu
 	term, tags, allTags, pools := offeringSearchArgs(filter)
 	query := queries.ListOfferingsFilteredGlobal
 	hasBounds, minLng, minLat, maxLng, maxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(filter.Bounds)
+	held := voucherIDsParam(filter.CreditVoucherIDs)
 	args := []any{
 		term, filter.prefixOnly(), tags, allTags, pools, cursor.ID, limit,
 		hasBounds, minLng, minLat, maxLng, maxLat,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+		held,
 	}
 	if filter.Nearby != nil {
 		query = queries.ListOfferingsFilteredNearby
@@ -45,6 +47,7 @@ func offeringPageQuery(queries *Queries, filter CatalogFilter, cursor OfferingCu
 			filter.Nearby.Lat, filter.Nearby.Lng,
 			bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat,
 			cursor.Distance, cursor.ID, limit,
+			held,
 		}
 	} else if filter.SortOrigin != nil {
 		query = queries.ListOfferingsFilteredSorted
@@ -54,6 +57,7 @@ func offeringPageQuery(queries *Queries, filter CatalogFilter, cursor OfferingCu
 			hasBounds, minLng, minLat, maxLng, maxLat,
 			hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
 			cursor.Distance, cursor.ID, limit,
+			held,
 		}
 	}
 	return query, args
@@ -63,10 +67,12 @@ func offeringFacetQuery(queries *Queries, filter CatalogFilter) (string, []any) 
 	term, _, _, pools := offeringSearchArgs(filter)
 	query := queries.ListOfferingTagCountsGlobal
 	hasBounds, minLng, minLat, maxLng, maxLat, hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat := catalogBoundsQueryArgs(filter.Bounds)
+	held := voucherIDsParam(filter.CreditVoucherIDs)
 	args := []any{
 		term, filter.prefixOnly(), pools,
 		hasBounds, minLng, minLat, maxLng, maxLat,
 		hasSecond, secondMinLng, secondMinLat, secondMaxLng, secondMaxLat,
+		held,
 	}
 	if filter.Nearby != nil {
 		query = queries.ListOfferingTagCountsNearby
@@ -74,6 +80,7 @@ func offeringFacetQuery(queries *Queries, filter CatalogFilter) (string, []any) 
 		args = []any{
 			term, filter.prefixOnly(), pools, filter.Nearby.Lat, filter.Nearby.Lng,
 			bounds.MinLng, bounds.MinLat, bounds.MaxLng, bounds.MaxLat,
+			held,
 		}
 	}
 	return query, args

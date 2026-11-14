@@ -155,6 +155,11 @@ func (a *API) offeringsListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.poolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 	size, err := curatedPageSize(c)
 	if err != nil {
 		return respondCatalogSearchError(c, err)
@@ -347,6 +352,11 @@ func (a *API) vouchersListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.poolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 	if search.filter.Owner, err = addressFilterParam(c, "owner"); err != nil {
 		return respondCatalogSearchError(c, err)
 	}

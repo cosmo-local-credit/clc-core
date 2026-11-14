@@ -393,3 +393,46 @@ func TestReadSafeVia(t *testing.T) {
 		}
 	}
 }
+
+// An OracleQuoter's owner controls are all reachable from a Safe: per-feed
+// freshness, removal, and the global staleness bound and multiplier. Other
+// quoter-looking selectors stay rejected.
+func TestCheckAcceptsOracleQuoterControls(t *testing.T) {
+	token := common.HexToAddress("0x5555555555555555555555555555555555555555")
+	aggregator := common.HexToAddress("0xab70BCB260073d036d1660201e9d5405F5829b7a")
+
+	allowed := map[string][]byte{
+		"setOracle two-argument":   selfCall("setOracle(address,address)", token.Bytes(), aggregator.Bytes()),
+		"setOracle three-argument": selfCall("setOracle(address,address,uint256)", token.Bytes(), aggregator.Bytes(), big.NewInt(93600).Bytes()),
+		"removeOracle":             selfCall("removeOracle(address)", token.Bytes()),
+		"setMaxStaleness":          selfCall("setMaxStaleness(uint256)", big.NewInt(86400).Bytes()),
+		"setMultiplier":            selfCall("setMultiplier(uint256)", big.NewInt(990000).Bytes()),
+	}
+	for name, call := range allowed {
+		t.Run(name, func(t *testing.T) {
+			data := encodeExec(t, assetAddr, big.NewInt(0), call, 0, big.NewInt(0), sigs(1))
+			if _, err := newPolicy().Check(context.Background(), execCall(data)); err != nil {
+				t.Fatalf("got %v; want accepted", err)
+			}
+			inner := encodeMultiSend(t, packSub(0, assetAddr, big.NewInt(0), call))
+			batched := encodeExec(t, multiSendAt, big.NewInt(0), inner, 1, big.NewInt(0), sigs(1))
+			if _, err := newPolicy().Check(context.Background(), execCall(batched)); err != nil {
+				t.Fatalf("in a multisend: got %v; want accepted", err)
+			}
+		})
+	}
+
+	rejected := map[string][]byte{
+		"setOracle with staleness and extra word": selfCall("setOracle(address,address,uint256,uint256)", token.Bytes(), aggregator.Bytes(), big.NewInt(1).Bytes(), big.NewInt(1).Bytes()),
+		"setBaseCurrency":                         selfCall("setBaseCurrency(address)", token.Bytes()),
+		"upgradeToAndCall":                        selfCall("upgradeToAndCall(address,bytes)", aggregator.Bytes(), big.NewInt(64).Bytes(), big.NewInt(0).Bytes()),
+	}
+	for name, call := range rejected {
+		t.Run(name, func(t *testing.T) {
+			data := encodeExec(t, assetAddr, big.NewInt(0), call, 0, big.NewInt(0), sigs(1))
+			if v, err := newPolicy().Check(context.Background(), execCall(data)); !errors.Is(err, ErrRejected) || v != nil {
+				t.Fatalf("got %v, %v; want ErrRejected", v, err)
+			}
+		})
+	}
+}

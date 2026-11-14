@@ -66,8 +66,9 @@ func main() {
 	pubComponent, jsComponent := loadPub()
 	workerComponent := loadWorker(pgStore, federationStore, chainProvider, gasOracleInst, relayerComponent, accountIndexAddress, pubComponent)
 	pretiumComponent := loadPretium()
-	apiComponent := loadAPI(pgStore, federationStore, chainProvider, workerComponent, relayerComponent, pretiumComponent)
-	subComponent := loadSub(pgStore, chainProvider, workerComponent, pubComponent, jsComponent)
+	routerComponent := loadRouter(pgStore, federationStore, chainProvider, relayerComponent)
+	apiComponent := loadAPI(pgStore, federationStore, chainProvider, workerComponent, relayerComponent, pretiumComponent, routerComponent)
+	subComponent := loadSub(pgStore, chainProvider, workerComponent, pubComponent, jsComponent, routerComponent)
 
 	lo.Info("starting clc-core", "build", build)
 
@@ -93,6 +94,10 @@ func main() {
 		subComponent.Process()
 	})
 
+	if routerComponent != nil {
+		routerComponent.Run(ctx)
+	}
+
 	<-ctx.Done()
 	lo.Info("shutdown signal received")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultGracefulShutdownPeriod)
@@ -105,6 +110,9 @@ func main() {
 			lo.Error("failed to stop API server", "err", err)
 		}
 		gasOracleInst.Stop()
+		if routerComponent != nil {
+			routerComponent.Stop()
+		}
 		if err := workerComponent.Stop(shutdownCtx); err != nil {
 			lo.Error("failed to stop worker queue", "err", err)
 		}

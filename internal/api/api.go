@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/router"
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/telemetry"
@@ -52,6 +53,11 @@ type (
 		// SafeAutoExecute has clc-core execute a proposal once its signers
 		// reach the threshold; the worker must run the matching executor.
 		SafeAutoExecute bool
+		// Router serves the credit endpoints; nil answers them with 503.
+		Router *router.Service
+		// RouteDeadlineHorizon bounds how far past now a relayed swap route's
+		// bounded deadline may sit.
+		RouteDeadlineHorizon time.Duration
 	}
 
 	API struct {
@@ -87,6 +93,9 @@ type (
 		safeReader              safeStateReader
 		safeMisses              *safeMissCache
 		safeProxy               *safeService
+		creditRouter            *router.Service
+		routeHorizon            time.Duration
+		creditLimiter           *marketRateLimiter
 	}
 )
 
@@ -124,6 +133,9 @@ func New(o APIOpts) *API {
 		marketFacets:          newMarketFacetCache(time.Now),
 		marketMapCache:        newMarketMapCache(time.Now),
 		marketMapExecutor:     newMarketMapExecutor(),
+		creditRouter:          o.Router,
+		routeHorizon:          o.RouteDeadlineHorizon,
+		creditLimiter:         newMarketRateLimiter(creditQuoteRateLimit, creditQuoteRateBurst, time.Now),
 	}
 	a.safePolicy = a.newSafePolicy(o.SafeMultiSend)
 	var safeReader *safe.Reader
@@ -153,6 +165,7 @@ func New(o APIOpts) *API {
 	a.poolLimiter.startSweeper()
 	a.recipientLimiter.startSweeper()
 	a.messageLimiter.startSweeper()
+	a.creditLimiter.startSweeper()
 
 	customValidator := validator.New(validator.WithRequiredStructEnabled())
 	router := echo.New()
@@ -441,6 +454,14 @@ func New(o APIOpts) *API {
 	userGroup.POST("/me/shares/:txHash", a.userShareCreateHandler)
 	userGroup.GET("/me/shares/:txHash", a.userShareByTxHashHandler)
 
+	// Credit router. Discovery is an estimate as of a block;
+	// only the quote is authoritative, and it is rate-limited per user.
+	userGroup.GET("/me/credit", a.creditReachHandler)
+	userGroup.GET("/me/credit/routes", a.creditRoutesHandler)
+	userGroup.POST("/me/credit/quote", a.creditQuoteHandler, a.creditQuoteRateLimitMiddleware())
+	userGroup.GET("/me/routed-swaps", a.routedSwapsListHandler)
+	userGroup.GET("/me/routed-swaps/:trackingId", a.routedSwapHandler)
+
 	// An author's own posts in every status. /reports and /reports/:id stay
 	// approved-only; these are the reads that let an author find and reopen a
 	// post the public feed is hiding.
@@ -490,6 +511,8 @@ func New(o APIOpts) *API {
 	adminGroup.DELETE("/vocabulary/tags", a.adminDeleteTokenTagHandler)
 	adminGroup.DELETE("/vocabulary/units", a.adminDeleteOfferingUnitHandler)
 	adminGroup.DELETE("/vocabulary/units-of-account", a.adminDeleteUnitOfAccountHandler)
+	adminGroup.GET("/router/stats", a.adminRouterStatsHandler)
+	adminGroup.GET("/router/graph", a.adminRouterGraphHandler)
 
 	// Global post moderation reads. The write half stays on apiGroup with the
 	// other report mutations, where the role check is already per-handler.
