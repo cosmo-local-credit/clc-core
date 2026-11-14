@@ -1544,7 +1544,7 @@ The API builds one job for each of these contracts, if the platform contract tab
 |---|---|
 | `SWAPPOOL` | The pool itself. |
 | `TOKEN_UNIQUE_SYMBOL_INDEX` | The token registry of the pool. |
-| `LIMITER` | The limiter of the pool. |
+| `LIMITER` | The limiter of the pool, which holds its credit limit for each voucher. |
 | `FEE_POLICY` | The fee policy of the pool. |
 | `ORACLE_QUOTER` or `RELATIVE_QUOTER` | The quoter of the pool. The recorded `quoterType` of the pool selects the type. |
 
@@ -2959,7 +2959,7 @@ Pool voucher fields:
 | `active` | boolean | Always `true` on this route. |
 | `internal` | boolean | |
 | `isAllowed` | boolean | Always `true` on this route. |
-| `tokenLimit` | string or null | The pool limit for this voucher, as decimal text. |
+| `tokenLimit` | string or null | The pool's credit limit for this voucher: the most of it the pool will hold, in base units, as decimal text. Deposits and swaps that would take the pool's balance above it revert, and room comes back as the voucher is swapped out. `0` means the pool takes none. `null` when no limit has been recorded. |
 | `syncedAt` | string | RFC 3339 time. |
 | `oracleFeedId` | integer or null | The registered feed the quoter maps. `null` when the aggregator is not in the feed registry. |
 | `oracleName` | string or null | The registered feed's name. `null` when the aggregator is not in the feed registry. |
@@ -5124,7 +5124,7 @@ Discovery screens use the same reachable set through `creditDepth=1|2`, resolved
 |---|---|---|---|
 | Result | `200` | | Possibly empty. An empty result is a real answer. |
 | Stale | `200` | | `stale: true`: served from a graph older than `router.stale_after_blocks`, or a reconciliation is failing. |
-| `route_unavailable` | `409` | `E24` | `result.reason` is one of `not_allowed_in`, `not_allowed_out`, `deposit_cap`, `liquidity`, `fee_domain`, `zero_input`, `zero_output`, `overflow`, `unsupported_quoter`, `unsupported_token`, `wallet_balance`, `retired`, `search_budget`, `unsupported_wallet` (a Safe or other contract wallet) or `gas`. `result.hop` is zero-based; `-1` is the route as a whole. |
+| `route_unavailable` | `409` | `E24` | `result.reason` is one of `not_allowed_in`, `not_allowed_out`, `deposit_cap` (the pool's credit limit for the voucher going in), `liquidity`, `fee_domain`, `zero_input`, `zero_output`, `overflow`, `unsupported_quoter`, `unsupported_token`, `wallet_balance`, `retired`, `search_budget`, `unsupported_wallet` (a Safe or other contract wallet) or `gas`. `result.hop` is zero-based; `-1` is the route as a whole. |
 | `quote_mismatch` | `409` | `E25` | The chain disagreed with the local arithmetic. The pool leaves discovery. |
 | `simulation_failed` | `409` | `E26` | `result.revert` has `reason` (the innermost error name, for example `InsufficientOutput`, `LimitExceeded`, `Expired`), `message` and `data`. |
 | `router_unavailable` | `503` | `E27` | The graph or the RPC cannot be used. Retry. A failed read is never returned as an empty result. |
@@ -5185,7 +5185,7 @@ The routes from the wallet's vouchers to one voucher, grouped by input voucher.
 ```
 
 - **Ranking.** Within one input voucher: with an `amount`, routes that carry it come first, by highest delivered output (`exactInput`) or lowest required input (`exactOutput`); routes that cannot carry it follow, each with its maximum and a `refusal` (`reason`, `hop`). Without an amount, routes are ordered by `rate`, the output for one whole input voucher. Ties go to fewer hops, then pool, bridge and input addresses. Different input vouchers are separate choices and are not ranked against each other. (`router.tie_margin_ppm` can treat near-equal outputs as tied; it is 0.)
-- **Maximum.** `maxAmountIn` is the most the wallet can spend through the route, and `maxIsExact: true` means every larger input has been ruled out. `null` means the maximum could not be established; the route stays listed and can still be quoted. `limitedBy` is `wallet`, `deposit_cap` or `liquidity`, on hop `limitedByHop`.
+- **Maximum.** `maxAmountIn` is the most the wallet can spend through the route, and `maxIsExact: true` means every larger input has been ruled out. `null` means the maximum could not be established; the route stays listed and can still be quoted. `limitedBy` is `wallet`, `deposit_cap` (the pool's credit limit for the voucher going in) or `liquidity`, on hop `limitedByHop`.
 - **Fees.** `feeSource` is `pair` once the exact pair fee has been read, `default` until then. `effectiveFeePpm` is `(feeFree − delivered) · 1e6 / feeFree` at `rate`.
 - **Route id.** `id` is derived from the route's pools and vouchers, so the same route has the same id in every listing.
 - **Paging.** 50 routes per page across the groups, never silently truncated. A cursor from a listing that has since changed returns `409` `E28`.
@@ -5836,7 +5836,7 @@ Fields of a pool voucher:
 | `active` | boolean | `false` for a retired voucher. |
 | `internal` | boolean | Internal flag of the voucher. |
 | `isAllowed` | boolean | `true` when the pool allows the voucher. |
-| `tokenLimit` | string or null | Pool limit for the voucher. |
+| `tokenLimit` | string or null | The pool's credit limit for the voucher, in base units: the most of it the pool will hold. `0` means the pool takes none. |
 | `syncedAt` | string | RFC 3339 time of the last sync. |
 | `oracleFeedId` | integer or null | Registered oracle feed ID. `null` for an unregistered aggregator. |
 | `oracleName` | string or null | Registered oracle feed name. `null` for an unregistered aggregator. |

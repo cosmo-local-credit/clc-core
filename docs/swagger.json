@@ -12697,7 +12697,7 @@
                                         "string",
                                         "null"
                                       ],
-                                      "description": "wallet, deposit_cap or liquidity."
+                                      "description": "wallet, deposit_cap (the pool's credit limit for the voucher going in) or liquidity."
                                     },
                                     "limitedByHop": {
                                       "type": "integer"
