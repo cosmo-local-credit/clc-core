@@ -135,6 +135,9 @@ type (
 		fees    *FeeBook
 		stateMu sync.Mutex
 		state   *State // guarded by stateMu
+		// unread holds the edges last asked for a balance read because they
+		// appeared without one; guarded by stateMu.
+		unread map[[2]common.Address]bool
 
 		deltas    chan Delta
 		reloadNow chan struct{}
@@ -383,6 +386,28 @@ func (s *Service) publish() {
 	version := s.version.Add(1)
 	snap := s.state.Build(s.buildCfg, version, s.fees)
 	s.snap.Store(snap)
+	s.requestUnreadBalances(snap)
+}
+
+// requestUnreadBalances asks the dirty loop to read, once, every allowed edge
+// of an active pool that has no balance yet. A voucher a pool just added
+// carries no transfer to mark it, and until it is read the snapshot has no
+// block it is as of, so waiting for the sweep would leave the whole graph
+// stale. An edge whose read fails is left to the sweep.
+func (s *Service) requestUnreadBalances(snap *Snapshot) {
+	current := map[[2]common.Address]bool{}
+	for i := range snap.Edges {
+		e := &snap.Edges[i]
+		if !e.Allowed || e.HasBalance || !snap.Pools[e.Pool].Active {
+			continue
+		}
+		key := [2]common.Address{snap.Pools[e.Pool].Addr, snap.Tokens[e.Token].Address}
+		current[key] = true
+		if !s.unread[key] && s.dirty != nil {
+			s.markDirty(key[0], key[1])
+		}
+	}
+	s.unread = current
 }
 
 func (s *Service) reload(ctx context.Context) error {

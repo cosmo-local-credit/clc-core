@@ -192,6 +192,54 @@ func TestReachIsInclusiveByDepth(t *testing.T) {
 	assert.ErrorAs(t, err, &reqErr)
 }
 
+// A voucher a pool adds with nothing in stock carries no transfer to mark its
+// balance, and until it is read the graph has no block it is as of. The read
+// must come straight away, not at the next sweep.
+func TestNewMemberIsReadWithoutWaitingForTheSweep(t *testing.T) {
+	st, n, svc := ready(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	svc.Run(ctx)
+	t.Cleanup(func() { cancel(); svc.Stop() })
+	// Every loop runs once on start; the next sweep is minutes away.
+	require.Eventually(t, func() bool {
+		stats, err := svc.Stats()
+		if err != nil {
+			return false
+		}
+		for _, name := range []string{"structure", "params", "balances"} {
+			if stats.Loops[name].Runs == 0 {
+				return false
+			}
+		}
+		return true
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NotZero(t, svc.Snapshot().Block)
+
+	// P4 adds A with nothing in stock, on chain and in the database.
+	n.Chain.Lock()
+	p4 := n.Chain.Pools[n.P4]
+	p4.Members = append(p4.Members, n.A)
+	p4.Limits[n.A] = u(1_000_000)
+	n.Chain.Unlock()
+	db := st.Pool()
+	_, err := db.Exec(ctx, `INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, token_limit) VALUES ($1, $2, TRUE, 1000000)`,
+		n.PoolIDs[n.P4], n.VoucherIDs[n.A])
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = db.Exec(context.Background(), `DELETE FROM pool_token_liquidity WHERE pool_id = $1 AND voucher_id = $2`, n.PoolIDs[n.P4], n.VoucherIDs[n.A])
+		_, _ = db.Exec(context.Background(), `DELETE FROM pool_tokens WHERE pool_id = $1 AND voucher_id = $2`, n.PoolIDs[n.P4], n.VoucherIDs[n.A])
+	})
+	svc.Apply(router.ReloadDelta{})
+
+	require.Eventually(t, func() bool {
+		snap := svc.Snapshot()
+		pool, _ := snap.PoolByAddress(n.P4)
+		token, _ := snap.TokenByAddress(n.A)
+		edge, ok := snap.Edge(pool, token)
+		return ok && edge.Allowed && edge.HasBalance && snap.Block != 0
+	}, 5*time.Second, 20*time.Millisecond, "the new member is read well before the next sweep")
+}
+
 func TestReachDistinguishesEmptyFromUnavailable(t *testing.T) {
 	_, n, svc := ready(t)
 	ctx := context.Background()
