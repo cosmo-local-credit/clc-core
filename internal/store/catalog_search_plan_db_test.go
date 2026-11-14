@@ -187,8 +187,10 @@ func explainGenericPlan(t *testing.T, tx pgx.Tx, sql string) string {
 //
 //	Bitmap Index Scan on vouchers_active_display_name_trgm_idx
 //	Index Scan using reports_approved_period_to_idx on reports r
-var drivingIndexPattern = regexp.MustCompile(
-	`(?:Bitmap Index Scan on|Index Only Scan(?: Backward)? using|Index Scan(?: Backward)? using) (\S+)`,
+var (
+	drivingIndexPattern = regexp.MustCompile(
+		`(?:Bitmap Index Scan on|Index Only Scan(?: Backward)? using|Index Scan(?: Backward)? using) (\S+)`,
+	)
 )
 
 func drivingIndexes(plan string) map[string]bool {
