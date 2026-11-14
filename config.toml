@@ -107,9 +107,9 @@ auto_execute = false
 # kept current by the tracker events and four chain reconciliation loops; the
 # quote reads the pools at a pinned block and is the only authoritative answer.
 enabled = true
-# At most two hops in the product; the engine supports up to five (a relayed
+# Longest route offered: three hops. The engine supports up to five (a relayed
 # batch holds 16 calls, three per hop).
-max_hops = 2
+max_hops = 3
 max_routes_per_page = 50
 # Rebuild the graph from Postgres. Repairs API-side changes (retire, restore)
 # and a crash between commit and apply; it cannot restore what Postgres never
@@ -124,8 +124,11 @@ stale_after_blocks = 120
 quote_deadline_secs = 300
 max_search_evaluations = 256
 # Treat two outputs within this margin (ppm) as tied, so an extra hop is not
-# chosen for a negligible gain. 0 compares exactly.
-tie_margin_ppm = 0
+# chosen for a negligible gain. 0 compares exactly; unset means 5000 (0.5 %).
+tie_margin_ppm = 5000
+# Routes per input voucher fully evaluated; the rest, ranked below them by
+# rate, are reported as omitted. Unset means 256.
+max_route_candidates = 256
 holdings_cache_secs = 15
 chain_batch_size = 150
 # A relayed swap route's bounded deadline may sit at most this far ahead.

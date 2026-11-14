@@ -126,25 +126,16 @@ func TestProductionGraphReachAgreesWithEnumeration(t *testing.T) {
 		}
 	}
 	var holdings []Holding
-	inputs := []int32{}
 	for _, b := range bridges[:5] {
 		holdings = append(holdings, Holding{Token: b.token, Balance: *uint256.NewInt(1_000_000)})
-		inputs = append(inputs, b.token)
 	}
-	reach := Reach(snap, holdings, 2)
-	got := map[int32]int{}
-	for _, v := range reach.Vouchers {
-		got[v.Token] = v.MinHops
+	var reach ReachResult
+	for _, depth := range []int{2, 3} {
+		reach = Reach(snap, holdings, depth)
+		wantVouchers, wantPools := enumeratedReach(snap, holdings, depth)
+		assert.Equal(t, wantVouchers, reachedVouchers(reach), "vouchers at depth %d", depth)
+		assert.Equal(t, wantPools, reachedPools(reach), "pools at depth %d", depth)
 	}
-	want := map[int32]int{}
-	for target := range snap.Tokens {
-		for _, route := range EnumerateRoutes(snap, inputs, int32(target), 2) {
-			if hops, ok := want[int32(target)]; !ok || len(route) < hops {
-				want[int32(target)] = len(route)
-			}
-		}
-	}
-	assert.Equal(t, want, got)
 	t.Logf("five largest bridges reach %d vouchers and %d pools", len(reach.Vouchers), len(reach.Pools))
 }
 

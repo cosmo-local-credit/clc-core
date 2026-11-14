@@ -214,10 +214,11 @@ func (p *LegParams) legCeiling() (uint256.Int, string) {
 // MaxInput is the largest input for which the forward quote succeeds.
 //
 // For one hop every constraint is monotone and a binary search is exact. For
-// two hops it is not: hop two consumes hop one's net, and net is not monotone
-// in gross. The search then walks hop one's producible gross plateaus down
-// from a proven ceiling (see the inline proof), so Exact means every larger
-// input was ruled out. Routes longer than two hops get Known: false.
+// more hops it is not: each later hop consumes the previous hop's net, and net
+// is not monotone in gross. Everything after hop one depends only on hop one's
+// gross, so the search walks hop one's producible gross plateaus down from a
+// proven ceiling (see maxChain), and Exact means every larger input was ruled
+// out.
 func MaxInput(legs []LegParams, wallet *uint256.Int, budget int) MaxResult {
 	for i := range legs {
 		if !FeeDomainOK(legs[i].FeePPM, legs[i].ProtocolPPM) {
@@ -226,6 +227,9 @@ func MaxInput(legs []LegParams, wallet *uint256.Int, budget int) MaxResult {
 		if legs[i].Quoter != QuoterRelative && legs[i].Quoter != QuoterNone {
 			return MaxResult{Unavailable: ReasonUnsupportedQuoter, LimitedByHop: i}
 		}
+	}
+	if len(legs) == 0 {
+		return MaxResult{}
 	}
 
 	// U: the largest input hop one accepts on its own constraints.
@@ -244,8 +248,7 @@ func MaxInput(legs []LegParams, wallet *uint256.Int, budget int) MaxResult {
 		return MaxResult{Unavailable: reason, LimitedBy: limitedBy}
 	}
 
-	switch len(legs) {
-	case 1:
+	if len(legs) == 1 {
 		quote, err := SwapRoute(legs, &u, wallet)
 		if err != nil {
 			// Every constraint below U is monotone, so the only failure left
@@ -254,65 +257,105 @@ func MaxInput(legs []LegParams, wallet *uint256.Int, budget int) MaxResult {
 			return MaxResult{Unavailable: reasonOf(err)}
 		}
 		return MaxResult{Known: true, Exact: true, AmountIn: u, AmountOut: quote.AmountOut(), LimitedBy: limitedBy}
-	case 2:
-		return maxTwoHops(legs, u, limitedBy, wallet, budget)
-	default:
-		return MaxResult{}
 	}
+	return maxChain(legs, u, limitedBy, wallet, budget)
 }
 
-func maxTwoHops(legs []LegParams, u uint256.Int, limitedBy string, wallet *uint256.Int, budget int) MaxResult {
-	first, second := &legs[0], &legs[1]
+// capacityReason is the refusal a leg's own capacity limit produces.
+func capacityReason(limit string) Reason {
+	if limit == LimitLiquidity {
+		return ReasonLiquidity
+	}
+	return ReasonDepositCap
+}
 
-	// Bmax: the largest intermediate amount hop two accepts. Monotone.
-	bmax, bridgeLimit := second.legCeiling()
-	if bmax.IsZero() {
-		reason := ReasonDepositCap
-		if bridgeLimit == LimitLiquidity {
-			reason = ReasonLiquidity
+// maxChain finds the maximum for routes of two or more hops.
+//
+// A backward pass bounds what each later hop k can take, using the settlement
+// bounds g·K/D² <= net(g) < g·K/D² + 3:
+//
+//   - ceil[k] is a proven ceiling: an input to hop k above it is refused at
+//     hop k or later. Hop k refuses inputs above its own capacity limit, and
+//     any gross above floor(ceil[k+1]·D²/K) nets more than ceil[k+1].
+//   - safe[k] is a proven floor: every input to hop k at or below it is
+//     accepted on capacity by hop k and every later hop, since any gross at
+//     or below floor((safe[k+1] − 3)·D²/K) nets less than safe[k+1].
+//
+// Hop one's gross then has a ceiling (its net must not exceed ceil[1]) and a
+// floor (a net at or below safe[1] always passes). The search starts at the
+// top plateau under the ceiling and, on a capacity refusal by any later hop,
+// steps to the top of the next lower plateau: every input in between has the
+// same gross, so the same outcome at every later hop.
+func maxChain(legs []LegParams, u uint256.Int, limitedBy string, wallet *uint256.Int, budget int) MaxResult {
+	n := len(legs)
+	ceil := make([]uint256.Int, n)
+	safe := make([]uint256.Int, n)
+	ownLimit := make([]string, n)
+	bindLimit := make([]string, n)
+	bindHop := make([]int, n)
+	three := uint256.NewInt(3)
+
+	for k := n - 1; k >= 1; k-- {
+		own, limit := legs[k].legCeiling()
+		ownLimit[k] = limit
+		if own.IsZero() {
+			return MaxResult{Unavailable: capacityReason(limit), LimitedBy: limit, LimitedByHop: k}
 		}
-		return MaxResult{Unavailable: reason, LimitedBy: bridgeLimit, LimitedByHop: 1}
+		if k == n-1 {
+			ceil[k], safe[k], bindLimit[k], bindHop[k] = own, own, limit, k
+			continue
+		}
+		den := SettleDenominator(legs[k].FeePPM, legs[k].ProtocolPPM)
+		gHi, ok := fullMulDiv(&ceil[k+1], ppmSq, &den)
+		if !ok {
+			gHi = new(uint256.Int).Set(maxU256)
+		}
+		byNext := legs[k].maxInputFor(gHi, &own)
+		if byNext.Lt(&own) {
+			ceil[k], bindLimit[k], bindHop[k] = byNext, bindLimit[k+1], bindHop[k+1]
+		} else {
+			ceil[k], bindLimit[k], bindHop[k] = own, limit, k
+		}
+		gSafe := new(uint256.Int)
+		if safe[k+1].Gt(three) {
+			s3 := new(uint256.Int).Sub(&safe[k+1], three)
+			if z, ok := fullMulDiv(s3, ppmSq, &den); ok {
+				gSafe = z
+			} else {
+				gSafe.Set(maxU256)
+			}
+		}
+		safe[k] = legs[k].maxInputFor(gSafe, &own)
 	}
 
+	first := &legs[0]
 	k1 := SettleDenominator(first.FeePPM, first.ProtocolPPM)
-	// Proven ceiling: any hop-one gross above floor(Bmax·D²/K1) nets more
-	// than Bmax, by the lower bound of SettleDenominator.
-	gHi, ok := fullMulDiv(&bmax, ppmSq, &k1)
+	gHi, ok := fullMulDiv(&ceil[1], ppmSq, &k1)
 	if !ok {
 		gHi = new(uint256.Int).Set(maxU256)
 	}
-	// Proven floor: any gross at or below floor((Bmax − 3)·D²/K1) nets no
-	// more than Bmax, by the upper bound.
 	gLo := new(uint256.Int)
-	if bmax.Gt(uint256.NewInt(3)) {
-		b3 := new(uint256.Int).Sub(&bmax, uint256.NewInt(3))
-		if z, ok := fullMulDiv(b3, ppmSq, &k1); ok {
+	if safe[1].Gt(three) {
+		s3 := new(uint256.Int).Sub(&safe[1], three)
+		if z, ok := fullMulDiv(s3, ppmSq, &k1); ok {
 			gLo = z
 		} else {
 			gLo.Set(maxU256)
 		}
 	}
 
-	// Candidates are the gross values hop one can actually produce. Start at
-	// the top plateau under the ceiling, and on a refusal by hop two step to
-	// the top of the next lower plateau: every input in between has the same
-	// gross, so the same net, so the same outcome at hop two.
 	x := first.maxInputFor(gHi, &u)
 	hop := 0
 	if x.Lt(&u) {
-		limitedBy, hop = bridgeLimit, 1
+		limitedBy, hop = bindLimit[1], bindHop[1]
 	}
-	lastRefusal := ReasonDepositCap
-	if bridgeLimit == LimitLiquidity {
-		lastRefusal = ReasonLiquidity
-	}
+	lastRefusal, lastLimit, lastHop := capacityReason(bindLimit[1]), bindLimit[1], bindHop[1]
 
 	for range budget {
 		if x.IsZero() {
-			// No positive input is left: those above the ceiling net more
-			// than hop two accepts, and every plateau below it was refused by
-			// hop two's capacity.
-			return MaxResult{Unavailable: lastRefusal, LimitedBy: bridgeLimit, LimitedByHop: 1}
+			// No positive input is left: those above the ceiling are refused
+			// downstream, and every plateau below it was refused on capacity.
+			return MaxResult{Unavailable: lastRefusal, LimitedBy: lastLimit, LimitedByHop: lastHop}
 		}
 		quote, err := SwapRoute(legs, &x, wallet)
 		if err == nil {
@@ -331,29 +374,33 @@ func maxTwoHops(legs []LegParams, u uint256.Int, limitedBy string, wallet *uint2
 			return MaxResult{Unavailable: qe.Reason}
 		}
 		if qe.Reason != ReasonDepositCap && qe.Reason != ReasonLiquidity {
-			// Hop two refused something other than capacity: its output
+			// A later hop refused something other than capacity: its output
 			// rounds to nothing at dust-sized amounts. Smaller inputs only
 			// shrink what reaches it, so the maximum is unknown rather than
 			// disproved.
 			return MaxResult{}
 		}
-		lastRefusal = qe.Reason
+		lastRefusal, lastHop = qe.Reason, qe.Hop
+		lastLimit = LimitDepositCap
+		if qe.Reason == ReasonLiquidity {
+			lastLimit = LimitLiquidity
+		}
 		g, gerr := first.Gross(&x)
 		if gerr != nil || g.IsZero() {
 			return MaxResult{}
 		}
 		if !g.Gt(gLo) {
-			// Below the proven floor hop one nets at most Bmax, which hop two
-			// accepts on capacity; reaching here means the bound was violated.
+			// At or below the proven floor every later hop accepts on
+			// capacity; reaching here means the bound was violated.
 			return MaxResult{}
 		}
-		limitedBy, hop = bridgeLimit, 1
+		limitedBy, hop = ownLimit[qe.Hop], qe.Hop
 		below := new(uint256.Int).Sub(&g, one)
 		x = first.maxInputFor(below, &x)
 	}
 
-	// Budget spent: offer the floor candidate, which hop two must accept on
-	// capacity, without claiming it is the maximum.
+	// Budget spent: offer the floor candidate, which every later hop must
+	// accept on capacity, without claiming it is the maximum.
 	floorX := first.maxInputFor(gLo, &u)
 	if floorX.IsZero() {
 		return MaxResult{}
@@ -364,7 +411,7 @@ func maxTwoHops(legs []LegParams, u uint256.Int, limitedBy string, wallet *uint2
 	}
 	return MaxResult{
 		Known: true, Exact: false, AmountIn: floorX, AmountOut: quote.AmountOut(),
-		LimitedBy: bridgeLimit, LimitedByHop: 1,
+		LimitedBy: bindLimit[1], LimitedByHop: bindHop[1],
 	}
 }
 

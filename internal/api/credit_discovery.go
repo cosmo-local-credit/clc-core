@@ -34,10 +34,11 @@ type (
 	}
 )
 
-// resolveCreditDepth reads creditDepth=1|2. Absent, it returns nil. Present,
-// it needs a user session and the router; the answer is private to the
-// wallet, so the response must not be cached publicly. When handled is true
-// the response has been written and the handler returns err.
+// resolveCreditDepth reads creditDepth: max, or 1 to the router's maximum.
+// Absent, it returns nil. Present, it needs a user session and the router;
+// the answer is private to the wallet, so the response must not be cached
+// publicly. When handled is true the response has been written and the
+// handler returns err.
 func (a *API) resolveCreditDepth(c *echo.Context, creditablePools bool) (filter *creditDepthFilter, handled bool, err error) {
 	raw := strings.TrimSpace(c.QueryParam("creditDepth"))
 	if raw == "" {
@@ -48,15 +49,18 @@ func (a *API) resolveCreditDepth(c *echo.Context, creditablePools bool) (filter 
 			Ok: false, ErrCode: apiresp.ErrCodeValidationFailed, Description: errCreditDepthWithPools.Error(),
 		})
 	}
-	depth, err := strconv.Atoi(raw)
-	maxHops := 2
+	maxHops := router.DefaultMaxHops
 	if a.creditRouter != nil {
 		maxHops = a.creditRouter.Config().MaxHops
+	}
+	depth, err := strconv.Atoi(raw)
+	if raw == "max" {
+		depth, err = maxHops, nil
 	}
 	if err != nil || depth < 1 || depth > maxHops {
 		return nil, true, c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
 			Ok: false, ErrCode: apiresp.ErrCodeValidationFailed,
-			Description: "creditDepth must be between 1 and " + strconv.Itoa(maxHops),
+			Description: "creditDepth must be max or between 1 and " + strconv.Itoa(maxHops),
 		})
 	}
 	c.Response().Header().Set("Cache-Control", "private, no-store")

@@ -62,7 +62,7 @@ func newCreditHarness(t *testing.T, withRouter bool) *creditHarness {
 	var svc *router.Service
 	if withRouter {
 		svc = router.New(router.Opts{
-			Config: router.Config{ChainID: n.ChainID, MaxHops: 2},
+			Config: router.Config{ChainID: n.ChainID, MaxHops: 3},
 			Store:  pgStore, Chain: n.Chain, Relay: n.Relay(), Logg: logg,
 		})
 		require.NoError(t, svc.Load(ctx))
@@ -116,7 +116,16 @@ func TestCreditReachThroughTheAPI(t *testing.T) {
 	assert.Equal(t, "private, no-store", header.Get("Cache-Control"))
 	r := result(t, body)
 	assert.EqualValues(t, 1, r["depth"])
-	assert.Len(t, r["vouchers"], 2)
+	assert.EqualValues(t, 3, r["maxHops"])
+	hops := func(r map[string]any) map[string]any {
+		out := map[string]any{}
+		for _, v := range asList(t, r["vouchers"]) {
+			out[asString(t, asMap(t, v)["address"])] = asMap(t, v)["minHops"]
+		}
+		return out
+	}
+	assert.Equal(t, map[string]any{n.A.Hex(): 0.0, n.B.Hex(): 1.0, n.C.Hex(): 1.0}, hops(r),
+		"the voucher the wallet holds is listed at zero hops")
 	assert.Len(t, r["pools"], 2)
 	inputs := asList(t, r["inputs"])
 	require.Len(t, inputs, 1)
@@ -126,12 +135,19 @@ func TestCreditReachThroughTheAPI(t *testing.T) {
 	status, _, body = h.do(t, http.MethodGet, "/api/v2/users/me/credit?depth=2", nil)
 	require.Equal(t, http.StatusOK, status)
 	r = result(t, body)
-	assert.Len(t, r["vouchers"], 3)
+	assert.Len(t, r["vouchers"], 4)
 	assert.Len(t, r["pools"], 4)
 	assert.NotEmpty(t, r["digest"])
 
-	status, _, body = h.do(t, http.MethodGet, "/api/v2/users/me/credit?depth=3", nil)
-	assert.Equal(t, http.StatusBadRequest, status, body)
+	for _, query := range []string{"", "?depth=max", "?depth=3"} {
+		status, _, body = h.do(t, http.MethodGet, "/api/v2/users/me/credit"+query, nil)
+		require.Equal(t, http.StatusOK, status, body)
+		assert.EqualValues(t, 3, result(t, body)["depth"], "%q resolves to the maximum", query)
+	}
+	for _, query := range []string{"?depth=4", "?depth=0", "?depth=two"} {
+		status, _, body = h.do(t, http.MethodGet, "/api/v2/users/me/credit"+query, nil)
+		assert.Equal(t, http.StatusBadRequest, status, "%q: %v", query, body)
+	}
 
 	n.Chain.Lock()
 	n.Chain.Down = true

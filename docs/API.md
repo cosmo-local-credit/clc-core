@@ -2146,7 +2146,7 @@ Voucher summary fields:
 | 403 | `E10` | `nearby=true` and the caller uses a service token. |
 | 429 | `E11` | The rate limit is exceeded. |
 
-**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+**Credit depth.** `creditDepth` (`max`, or `1` to `router.max_hops`) narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
 
 ### 7.3 `GET /api/v2/vouchers/:address`
 
@@ -2288,7 +2288,7 @@ Status `200`, description `Offerings`. The `result` has these fields:
 | 403 | `E10` | `nearby=true` and the caller uses a service token. |
 | 429 | `E11` | The rate limit is exceeded. |
 
-**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+**Credit depth.** `creditDepth` (`max`, or `1` to `router.max_hops`) narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
 
 ### 7.7 `GET /api/v2/marketplace`
 
@@ -2397,7 +2397,7 @@ Row fields:
 | 429 | `E11` | The rate limit is exceeded. |
 | 500 | `E01` | The `cursor` is not valid for this search. The cursor check does not return a validation error. |
 
-**Credit depth.** `creditDepth=1|2` filters by the pools the session wallet can reach in that many hops, resolved on the server (section 14.13), so the filter applies before paging, counts and facets. It needs a user session (`401` with `E06` without one), cannot be combined with `pools`, and makes the response private. A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+**Credit depth.** `creditDepth` (`max`, or `1` to `router.max_hops`) filters by the pools the session wallet can reach in that many hops, resolved on the server (section 14.13), so the filter applies before paging, counts and facets. It needs a user session (`401` with `E06` without one), cannot be combined with `pools`, and makes the response private. A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
 
 ### 7.8 `GET /api/v2/market-map`
 
@@ -2413,7 +2413,7 @@ Returns one bounded set of lightweight Marketplace markers and server clusters f
 | `q` | string | none | Uses the search behavior of the selected resource kinds. |
 | `tags`, `tagMatch`, `facets` | | | See section 7.1. |
 | `creditablePools` | string | none | Verified pool references in `chainId:address` form. Repeat the parameter or use commas. |
-| `creditDepth` | integer | none | `1` or `2`. Needs a user session. The server resolves the pools the session wallet can reach in that many hops (section 14.13) and filters by them, as `creditablePools` does. Cannot be combined with `creditablePools`. |
+| `creditDepth` | integer or `max` | none | `max`, or `1` to `router.max_hops`. Needs a user session. The server resolves the pools the session wallet can reach in that many hops (section 14.13) and filters by them, as `creditablePools` does. Cannot be combined with `creditablePools`. |
 | `postTiming` | string | legacy one-month window | `future`, `past`, or `all`. Applies only to Posts. Cannot be combined with legacy `posted`. |
 | `postVouchers`, `postVoucherMatch` | string | none, `any` | Voucher references in `chainId:address` form and `any` or `all` matching. Applies only to Posts. |
 | `postPools`, `postPoolMatch` | string | none, `any` | Pool references in `chainId:address` form and `any` or `all` matching. A Pool matches a directly linked Pool or an active linked Voucher currently allowed by the Pool. Applies only to Posts. |
@@ -3224,7 +3224,7 @@ Each `tagFacets` item is `{"tag": "Art", "count": 3}`. The array has every tag o
 }
 ```
 
-**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+**Credit depth.** `creditDepth` (`max`, or `1` to `router.max_hops`) narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
 
 ### 9.3 `GET /api/v2/catalogs/:id`
 
@@ -3519,7 +3519,7 @@ A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04
 }
 ```
 
-**Credit depth.** `creditDepth=1|2` filters by the pools the session wallet can reach in that many hops, resolved on the server (section 14.13), so the filter applies before paging, counts and facets. It needs a user session (`401` with `E06` without one), cannot be combined with `creditablePools`, and makes the response private. A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+**Credit depth.** `creditDepth` (`max`, or `1` to `router.max_hops`) filters by the pools the session wallet can reach in that many hops, resolved on the server (section 14.13), so the filter applies before paging, counts and facets. It needs a user session (`401` with `E06` without one), cannot be combined with `creditablePools`, and makes the response private. A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
 
 ### 10.4 `GET /api/v2/reports/:id`
 
@@ -5108,17 +5108,17 @@ Success: `result` is `{"rotations": [<rotation>]}`.
 
 ### 14.13 Credit router
 
-The credit router finds what the session wallet can obtain with the vouchers it holds, through one pool or two, and prices one exchange exactly.
+The credit router finds what the session wallet can obtain with the vouchers it holds, through up to three pools, and prices one exchange exactly.
 It has two tiers:
 
 - **Discovery** (`GET /me/credit`, `GET /me/credit/routes`) reads an in-memory graph of the pools. It needs no chain read per request except one batched `balanceOf` that verifies the wallet's vouchers. Its answers are **estimates as of `asOfBlock`**: the graph can be seconds to minutes old, and a leg uses the pool's default fee until its exact pair fee has been read.
 - **Quote** (`POST /me/credit/quote`) reads the pools and the wallet at one pinned block, reproduces the contract arithmetic, checks it against `getAmountOut`, simulates the batch, and returns exactly what the wallet signs. Only the quote is authoritative.
 
-Only relative-priced pools, and vouchers whose transfers move exactly the stated amount (`GIFTABLE` vouchers, and external ERC-20 vouchers listed in `router.plain_erc20`), are routed. A route has at most `router.max_hops` hops (2), with distinct pools and distinct vouchers.
+Only relative-priced pools, and vouchers whose transfers move exactly the stated amount (`GIFTABLE` vouchers, and external ERC-20 vouchers listed in `router.plain_erc20`), are routed. A route has at most `router.max_hops` hops (3; a relayed batch carries at most 5), with distinct pools and distinct vouchers. The app does not choose a depth: it sends `max`.
 
 Every response is private: `Cache-Control: private, no-store`.
 
-Discovery screens use the same reachable set through `creditDepth=1|2`, resolved on the server: market-map (with `/points` and `/facets`), marketplace and reports filter by the reachable pools, and the voucher catalog, offerings, wants and curated catalogs by resources related to them.
+Discovery screens use the same reachable set through `creditDepth` (`max`, or `1` to `router.max_hops`), resolved on the server: market-map (with `/points` and `/facets`), marketplace and reports filter by the reachable pools, and the voucher catalog, offerings, wants and curated catalogs by resources related to them.
 
 | State | Status | Code | Meaning |
 |---|---|---|---|
@@ -5135,19 +5135,19 @@ The vouchers and pools the session wallet can probably reach.
 
 | Parameter | Type | Default | Rules |
 |---|---|---|---|
-| `depth` | integer | `2` | `1` or `2`. Depth 2 includes depth 1. |
+| `depth` | integer or `max` | `max` | `max`, or `1` to `router.max_hops` (3). A larger depth includes every smaller one. |
 
 ```json
 {
-  "depth": 2, "asOfBlock": 49254469, "graphVersion": 812, "stale": false,
+  "depth": 3, "maxHops": 3, "asOfBlock": 49254469, "graphVersion": 812, "stale": false,
   "digest": "0x…",
   "inputs":   [{ "voucher": "0x…", "balance": "2500000" }],
-  "vouchers": [{ "address": "0x…", "minHops": 2 }],
+  "vouchers": [{ "address": "0x…", "minHops": 0 }, { "address": "0x…", "minHops": 2 }],
   "pools":    [{ "address": "0x…", "minHops": 1 }]
 }
 ```
 
-`inputs` are the wallet's vouchers that can start a route, with their on-chain balances. A voucher or pool counts as reachable when a route of `minHops` hops can carry any positive amount to it; a pool counts when a route ends in it. `digest` hashes the reachable set, for keying caches and cursors.
+`inputs` are the wallet's vouchers that can start a route, with their on-chain balances. A voucher or pool counts as reachable when a route of `minHops` hops can carry any positive amount to it; a pool counts when a route ends in it. A voucher the wallet already holds is listed with `minHops: 0`, whether or not any route uses it. `maxHops` is the router's maximum. `digest` hashes the reachable set, for keying caches and cursors.
 
 ### 14.15 `GET /api/v2/users/me/credit/routes`
 
@@ -5156,7 +5156,7 @@ The routes from the wallet's vouchers to one voucher, grouped by input voucher.
 | Parameter | Type | Default | Rules |
 |---|---|---|---|
 | `to` | address | required | The voucher to obtain. `404` `E03` when it is not in the catalog. |
-| `depth` | integer | `2` | `1` or `2`. |
+| `depth` | integer or `max` | `max` | `max`, or `1` to `router.max_hops` (3). |
 | `from` | address | all | Only routes that spend this voucher. |
 | `amount` | integer | none | Raw units. With it, each route reports whether it carries the amount. |
 | `mode` | string | `exactInput` | `exactInput` (amount spent) or `exactOutput` (amount obtained). |
@@ -5165,9 +5165,9 @@ The routes from the wallet's vouchers to one voucher, grouped by input voucher.
 ```json
 {
   "target": { "address": "0x…", "symbol": "JESCA", "decimals": 6 },
-  "asOfBlock": 49254469, "graphVersion": 812, "stale": false, "complete": true,
+  "asOfBlock": 49254469, "graphVersion": 812, "stale": false, "complete": true, "omitted": 0,
   "inputs": [{
-    "voucher": "0x…", "walletBalance": "2500000",
+    "voucher": "0x…", "walletBalance": "2500000", "omitted": 0,
     "routes": [{
       "id": "r_…",
       "hops": [{ "pool": { "address": "0x…", "name": "…" }, "tokenIn": "0x…", "tokenOut": "0x…",
@@ -5184,11 +5184,12 @@ The routes from the wallet's vouchers to one voucher, grouped by input voucher.
 }
 ```
 
-- **Ranking.** Within one input voucher: with an `amount`, routes that carry it come first, by highest delivered output (`exactInput`) or lowest required input (`exactOutput`); routes that cannot carry it follow, each with its maximum and a `refusal` (`reason`, `hop`). Without an amount, routes are ordered by `rate`, the output for one whole input voucher. Ties go to fewer hops, then pool, bridge and input addresses. Different input vouchers are separate choices and are not ranked against each other. (`router.tie_margin_ppm` can treat near-equal outputs as tied; it is 0.)
+- **Ranking.** Within one input voucher: with an `amount`, routes that carry it come first, by highest delivered output (`exactInput`) or lowest required input (`exactOutput`); routes that cannot carry it follow, each with its maximum and a `refusal` (`reason`, `hop`). Without an amount, routes are ordered by `rate`, the output for one whole input voucher. Ties go to fewer hops, then pool, bridge and input addresses. Different input vouchers are separate choices and are not ranked against each other. Outputs within `router.tie_margin_ppm` (5000, 0.5 %) count as tied, so a longer route ranks first only when it delivers meaningfully more.
 - **Maximum.** `maxAmountIn` is the most the wallet can spend through the route, and `maxIsExact: true` means every larger input has been ruled out. `null` means the maximum could not be established; the route stays listed and can still be quoted. `limitedBy` is `wallet`, `deposit_cap` or `liquidity`, on hop `limitedByHop`.
 - **Fees.** `feeSource` is `pair` once the exact pair fee has been read, `default` until then. `effectiveFeePpm` is `(feeFree − delivered) · 1e6 / feeFree` at `rate`.
 - **Route id.** `id` is derived from the route's pools and vouchers, so the same route has the same id in every listing.
 - **Paging.** 50 routes per page across the groups, never silently truncated. A cursor from a listing that has since changed returns `409` `E28`.
+- **Candidates.** At most `router.max_route_candidates` (256) routes per input voucher are fully evaluated; above that the routes are pre-ranked by rate and the rest are counted in the group's `omitted` (and in the total `omitted`) instead of listed. Every omitted route has a lower rate than every listed route of its input.
 - `fallbackPools` lists the pools that hold the target, with the vouchers each accepts, so a screen with no route still says where the voucher lives.
 
 ### 14.16 `POST /api/v2/users/me/credit/quote`

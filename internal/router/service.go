@@ -37,6 +37,7 @@ type (
 		MaxSearchEvaluations int
 		PlainERC20           []common.Address
 		TieMarginPPM         uint64
+		MaxRouteCandidates   int
 		HoldingsCacheTTL     time.Duration
 		ChainBatchSize       int
 	}
@@ -196,6 +197,7 @@ type (
 		Snap       *Snapshot
 		Target     int32
 		Groups     []RouteGroup
+		Omitted    int
 		Complete   bool
 		NextCursor string
 		Fallback   []FallbackPool
@@ -263,7 +265,10 @@ type (
 
 func (c *Config) withDefaults() {
 	if c.MaxHops <= 0 {
-		c.MaxHops = 2
+		c.MaxHops = DefaultMaxHops
+	}
+	if c.MaxRouteCandidates <= 0 {
+		c.MaxRouteCandidates = DefaultMaxRouteCandidates
 	}
 	if c.MaxRoutesPerPage <= 0 {
 		c.MaxRoutesPerPage = 50
@@ -603,21 +608,27 @@ func (s *Service) holdingsFor(ctx context.Context, wallet common.Address, snap *
 	if s.chain == nil {
 		return nil, ErrUnavailable
 	}
+	// Every catalog voucher the indexer believes the wallet holds is read: the
+	// routable ones can start a route, and all of them count as reached at
+	// zero hops.
 	var candidates []common.Address
+	routable := map[common.Address]bool{}
 	if s.holders != nil {
 		tokens, err := s.holders.HeldTokens(ctx, wallet)
 		if err != nil {
 			return nil, fmt.Errorf("%w: holdings: %w", ErrUnavailable, err)
 		}
 		for _, t := range tokens {
-			if id, ok := snap.TokenByAddress(t); ok && len(snap.legs[id]) > 0 {
+			if id, ok := snap.TokenByAddress(t); ok {
 				candidates = append(candidates, t)
+				routable[t] = len(snap.legs[id]) > 0
 			}
 		}
 	} else {
 		for id := range snap.Tokens {
 			if len(snap.legs[id]) > 0 {
 				candidates = append(candidates, snap.Tokens[id].Address)
+				routable[snap.Tokens[id].Address] = true
 			}
 		}
 	}
@@ -629,6 +640,11 @@ func (s *Service) holdingsFor(ctx context.Context, wallet common.Address, snap *
 		}
 		for i, r := range readings {
 			if r.Err != nil {
+				if !routable[candidates[i]] {
+					// No route uses it, so a failed read only loses its
+					// zero-hop entry.
+					continue
+				}
 				return nil, fmt.Errorf("%w: balanceOf %s: %w", ErrUnavailable, candidates[i].Hex(), r.Err)
 			}
 			if !r.Value.IsZero() {
@@ -736,7 +752,7 @@ func (s *Service) Routes(ctx context.Context, wallet common.Address, req RoutesR
 	}
 	start := time.Now()
 	result := FindRoutes(snap, holdings, target, depth, from, req.Mode, req.Amount, s.cfg.MaxSearchEvaluations,
-		RankConfig{TieMarginPPM: s.cfg.TieMarginPPM})
+		RankConfig{TieMarginPPM: s.cfg.TieMarginPPM, MaxCandidates: s.cfg.MaxRouteCandidates})
 	s.metrics.enumeration(ctx, "routes", time.Since(start))
 	if req.Cursor != "" && result.OrderDigest != wantDigest {
 		return RoutesView{}, CursorError{}
@@ -748,6 +764,7 @@ func (s *Service) Routes(ctx context.Context, wallet common.Address, req RoutesR
 		Snap:      snap,
 		Target:    target,
 		Groups:    result.Page(offset, limit),
+		Omitted:   result.Omitted,
 		Complete:  offset+limit >= result.Total,
 		Fallback:  FallbackPools(snap, target),
 	}

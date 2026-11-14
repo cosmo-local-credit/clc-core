@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -114,13 +115,14 @@ func sessionWallet(c *echo.Context) (common.Address, bool) {
 	return common.HexToAddress(address), true
 }
 
-func parseDepth(raw string, fallback int) (int, error) {
-	if strings.TrimSpace(raw) == "" {
-		return fallback, nil
+func parseDepth(raw string, maxHops int) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "max" {
+		return maxHops, nil
 	}
 	depth, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, &router.RequestError{Msg: "depth must be 1 or 2"}
+	if err != nil || depth < 1 || depth > maxHops {
+		return 0, &router.RequestError{Msg: fmt.Sprintf("depth must be max or between 1 and %d", maxHops)}
 	}
 	return depth, nil
 }
@@ -134,8 +136,9 @@ func freshnessFields(f router.Freshness) map[string]any {
 }
 
 // creditReachHandler answers GET /users/me/credit: the vouchers and pools the
-// session wallet can probably reach at depth 1 or 2. An estimate as of a
-// block; only a quote is authoritative.
+// session wallet can probably reach within depth hops (the router's maximum by
+// default), with the vouchers it already holds at zero hops. An estimate as of
+// a block; only a quote is authoritative.
 func (a *API) creditReachHandler(c *echo.Context) error {
 	privateNoStore(c)
 	svc, err := a.routerOrUnavailable(c)
@@ -169,6 +172,7 @@ func (a *API) creditReachHandler(c *echo.Context) error {
 	}
 	result := freshnessFields(view.Freshness)
 	result["depth"] = view.Result.Depth
+	result["maxHops"] = svc.Config().MaxHops
 	result["digest"] = view.Result.Digest.Hex()
 	result["inputs"] = inputs
 	result["vouchers"] = vouchers
@@ -302,6 +306,7 @@ func (a *API) creditRoutesHandler(c *echo.Context) error {
 			"voucher":       snap.Tokens[g.Input.Token].Address.Hex(),
 			"walletBalance": g.Input.Balance.Dec(),
 			"routes":        routes,
+			"omitted":       g.Omitted,
 		})
 	}
 	fallback := make([]map[string]any, 0, len(view.Fallback))
@@ -320,6 +325,7 @@ func (a *API) creditRoutesHandler(c *echo.Context) error {
 		"address": targetToken.Address.Hex(), "symbol": targetToken.Symbol, "decimals": targetToken.Decimals,
 	}
 	result["complete"] = view.Complete
+	result["omitted"] = view.Omitted
 	result["inputs"] = inputs
 	result["fallbackPools"] = fallback
 	if view.NextCursor != "" {

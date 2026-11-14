@@ -128,6 +128,88 @@ func TestMaxInputMatchesBruteForce(t *testing.T) {
 	assert.Greater(t, exact, 1_000)
 }
 
+func TestMaxInputThreeHopsMatchesBruteForce(t *testing.T) {
+	rng := rand.New(rand.NewPCG(13, 17))
+	fees := []uint64{0, 3_000, 10_000, 30_000, 100_000, 333_333}
+	protos := []uint64{0, 20_000, 100_000, 500_000, PPM}
+	decimals := []uint8{0, 2, 6}
+
+	exact, floor, unknown, unavailable := 0, 0, 0, 0
+	for i := range 8_000 {
+		d := []uint8{decimals[rng.IntN(3)], decimals[rng.IntN(3)], decimals[rng.IntN(3)], decimals[rng.IntN(3)]}
+		legs := make([]LegParams, 3)
+		ok := true
+		for k := range legs {
+			legs[k] = relative(d[k], d[k+1], 1+rng.Uint64N(3*PPM), 1+rng.Uint64N(3*PPM),
+				fees[rng.IntN(len(fees))], protos[rng.IntN(len(protos))])
+			ok = ok && FeeDomainOK(legs[k].FeePPM, legs[k].ProtocolPPM)
+			limit := uint64(3_000) >> k
+			legs[k] = capped(legs[k], rng.Uint64N(limit+1), rng.Uint64N(limit+1))
+		}
+		if !ok {
+			continue
+		}
+		wallet := u(rng.Uint64N(3_000))
+
+		want, feasibleAny := bruteMax(legs, 3_000, &wallet)
+		got := MaxInput(legs, &wallet, DefaultSearchBudget)
+		switch {
+		case got.Unavailable != "":
+			unavailable++
+			require.False(t, feasibleAny, "case %d: route declared unavailable but %d is feasible (%s)", i, want, got.Unavailable)
+		case !got.Known:
+			unknown++
+		default:
+			require.True(t, feasibleAny, "case %d: engine found %s, brute force found nothing", i, got.AmountIn.Dec())
+			require.True(t, feasible(legs, got.AmountIn.Uint64(), &wallet), "case %d: returned maximum is infeasible", i)
+			if got.Exact {
+				exact++
+				require.Equal(t, want, got.AmountIn.Uint64(), "case %d: exact maximum", i)
+			} else {
+				floor++
+				require.LessOrEqual(t, got.AmountIn.Uint64(), want)
+			}
+			amount := got.AmountIn
+			quote, err := SwapRoute(legs, &amount, &wallet)
+			require.NoError(t, err)
+			assert.Equal(t, quote.AmountOut(), got.AmountOut)
+		}
+	}
+	t.Logf("exact %d, floor %d, unknown %d, unavailable %d", exact, floor, unknown, unavailable)
+	assert.Greater(t, exact, 800)
+}
+
+func TestMaxInputThreeHopsNamesTheBindingHop(t *testing.T) {
+	// Parity everywhere, no fees: the third hop holds only 40 units, so it
+	// binds and the maximum is 40.
+	legs := []LegParams{
+		capped(relative(6, 6, 0, 0, 0, 0), 1_000, 1_000),
+		capped(relative(6, 6, 0, 0, 0, 0), 1_000, 1_000),
+		capped(relative(6, 6, 0, 0, 0, 0), 1_000, 40),
+	}
+	wallet := u(500)
+	got := MaxInput(legs, &wallet, DefaultSearchBudget)
+	require.True(t, got.Known)
+	assert.True(t, got.Exact)
+	assert.Equal(t, uint64(40), got.AmountIn.Uint64())
+	assert.Equal(t, LimitLiquidity, got.LimitedBy)
+	assert.Equal(t, 2, got.LimitedByHop)
+
+	// The middle hop's deposit cap binds instead.
+	legs[1] = capped(relative(6, 6, 0, 0, 0, 0), 25, 1_000)
+	got = MaxInput(legs, &wallet, DefaultSearchBudget)
+	require.True(t, got.Known)
+	assert.Equal(t, uint64(25), got.AmountIn.Uint64())
+	assert.Equal(t, LimitDepositCap, got.LimitedBy)
+	assert.Equal(t, 1, got.LimitedByHop)
+
+	// A later hop with no room proves the route unavailable.
+	legs[2] = capped(relative(6, 6, 0, 0, 0, 0), 1_000, 0)
+	got = MaxInput(legs, &wallet, DefaultSearchBudget)
+	assert.Equal(t, ReasonLiquidity, got.Unavailable)
+	assert.Equal(t, 2, got.LimitedByHop)
+}
+
 func TestMaxInputBudgetExhaustionStaysFeasible(t *testing.T) {
 	// Punitive first-hop fees leave many plateaus between the proven floor
 	// and ceiling. With a budget of one, any case whose top candidate hop two

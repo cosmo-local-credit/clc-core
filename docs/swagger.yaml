@@ -903,11 +903,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: Narrow to resources related to the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
       - name: pools
         in: query
         required: false
@@ -1648,11 +1646,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: Narrow to resources related to the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
       - name: pools
         in: query
         required: false
@@ -1791,11 +1787,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: Filter by the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools.
       - name: postTiming
         in: query
         required: false
@@ -1899,11 +1893,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: Filter by the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools.
       - name: postTiming
         in: query
         required: false
@@ -2013,11 +2005,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: Filter by the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools.
       - name: postTiming
         in: query
         required: false
@@ -2119,11 +2109,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: Filter by the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
       - name: postTiming
         in: query
         required: false
@@ -2475,11 +2463,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: Narrow to resources related to the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools.
       - name: pools
         in: query
         required: false
@@ -5418,11 +5404,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: Filter by the pools the session wallet can reach in this many hops, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools.
       - name: creditablePools
         in: query
         required: false
@@ -8330,11 +8314,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: 1 or 2. Depth 2 includes depth 1. Default 2.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: max, or 1 to the router's maximum (3). A larger depth includes every smaller one. Default max.
       responses:
         '200':
           description: Estimated reach
@@ -8421,11 +8403,9 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
-          enum:
-          - 1
-          - 2
-        description: 1 or 2. Default 2.
+          type: string
+          pattern: ^(max|[1-5])$
+        description: max, or 1 to the router's maximum (3). Default max.
       - name: from
         in: query
         required: false

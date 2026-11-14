@@ -151,6 +151,7 @@ type (
 		byPool   [][]int32
 		byToken  [][]int32
 		legs     [][]Leg
+		legsInto [][]Leg
 		legCount int
 
 		tokenByAddr map[common.Address]int32
@@ -642,6 +643,7 @@ func (st *State) Build(cfg BuildConfig, version uint64, fees *FeeBook) *Snapshot
 	}
 
 	snap.legs = make([][]Leg, len(snap.Tokens))
+	snap.legsInto = make([][]Leg, len(snap.Tokens))
 	for pool := range snap.Pools {
 		edges := snap.byPool[pool]
 		for _, inEdge := range edges {
@@ -658,6 +660,7 @@ func (st *State) Build(cfg BuildConfig, version uint64, fees *FeeBook) *Snapshot
 				}
 				if snap.eligible(leg) {
 					snap.legs[leg.In] = append(snap.legs[leg.In], leg)
+					snap.legsInto[leg.Out] = append(snap.legsInto[leg.Out], leg)
 					snap.legCount++
 				}
 			}

@@ -76,6 +76,10 @@ type (
 		// margin as tied, so an extra hop is not chosen for a negligible gain.
 		// Zero means exact comparison.
 		TieMarginPPM uint64
+		// MaxCandidates caps how many routes per input voucher are fully
+		// evaluated. Above it, routes are pre-ranked by rate and the rest are
+		// counted as omitted rather than listed. Zero means no cap.
+		MaxCandidates int
 	}
 
 	// RoutesResult is the routes to one voucher, grouped by input voucher.
@@ -84,6 +88,9 @@ type (
 		Groups []RouteGroup
 		// Total is the number of listed routes across all groups.
 		Total int
+		// Omitted counts routes left unevaluated by RankConfig.MaxCandidates:
+		// they rank below every listed route of their input by rate.
+		Omitted int
 		// OrderDigest commits to the full ordered listing, so a cursor taken from
 		// one page can detect that the listing moved under it.
 		OrderDigest common.Hash
@@ -93,6 +100,9 @@ type (
 	RouteGroup struct {
 		Input  Holding
 		Routes []RouteEval
+		// Omitted counts this input's routes left unevaluated by the
+		// candidate cap.
+		Omitted int
 	}
 
 	// FallbackPool is a pool that holds the target, listed so a screen with no
@@ -126,14 +136,22 @@ func spendable(snap *Snapshot, holdings []Holding) []Holding {
 	return out
 }
 
-// Reach walks eligible legs from the wallet's vouchers to depth 1 or 2. It
+// Reach walks eligible legs from the wallet's vouchers up to depth hops. It
 // records, per reached voucher and per pool, the fewest hops of any route; a
-// pool counts when a route ends in it. Pools and vouchers along a route are
-// distinct, as the batch requires.
+// pool counts when a route ends in it, and a voucher the wallet already holds
+// counts at zero hops. Pools and vouchers along a route are distinct, as the
+// batch requires: every voucher first reached at a level keeps a few witness
+// routes, and a leg extends a voucher only through a witness that uses neither
+// the leg's pool nor its output voucher.
 func Reach(snap *Snapshot, holdings []Holding, depth int) ReachResult {
 	inputs := spendable(snap, holdings)
 	vouchers := map[int32]int{}
 	pools := map[int32]int{}
+	for _, h := range holdings {
+		if !h.Balance.IsZero() {
+			vouchers[h.Token] = 0
+		}
+	}
 	record := func(token, pool int32, hops int) {
 		if current, ok := vouchers[token]; !ok || hops < current {
 			vouchers[token] = hops
@@ -143,32 +161,42 @@ func Reach(snap *Snapshot, holdings []Holding, depth int) ReachResult {
 		}
 	}
 
-	type witness struct{ from, pool int32 }
-	bridges := map[int32][]witness{}
+	type witness struct{ pools, tokens []int32 }
+	const maxWitnesses = 4
+	frontier := map[int32][]witness{}
 	for _, h := range inputs {
-		for _, leg := range snap.legs[h.Token] {
-			record(leg.Out, leg.Pool, 1)
-			if depth >= 2 {
-				bridges[leg.Out] = append(bridges[leg.Out], witness{from: h.Token, pool: leg.Pool})
-			}
-		}
+		frontier[h.Token] = []witness{{tokens: []int32{h.Token}}}
 	}
-	if depth >= 2 {
-		for bridge, witnesses := range bridges {
-			for _, leg := range snap.legs[bridge] {
-				if hops, ok := vouchers[leg.Out]; ok && hops == 1 {
-					if p, ok := pools[leg.Pool]; ok && p == 1 {
+	for level := 1; level <= depth && len(frontier) > 0; level++ {
+		order := make([]int32, 0, len(frontier))
+		for token := range frontier {
+			order = append(order, token)
+		}
+		slices.Sort(order)
+		next := map[int32][]witness{}
+		for _, token := range order {
+			for _, leg := range snap.legs[token] {
+				if hops, ok := vouchers[leg.Out]; ok && hops < level {
+					if p, ok := pools[leg.Pool]; ok && p <= level {
 						continue // nothing a longer route could improve
 					}
 				}
-				for _, w := range witnesses {
-					if w.pool != leg.Pool && w.from != leg.Out {
-						record(leg.Out, leg.Pool, 2)
-						break
+				for _, w := range frontier[token] {
+					if slices.Contains(w.pools, leg.Pool) || slices.Contains(w.tokens, leg.Out) {
+						continue
 					}
+					record(leg.Out, leg.Pool, level)
+					if level < depth && vouchers[leg.Out] == level && len(next[leg.Out]) < maxWitnesses {
+						next[leg.Out] = append(next[leg.Out], witness{
+							pools:  append(slices.Clone(w.pools), leg.Pool),
+							tokens: append(slices.Clone(w.tokens), leg.Out),
+						})
+					}
+					break
 				}
 			}
 		}
+		frontier = next
 	}
 
 	result := ReachResult{Depth: depth, Inputs: inputs}
@@ -222,8 +250,26 @@ func (r Route) ID(snap *Snapshot) string {
 }
 
 // EnumerateRoutes lists every eligible route of at most maxHops legs from one
-// of the inputs to target, with distinct pools and distinct vouchers.
+// of the inputs to target, with distinct pools and distinct vouchers. A
+// backward walk from the target first finds how many hops each voucher needs
+// to reach it, so the search only follows legs that can still arrive within
+// the hops left.
 func EnumerateRoutes(snap *Snapshot, inputs []int32, target int32, maxHops int) []Route {
+	toTarget := map[int32]int{target: 0}
+	frontier := []int32{target}
+	for hops := 1; hops < maxHops && len(frontier) > 0; hops++ {
+		var next []int32
+		for _, token := range frontier {
+			for _, leg := range snap.legsInto[token] {
+				if _, seen := toTarget[leg.In]; !seen {
+					toTarget[leg.In] = hops
+					next = append(next, leg.In)
+				}
+			}
+		}
+		frontier = next
+	}
+
 	var routes []Route
 	path := make([]Leg, 0, maxHops)
 	usedPools := map[int32]bool{}
@@ -231,12 +277,18 @@ func EnumerateRoutes(snap *Snapshot, inputs []int32, target int32, maxHops int) 
 
 	var walk func(token int32)
 	walk = func(token int32) {
-		if len(path) == maxHops {
+		left := maxHops - len(path)
+		if left == 0 {
 			return
 		}
 		for _, leg := range snap.legs[token] {
 			if usedPools[leg.Pool] || usedTokens[leg.Out] {
 				continue
+			}
+			if leg.Out != target {
+				if need, ok := toTarget[leg.Out]; !ok || need > left-1 {
+					continue
+				}
 			}
 			path = append(path, leg)
 			if leg.Out == target {
@@ -265,6 +317,17 @@ func EnumerateRoutes(snap *Snapshot, inputs []int32, target int32, maxHops int) 
 const (
 	ExactInput  Mode = "exactInput"
 	ExactOutput Mode = "exactOutput"
+
+	// DefaultMaxHops is the longest route the product offers. The engine
+	// accepts up to five: a relayed batch holds 16 calls, three per hop.
+	DefaultMaxHops = 3
+	// MaxEngineHops is the longest route a relayed batch can carry.
+	MaxEngineHops = 5
+	// DefaultMaxRouteCandidates caps fully evaluated routes per input voucher.
+	DefaultMaxRouteCandidates = 256
+	// DefaultTieMarginPPM treats outputs within 0.5 % as tied, so a longer
+	// route ranks above a shorter one only when it delivers meaningfully more.
+	DefaultTieMarginPPM = 5_000
 )
 
 // arithmeticRoute chains Arithmetic through every leg, ignoring capacity.
@@ -426,6 +489,11 @@ func FindRoutes(snap *Snapshot, holdings []Holding, target int32, maxHops int, f
 			continue
 		}
 		group := RouteGroup{Input: h}
+		if rank.MaxCandidates > 0 && len(routes) > rank.MaxCandidates {
+			routes = bestByRate(snap, routes)
+			group.Omitted = len(routes) - rank.MaxCandidates
+			routes = routes[:rank.MaxCandidates]
+		}
 		for _, route := range routes {
 			eval := Evaluate(snap, route, &h.Balance, mode, amount, budget)
 			if eval.Listed() {
@@ -438,6 +506,7 @@ func FindRoutes(snap *Snapshot, holdings []Holding, target int32, maxHops int, f
 		Rank(snap, group.Routes, mode, rank)
 		result.Groups = append(result.Groups, group)
 		result.Total += len(group.Routes)
+		result.Omitted += group.Omitted
 	}
 	slices.SortFunc(result.Groups, func(a, b RouteGroup) int {
 		return bytes.Compare(snap.Tokens[a.Input.Token].Address[:], snap.Tokens[b.Input.Token].Address[:])
@@ -453,6 +522,49 @@ func FindRoutes(snap *Snapshot, holdings []Holding, target int32, maxHops int, f
 	}
 	result.OrderDigest = crypto.Keccak256Hash(buf.Bytes())
 	return result
+}
+
+// bestByRate orders one input's routes by the output of one whole input
+// voucher, ignoring capacity: the cheap part of Evaluate. Routes whose rate
+// cannot be computed go last; ties keep the deterministic route order.
+func bestByRate(snap *Snapshot, routes []Route) []Route {
+	type rated struct {
+		route Route
+		out   uint256.Int
+		known bool
+	}
+	unit, ok := pow10(snap.Tokens[routes[0].Input()].Decimals)
+	all := make([]rated, len(routes))
+	for i, route := range routes {
+		all[i].route = route
+		if !ok {
+			continue
+		}
+		params := make([]LegParams, len(route))
+		for k, leg := range route {
+			params[k], _ = snap.LegParams(leg)
+		}
+		if out, err := arithmeticRoute(params, unit); err == nil {
+			all[i].out, all[i].known = out, true
+		}
+	}
+	slices.SortStableFunc(all, func(a, b rated) int {
+		if a.known != b.known {
+			if a.known {
+				return -1
+			}
+			return 1
+		}
+		if c := b.out.Cmp(&a.out); c != 0 {
+			return c
+		}
+		return tieBreak(snap, a.route, b.route)
+	})
+	out := make([]Route, len(all))
+	for i := range all {
+		out[i] = all[i].route
+	}
+	return out
 }
 
 func boolByte(b bool) byte {
@@ -475,7 +587,7 @@ func (r RoutesResult) Page(offset, limit int) []RouteGroup {
 			index++
 		}
 		if len(routes) > 0 {
-			page = append(page, RouteGroup{Input: g.Input, Routes: routes})
+			page = append(page, RouteGroup{Input: g.Input, Routes: routes, Omitted: g.Omitted})
 		}
 	}
 	return page

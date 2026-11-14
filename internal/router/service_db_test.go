@@ -41,7 +41,7 @@ func newStore(t *testing.T) store.Store {
 func newService(t *testing.T, st store.Store, n *routertest.Network) *router.Service {
 	t.Helper()
 	svc := router.New(router.Opts{
-		Config: router.Config{ChainID: n.ChainID, MaxHops: 2},
+		Config: router.Config{ChainID: n.ChainID, MaxHops: 3},
 		Store:  st, Chain: n.Chain, Relay: n.Relay(),
 	})
 	require.NoError(t, svc.Load(context.Background()))
@@ -169,7 +169,7 @@ func TestReachIsInclusiveByDepth(t *testing.T) {
 		return v, p
 	}
 	v, p := hops(one.Result)
-	assert.Equal(t, map[common.Address]int{n.B: 1, n.C: 1}, v)
+	assert.Equal(t, map[common.Address]int{n.A: 0, n.B: 1, n.C: 1}, v, "the voucher the wallet holds is reached at zero hops")
 	assert.Equal(t, map[common.Address]int{n.P1: 1, n.P3: 1}, p)
 	require.Len(t, one.Result.Inputs, 1)
 	assert.Equal(t, uint64(5_000_000), one.Result.Inputs[0].Balance.Uint64())
@@ -177,11 +177,17 @@ func TestReachIsInclusiveByDepth(t *testing.T) {
 	two, err := svc.Reach(ctx, n.Wallet, 2)
 	require.NoError(t, err)
 	v, p = hops(two.Result)
-	assert.Equal(t, map[common.Address]int{n.B: 1, n.C: 1, n.D: 2}, v, "depth 2 includes depth 1")
+	assert.Equal(t, map[common.Address]int{n.A: 0, n.B: 1, n.C: 1, n.D: 2}, v, "depth 2 includes depth 1")
 	assert.Equal(t, map[common.Address]int{n.P1: 1, n.P3: 1, n.P2: 2, n.P4: 2}, p)
 	assert.NotEqual(t, one.Result.Digest, two.Result.Digest)
 
-	_, err = svc.Reach(ctx, n.Wallet, 3)
+	three, err := svc.Reach(ctx, n.Wallet, 3)
+	require.NoError(t, err)
+	v, p = hops(three.Result)
+	assert.Equal(t, map[common.Address]int{n.A: 0, n.B: 1, n.C: 1, n.D: 2}, v, "nothing in this network needs a third hop")
+	assert.Equal(t, map[common.Address]int{n.P1: 1, n.P3: 1, n.P2: 2, n.P4: 2}, p)
+
+	_, err = svc.Reach(ctx, n.Wallet, 4)
 	var reqErr *router.RequestError
 	assert.ErrorAs(t, err, &reqErr)
 }

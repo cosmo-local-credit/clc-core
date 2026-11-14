@@ -154,7 +154,9 @@ func TestConcurrentReadersDuringPublish(t *testing.T) {
 }
 
 // Reach must agree with exhaustive enumeration: a voucher is reachable at
-// depth d exactly when some route of at most d legs delivers it.
+// depth d exactly when some route of at most d legs delivers it (or the wallet
+// already holds it, at zero hops), and a pool exactly when such a route ends
+// in it.
 func TestReachAgreesWithEnumeration(t *testing.T) {
 	rows := syntheticRows(25, 60, 4)
 	snap := NewState(rows).Build(BuildConfig{}, 1, NewFeeBook())
@@ -164,26 +166,55 @@ func TestReachAgreesWithEnumeration(t *testing.T) {
 		for range 1 + r.IntN(4) {
 			holdings = append(holdings, Holding{Token: int32(r.IntN(len(snap.Tokens))), Balance: *uint256.NewInt(1)})
 		}
-		for _, depth := range []int{1, 2} {
-			got := map[int32]int{}
-			for _, v := range Reach(snap, holdings, depth).Vouchers {
-				got[v.Token] = v.MinHops
-			}
-			want := map[int32]int{}
-			inputs := make([]int32, 0, len(holdings))
-			for _, h := range spendable(snap, holdings) {
-				inputs = append(inputs, h.Token)
-			}
-			for target := range snap.Tokens {
-				for _, route := range EnumerateRoutes(snap, inputs, int32(target), depth) {
-					if hops, ok := want[int32(target)]; !ok || len(route) < hops {
-						want[int32(target)] = len(route)
-					}
-				}
-			}
-			require.Equal(t, want, got, "depth %d", depth)
+		for _, depth := range []int{1, 2, 3} {
+			reach := Reach(snap, holdings, depth)
+			wantVouchers, wantPools := enumeratedReach(snap, holdings, depth)
+			require.Equal(t, wantVouchers, reachedVouchers(reach), "vouchers at depth %d", depth)
+			require.Equal(t, wantPools, reachedPools(reach), "pools at depth %d", depth)
 		}
 	}
+}
+
+// enumeratedReach derives reach from every enumerated route.
+func enumeratedReach(snap *Snapshot, holdings []Holding, depth int) (map[int32]int, map[int32]int) {
+	vouchers, pools := map[int32]int{}, map[int32]int{}
+	inputs := make([]int32, 0, len(holdings))
+	for _, h := range holdings {
+		if !h.Balance.IsZero() {
+			vouchers[h.Token] = 0
+		}
+	}
+	for _, h := range spendable(snap, holdings) {
+		inputs = append(inputs, h.Token)
+	}
+	for target := range snap.Tokens {
+		for _, route := range EnumerateRoutes(snap, inputs, int32(target), depth) {
+			if hops, ok := vouchers[int32(target)]; !ok || len(route) < hops {
+				vouchers[int32(target)] = len(route)
+			}
+			last := route[len(route)-1].Pool
+			if hops, ok := pools[last]; !ok || len(route) < hops {
+				pools[last] = len(route)
+			}
+		}
+	}
+	return vouchers, pools
+}
+
+func reachedVouchers(r ReachResult) map[int32]int {
+	out := map[int32]int{}
+	for _, v := range r.Vouchers {
+		out[v.Token] = v.MinHops
+	}
+	return out
+}
+
+func reachedPools(r ReachResult) map[int32]int {
+	out := map[int32]int{}
+	for _, p := range r.Pools {
+		out[p.Pool] = p.MinHops
+	}
+	return out
 }
 
 func TestPlainTransferEligibility(t *testing.T) {

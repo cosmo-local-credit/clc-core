@@ -346,9 +346,15 @@ func loadRouter(pgStore store.Store, federationStore store.FederationStore, chai
 		return nil
 	}
 	maxHops := ko.Int("router.max_hops")
-	if maxHops < 0 || maxHops > 5 {
+	if maxHops < 0 || maxHops > router.MaxEngineHops {
 		lo.Error("router.max_hops must be between 1 and 5 (a relayed batch holds 16 calls, three per hop)", "max_hops", maxHops)
 		os.Exit(1)
+	}
+	// Zero is a real margin (exact comparison), so only an unset key takes
+	// the default.
+	tieMargin := uint64(router.DefaultTieMarginPPM)
+	if ko.Exists("router.tie_margin_ppm") {
+		tieMargin = uint64(ko.Int64("router.tie_margin_ppm"))
 	}
 	var plain []common.Address
 	for _, address := range ko.Strings("router.plain_erc20") {
@@ -377,7 +383,8 @@ func loadRouter(pgStore store.Store, federationStore store.FederationStore, chai
 			QuoteDeadline:        seconds("router.quote_deadline_secs"),
 			MaxSearchEvaluations: ko.Int("router.max_search_evaluations"),
 			PlainERC20:           plain,
-			TieMarginPPM:         uint64(ko.Int64("router.tie_margin_ppm")),
+			TieMarginPPM:         tieMargin,
+			MaxRouteCandidates:   ko.Int("router.max_route_candidates"),
 			HoldingsCacheTTL:     seconds("router.holdings_cache_secs"),
 			ChainBatchSize:       ko.Int("router.chain_batch_size"),
 		},
