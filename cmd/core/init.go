@@ -15,6 +15,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/pretium"
 	"github.com/cosmo-local-credit/clc-core/internal/pub"
 	"github.com/cosmo-local-credit/clc-core/internal/relayer"
+	"github.com/cosmo-local-credit/clc-core/internal/router"
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/cosmo-local-credit/clc-core/internal/sub"
@@ -196,8 +197,13 @@ func loadPub() (*pub.Pub, jetstream.JetStream) {
 	}), js
 }
 
-func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *worker.WorkerContainer, pubInst *pub.Pub, js jetstream.JetStream) *sub.Sub {
+func loadSub(pgStore store.Store, chainProvider *ethutils.Provider, workers *worker.WorkerContainer, pubInst *pub.Pub, js jetstream.JetStream, routerInst *router.Service) *sub.Sub {
+	var routerSink sub.RouterSink
+	if routerInst != nil {
+		routerSink = routerInst
+	}
 	subInst, err := sub.NewSub(sub.SubObts{
+		Router:      routerSink,
 		ChainID:     ko.MustInt64("chain.id"),
 		Store:       pgStore,
 		JS:          js,
@@ -274,7 +280,7 @@ func loadPretium() *pretium.PretiumClient {
 	return pretium.New(baseURL)
 }
 
-func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer, relayerInst *relayer.Relayer, pretiumClient *pretium.PretiumClient) *api.API {
+func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer, relayerInst *relayer.Relayer, pretiumClient *pretium.PretiumClient, routerInst *router.Service) *api.API {
 	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
 	if err != nil {
 		lo.Error("could not load signing key", "error", err)
@@ -301,7 +307,98 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		SafeSTSURL:      ko.String("safe.sts_base_url"),
 		SafeSTSKey:      ko.String("safe.sts_api_key"),
 		SafeAutoExecute: safeAutoExecute(),
+		Router:          routerInst,
+		RouteDeadlineHorizon: time.Duration(
+			ko.Int("router.relay_deadline_horizon_secs")) * time.Second,
 	})
+}
+
+type (
+	// federationHoldings lists the vouchers the indexer believes a wallet holds.
+	// The router verifies each on chain before using it.
+	federationHoldings struct{ fed store.FederationStore }
+)
+
+func (h federationHoldings) HeldTokens(ctx context.Context, wallet common.Address) ([]common.Address, error) {
+	rows, err := h.fed.ListUserTokenHoldings(ctx, wallet.Hex(), 500)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]common.Address, 0, len(rows))
+	for _, r := range rows {
+		if common.IsHexAddress(r.TokenAddress) {
+			out = append(out, common.HexToAddress(r.TokenAddress))
+		}
+	}
+	return out, nil
+}
+
+func seconds(key string) time.Duration {
+	return time.Duration(ko.Int(key)) * time.Second
+}
+
+// loadRouter builds the credit router and its first graph from the database
+// alone, so discovery works with last-known state whether or not the RPC is
+// up. The chain loops start with the rest of the service.
+func loadRouter(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, relayerInst *relayer.Relayer) *router.Service {
+	if !ko.Bool("router.enabled") {
+		lo.Warn("credit router disabled: router.enabled is false")
+		return nil
+	}
+	maxHops := ko.Int("router.max_hops")
+	if maxHops < 0 || maxHops > 5 {
+		lo.Error("router.max_hops must be between 1 and 5 (a relayed batch holds 16 calls, three per hop)", "max_hops", maxHops)
+		os.Exit(1)
+	}
+	var plain []common.Address
+	for _, address := range ko.Strings("router.plain_erc20") {
+		if !common.IsHexAddress(address) {
+			lo.Error("router.plain_erc20 holds an invalid address", "address", address)
+			os.Exit(1)
+		}
+		plain = append(plain, common.HexToAddress(address))
+	}
+	var holdings router.HoldingsSource
+	if federationStore != nil {
+		holdings = federationHoldings{fed: federationStore}
+	}
+	svc := router.New(router.Opts{
+		Config: router.Config{
+			ChainID:              ko.MustInt64("chain.id"),
+			MaxHops:              maxHops,
+			MaxRoutesPerPage:     ko.Int("router.max_routes_per_page"),
+			ReloadInterval:       seconds("router.reload_interval_secs"),
+			StructureInterval:    seconds("router.structure_reconcile_interval_secs"),
+			ParamsInterval:       seconds("router.params_refresh_interval_secs"),
+			BalanceInterval:      seconds("router.balance_sweep_interval_secs"),
+			PairFeeInterval:      seconds("router.pair_fee_sweep_interval_secs"),
+			DirtyDebounce:        time.Duration(ko.Int("router.dirty_debounce_ms")) * time.Millisecond,
+			StaleAfterBlocks:     uint64(ko.Int64("router.stale_after_blocks")),
+			QuoteDeadline:        seconds("router.quote_deadline_secs"),
+			MaxSearchEvaluations: ko.Int("router.max_search_evaluations"),
+			PlainERC20:           plain,
+			TieMarginPPM:         uint64(ko.Int64("router.tie_margin_ppm")),
+			HoldingsCacheTTL:     seconds("router.holdings_cache_secs"),
+			ChainBatchSize:       ko.Int("router.chain_batch_size"),
+		},
+		Store:    pgStore,
+		Chain:    router.NewW3Reader(chainProvider.Client, ko.Int("router.chain_batch_size")),
+		Holdings: holdings,
+		Relay:    relayerInst,
+		Logg:     lo,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	err := svc.Load(ctx)
+	cancel()
+	if err != nil {
+		lo.Error("could not load the router graph", "error", err)
+		os.Exit(1)
+	}
+	if snap := svc.Snapshot(); snap != nil {
+		lo.Info("router graph loaded", "pools", len(snap.Pools), "vouchers", len(snap.Tokens),
+			"edges", len(snap.Edges), "legs", snap.LegCount())
+	}
+	return svc
 }
 
 // safeAutoExecute needs the Transaction Service and pinned MultiSend as well as

@@ -318,6 +318,37 @@ func (f CatalogFilter) WithDiscoveryPoolIDs(raw []uint64) (CatalogFilter, error)
 	return f, nil
 }
 
+// WithReachablePoolIDs narrows every marketplace resource to the pools a
+// wallet can reach, as the router resolved them for creditDepth. The list is
+// server-resolved and bounded by the graph, so the cap on client-sent lists
+// does not apply.
+func (f CatalogFilter) WithReachablePoolIDs(raw []uint64) CatalogFilter {
+	ids := slices.Clone(raw)
+	slices.Sort(ids)
+	f.DiscoveryPoolIDs = slices.Compact(ids)
+	return f
+}
+
+// WithReachablePoolRelationship is WithPoolIDsMatch(any) for a
+// server-resolved creditDepth set: vouchers, offerings, wants and catalogs
+// related to any reachable pool. The client-list cap does not apply.
+func (f CatalogFilter) WithReachablePoolRelationship(raw []uint64) CatalogFilter {
+	ids := slices.Clone(raw)
+	slices.Sort(ids)
+	f.PoolIDs = slices.Compact(ids)
+	f.PoolMatch = TagMatchAny
+	return f
+}
+
+// WithReachableCreditablePoolIDs is WithCreditablePoolIDs for a
+// server-resolved creditDepth set.
+func (f CatalogFilter) WithReachableCreditablePoolIDs(raw []uint64) CatalogFilter {
+	ids := slices.Clone(raw)
+	slices.Sort(ids)
+	f.CreditablePoolIDs = slices.Compact(ids)
+	return f
+}
+
 // WithCreditablePoolIDs narrows Posts to resources related to at least one
 // verified creditable pool, either directly or through an allowed voucher.
 func (f CatalogFilter) WithCreditablePoolIDs(raw []uint64) (CatalogFilter, error) {

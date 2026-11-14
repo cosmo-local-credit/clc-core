@@ -49,11 +49,11 @@ func TestPoolTokenOracleNamesARegisteredFeed(t *testing.T) {
 	aggregator := randomAddress(t, tx)
 	feedID := seedOracleFeed(t, tx, "Registered", aggregator)
 
-	_, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true)
+	_, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true, nextPos())
 	require.NoError(t, err)
-	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, aggregator)
+	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, aggregator, nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, rows)
+	assert.Len(t, rows, 1)
 
 	gotFeed, gotAddress := readPoolTokenOracle(t, tx, poolID)
 	require.NotNil(t, gotFeed)
@@ -80,11 +80,11 @@ func TestPoolTokenOracleKeepsAnUnregisteredAggregator(t *testing.T) {
 	poolID, _, registry, _, quoter, pool, token := seedComposablePool(t, tx)
 	aggregator := randomAddress(t, tx)
 
-	_, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true)
+	_, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true, nextPos())
 	require.NoError(t, err)
-	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, aggregator)
+	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, aggregator, nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, rows)
+	assert.Len(t, rows, 1)
 
 	gotFeed, gotAddress := readPoolTokenOracle(t, tx, poolID)
 	assert.Nil(t, gotFeed)
@@ -107,14 +107,14 @@ func TestPoolTokenOracleRemovalClearsFeedAndAddress(t *testing.T) {
 	aggregator := randomAddress(t, tx)
 	seedOracleFeed(t, tx, "Removed", aggregator)
 
-	_, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true)
+	_, err := pg.SetPoolTokenMembership(ctx, tx, registry, token, true, nextPos())
 	require.NoError(t, err)
-	_, err = pg.SetPoolTokenOracle(ctx, tx, quoter, token, aggregator)
+	_, err = pg.SetPoolTokenOracle(ctx, tx, quoter, token, aggregator, nextPos())
 	require.NoError(t, err)
 
-	rows, err := pg.ClearPoolTokenOracle(ctx, tx, quoter, token)
+	rows, err := pg.ClearPoolTokenOracle(ctx, tx, quoter, token, nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, rows)
+	assert.Len(t, rows, 1)
 
 	gotFeed, gotAddress := readPoolTokenOracle(t, tx, poolID)
 	assert.Nil(t, gotFeed)
@@ -138,9 +138,9 @@ func TestPoolTokenOracleAggregatorSharedByTwoNames(t *testing.T) {
 	first := seedOracleFeed(t, tx, "Shared first", shared)
 	seedOracleFeed(t, tx, "Shared second", shared)
 
-	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, shared)
+	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, shared, nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, rows)
+	assert.Len(t, rows, 1)
 
 	gotFeed, gotAddress := readPoolTokenOracle(t, tx, poolID)
 	require.NotNil(t, gotFeed)
@@ -163,11 +163,11 @@ func TestPoolTokenOracleResetToADifferentFeed(t *testing.T) {
 	seedOracleFeed(t, tx, "Before", before)
 	afterID := seedOracleFeed(t, tx, "After", after)
 
-	_, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, before)
+	_, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, before, nextPos())
 	require.NoError(t, err)
-	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, after)
+	rows, err := pg.SetPoolTokenOracle(ctx, tx, quoter, token, after, nextPos())
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, rows)
+	assert.Len(t, rows, 1)
 
 	gotFeed, gotAddress := readPoolTokenOracle(t, tx, poolID)
 	require.NotNil(t, gotFeed)
@@ -175,7 +175,7 @@ func TestPoolTokenOracleResetToADifferentFeed(t *testing.T) {
 	require.NotNil(t, gotAddress)
 	assert.Equal(t, checksum(after), *gotAddress)
 
-	_, err = pg.SetPoolTokenOracle(ctx, tx, quoter, token, unregistered)
+	_, err = pg.SetPoolTokenOracle(ctx, tx, quoter, token, unregistered, nextPos())
 	require.NoError(t, err)
 	gotFeed, gotAddress = readPoolTokenOracle(t, tx, poolID)
 	assert.Nil(t, gotFeed, "an unregistered aggregator must not keep the previous feed's id")

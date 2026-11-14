@@ -188,6 +188,12 @@ func (r *Relayer) relayGasLimit(nCalls int, isDelegated, isWebAuthn bool) uint64
 	return g
 }
 
+// RelayGasBudget is the static gas limit the relay would give a batch of
+// nCalls, so a quote can refuse a route whose simulated cost exceeds it.
+func (r *Relayer) RelayGasBudget(nCalls int, delegated, webAuthn bool) uint64 {
+	return r.relayGasLimit(nCalls, delegated, webAuthn)
+}
+
 // Bootstrap fast-forwards the local noncestore for the master signer to the
 // on-chain pending nonce. The relayer signs with the same master key the
 // store already manages, so its keystore row and nonce seed already exist —

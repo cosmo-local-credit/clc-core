@@ -268,6 +268,23 @@ type (
 		Deadline    string             `json:"deadline"    validate:"required,numeric"`
 	}
 
+	// CreditQuoteHop names one hop of a route to quote.
+	CreditQuoteHop struct {
+		Pool     string `json:"pool"     validate:"required,eth_addr"`
+		TokenIn  string `json:"tokenIn"  validate:"required,eth_addr"`
+		TokenOut string `json:"tokenOut" validate:"required,eth_addr"`
+	}
+
+	// CreditQuoteRequest asks for an authoritative quote and the batch to sign.
+	// keyHash empty or zero is the root (Sign-in Card) key.
+	CreditQuoteRequest struct {
+		Route     []CreditQuoteHop `json:"route"     validate:"required,min=1,max=5,dive"`
+		Mode      string           `json:"mode"      validate:"required,oneof=exactInput exactOutput"`
+		Amount    string           `json:"amount"    validate:"required,numeric,max=78"`
+		Recipient *string          `json:"recipient" validate:"omitempty,eth_addr"`
+		KeyHash   string           `json:"keyHash"   validate:"omitempty,len=66,startswith=0x,hexadecimal"`
+	}
+
 	WebAuthnRecoverRequest struct {
 		CredentialID      string `json:"credentialId"      validate:"required"`
 		AuthenticatorData string `json:"authenticatorData" validate:"required"`
@@ -577,4 +594,19 @@ const (
 	// ErrCodeAccountRetired: the account is retired and its session is limited
 	// to recovery actions (HTTP 403).
 	ErrCodeAccountRetired = "E23"
+	// ErrCodeRouteUnavailable: the route cannot carry the request; result.reason
+	// names the constraint and result.hop the hop (HTTP 409).
+	ErrCodeRouteUnavailable = "E24"
+	// ErrCodeQuoteMismatch: the chain disagreed with the local quote arithmetic
+	// at the pinned block; the pool drops out of discovery (HTTP 409).
+	ErrCodeQuoteMismatch = "E25"
+	// ErrCodeSimulationFailed: the batch reverts in simulation; result carries
+	// the decoded revert (HTTP 409).
+	ErrCodeSimulationFailed = "E26"
+	// ErrCodeRouterUnavailable: the graph or the RPC cannot be used right now;
+	// retry. Never an empty result (HTTP 503).
+	ErrCodeRouterUnavailable = "E27"
+	// ErrCodeCursorStale: the route listing changed between pages; restart from
+	// the first page (HTTP 409).
+	ErrCodeCursorStale = "E28"
 )

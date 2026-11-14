@@ -113,15 +113,16 @@ func (a *API) voucherByAddressHandler(c *echo.Context) error {
 	})
 }
 
-// setMarketCacheHeaders keeps nearby lists private; ordinary market responses
-// remain public. Their representation is identical for guests and signed-in users, so no
+// setMarketCacheHeaders keeps nearby lists and creditDepth answers private;
+// ordinary market responses remain public. Their representation is identical for guests and signed-in users, so no
 // authorization or cookie value may change it. Origin is *merged* into Vary
 // rather than overwriting it: AllowCredentials is true in the global CORS
 // policy, which makes origin variance mandatory even though this client
 // deliberately sends no credentials.
 func setMarketCacheHeaders(c *echo.Context) {
 	header := c.Response().Header()
-	if c.QueryParam("nearby") == "true" || c.QueryParam("sort") == "nearest" {
+	// A creditDepth answer is the caller's own reachable set.
+	if c.QueryParam("nearby") == "true" || c.QueryParam("sort") == "nearest" || c.QueryParam("creditDepth") != "" {
 		header.Set("Cache-Control", "private, no-store")
 		return
 	}

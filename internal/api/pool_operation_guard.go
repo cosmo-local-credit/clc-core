@@ -32,7 +32,7 @@ func poolOperationTargets(batch apiresp.CaliburBatchedCall) []string {
 			bytes.Equal(selector, poolWithdrawSelector):
 			add(call.To)
 		case bytes.Equal(selector, poolWithdrawRecipientSelector),
-			bytes.Equal(selector, functionSelector("withdraw(address,address,uint256,address,uint256,uint256)")):
+			bytes.Equal(selector, poolWithdrawBoundedSelector):
 			add(call.To)
 			if len(data) >= 132 {
 				add(common.BytesToAddress(data[112:132]).Hex())

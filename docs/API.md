@@ -238,6 +238,13 @@ Use the HTTP status and the `code` field in client logic.
 | `E19` | A private share or a confirmed send is not available. |
 | `E20` | The sign-in card was replaced by a key rotation. The address can never sign in or register again. |
 | `E21` | The passkey belongs to an account that replaced its sign-in card. Sign in with the new card to register the passkey on the new wallet. |
+| `E22` | The job behind a tracking ID ended without a transaction. Polling cannot succeed. The description carries the job's error. |
+| `E23` | The account is retired. Its session is limited to recovery actions. |
+| `E24` | `route_unavailable`: the route cannot carry the request. `result.reason` names the constraint and `result.hop` the hop. |
+| `E25` | `quote_mismatch`: the chain disagreed with the local quote arithmetic. The pool leaves discovery until it is verified again. |
+| `E26` | `simulation_failed`: the batch reverts in simulation. `result.revert` carries the decoded revert. |
+| `E27` | `router_unavailable`: the route graph or the RPC cannot be used now. Retry. It is never an empty result. |
+| `E28` | The route listing changed between pages. Restart from the first page. |
 
 ### 3.4 Common statuses
 
@@ -1066,6 +1073,20 @@ Two requests with the same `operationId` at the same time are safe. One queues t
 
 The server checks the `operationId` before the passkey registration conflict. A replay of a registration returns its first tracking ID.
 
+#### Swap routes
+
+A batch whose calls form groups of three (`approve(pool, 0)`, `approve(pool, amount)`, then one of the trader overloads of `SwapPool.withdraw`) is a swap route.
+The server decodes it from the signed calldata and checks it before it queues a job:
+
+- each hop resets the approval to zero, then approves exactly the amount it withdraws, of its input voucher, to its own pool;
+- each hop swaps two different vouchers;
+- every hop but the last pays its output to `userAddress`;
+- a bounded `withdraw(out, in, value, recipient, minAmountOut, deadline)` has a deadline at most `router.relay_deadline_horizon_secs` (default 3,600) after now.
+
+A route that fails a check returns `400` with `E04`. Batches of any other shape relay as before.
+
+When the hops are chained (each spends the voucher the previous one delivered), the server records the route in the same transaction as the job, and `GET /api/v2/users/me/routed-swaps/:trackingId` (section 14.17) returns it as one receipt. The valuation snapshot covers every voucher of every hop, including hops that use the bounded overload.
+
 #### Gas budget
 
 The server cannot estimate gas for the first relay because the wallet is not yet delegated. The relayer sets the gas limit from a budget.
@@ -1097,6 +1118,7 @@ The user pays no gas. The relayer pays the gas. The gas price comes from the gas
 | `400` | `E02` | The body is not valid JSON. |
 | `400` | `E04` | A field fails a rule, for example more than 16 calls, an address that is not checksummed, or `signatureType` that is not `secp256k1` or `webauthn`. |
 | `400` | `E04` | The passkey registration is incomplete or is not valid. |
+| `400` | `E04` | A swap route fails a check in "Swap routes" above. |
 | `409` | `E16` | The `operationId` was used for a different request. |
 | `409` | `E16` | The `credentialId` is already mapped. |
 
@@ -2124,6 +2146,8 @@ Voucher summary fields:
 | 403 | `E10` | `nearby=true` and the caller uses a service token. |
 | 429 | `E11` | The rate limit is exceeded. |
 
+**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+
 ### 7.3 `GET /api/v2/vouchers/:address`
 
 **Access:** Public. See section 7.1 for the rate limit and the cache headers.
@@ -2264,6 +2288,8 @@ Status `200`, description `Offerings`. The `result` has these fields:
 | 403 | `E10` | `nearby=true` and the caller uses a service token. |
 | 429 | `E11` | The rate limit is exceeded. |
 
+**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+
 ### 7.7 `GET /api/v2/marketplace`
 
 **Access:** Public. A user session is needed when `nearby=true`. See section 7.1 for the rate limit.
@@ -2371,6 +2397,8 @@ Row fields:
 | 429 | `E11` | The rate limit is exceeded. |
 | 500 | `E01` | The `cursor` is not valid for this search. The cursor check does not return a validation error. |
 
+**Credit depth.** `creditDepth=1|2` filters by the pools the session wallet can reach in that many hops, resolved on the server (section 14.13), so the filter applies before paging, counts and facets. It needs a user session (`401` with `E06` without one), cannot be combined with `pools`, and makes the response private. A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+
 ### 7.8 `GET /api/v2/market-map`
 
 **Access:** Public. A valid user session gives the request a wallet-keyed rate-limit bucket; a guest remains anonymous and uses the aggregate trusted client-IP bucket.
@@ -2385,6 +2413,7 @@ Returns one bounded set of lightweight Marketplace markers and server clusters f
 | `q` | string | none | Uses the search behavior of the selected resource kinds. |
 | `tags`, `tagMatch`, `facets` | | | See section 7.1. |
 | `creditablePools` | string | none | Verified pool references in `chainId:address` form. Repeat the parameter or use commas. |
+| `creditDepth` | integer | none | `1` or `2`. Needs a user session. The server resolves the pools the session wallet can reach in that many hops (section 14.13) and filters by them, as `creditablePools` does. Cannot be combined with `creditablePools`. |
 | `postTiming` | string | legacy one-month window | `future`, `past`, or `all`. Applies only to Posts. Cannot be combined with legacy `posted`. |
 | `postVouchers`, `postVoucherMatch` | string | none, `any` | Voucher references in `chainId:address` form and `any` or `all` matching. Applies only to Posts. |
 | `postPools`, `postPoolMatch` | string | none, `any` | Pool references in `chainId:address` form and `any` or `all` matching. A Pool matches a directly linked Pool or an active linked Voucher currently allowed by the Pool. Applies only to Posts. |
@@ -2393,7 +2422,7 @@ Below zoom 20, resources in the same 30-pixel Web Mercator grid cell become one 
 
 Marker fields are `type`, `id`, `kind`, `resourceId`, `name`, `lat`, `lng`, `markerIcon`, and `markerColor`. Cluster fields are `type`, `id`, `lat`, `lng`, `count`, `kinds`, and `expansionZoom`. `kinds` contains the count for each represented resource kind. `tagFacets`, `postVoucherFacets`, and `postPoolFacets` are returned when `facets=true`; the Post Pool facets include direct and active allowed-Voucher relationships without duplicate Post counts.
 
-Successful responses use `Cache-Control: public, max-age=15, stale-while-revalidate=60`. Identical cache misses coalesce into one database read. The in-process response cache has a 15-second TTL, a 64 MiB limit, and least-recently-used eviction.
+Successful responses use `Cache-Control: public, max-age=15, stale-while-revalidate=60`, except a response filtered by `creditDepth`: it is private to the wallet and uses `Cache-Control: private, no-store`. Identical cache misses coalesce into one database read. The in-process response cache has a 15-second TTL, a 64 MiB limit, and least-recently-used eviction.
 
 The database executor runs up to 32 uncached map reads and queues 128. A full queue returns `503` `E11` with `Retry-After`. A coalesced cache miss consumes one token from the dedicated map limiter:
 
@@ -3195,6 +3224,8 @@ Each `tagFacets` item is `{"tag": "Art", "count": 3}`. The array has every tag o
 }
 ```
 
+**Credit depth.** `creditDepth=1|2` narrows the list to resources related to the pools the session wallet can reach in that many hops, resolved on the server (section 14.13). It replaces a client-sent `pools` list (and is not capped at 100 pools), cannot be combined with `pools`, needs a user session (`401` with `E06` without one) and makes the response private (`Cache-Control: private, no-store`). A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
+
 ### 9.3 `GET /api/v2/catalogs/:id`
 
 **Access:** Public.
@@ -3487,6 +3518,8 @@ A cursor needs both `cursorUpdatedAt` and `cursorId`. One alone returns `400 E04
   }
 }
 ```
+
+**Credit depth.** `creditDepth=1|2` filters by the pools the session wallet can reach in that many hops, resolved on the server (section 14.13), so the filter applies before paging, counts and facets. It needs a user session (`401` with `E06` without one), cannot be combined with `creditablePools`, and makes the response private. A wallet that reaches nothing gets an empty result, never an unfiltered one. If the router cannot answer, the request returns `503` with `E27`.
 
 ### 10.4 `GET /api/v2/reports/:id`
 
@@ -5072,6 +5105,164 @@ Success: `result` is `{"rotations": [<rotation>]}`.
 `GET /api/v2/users/me/owned-pools?owner=<oldAddress>` lists the pools that one of these old addresses still owns, and `GET /api/v2/users/me/vouchers?owner=<oldAddress>` the vouchers, retired ones included and Safe-owned ones not. Any other `owner` returns `403`.
 
 ---
+
+### 14.13 Credit router
+
+The credit router finds what the session wallet can obtain with the vouchers it holds, through one pool or two, and prices one exchange exactly.
+It has two tiers:
+
+- **Discovery** (`GET /me/credit`, `GET /me/credit/routes`) reads an in-memory graph of the pools. It needs no chain read per request except one batched `balanceOf` that verifies the wallet's vouchers. Its answers are **estimates as of `asOfBlock`**: the graph can be seconds to minutes old, and a leg uses the pool's default fee until its exact pair fee has been read.
+- **Quote** (`POST /me/credit/quote`) reads the pools and the wallet at one pinned block, reproduces the contract arithmetic, checks it against `getAmountOut`, simulates the batch, and returns exactly what the wallet signs. Only the quote is authoritative.
+
+Only relative-priced pools, and vouchers whose transfers move exactly the stated amount (`GIFTABLE` vouchers, and external ERC-20 vouchers listed in `router.plain_erc20`), are routed. A route has at most `router.max_hops` hops (2), with distinct pools and distinct vouchers.
+
+Every response is private: `Cache-Control: private, no-store`.
+
+Discovery screens use the same reachable set through `creditDepth=1|2`, resolved on the server: market-map (with `/points` and `/facets`), marketplace and reports filter by the reachable pools, and the voucher catalog, offerings, wants and curated catalogs by resources related to them.
+
+| State | Status | Code | Meaning |
+|---|---|---|---|
+| Result | `200` | | Possibly empty. An empty result is a real answer. |
+| Stale | `200` | | `stale: true`: served from a graph older than `router.stale_after_blocks`, or a reconciliation is failing. |
+| `route_unavailable` | `409` | `E24` | `result.reason` is one of `not_allowed_in`, `not_allowed_out`, `deposit_cap`, `liquidity`, `fee_domain`, `zero_input`, `zero_output`, `overflow`, `unsupported_quoter`, `unsupported_token`, `wallet_balance`, `retired`, `search_budget`, `unsupported_wallet` (a Safe or other contract wallet) or `gas`. `result.hop` is zero-based; `-1` is the route as a whole. |
+| `quote_mismatch` | `409` | `E25` | The chain disagreed with the local arithmetic. The pool leaves discovery. |
+| `simulation_failed` | `409` | `E26` | `result.revert` has `reason` (the innermost error name, for example `InsufficientOutput`, `LimitExceeded`, `Expired`), `message` and `data`. |
+| `router_unavailable` | `503` | `E27` | The graph or the RPC cannot be used. Retry. A failed read is never returned as an empty result. |
+
+### 14.14 `GET /api/v2/users/me/credit`
+
+The vouchers and pools the session wallet can probably reach.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `depth` | integer | `2` | `1` or `2`. Depth 2 includes depth 1. |
+
+```json
+{
+  "depth": 2, "asOfBlock": 49254469, "graphVersion": 812, "stale": false,
+  "digest": "0x…",
+  "inputs":   [{ "voucher": "0x…", "balance": "2500000" }],
+  "vouchers": [{ "address": "0x…", "minHops": 2 }],
+  "pools":    [{ "address": "0x…", "minHops": 1 }]
+}
+```
+
+`inputs` are the wallet's vouchers that can start a route, with their on-chain balances. A voucher or pool counts as reachable when a route of `minHops` hops can carry any positive amount to it; a pool counts when a route ends in it. `digest` hashes the reachable set, for keying caches and cursors.
+
+### 14.15 `GET /api/v2/users/me/credit/routes`
+
+The routes from the wallet's vouchers to one voucher, grouped by input voucher.
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `to` | address | required | The voucher to obtain. `404` `E03` when it is not in the catalog. |
+| `depth` | integer | `2` | `1` or `2`. |
+| `from` | address | all | Only routes that spend this voucher. |
+| `amount` | integer | none | Raw units. With it, each route reports whether it carries the amount. |
+| `mode` | string | `exactInput` | `exactInput` (amount spent) or `exactOutput` (amount obtained). |
+| `cursor` | string | none | From a previous page. |
+
+```json
+{
+  "target": { "address": "0x…", "symbol": "JESCA", "decimals": 6 },
+  "asOfBlock": 49254469, "graphVersion": 812, "stale": false, "complete": true,
+  "inputs": [{
+    "voucher": "0x…", "walletBalance": "2500000",
+    "routes": [{
+      "id": "r_…",
+      "hops": [{ "pool": { "address": "0x…", "name": "…" }, "tokenIn": "0x…", "tokenOut": "0x…",
+                 "feePpm": "0", "feeSource": "pair", "protocolFeePpm": "20000" }],
+      "rate": { "amountIn": "1000000", "amountOut": "999800" },
+      "maxAmountIn": "2500000", "maxAmountOut": "2499500", "maxIsExact": true,
+      "limitedBy": "wallet", "limitedByHop": 0,
+      "carriesAmount": true, "amountIn": "1000000", "amountOut": "999800",
+      "effectiveFeePpm": "200"
+    }]
+  }],
+  "fallbackPools": [{ "address": "0x…", "name": "…", "liquidity": "2799000000", "accepts": ["0x…"] }],
+  "cursor": null
+}
+```
+
+- **Ranking.** Within one input voucher: with an `amount`, routes that carry it come first, by highest delivered output (`exactInput`) or lowest required input (`exactOutput`); routes that cannot carry it follow, each with its maximum and a `refusal` (`reason`, `hop`). Without an amount, routes are ordered by `rate`, the output for one whole input voucher. Ties go to fewer hops, then pool, bridge and input addresses. Different input vouchers are separate choices and are not ranked against each other. (`router.tie_margin_ppm` can treat near-equal outputs as tied; it is 0.)
+- **Maximum.** `maxAmountIn` is the most the wallet can spend through the route, and `maxIsExact: true` means every larger input has been ruled out. `null` means the maximum could not be established; the route stays listed and can still be quoted. `limitedBy` is `wallet`, `deposit_cap` or `liquidity`, on hop `limitedByHop`.
+- **Fees.** `feeSource` is `pair` once the exact pair fee has been read, `default` until then. `effectiveFeePpm` is `(feeFree − delivered) · 1e6 / feeFree` at `rate`.
+- **Route id.** `id` is derived from the route's pools and vouchers, so the same route has the same id in every listing.
+- **Paging.** 50 routes per page across the groups, never silently truncated. A cursor from a listing that has since changed returns `409` `E28`.
+- `fallbackPools` lists the pools that hold the target, with the vouchers each accepts, so a screen with no route still says where the voucher lives.
+
+### 14.16 `POST /api/v2/users/me/credit/quote`
+
+An authoritative quote and the batch to sign. Rate limit: 0.5 requests per second per user, burst 10.
+
+```json
+{ "route": [{ "pool": "0x…", "tokenIn": "0x…", "tokenOut": "0x…" }],
+  "mode": "exactInput", "amount": "1000000",
+  "recipient": null, "keyHash": "0x…" }
+```
+
+`keyHash` empty or zero is the root key (Sign-in Card); a passkey sends its key hash. `recipient` defaults to the wallet; intermediate hops always pay the wallet.
+
+```json
+{
+  "quoteId": "0x<digest>", "block": { "number": 49254469, "hash": "0x…" },
+  "expiresAt": 1794567890, "mode": "exactInput",
+  "amountIn": "1000000", "amountOut": "999800", "minAmountOut": "999800", "recipient": "0x…",
+  "hops": [{ "pool": "0x…", "tokenIn": "0x…", "tokenOut": "0x…",
+             "amountIn": "1000000", "grossOut": "1000000",
+             "poolFee": "0", "protocolFee": "200", "netOut": "999800",
+             "minAmountOut": "999800", "feePpm": "0", "protocolFeePpm": "20000" }],
+  "fees": { "feeFreeAmountOut": "1000000", "effectiveFeePpm": "200" },
+  "surplus": { "output": "0", "bridge": [] },
+  "batch": { "batchedCall": { "calls": [], "revertOnFailure": true },
+             "nonce": "…", "keyHash": "0x…", "executor": "0x…",
+             "deadline": "1794567890", "digest": "0x…" },
+  "simulation": { "ok": true, "gasEstimate": "412000" },
+  "delegated": true, "eoaNonce": "17"
+}
+```
+
+- **The batch.** Three calls per hop: `approve(pool, 0)`, `approve(pool, amountIn)`, then the bounded `withdraw(tokenOut, tokenIn, amountIn, recipient, minAmountOut, deadline)`. Hop one's `minAmountOut` is hop two's input, so hop two never spends bridge vouchers the wallet already held; any surplus stays in the wallet and is reported in `surplus.bridge`. `revertOnFailure` is `true`: if hop two fails, hop one and both approvals roll back.
+- **Minimum.** For `exactInput` the final minimum is the quoted output. For `exactOutput` it is the requested amount, never less; the input is the smallest that delivers it, and any extra output is `surplus.output`. No tolerance is applied: the pools are fixed-rate.
+- **Deadline.** `expiresAt` is now + `router.quote_deadline_secs` (300). The same value is in both withdrawals and the signed batch.
+- **Signing.** The batch fields are what `/relayer/relay/preview` would return for it. Before signing, the app must check the decoded calls against its own request and what the user confirmed (pools and vouchers of each hop, first input, final minimum and recipient, intermediate recipients, approvals, batch shape, executor and deadline), compute the EIP-712 digest itself, and sign that. Submit with `POST /api/v2/relayer/relay` and an `operationId`.
+- `delegated` and `eoaNonce` tell the app whether the first relay needs an EIP-7702 authorization.
+- The batch was simulated at `block` with Calibur's code on the wallet, so a wallet that has not delegated is simulated too. A quote is never issued unsimulated.
+- Nothing is stored. Two wallets quoting the same route share only the pool reads.
+
+| Status | Code | Condition |
+|---|---|---|
+| `400` | `E04` | A field fails a rule, or the route is not contiguous, repeats a pool or a voucher, or has more than 2 hops. |
+| `409` | `E24`, `E25`, `E26` | See section 14.13. |
+| `429` | `E11` | Rate limit. |
+| `503` | `E27` | See section 14.13. |
+
+### 14.17 `GET /api/v2/users/me/routed-swaps` and `GET /api/v2/users/me/routed-swaps/:trackingId`
+
+Grouped receipts. When the relay accepts a chained swap route (section 5.6), it records the route; the subscriber fills each hop from its pool's settlement event. A two-hop exchange is one receipt.
+
+The list is newest first, 20 per page, with `cursor` from the previous page. Another wallet's tracking ID returns `404` `E03`.
+
+```json
+{
+  "swap": {
+    "trackingId": "…", "chainId": 100, "wallet": "0x…", "recipient": "0x…",
+    "tokenIn": "0x…", "tokenOut": "0x…", "amountIn": "1000000", "minAmountOut": "999601",
+    "hopCount": 2, "bounded": true, "deadline": 1794567890, "createdAt": "…",
+    "txHash": "0x…", "status": "SUCCESS",
+    "hops": [{ "index": 0, "pool": "0x…", "tokenIn": "0x…", "tokenOut": "0x…",
+               "amountIn": "1000000", "minAmountOut": "999800", "recipient": "0x…",
+               "txHash": "0x…", "block": 49254470, "logIndex": 12,
+               "settledAmountIn": "1000000", "quotedAmountOut": "1000000",
+               "nominalAmountOut": "999800", "amountOut": "999800",
+               "poolFee": "0", "protocolFee": "200", "settledAt": "…" }]
+  },
+  "settled": true,
+  "bridgeRemainder": [{ "voucher": "0x…", "amount": "0" }]
+}
+```
+
+`status` is the relayed transaction's dispatch status, `null` until the relayer has sent it. `settled` is `true` once every hop has its settlement.
 
 ## 15. Admin
 
@@ -6808,6 +6999,16 @@ The row does not include the raw signed transaction.
 
 ---
 
+### 15.30 `GET /api/v2/admin/router/stats` and `GET /api/v2/admin/router/graph`
+
+**Access:** Admin.
+
+`stats` reports the credit router's graph and its chain loops: `graphVersion`, `asOfBlock` (the oldest balance block in the graph), `headBlock`, `stale`, `initialized` (one structure reconciliation, parameter refresh and balance sweep have completed), counts of pools, active and verified pools, vouchers, edges, eligible legs and recorded pair fees, the dirty-queue depth, and per loop (`reload`, `structure`, `params`, `balances`, `pair_fees`, `dirty`) its runs, last success, last error, duration, block and `corrections`. A non-zero `corrections` count means the chain held a value no event delivered.
+
+`graph` exports every pool with its quoter kind, verification, default and protocol fees, seal state, and each edge's membership, limit, price index, balance, held fees and balance block, for inspection.
+
+Both return `503` with `E27` when the router is disabled.
+
 ## 16. Messaging
 
 Direct conversations between two approved users, one helpdesk conversation per user, blocks and abuse reports.
@@ -7127,6 +7328,13 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | POST | `/api/v2/users/me/shares/:txHash` | User session |
 | GET | `/api/v2/users/me/shares/:txHash` | User session |
 | GET | `/api/v2/users/me/key-rotations` | User session |
+| GET | `/api/v2/users/me/credit` | User session |
+| GET | `/api/v2/users/me/credit/routes` | User session |
+| POST | `/api/v2/users/me/credit/quote` | User session |
+| GET | `/api/v2/users/me/routed-swaps` | User session |
+| GET | `/api/v2/users/me/routed-swaps/:trackingId` | User session |
+| GET | `/api/v2/admin/router/stats` | Admin |
+| GET | `/api/v2/admin/router/graph` | Admin |
 | GET | `/api/v2/users/me/reports` | User session |
 | GET | `/api/v2/users/me/reports/:id` | User session |
 | GET | `/api/v2/admin/users` | Administrative |

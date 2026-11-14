@@ -101,3 +101,35 @@ sts_api_key = ""
 # Execute a proposal from the system signer once its signers reach the
 # threshold, paying the gas. Needs sts_base_url and multisend_call_only.
 auto_execute = false
+
+[router]
+# Credit router. Discovery serves estimates from an in-memory graph
+# kept current by the tracker events and four chain reconciliation loops; the
+# quote reads the pools at a pinned block and is the only authoritative answer.
+enabled = true
+# At most two hops in the product; the engine supports up to five (a relayed
+# batch holds 16 calls, three per hop).
+max_hops = 2
+max_routes_per_page = 50
+# Rebuild the graph from Postgres. Repairs API-side changes (retire, restore)
+# and a crash between commit and apply; it cannot restore what Postgres never
+# received, which is what the chain loops below are for.
+reload_interval_secs = 30
+structure_reconcile_interval_secs = 600
+params_refresh_interval_secs = 120
+balance_sweep_interval_secs = 300
+pair_fee_sweep_interval_secs = 1800
+dirty_debounce_ms = 250
+stale_after_blocks = 120
+quote_deadline_secs = 300
+max_search_evaluations = 256
+# Treat two outputs within this margin (ppm) as tied, so an extra hop is not
+# chosen for a negligible gain. 0 compares exactly.
+tie_margin_ppm = 0
+holdings_cache_secs = 15
+chain_batch_size = 150
+# A relayed swap route's bounded deadline may sit at most this far ahead.
+relay_deadline_horizon_secs = 3600
+# External ERC-20 vouchers confirmed to have plain transfer behaviour (no
+# transfer tax, no rebasing). GiftableToken vouchers qualify by construction.
+plain_erc20 = []

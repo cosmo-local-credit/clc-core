@@ -1692,33 +1692,68 @@ ON CONFLICT (voucher_id, tag_value) DO NOTHING;
 --   token_limit    the limiter        (LIMIT_SET)
 --   oracle_feed_id the quoter         (ORACLE_UPDATED / ORACLE_REMOVED)
 --   oracle_address the quoter         (ORACLE_UPDATED / ORACLE_REMOVED)
+--   price_index    the quoter         (QUOTER_PRICE_INDEX_UPDATED)
 --
--- The two non-registry statements insert is_allowed = FALSE when they are the
+-- The non-registry statements insert is_allowed = FALSE when they are the
 -- first to see a pair, because a cap or a price says nothing about membership;
 -- their ON CONFLICT clauses leave it alone so an INDEX_ADD that already landed
 -- is not undone by a later cap.
 
+-- Every projection is ordered: it carries the (block, log index) of the event
+-- and applies only when that is newer than the field's last write, so a NATS
+-- redelivery of an older event changes nothing. A chain read at block N writes
+-- (N, 2147483647). RETURNING lists the rows that actually changed, which is
+-- what the router graph applies after commit.
 --name: set-pool-token-membership
-INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, synced_at)
-SELECT p.id, v.id, $3, CURRENT_TIMESTAMP
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, allowed_block, allowed_log_index, synced_at)
+SELECT p.id, v.id, $3::BOOLEAN, $4::BIGINT, $5::INT, CURRENT_TIMESTAMP
 FROM pools p
 JOIN vouchers v ON v.chain_id = p.chain_id
 WHERE lower(p.token_registry_address) = lower($1)
   AND lower(v.address) = lower($2)
 ON CONFLICT (pool_id, voucher_id) DO UPDATE
-SET is_allowed = EXCLUDED.is_allowed,
-    synced_at  = EXCLUDED.synced_at;
+SET is_allowed        = EXCLUDED.is_allowed,
+    allowed_block     = EXCLUDED.allowed_block,
+    allowed_log_index = EXCLUDED.allowed_log_index,
+    synced_at         = EXCLUDED.synced_at
+WHERE (EXCLUDED.allowed_block, EXCLUDED.allowed_log_index)
+    > (COALESCE(pool_tokens.allowed_block, -1), COALESCE(pool_tokens.allowed_log_index, -1))
+RETURNING pool_id, voucher_id;
 
 --name: set-pool-token-limit
-INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, token_limit, synced_at)
-SELECT p.id, v.id, FALSE, $3::NUMERIC, CURRENT_TIMESTAMP
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, token_limit, limit_block, limit_log_index, synced_at)
+SELECT p.id, v.id, FALSE, $3::NUMERIC, $4::BIGINT, $5::INT, CURRENT_TIMESTAMP
 FROM pools p
 JOIN vouchers v ON v.chain_id = p.chain_id
 WHERE lower(p.address) = lower($1)
   AND lower(v.address) = lower($2)
 ON CONFLICT (pool_id, voucher_id) DO UPDATE
-SET token_limit = EXCLUDED.token_limit,
-    synced_at   = EXCLUDED.synced_at;
+SET token_limit     = EXCLUDED.token_limit,
+    limit_block     = EXCLUDED.limit_block,
+    limit_log_index = EXCLUDED.limit_log_index,
+    synced_at       = EXCLUDED.synced_at
+WHERE (EXCLUDED.limit_block, EXCLUDED.limit_log_index)
+    > (COALESCE(pool_tokens.limit_block, -1), COALESCE(pool_tokens.limit_log_index, -1))
+RETURNING pool_id, voucher_id;
+
+-- RelativeQuoter.PriceIndexUpdated, resolved by quoter like the oracle
+-- events: a quoter does not know which pools point at it. Like a cap, a price
+-- says nothing about membership, so a first sighting inserts is_allowed FALSE.
+--name: set-pool-token-price-index
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, price_index, price_block, price_log_index, synced_at)
+SELECT p.id, v.id, FALSE, $3::NUMERIC, $4::BIGINT, $5::INT, CURRENT_TIMESTAMP
+FROM pools p
+JOIN vouchers v ON v.chain_id = p.chain_id
+WHERE lower(p.quoter_address) = lower($1)
+  AND lower(v.address) = lower($2)
+ON CONFLICT (pool_id, voucher_id) DO UPDATE
+SET price_index     = EXCLUDED.price_index,
+    price_block     = EXCLUDED.price_block,
+    price_log_index = EXCLUDED.price_log_index,
+    synced_at       = EXCLUDED.synced_at
+WHERE (EXCLUDED.price_block, EXCLUDED.price_log_index)
+    > (COALESCE(pool_tokens.price_block, -1), COALESCE(pool_tokens.price_log_index, -1))
+RETURNING pool_id, voucher_id;
 
 -- An aggregator with no oracle_feeds row resolves to a NULL feed id: the mapping
 -- is real but this service cannot name the feed, which is a different fact from
@@ -1733,8 +1768,8 @@ SET token_limit = EXCLUDED.token_limit,
 -- command cannot affect row a second time". Picking the lowest id keeps one
 -- deterministic answer; by address the two feeds are the same contract anyway.
 --name: set-pool-token-oracle
-INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, oracle_feed_id, oracle_address, synced_at)
-SELECT p.id, v.id, FALSE, f.id, $3::TEXT, CURRENT_TIMESTAMP
+INSERT INTO pool_tokens (pool_id, voucher_id, is_allowed, oracle_feed_id, oracle_address, oracle_block, oracle_log_index, synced_at)
+SELECT p.id, v.id, FALSE, f.id, $3::TEXT, $4::BIGINT, $5::INT, CURRENT_TIMESTAMP
 FROM pools p
 JOIN vouchers v ON v.chain_id = p.chain_id
 LEFT JOIN LATERAL (
@@ -1745,23 +1780,32 @@ LEFT JOIN LATERAL (
 WHERE lower(p.quoter_address) = lower($1)
   AND lower(v.address) = lower($2)
 ON CONFLICT (pool_id, voucher_id) DO UPDATE
-SET oracle_feed_id = EXCLUDED.oracle_feed_id,
-    oracle_address = EXCLUDED.oracle_address,
-    synced_at      = EXCLUDED.synced_at;
+SET oracle_feed_id   = EXCLUDED.oracle_feed_id,
+    oracle_address   = EXCLUDED.oracle_address,
+    oracle_block     = EXCLUDED.oracle_block,
+    oracle_log_index = EXCLUDED.oracle_log_index,
+    synced_at        = EXCLUDED.synced_at
+WHERE (EXCLUDED.oracle_block, EXCLUDED.oracle_log_index)
+    > (COALESCE(pool_tokens.oracle_block, -1), COALESCE(pool_tokens.oracle_log_index, -1))
+RETURNING pool_id, voucher_id;
 
 -- Removal only ever clears an existing pairing; it must not conjure a row for a
 -- pool that never priced the token.
 --name: clear-pool-token-oracle
 UPDATE pool_tokens pt
-SET oracle_feed_id = NULL,
-    oracle_address = NULL,
-    synced_at      = CURRENT_TIMESTAMP
+SET oracle_feed_id   = NULL,
+    oracle_address   = NULL,
+    oracle_block     = $3::BIGINT,
+    oracle_log_index = $4::INT,
+    synced_at        = CURRENT_TIMESTAMP
 FROM pools p, vouchers v
 WHERE pt.pool_id = p.id
   AND pt.voucher_id = v.id
   AND v.chain_id = p.chain_id
   AND lower(p.quoter_address) = lower($1)
-  AND lower(v.address) = lower($2);
+  AND lower(v.address) = lower($2)
+  AND ($3::BIGINT, $4::INT) > (COALESCE(pt.oracle_block, -1), COALESCE(pt.oracle_log_index, -1))
+RETURNING pt.pool_id, pt.voucher_id;
 
 -- Pool voucher composition. Oracle feeds replace legacy
 -- fixed exchange rates; offering counts are local catalog facts.
@@ -4955,3 +4999,205 @@ UPDATE abuse_reports
 SET status = $2::TEXT, resolved_by = $3::INT, resolved_at = CURRENT_TIMESTAMP
 WHERE id = $1::BIGINT AND status = 'open'
 RETURNING id;
+
+-- Credit router. Its in-memory graph is a cache of these rows: after any reload it
+-- equals what the database holds.
+
+--name: load-router-pools
+SELECT p.id, p.address,
+    COALESCE(p.display_name, p.name, '') AS name,
+    p.active,
+    COALESCE(p.quoter_type, '') AS quoter_type,
+    COALESCE(p.token_registry_address, '') AS registry_address,
+    COALESCE(p.limiter_address, '') AS limiter_address,
+    COALESCE(p.quoter_address, '') AS quoter_address,
+    COALESCE(p.fee_policy_address, '') AS fee_policy_address,
+    COALESCE(p.protocol_fee_controller_address, '') AS controller_address,
+    COALESCE(p.fees_decoupled, FALSE) AS fees_decoupled,
+    s.default_fee_ppm::BIGINT AS default_fee_ppm,
+    s.protocol_fee_ppm::BIGINT AS protocol_fee_ppm,
+    s.protocol_fee_recipient,
+    s.seal_state,
+    s.quoter_verified,
+    s.block_number AS params_block
+FROM pools p
+LEFT JOIN pool_chain_state s ON s.pool_id = p.id
+WHERE p.chain_id = $1::INT
+ORDER BY p.id;
+
+-- Every catalog voucher of the chain, not only those already in a pool: the
+-- structure reconciliation must resolve a registry member the database never
+-- heard of.
+--name: load-router-vouchers
+SELECT v.id, v.address,
+    COALESCE(v.symbol, '') AS symbol,
+    COALESCE(v.display_name, v.name, '') AS name,
+    v.decimals,
+    v.active,
+    COALESCE(v.voucher_type, '') AS voucher_type
+FROM vouchers v
+WHERE v.chain_id = $1::INT
+ORDER BY v.id;
+
+--name: load-router-edges
+SELECT pt.pool_id, pt.voucher_id, pt.is_allowed,
+    pt.token_limit::TEXT AS token_limit,
+    pt.price_index::TEXT AS price_index,
+    COALESCE(pt.allowed_block, 0) AS allowed_block, COALESCE(pt.allowed_log_index, 0) AS allowed_log_index,
+    COALESCE(pt.limit_block, 0) AS limit_block, COALESCE(pt.limit_log_index, 0) AS limit_log_index,
+    COALESCE(pt.price_block, 0) AS price_block, COALESCE(pt.price_log_index, 0) AS price_log_index,
+    l.balance::TEXT AS balance,
+    l.fees_held::TEXT AS fees_held,
+    COALESCE(l.block_number, 0) AS balance_block
+FROM pool_tokens pt
+JOIN pools p ON p.id = pt.pool_id
+LEFT JOIN pool_token_liquidity l ON l.pool_id = pt.pool_id AND l.voucher_id = pt.voucher_id
+WHERE p.chain_id = $1::INT
+ORDER BY pt.pool_id, pt.voucher_id;
+
+-- Chain-read balances, guarded by block so a slow read never overwrites a
+-- newer one. Amounts travel as text and are cast here, so no uint256 passes
+-- through a float.
+--name: upsert-pool-token-liquidity
+INSERT INTO pool_token_liquidity (pool_id, voucher_id, balance, fees_held, block_number, updated_at)
+SELECT t.pool_id, t.voucher_id, t.balance::NUMERIC, t.fees_held::NUMERIC, t.block_number, CURRENT_TIMESTAMP
+FROM unnest($1::INT[], $2::INT[], $3::TEXT[], $4::TEXT[], $5::BIGINT[])
+    AS t(pool_id, voucher_id, balance, fees_held, block_number)
+JOIN pools p ON p.id = t.pool_id
+JOIN vouchers v ON v.id = t.voucher_id
+ON CONFLICT (pool_id, voucher_id) DO UPDATE
+SET balance      = EXCLUDED.balance,
+    fees_held    = EXCLUDED.fees_held,
+    block_number = EXCLUDED.block_number,
+    updated_at   = EXCLUDED.updated_at
+WHERE EXCLUDED.block_number >= pool_token_liquidity.block_number
+RETURNING pool_id, voucher_id;
+
+--name: upsert-pool-chain-state
+INSERT INTO pool_chain_state (pool_id, default_fee_ppm, protocol_fee_ppm, protocol_fee_recipient,
+    seal_state, quoter_verified, block_number, updated_at)
+VALUES ($1::INT, $2::BIGINT, $3::BIGINT, NULLIF($4::TEXT, ''), $5::SMALLINT, $6::BOOLEAN, $7::BIGINT, CURRENT_TIMESTAMP)
+ON CONFLICT (pool_id) DO UPDATE
+SET default_fee_ppm        = EXCLUDED.default_fee_ppm,
+    protocol_fee_ppm       = EXCLUDED.protocol_fee_ppm,
+    protocol_fee_recipient = EXCLUDED.protocol_fee_recipient,
+    seal_state             = EXCLUDED.seal_state,
+    quoter_verified        = EXCLUDED.quoter_verified,
+    block_number           = EXCLUDED.block_number,
+    updated_at             = EXCLUDED.updated_at
+WHERE EXCLUDED.block_number >= pool_chain_state.block_number;
+
+-- The event projection resolves pools by their periphery addresses, so a
+-- stale pointer would misroute later events. A refresh that finds the chain
+-- disagreeing rewrites them; an empty string is "unset".
+--name: correct-pool-pointers
+UPDATE pools
+SET token_registry_address          = NULLIF($2::TEXT, ''),
+    limiter_address                 = NULLIF($3::TEXT, ''),
+    quoter_address                  = NULLIF($4::TEXT, ''),
+    fee_policy_address              = NULLIF($5::TEXT, ''),
+    protocol_fee_controller_address = NULLIF($6::TEXT, ''),
+    fees_decoupled                  = $7::BOOLEAN,
+    updated_at                      = CURRENT_TIMESTAMP
+WHERE id = $1::INT
+  AND (lower(COALESCE(token_registry_address, '')) IS DISTINCT FROM lower($2::TEXT)
+    OR lower(COALESCE(limiter_address, '')) IS DISTINCT FROM lower($3::TEXT)
+    OR lower(COALESCE(quoter_address, '')) IS DISTINCT FROM lower($4::TEXT)
+    OR lower(COALESCE(fee_policy_address, '')) IS DISTINCT FROM lower($5::TEXT)
+    OR lower(COALESCE(protocol_fee_controller_address, '')) IS DISTINCT FROM lower($6::TEXT)
+    OR fees_decoupled IS DISTINCT FROM $7::BOOLEAN);
+
+--name: set-pool-quoter-verified
+UPDATE pool_chain_state
+SET quoter_verified = $2::BOOLEAN, updated_at = CURRENT_TIMESTAMP
+WHERE pool_id = $1::INT AND block_number <= $3::BIGINT;
+
+-- Routed swap receipts: one record per relayed route, each hop filled from
+-- its settlement event.
+
+--name: insert-routed-swap
+INSERT INTO routed_swaps (tracking_id, chain_id, wallet, recipient, token_in, token_out,
+    amount_in, min_amount_out, hop_count, bounded, deadline)
+VALUES ($1::UUID, $2::INT, $3::TEXT, $4::TEXT, $5::TEXT, $6::TEXT, $7::NUMERIC, $8::NUMERIC,
+    $9::SMALLINT, $10::BOOLEAN, $11::BIGINT)
+ON CONFLICT (tracking_id) DO NOTHING;
+
+--name: insert-routed-swap-hop
+INSERT INTO routed_swap_hops (tracking_id, hop_index, pool_address, token_in, token_out,
+    amount_in, min_amount_out, recipient)
+VALUES ($1::UUID, $2::SMALLINT, $3::TEXT, $4::TEXT, $5::TEXT, $6::NUMERIC, $7::NUMERIC, $8::TEXT)
+ON CONFLICT (tracking_id, hop_index) DO NOTHING;
+
+-- A settlement fills the first unsettled hop of the route whose pool and
+-- vouchers it names, or re-fills the hop it already settled (a redelivered
+-- event). Only routes whose relayed transaction carries this tracking id are
+-- candidates, so an unrelated swap is never attached.
+--name: settle-routed-swap-hop
+UPDATE routed_swap_hops h
+SET tx_hash            = $5::TEXT,
+    block_number       = $6::BIGINT,
+    log_index          = $7::INT,
+    settled_amount_in  = $8::NUMERIC,
+    quoted_amount_out  = $9::NUMERIC,
+    nominal_amount_out = $10::NUMERIC,
+    amount_out         = $11::NUMERIC,
+    pool_fee           = $12::NUMERIC,
+    protocol_fee       = $13::NUMERIC,
+    settled_at         = CURRENT_TIMESTAMP
+WHERE h.tracking_id = $1::UUID
+  AND h.hop_index = (
+      SELECT c.hop_index FROM routed_swap_hops c
+      WHERE c.tracking_id = $1::UUID
+        AND lower(c.pool_address) = lower($2::TEXT)
+        AND lower(c.token_in) = lower($3::TEXT)
+        AND lower(c.token_out) = lower($4::TEXT)
+        AND (c.settled_at IS NULL OR (c.tx_hash = $5::TEXT AND c.log_index = $7::INT))
+      ORDER BY (c.settled_at IS NULL), c.hop_index
+      LIMIT 1)
+RETURNING h.hop_index;
+
+--name: get-routed-swap
+SELECT r.tracking_id::TEXT AS tracking_id, r.chain_id, r.wallet, r.recipient, r.token_in, r.token_out,
+    r.amount_in::TEXT AS amount_in, r.min_amount_out::TEXT AS min_amount_out,
+    r.hop_count, r.bounded, r.deadline, r.created_at,
+    latest.tx_hash, latest.status
+FROM routed_swaps r
+LEFT JOIN LATERAL (
+    SELECT o.tx_hash, d.status
+    FROM otx o
+    LEFT JOIN dispatch d ON d.otx_id = o.id
+    WHERE o.tracking_id = r.tracking_id
+    ORDER BY o.id DESC
+    LIMIT 1
+) latest ON TRUE
+WHERE r.tracking_id = $1::UUID AND lower(r.wallet) = lower($2::TEXT);
+
+--name: list-routed-swaps
+SELECT r.tracking_id::TEXT AS tracking_id, r.chain_id, r.wallet, r.recipient, r.token_in, r.token_out,
+    r.amount_in::TEXT AS amount_in, r.min_amount_out::TEXT AS min_amount_out,
+    r.hop_count, r.bounded, r.deadline, r.created_at,
+    latest.tx_hash, latest.status
+FROM routed_swaps r
+LEFT JOIN LATERAL (
+    SELECT o.tx_hash, d.status
+    FROM otx o
+    LEFT JOIN dispatch d ON d.otx_id = o.id
+    WHERE o.tracking_id = r.tracking_id
+    ORDER BY o.id DESC
+    LIMIT 1
+) latest ON TRUE
+WHERE lower(r.wallet) = lower($1::TEXT)
+  AND ($2::TIMESTAMPTZ IS NULL OR (r.created_at, r.tracking_id) < ($2::TIMESTAMPTZ, $3::UUID))
+ORDER BY r.created_at DESC, r.tracking_id DESC
+LIMIT $4::INT;
+
+--name: list-routed-swap-hops
+SELECT tracking_id::TEXT AS tracking_id, hop_index, pool_address, token_in, token_out,
+    amount_in::TEXT AS amount_in, min_amount_out::TEXT AS min_amount_out, recipient,
+    tx_hash, block_number, log_index,
+    settled_amount_in::TEXT AS settled_amount_in, quoted_amount_out::TEXT AS quoted_amount_out,
+    nominal_amount_out::TEXT AS nominal_amount_out, amount_out::TEXT AS amount_out,
+    pool_fee::TEXT AS pool_fee, protocol_fee::TEXT AS protocol_fee, settled_at
+FROM routed_swap_hops
+WHERE tracking_id = ANY($1::UUID[])
+ORDER BY tracking_id, hop_index;

@@ -100,6 +100,11 @@ func (a *API) reportsListHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
+	credit, handled, err := a.resolveCreditDepth(c, len(search.creditablePoolRefs) > 0)
+	if handled {
+		return err
+	}
+	search.credit = credit
 
 	ctx := c.Request().Context()
 	tx, err := a.store.Pool().Begin(ctx)
