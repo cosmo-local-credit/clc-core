@@ -147,6 +147,6 @@ func BenchmarkProductionReach(b *testing.B) {
 		holdings = append(holdings, Holding{Token: int32(token), Balance: *uint256.NewInt(1_000_000)})
 	}
 	for b.Loop() {
-		Reach(snap, holdings, 2)
+		Reach(snap, holdings, DefaultMaxHops)
 	}
 }

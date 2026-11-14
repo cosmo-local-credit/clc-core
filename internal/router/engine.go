@@ -255,14 +255,20 @@ func (r Route) ID(snap *Snapshot) string {
 // to reach it, so the search only follows legs that can still arrive within
 // the hops left.
 func EnumerateRoutes(snap *Snapshot, inputs []int32, target int32, maxHops int) []Route {
-	toTarget := map[int32]int{target: 0}
+	// toTarget[t] is how many hops voucher t needs to reach the target, or
+	// -1 when it cannot within maxHops−1.
+	toTarget := make([]int8, len(snap.Tokens))
+	for i := range toTarget {
+		toTarget[i] = -1
+	}
+	toTarget[target] = 0
 	frontier := []int32{target}
 	for hops := 1; hops < maxHops && len(frontier) > 0; hops++ {
 		var next []int32
 		for _, token := range frontier {
 			for _, leg := range snap.legsInto[token] {
-				if _, seen := toTarget[leg.In]; !seen {
-					toTarget[leg.In] = hops
+				if toTarget[leg.In] < 0 {
+					toTarget[leg.In] = int8(hops)
 					next = append(next, leg.In)
 				}
 			}
@@ -272,8 +278,8 @@ func EnumerateRoutes(snap *Snapshot, inputs []int32, target int32, maxHops int) 
 
 	var routes []Route
 	path := make([]Leg, 0, maxHops)
-	usedPools := map[int32]bool{}
-	usedTokens := map[int32]bool{}
+	usedPools := make([]bool, len(snap.Pools))
+	usedTokens := make([]bool, len(snap.Tokens))
 
 	var walk func(token int32)
 	walk = func(token int32) {
@@ -286,7 +292,7 @@ func EnumerateRoutes(snap *Snapshot, inputs []int32, target int32, maxHops int) 
 				continue
 			}
 			if leg.Out != target {
-				if need, ok := toTarget[leg.Out]; !ok || need > left-1 {
+				if need := toTarget[leg.Out]; need < 0 || int(need) > left-1 {
 					continue
 				}
 			}
@@ -296,8 +302,7 @@ func EnumerateRoutes(snap *Snapshot, inputs []int32, target int32, maxHops int) 
 			} else {
 				usedPools[leg.Pool], usedTokens[leg.Out] = true, true
 				walk(leg.Out)
-				delete(usedPools, leg.Pool)
-				delete(usedTokens, leg.Out)
+				usedPools[leg.Pool], usedTokens[leg.Out] = false, false
 			}
 			path = path[:len(path)-1]
 		}
@@ -309,7 +314,7 @@ func EnumerateRoutes(snap *Snapshot, inputs []int32, target int32, maxHops int) 
 		}
 		usedTokens[input] = true
 		walk(input)
-		delete(usedTokens, input)
+		usedTokens[input] = false
 	}
 	return routes
 }
@@ -346,11 +351,29 @@ func arithmeticRoute(params []LegParams, amountIn *uint256.Int) (uint256.Int, er
 // Evaluate assesses a route for a wallet holding balance of its input. With a
 // positive amount, it also checks whether the route carries it in mode.
 func Evaluate(snap *Snapshot, route Route, balance *uint256.Int, mode Mode, amount *uint256.Int, budget int) RouteEval {
+	return evaluate(snap, route, balance, mode, amount, budget, nil)
+}
+
+// evaluate is Evaluate with a cache of leg capacity limits shared across the
+// routes of one search; nil computes them per route.
+func evaluate(snap *Snapshot, route Route, balance *uint256.Int, mode Mode, amount *uint256.Int, budget int, limits map[Leg]legLimit) RouteEval {
 	eval := RouteEval{ID: route.ID(snap), Route: route}
+	var routeLimits []legLimit
+	if limits != nil {
+		routeLimits = make([]legLimit, 0, len(route))
+	}
 	for _, leg := range route {
 		params, source := snap.LegParams(leg)
 		eval.Params = append(eval.Params, params)
 		eval.FeeSources = append(eval.FeeSources, source)
+		if limits != nil {
+			limit, ok := limits[leg]
+			if !ok {
+				limit.max, limit.limit = params.legCeiling()
+				limits[leg] = limit
+			}
+			routeLimits = append(routeLimits, limit)
+		}
 	}
 
 	unit, ok := pow10(snap.Tokens[route.Input()].Decimals)
@@ -364,7 +387,7 @@ func Evaluate(snap *Snapshot, route Route, balance *uint256.Int, mode Mode, amou
 		}
 	}
 
-	eval.Max = MaxInput(eval.Params, balance, budget)
+	eval.Max = maxInput(eval.Params, routeLimits, balance, budget)
 
 	if amount != nil && !amount.IsZero() {
 		eval.HasAmount = true
@@ -477,6 +500,7 @@ func tieBreak(snap *Snapshot, a, b Route) int {
 func FindRoutes(snap *Snapshot, holdings []Holding, target int32, maxHops int, from *int32, mode Mode, amount *uint256.Int, budget int, rank RankConfig) RoutesResult {
 	inputs := spendable(snap, holdings)
 	result := RoutesResult{Target: target}
+	limits := map[Leg]legLimit{}
 	for _, h := range inputs {
 		if from != nil && h.Token != *from {
 			continue
@@ -495,7 +519,7 @@ func FindRoutes(snap *Snapshot, holdings []Holding, target int32, maxHops int, f
 			routes = routes[:rank.MaxCandidates]
 		}
 		for _, route := range routes {
-			eval := Evaluate(snap, route, &h.Balance, mode, amount, budget)
+			eval := evaluate(snap, route, &h.Balance, mode, amount, budget, limits)
 			if eval.Listed() {
 				group.Routes = append(group.Routes, eval)
 			}

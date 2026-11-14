@@ -33,11 +33,23 @@ func (p *LegParams) grossOrMax(value *uint256.Int) uint256.Int {
 }
 
 // maxInputFor is the largest x in [0, upTo] with gross(x) <= g. gross is
-// monotone, so this is a binary search.
+// monotone, so this is a binary search. The upper end is found by doubling
+// from 1, so the search costs about twice log2 of the answer rather than of
+// upTo, which is often the whole 256-bit range.
 func (p *LegParams) maxInputFor(g, upTo *uint256.Int) uint256.Int {
 	lo, hi := uint256.Int{}, *upTo
 	if gross := p.grossOrMax(&hi); !gross.Gt(g) {
 		return hi
+	}
+	for probe := uint256.NewInt(1); probe.Lt(&hi); probe.Lsh(probe, 1) {
+		if gross := p.grossOrMax(probe); gross.Gt(g) {
+			hi = *probe
+			break
+		}
+		lo = *probe
+		if probe.Gt(new(uint256.Int).Rsh(maxU256, 1)) {
+			break
+		}
 	}
 	// Invariant: gross(lo) <= g (gross(0) = 0), gross(hi) > g.
 	for {
@@ -180,6 +192,13 @@ func QuoteExactOutput(legs []LegParams, target *uint256.Int, wallet *uint256.Int
 }
 
 type (
+	// legLimit is one leg's own capacity limit: the largest input it accepts
+	// and which constraint sets it.
+	legLimit struct {
+		max   uint256.Int
+		limit string
+	}
+
 	// MaxResult describes the most a wallet can spend through a route.
 	MaxResult struct {
 		// Known is false when the maximum could not be established. The route
@@ -220,6 +239,20 @@ func (p *LegParams) legCeiling() (uint256.Int, string) {
 // proven ceiling (see maxChain), and Exact means every larger input was ruled
 // out.
 func MaxInput(legs []LegParams, wallet *uint256.Int, budget int) MaxResult {
+	return maxInput(legs, nil, wallet, budget)
+}
+
+// maxInput is MaxInput with each leg's own capacity limit precomputed when
+// limits is not nil. A route search shares them across every route that uses
+// the same leg, since finding a leg's liquidity bound is a binary search over
+// the whole input range.
+func maxInput(legs []LegParams, limits []legLimit, wallet *uint256.Int, budget int) MaxResult {
+	ceilingOf := func(k int) (uint256.Int, string) {
+		if limits != nil {
+			return limits[k].max, limits[k].limit
+		}
+		return legs[k].legCeiling()
+	}
 	for i := range legs {
 		if !FeeDomainOK(legs[i].FeePPM, legs[i].ProtocolPPM) {
 			return MaxResult{Unavailable: ReasonFeeDomain, LimitedByHop: i}
@@ -233,7 +266,7 @@ func MaxInput(legs []LegParams, wallet *uint256.Int, budget int) MaxResult {
 	}
 
 	// U: the largest input hop one accepts on its own constraints.
-	u, limitedBy := legs[0].legCeiling()
+	u, limitedBy := ceilingOf(0)
 	if wallet != nil && wallet.Lt(&u) {
 		u, limitedBy = *wallet, LimitWallet
 	}
@@ -258,7 +291,7 @@ func MaxInput(legs []LegParams, wallet *uint256.Int, budget int) MaxResult {
 		}
 		return MaxResult{Known: true, Exact: true, AmountIn: u, AmountOut: quote.AmountOut(), LimitedBy: limitedBy}
 	}
-	return maxChain(legs, u, limitedBy, wallet, budget)
+	return maxChain(legs, ceilingOf, u, limitedBy, wallet, budget)
 }
 
 // capacityReason is the refusal a leg's own capacity limit produces.
@@ -286,7 +319,7 @@ func capacityReason(limit string) Reason {
 // top plateau under the ceiling and, on a capacity refusal by any later hop,
 // steps to the top of the next lower plateau: every input in between has the
 // same gross, so the same outcome at every later hop.
-func maxChain(legs []LegParams, u uint256.Int, limitedBy string, wallet *uint256.Int, budget int) MaxResult {
+func maxChain(legs []LegParams, ceilingOf func(int) (uint256.Int, string), u uint256.Int, limitedBy string, wallet *uint256.Int, budget int) MaxResult {
 	n := len(legs)
 	ceil := make([]uint256.Int, n)
 	safe := make([]uint256.Int, n)
@@ -296,7 +329,7 @@ func maxChain(legs []LegParams, u uint256.Int, limitedBy string, wallet *uint256
 	three := uint256.NewInt(3)
 
 	for k := n - 1; k >= 1; k-- {
-		own, limit := legs[k].legCeiling()
+		own, limit := ceilingOf(k)
 		ownLimit[k] = limit
 		if own.IsZero() {
 			return MaxResult{Unavailable: capacityReason(limit), LimitedBy: limit, LimitedByHop: k}

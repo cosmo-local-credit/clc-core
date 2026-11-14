@@ -27,7 +27,7 @@ func BenchmarkReach66(b *testing.B) {
 		holdings := walletOf(66)
 		b.Run(map[int]string{1: "production", 10: "10x"}[scale], func(b *testing.B) {
 			for b.Loop() {
-				Reach(snap, holdings, 2)
+				Reach(snap, holdings, DefaultMaxHops)
 			}
 		})
 	}
@@ -40,7 +40,7 @@ func BenchmarkRoutesToOneVoucher(b *testing.B) {
 		amount := uint256.NewInt(1_000_000)
 		b.Run(map[int]string{1: "production", 10: "10x"}[scale], func(b *testing.B) {
 			for b.Loop() {
-				FindRoutes(snap, holdings, 3, 2, nil, ExactInput, amount, DefaultSearchBudget, RankConfig{})
+				FindRoutes(snap, holdings, 3, DefaultMaxHops, nil, ExactInput, amount, DefaultSearchBudget, RankConfig{MaxCandidates: DefaultMaxRouteCandidates})
 			}
 		})
 	}
