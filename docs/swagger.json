@@ -1337,7 +1337,7 @@
               "type": "string",
               "pattern": "^(max|[1-5])$"
             },
-            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
+            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
           },
           {
             "name": "pools",
@@ -2428,7 +2428,7 @@
               "type": "string",
               "pattern": "^(max|[1-5])$"
             },
-            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
+            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
           },
           {
             "name": "pools",
@@ -2647,7 +2647,7 @@
               "type": "string",
               "pattern": "^(max|[1-5])$"
             },
-            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
           },
           {
             "name": "postTiming",
@@ -2826,7 +2826,7 @@
               "type": "string",
               "pattern": "^(max|[1-5])$"
             },
-            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
           },
           {
             "name": "postTiming",
@@ -3014,7 +3014,7 @@
               "type": "string",
               "pattern": "^(max|[1-5])$"
             },
-            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
           },
           {
             "name": "postTiming",
@@ -3185,7 +3185,7 @@
               "type": "string",
               "pattern": "^(max|[1-5])$"
             },
-            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
           },
           {
             "name": "postTiming",
@@ -3699,7 +3699,7 @@
               "type": "string",
               "pattern": "^(max|[1-5])$"
             },
-            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
+            "description": "Narrow to resources related to the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with pools."
           },
           {
             "name": "pools",
@@ -8107,7 +8107,7 @@
               "type": "string",
               "pattern": "^(max|[1-5])$"
             },
-            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
+            "description": "Filter by the pools the session wallet can reach within this many hops, where max means the router's maximum (3), or to a voucher it already holds, resolved on the server. Needs a user session; makes the response private. Cannot be combined with creditablePools."
           },
           {
             "name": "creditablePools",

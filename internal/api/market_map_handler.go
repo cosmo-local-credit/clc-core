@@ -348,7 +348,7 @@ func (a *API) resolveMarketMapFilter(ctx context.Context, tx pgx.Tx, search cata
 		return filter, errUnknownTagValue
 	}
 	if search.credit != nil {
-		filter = filter.WithReachablePoolIDs(search.credit.poolIDs)
+		filter = filter.WithReachablePoolIDs(search.credit.poolIDs).WithCreditVoucherIDs(search.credit.heldVoucherIDs)
 	}
 	if len(search.creditablePoolRefs) > 0 {
 		ids, err := a.store.ResolvePoolRefs(ctx, tx, search.creditablePoolRefs)

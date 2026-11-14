@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cosmo-local-credit/clc-core/internal/router"
@@ -32,9 +34,29 @@ type (
 		priv  ed25519.PrivateKey
 		net   *routertest.Network
 		svc   *router.Service
+		held  *heldTokens
 		token string
 	}
+
+	// heldTokens stands in for the indexer: the vouchers it believes a wallet
+	// holds, which the router then verifies on chain.
+	heldTokens struct {
+		mu     sync.Mutex
+		tokens []common.Address
+	}
 )
+
+func (h *heldTokens) HeldTokens(context.Context, common.Address) ([]common.Address, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.tokens), nil
+}
+
+func (h *heldTokens) add(token common.Address) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.tokens = append(h.tokens, token)
+}
 
 func newCreditHarness(t *testing.T, withRouter bool) *creditHarness {
 	t.Helper()
@@ -58,12 +80,12 @@ func newCreditHarness(t *testing.T, withRouter bool) *creditHarness {
 	require.NoError(t, err)
 
 	n := routertest.SeedNetwork(t, pgStore.Pool())
-	h := &creditHarness{net: n}
+	h := &creditHarness{net: n, held: &heldTokens{tokens: []common.Address{n.A, n.B, n.C, n.D}}}
 	var svc *router.Service
 	if withRouter {
 		svc = router.New(router.Opts{
 			Config: router.Config{ChainID: n.ChainID, MaxHops: 3},
-			Store:  pgStore, Chain: n.Chain, Relay: n.Relay(), Logg: logg,
+			Store:  pgStore, Chain: n.Chain, Holdings: h.held, Relay: n.Relay(), Logg: logg,
 		})
 		require.NoError(t, svc.Load(ctx))
 		require.NoError(t, svc.ReconcileOnce(ctx))
@@ -395,6 +417,118 @@ func TestCreditDepthFiltersMapAndListIdentically(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, status)
 	status, _, _ = h.do(t, http.MethodGet, "/api/v2/reports?creditDepth=2", nil)
 	assert.Equal(t, http.StatusOK, status)
+}
+
+// A voucher the wallet already holds is credit at zero hops, even when no pool
+// takes it: the reach lists it and every discovery list keeps it under
+// creditDepth, until the wallet no longer holds it.
+func TestCreditDepthKeepsHeldVouchersOutsideEveryPool(t *testing.T) {
+	h := newCreditHarness(t, true)
+	n := h.net
+	ctx := context.Background()
+	db := h.api.store.Pool()
+
+	held := common.BytesToAddress(crypto.Keccak256([]byte("held outside pools " + t.Name() + n.Wallet.Hex()))[:20])
+	var heldID uint64
+	require.NoError(t, db.QueryRow(ctx, `
+		INSERT INTO vouchers (chain_id, address, name, symbol, decimals, voucher_type, active, geo_lat, geo_lng)
+		VALUES ($1, $2, $3, $4, 6, 'GIFTABLE', TRUE, -1.29, 36.82) RETURNING id`,
+		n.ChainID, held.Hex(), "Held "+held.Hex()[:10], "HD"+held.Hex()[2:8]).Scan(&heldID))
+	t.Cleanup(func() { _, _ = db.Exec(context.Background(), `DELETE FROM vouchers WHERE id = $1`, heldID) })
+	for _, id := range n.VoucherIDs {
+		_, err := db.Exec(ctx, `UPDATE vouchers SET geo_lat = -1.29, geo_lng = 36.82 WHERE id = $1`, id)
+		require.NoError(t, err)
+	}
+	n.Chain.SetBalance(held, n.Wallet, 7_000_000)
+	h.held.add(held)
+	require.NoError(t, h.svc.ReconcileOnce(ctx), "the graph learns the new catalog voucher")
+	h.svc.Forget(n.Wallet)
+
+	status, _, body := h.do(t, http.MethodGet, "/api/v2/users/me/credit", nil)
+	require.Equal(t, http.StatusOK, status, body)
+	minHops := map[string]any{}
+	for _, v := range asList(t, result(t, body)["vouchers"]) {
+		minHops[asString(t, asMap(t, v)["address"])] = asMap(t, v)["minHops"]
+	}
+	assert.Equal(t, 0.0, minHops[held.Hex()], "held, so reached at zero hops")
+
+	listed := func(path, key string) bool {
+		status, _, body := h.do(t, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, status, "%s: %v", path, body)
+		for _, row := range asList(t, result(t, body)[key]) {
+			r := asMap(t, row)
+			for _, field := range []string{"address", "resourceId"} {
+				if v, ok := r[field].(string); ok && strings.EqualFold(v, held.Hex()) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	paths := []struct{ path, key string }{
+		{"/api/v2/vouchers?perPage=100&creditDepth=max", "vouchers"},
+		{"/api/v2/marketplace?kinds=voucher&limit=100&creditDepth=max", "results"},
+		{"/api/v2/market-map/points?kinds=voucher&creditDepth=max", "points"},
+	}
+	for _, p := range paths {
+		assert.True(t, listed(p.path, p.key), "%s keeps the held voucher", p.path)
+	}
+
+	// Spent: no longer held, and no pool reaches it.
+	n.Chain.SetBalance(held, n.Wallet, 0)
+	h.svc.Forget(n.Wallet)
+	for _, p := range paths {
+		assert.False(t, listed(p.path, p.key), "%s drops it once it is spent", p.path)
+	}
+}
+
+// Every discovery query the Credit filter reaches takes the held vouchers as
+// one more argument. Each list, map and facet variant must still run with it:
+// an argument the SQL does not expect fails at runtime, not at build time.
+func TestCreditDepthRunsEveryDiscoveryVariant(t *testing.T) {
+	h := newCreditHarness(t, true)
+	db := h.api.store.Pool()
+	// Nearby browsing searches around the signed-in user's saved location.
+	wallet := h.net.Wallet.Hex()
+	var inserted bool
+	require.NoError(t, db.QueryRow(context.Background(), `
+		INSERT INTO users (blockchain_address,name,email,geo_lat,geo_lng)
+		VALUES ($1,'Credit sweep user','credit-sweep-' || $1 || '@example.test',-1.29,36.82)
+		ON CONFLICT (blockchain_address) DO UPDATE SET geo_lat = EXCLUDED.geo_lat, geo_lng = EXCLUDED.geo_lng
+		RETURNING xmax = 0`, wallet).Scan(&inserted))
+	if inserted {
+		t.Cleanup(func() {
+			_, _ = db.Exec(context.Background(), "DELETE FROM users WHERE blockchain_address = $1", wallet)
+		})
+	}
+	bbox := "bbox=36.0,-2.0,37.5,-0.5"
+	paths := []string{
+		"/api/v2/market-map?" + bbox,
+		"/api/v2/market-map/points?" + bbox,
+		"/api/v2/market-map/facets?" + bbox,
+		"/api/v2/marketplace?limit=50&facets=true",
+		"/api/v2/marketplace?limit=50&sort=nearest",
+		"/api/v2/vouchers?perPage=50&facets=true",
+		"/api/v2/offerings?facets=true",
+		"/api/v2/offerings?sort=nearest",
+		"/api/v2/offerings?nearby=true",
+		"/api/v2/offerings?" + bbox,
+		"/api/v2/wants?facets=true",
+		"/api/v2/wants?nearby=true",
+		"/api/v2/catalogs?facets=true",
+		"/api/v2/catalogs?sort=nearest",
+		"/api/v2/catalogs?nearby=true&facets=true",
+		"/api/v2/offerings?nearby=true&facets=true",
+		"/api/v2/reports",
+	}
+	for _, path := range paths {
+		sep := "&"
+		if !strings.Contains(path, "?") {
+			sep = "?"
+		}
+		status, _, body := h.do(t, http.MethodGet, path+sep+"creditDepth=max", nil)
+		assert.Equal(t, http.StatusOK, status, "%s: %v", path, body)
+	}
 }
 
 func asMap(t *testing.T, v any) map[string]any {

@@ -89,6 +89,7 @@ func (pg *Pg) ListMarketplace(
 		filter.VoucherIDs, filter.VoucherMatch == TagMatchAll,
 		filter.PoolIDs, filter.PoolMatch == TagMatchAll,
 		filter.ReportTiming,
+		voucherIDsParam(filter.CreditVoucherIDs),
 	)
 	return rows, err
 }

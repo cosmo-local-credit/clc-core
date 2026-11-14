@@ -86,6 +86,10 @@ type (
 		// by one. They stay separate from PoolIDs because Credit is an independent
 		// AND dimension from the Post relationship filter.
 		CreditablePoolIDs []uint64
+		// CreditVoucherIDs are the vouchers the wallet behind a server-resolved
+		// Credit filter already holds. A resource related to one passes that
+		// filter at zero hops, even when no reachable pool is involved.
+		CreditVoucherIDs []uint64
 		// Owner restricts the page to rows belonging to one address: a voucher's
 		// owner_address, a report's author_address. Empty means no restriction.
 		Owner string
@@ -337,6 +341,16 @@ func (f CatalogFilter) WithReachablePoolRelationship(raw []uint64) CatalogFilter
 	slices.Sort(ids)
 	f.PoolIDs = slices.Compact(ids)
 	f.PoolMatch = TagMatchAny
+	return f
+}
+
+// WithCreditVoucherIDs adds the vouchers the wallet behind a server-resolved
+// Credit filter already holds: they pass whichever reachable-pool filter is
+// set, at zero hops.
+func (f CatalogFilter) WithCreditVoucherIDs(raw []uint64) CatalogFilter {
+	ids := slices.Clone(raw)
+	slices.Sort(ids)
+	f.CreditVoucherIDs = slices.Compact(ids)
 	return f
 }
 
@@ -671,12 +685,16 @@ func voucherPoolPredicate(args *sqlArgs, filter CatalogFilter, voucherID string)
 	if len(filter.PoolIDs) == 0 {
 		return ""
 	}
-	return `EXISTS (
+	pools := `EXISTS (
             SELECT 1 FROM pool_tokens discovery_pt
             WHERE discovery_pt.voucher_id = ` + voucherID + `
                 AND discovery_pt.is_allowed
                 AND discovery_pt.pool_id = ANY(` + args.bind(voucherIDsParam(filter.PoolIDs)) + `::BIGINT[])
         )`
+	if len(filter.CreditVoucherIDs) == 0 {
+		return pools
+	}
+	return `(` + pools + ` OR ` + voucherID + ` = ANY(` + args.bind(voucherIDsParam(filter.CreditVoucherIDs)) + `::BIGINT[]))`
 }
 
 // searchPredicate returns the displayed name/symbol match for the filter's term,

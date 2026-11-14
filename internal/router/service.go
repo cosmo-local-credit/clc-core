@@ -711,19 +711,27 @@ func (s *Service) Reach(ctx context.Context, wallet common.Address, depth int) (
 	return ReachView{Freshness: s.freshness(snap), Snap: snap, Result: result}, nil
 }
 
-// ReachablePoolIDs is the database ids of the pools a wallet can reach at
-// depth, for the discovery filters.
-func (s *Service) ReachablePoolIDs(ctx context.Context, wallet common.Address, depth int) ([]uint64, common.Hash, error) {
+// CreditSet is the database ids behind the discovery Credit filter: the pools
+// a wallet can reach within depth hops, and the vouchers it already holds,
+// which count at zero hops whether or not any pool takes them.
+func (s *Service) CreditSet(ctx context.Context, wallet common.Address, depth int) (poolIDs, heldVoucherIDs []uint64, digest common.Hash, err error) {
 	view, err := s.Reach(ctx, wallet, depth)
 	if err != nil {
-		return nil, common.Hash{}, err
+		return nil, nil, common.Hash{}, err
 	}
-	ids := make([]uint64, 0, len(view.Result.Pools))
+	poolIDs = make([]uint64, 0, len(view.Result.Pools))
 	for _, p := range view.Result.Pools {
-		ids = append(ids, view.Snap.Pools[p.Pool].DBID)
+		poolIDs = append(poolIDs, view.Snap.Pools[p.Pool].DBID)
 	}
-	slices.Sort(ids)
-	return ids, view.Result.Digest, nil
+	heldVoucherIDs = []uint64{}
+	for _, v := range view.Result.Vouchers {
+		if v.MinHops == 0 {
+			heldVoucherIDs = append(heldVoucherIDs, view.Snap.Tokens[v.Token].DBID)
+		}
+	}
+	slices.Sort(poolIDs)
+	slices.Sort(heldVoucherIDs)
+	return poolIDs, heldVoucherIDs, view.Result.Digest, nil
 }
 
 // Routes answers GET /users/me/credit/routes.

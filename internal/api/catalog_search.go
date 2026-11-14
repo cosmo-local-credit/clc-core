@@ -566,7 +566,8 @@ func (a *API) resolveVoucherFilter(
 // IDs. A short resolution fails the complete request rather than weakening it.
 func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearchRequest) (bool, error) {
 	if search.credit != nil {
-		search.filter = search.filter.WithReachablePoolRelationship(search.credit.poolIDs)
+		search.filter = search.filter.WithReachablePoolRelationship(search.credit.poolIDs).
+			WithCreditVoucherIDs(search.credit.heldVoucherIDs)
 		return false, nil
 	}
 	if len(search.poolRefs) == 0 {
@@ -590,7 +591,8 @@ func (a *API) resolvePoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearc
 // separate from Post relationship filters.
 func (a *API) resolveDiscoveryPoolFilter(c *echo.Context, tx pgx.Tx, search *catalogSearchRequest) (bool, error) {
 	if search.credit != nil {
-		search.filter = search.filter.WithReachablePoolIDs(search.credit.poolIDs)
+		search.filter = search.filter.WithReachablePoolIDs(search.credit.poolIDs).
+			WithCreditVoucherIDs(search.credit.heldVoucherIDs)
 		return false, nil
 	}
 	if len(search.poolRefs) == 0 {
@@ -646,7 +648,8 @@ func (a *API) resolveCreditablePoolFilter(
 	search *catalogSearchRequest,
 ) (bool, error) {
 	if search.credit != nil {
-		search.filter = search.filter.WithReachableCreditablePoolIDs(search.credit.poolIDs)
+		search.filter = search.filter.WithReachableCreditablePoolIDs(search.credit.poolIDs).
+			WithCreditVoucherIDs(search.credit.heldVoucherIDs)
 		return false, nil
 	}
 	if len(search.creditablePoolRefs) == 0 {

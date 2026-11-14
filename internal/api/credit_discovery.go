@@ -24,13 +24,15 @@ var (
 
 type (
 	// creditDepthFilter is the server-resolved Credit filter: the
-	// pools the signed-in wallet can reach at creditDepth hops, so eligibility
-	// applies before paging, counts, facets and clustering.
+	// pools the signed-in wallet can reach within creditDepth hops and the
+	// vouchers it already holds, so eligibility applies before paging,
+	// counts, facets and clustering.
 	creditDepthFilter struct {
-		poolIDs []uint64
-		wallet  string
-		depth   int
-		digest  string
+		poolIDs        []uint64
+		heldVoucherIDs []uint64
+		wallet         string
+		depth          int
+		digest         string
 	}
 )
 
@@ -77,12 +79,12 @@ func (a *API) resolveCreditDepth(c *echo.Context, creditablePools bool) (filter 
 	if a.creditRouter == nil {
 		return nil, true, respondRouterError(c, router.ErrUnavailable)
 	}
-	ids, digest, err := a.creditRouter.ReachablePoolIDs(c.Request().Context(), wallet, depth)
+	ids, held, digest, err := a.creditRouter.CreditSet(c.Request().Context(), wallet, depth)
 	if err != nil {
 		return nil, true, respondRouterError(c, err)
 	}
 	if len(ids) == 0 {
 		ids = []uint64{noReachablePool}
 	}
-	return &creditDepthFilter{poolIDs: ids, wallet: wallet.Hex(), depth: depth, digest: digest.Hex()}, false, nil
+	return &creditDepthFilter{poolIDs: ids, heldVoucherIDs: held, wallet: wallet.Hex(), depth: depth, digest: digest.Hex()}, false, nil
 }
