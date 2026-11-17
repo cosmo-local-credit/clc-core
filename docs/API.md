@@ -1977,6 +1977,7 @@ For the numeric keyset style:
 - Rows are in descending `id` order. A request without `cursor` returns the newest rows.
 - `next=true` with `cursor` returns rows with an `id` below the cursor. Use the `last` value from the previous response.
 - `cursor` without `next=true` returns rows with an `id` above the cursor. Use the `first` value. The rows are still in descending order.
+- `next` without a positive `cursor` has no anchor and is ignored — the request returns the first page, as if `next` had not been sent.
 - `first` is the `id` of the first row. `last` is the `id` of the last row. An empty page has `first` and `last` equal to `0` and an empty array, never `null`.
 - A value that is not a number in `perPage` or `cursor` returns `400` `E02`.
 
