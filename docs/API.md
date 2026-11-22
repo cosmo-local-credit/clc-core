@@ -7104,12 +7104,20 @@ An exact `peerAddress` lookup takes one wallet address and returns only the call
 The usual page contains zero or one item and `nextCursor: null`. A caller with no visible conversation receives an empty page.
 Use `kind=direct` or omit `kind`, and omit `cursor`. Invalid combinations return `400`.
 
+#### `GET /api/v2/messaging/resource-targets`
+
+Requires a user session. Query: one `kind` (`pool`, `voucher`, `want`, or `catalog`) and one `resourceId` (contract address for a Pool or Voucher, positive decimal ID for a Want or Catalog).
+Returns `{ "targets": [{ "address": "0x...", "username": null, "avatar": null }] }` with `Cache-Control: private, no-store`.
+Targets are the current eligible owner or projected Safe signers, excluding the caller. A missing or ineligible resource or owner returns an empty array. Invalid parameters return `400`.
+This read uses the authenticated recipient rate limit. Request and send endpoints still enforce conversation status and blocking.
+
 ### 16.2 `GET /api/v2/conversations/unread`
 
-Returns `{ "direct": 3, "requests": 1, "helpdesk": 0 }`.
+Returns `{ "direct": 3, "requests": 1, "helpdesk": 0, "postRequests": 0 }`.
 A message is unread when someone other than the caller sent it and its id is above the caller's read marker.
 `direct` counts unread messages in every direct conversation, whatever its status. `requests` counts pending conversations the caller did not request. Both leave out anyone the caller blocked.
 `helpdesk` counts unread support replies.
+`postRequests` counts pending Post contact requests visible to the caller as author. Older clients can continue using the existing fields.
 
 ### 16.3 `POST /api/v2/conversations`
 
@@ -7230,6 +7238,16 @@ clc-app-notifications consumes the stream.
 
 `helpdesk.status_changed` is also sent when a helpdesk conversation is created or a user's post reopens it.
 A retried send with the same `clientId`, a read marker that does not move, a repeated block and a status that is already set send no event.
+
+### 16.14 Private Post contact requests
+
+All routes require a user session. Responses use the messaging envelope with `Cache-Control: no-store`.
+
+- `GET /api/v2/messaging/post-requests` returns `{ "items": PostContactRequest[], "nextCursor": string | null }`. Pass the returned cursor for the next page. `limit` defaults to 30 and has a maximum of 100.
+- `POST /api/v2/messaging/post-requests` takes `{ "postId": "123", "intro": "optional" }` and returns the outgoing request. The Post must be approved and public. The first request for a requester and Post spends daily messaging quota and returns `201`. Repeated submissions return the same request with `200`. Blocked, self and unavailable authors produce the same pending acknowledgement for the requester while suppressing delivery.
+- `PUT /api/v2/messaging/post-requests/:id/status` takes `{ "status": "accepted" | "declined" }`. Only the Post author can answer a deliverable request. Accepting creates or reuses an accepted direct conversation, respecting existing reopen rules, and copies the intro once. Repeating the same decision returns the existing result. A conflicting decision returns `409`.
+
+A request contains its UUID `id`, string `postId`, `postTitle`, `direction` of `incoming` or `outgoing`, `status` of `pending`, `accepted` or `declined`, nullable `intro`, nullable `conversationId`, nullable `requester` and RFC 3339 `createdAt`. `requester` uses the ordinary peer shape and appears only for the author. `conversationId` becomes available only after the author accepts contact about this Post. Ordinary conversation and message responses retain their existing shapes.
 
 ---
 
@@ -7392,6 +7410,7 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/admin/transactions/pools` | Administrative |
 | GET | `/api/v2/admin/transactions/otx` | Administrative |
 | GET | `/api/v2/conversations` | User session |
+| GET | `/api/v2/messaging/resource-targets` | User session |
 | GET | `/api/v2/conversations/unread` | User session |
 | POST | `/api/v2/conversations` | User session |
 | GET | `/api/v2/conversations/:id` | User session (member) |
@@ -7404,6 +7423,9 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | PUT | `/api/v2/blocks/:address` | User session |
 | DELETE | `/api/v2/blocks/:address` | User session |
 | POST | `/api/v2/abuse-reports` | User session |
+| GET | `/api/v2/messaging/post-requests` | User session |
+| POST | `/api/v2/messaging/post-requests` | User session |
+| PUT | `/api/v2/messaging/post-requests/:id/status` | User session (Post author) |
 | GET | `/api/v2/admin/messaging/counts` | Administrative |
 | GET | `/api/v2/admin/helpdesk` | Administrative |
 | GET | `/api/v2/admin/helpdesk/:id` | Administrative |
