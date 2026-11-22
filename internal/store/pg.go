@@ -326,6 +326,8 @@ type (
 		MessagingUserByAddress                 string `query:"messaging-user-by-address"`
 		MessagingResourceByID                  string `query:"messaging-resource-by-id"`
 		MessagingVoucherByAddress              string `query:"messaging-voucher-by-address"`
+		MessagingDeleteConversation            string `query:"messaging-delete-conversation"`
+		MessagingClearedThrough                string `query:"messaging-cleared-through"`
 		MessagingGetConversation               string `query:"messaging-get-conversation"`
 		MessagingDirectConversationIDByPeer    string `query:"messaging-direct-conversation-id-by-peer"`
 		MessagingListConversations             string `query:"messaging-list-conversations"`
@@ -373,6 +375,7 @@ type (
 		PostContactList            string `query:"post-contact-list"`
 		PostContactLockAuthor      string `query:"post-contact-lock-author"`
 		PostContactLockDeliverable string `query:"post-contact-lock-deliverable"`
+		PostContactConsentCurrent  string `query:"post-contact-consent-current"`
 		PostContactSetStatus       string `query:"post-contact-set-status"`
 	}
 

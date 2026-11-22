@@ -440,7 +440,7 @@ func conversationWire(v store.ConversationView, caller int64) messagingConversat
 		Intro:             v.Intro,
 		RequestedBySelf:   byCaller,
 		CanAccept:         direct && v.Status == store.ConversationPending && !byCaller,
-		CanRequest:        byCaller && (v.Status == store.ConversationDeclined || v.Status == store.ConversationRevoked),
+		CanRequest:        (byCaller || v.CanRequestAfterDelete) && (v.Status == store.ConversationDeclined || v.Status == store.ConversationRevoked),
 		Blocked:           direct && v.Blocked,
 		LastMessageAt:     utcPtr(v.LastMessageAt),
 		LastReadMessageID: v.LastReadMessageID,

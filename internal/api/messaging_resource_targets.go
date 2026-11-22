@@ -38,6 +38,7 @@ func (a *API) messagingResourceTargetsHandler(c *echo.Context) error {
 	defer tx.Rollback(ctx)
 	caller, _ := messagingCaller(c)
 	peers := []messagingPeer{}
+	selfMatched := false
 	resource, err := a.store.MessagingResourceByID(ctx, tx, a.chainID, kind, resourceID)
 	if err == nil {
 		targets, err := a.store.ListOwnerMessageTargets(ctx, tx, a.chainID, resource.OwnerAddress)
@@ -60,7 +61,9 @@ func (a *API) messagingResourceTargetsHandler(c *echo.Context) error {
 			}
 		}
 		for _, target := range targets {
-			if target.UserID != caller {
+			if target.UserID == caller {
+				selfMatched = true
+			} else {
 				peers = append(peers, messagingPeer{
 					Address: checksum(target.Address), Username: target.Username, Avatar: target.Avatar,
 				})
@@ -73,7 +76,7 @@ func (a *API) messagingResourceTargetsHandler(c *echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"ok": true, "result": map[string]any{"targets": peers},
+		"ok": true, "result": map[string]any{"targets": peers, "selfOnly": selfMatched && len(peers) == 0},
 	})
 }
 

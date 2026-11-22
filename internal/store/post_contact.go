@@ -76,3 +76,9 @@ func (pg *Pg) SetPostContactStatus(ctx context.Context, tx pgx.Tx, id, status st
 	_, err := tx.Exec(ctx, pg.queries.PostContactSetStatus, id, status, conversationID)
 	return err
 }
+
+func (pg *Pg) PostContactConsentCurrent(ctx context.Context, tx pgx.Tx, conversationID, requesterID int64, createdAt time.Time) (bool, error) {
+	var current bool
+	err := tx.QueryRow(ctx, pg.queries.PostContactConsentCurrent, conversationID, requesterID, createdAt).Scan(&current)
+	return current, err
+}

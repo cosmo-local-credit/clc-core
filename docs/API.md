@@ -7107,7 +7107,8 @@ Use `kind=direct` or omit `kind`, and omit `cursor`. Invalid combinations return
 #### `GET /api/v2/messaging/resource-targets`
 
 Requires a user session. Query: one `kind` (`pool`, `voucher`, `want`, or `catalog`) and one `resourceId` (contract address for a Pool or Voucher, positive decimal ID for a Want or Catalog).
-Returns `{ "targets": [{ "address": "0x...", "username": null, "avatar": null }] }` with `Cache-Control: private, no-store`.
+Returns `{ "targets": [{ "address": "0x...", "username": null, "avatar": null }], "selfOnly": false }` with `Cache-Control: private, no-store`.
+The `selfOnly` flag is true when the caller is the only eligible recipient. Other eligible Safe signers remain available in `targets`.
 Targets are the current eligible owner or projected Safe signers, excluding the caller. A missing or ineligible resource or owner returns an empty array. Invalid parameters return `400`.
 This read uses the authenticated recipient rate limit. Request and send endpoints still enforce conversation status and blocking.
 
@@ -7124,13 +7125,20 @@ A message is unread when someone other than the caller sent it and its id is abo
 Body: `{ "recipientAddress": "0x...", "intro": "optional", "context": optional }`.
 Requests a direct conversation and returns `201` with the conversation, status `pending`.
 A non-empty `intro` is also stored as the requester's first message, so it stays in the history after the request is answered. While the request waits on the recipient it counts under `requests` in the unread counts, not under `direct`.
-A conversation that the caller declined or revoked is reopened. Any other existing conversation returns `409` with code `E16`; only the person who declined or revoked may reopen one.
+A conversation that the caller declined or revoked is reopened. After a member deletes their copy, either participant may make a fresh request. Reopening makes the conversation visible again and requires recipient acceptance. Other existing conversations return `409` with code `E16`.
 Spends one of the caller's 100 daily requests.
 When `context` is present, the recipient must be the resource's current EOA owner or a current projected Safe signer. Invalid, inactive or unrelated resources return the generic `404`. The context is stored as the first message even when `intro` is absent.
 
 ### 16.4 `GET /api/v2/conversations/:id`
 
 Returns the conversation.
+
+### 16.4.1 `DELETE /api/v2/conversations/:id`
+
+Clears the caller's direct-conversation history and hides it from their inbox. Returns `204` with `Cache-Control: private, no-store`.
+The other participant retains their history. Shared messages and abuse evidence remain stored.
+Deletion revokes messaging consent and clears the caller's unread state. Either member may make a fresh request through `POST /api/v2/conversations`; the recipient must accept before messaging resumes.
+Only later messages become visible to the deleting member. Repeated deletion is safe. Helpdesk conversations return the generic `404`.
 
 ### 16.5 `PUT /api/v2/conversations/:id/status`
 
@@ -7141,7 +7149,8 @@ A member whose conversation is in the wrong state gets `409`. A block does not c
 ### 16.6 `GET /api/v2/conversations/:id/messages`
 
 Query: `before` or `after` (a message id; both together return `400`), `limit` (default 50, at most 100).
-Returns `{ "items": Message[], "hasMore": boolean }` with items in ascending id order.
+Returns `{ "items": Message[], "hasMore": boolean, "clearedThrough": number }` with items in ascending id order.
+`clearedThrough` is the caller's deletion cutoff, or zero. All pages exclude messages at or below it. Clients must also discard cached messages through this cutoff.
 Without a cursor, or with `before`, it returns the newest `limit` messages below `before`; `hasMore` means older messages exist.
 With `after`, it returns the oldest `limit` messages above `after`; `hasMore` means newer messages exist.
 History stays readable after a revoke or a block.
@@ -7150,7 +7159,7 @@ History stays readable after a revoke or a block.
 
 Body: `{ "clientId": "uuid", "body": "optional", "imageUrls": ["https://..."], "context": optional }`.
 Returns `201` with the message.
-A repeated `clientId` returns `200` with the stored message and stores nothing. A `clientId` the caller used in another conversation returns `409`.
+A repeated `clientId` returns `200` with the stored message and stores nothing. A `clientId` the caller used in another conversation, or for a message the caller has cleared, returns `409`.
 A direct conversation must be `accepted` (`409` otherwise) and have no block in either direction (generic `404`).
 Posting to a resolved helpdesk conversation reopens it.
 Resource context is accepted only in direct conversations and is authorized against the receiving member at send time.
@@ -7414,6 +7423,7 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/conversations/unread` | User session |
 | POST | `/api/v2/conversations` | User session |
 | GET | `/api/v2/conversations/:id` | User session (member) |
+| DELETE | `/api/v2/conversations/:id` | User session (direct member) |
 | PUT | `/api/v2/conversations/:id/status` | User session (member) |
 | GET | `/api/v2/conversations/:id/messages` | User session (member) |
 | POST | `/api/v2/conversations/:id/messages` | User session (member) |
