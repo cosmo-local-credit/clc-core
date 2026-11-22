@@ -4615,12 +4615,15 @@ WHERE lower(blockchain_address) = lower($1);
 -- The caller-relative view of one conversation: peer, block flag, read marker,
 -- unread count and last message. $1 caller, $2 conversation.
 --name: messaging-get-conversation
-SELECT c.id, c.kind, c.status, c.actor_id, c.intro, c.last_message_at, c.created_at, c.updated_at,
+SELECT c.id, c.kind, c.status, c.actor_id,
+    CASE WHEN d.hidden THEN NULL ELSE c.intro END AS intro, c.last_message_at, c.created_at, c.updated_at,
     GREATEST(c.last_message_at, c.updated_at) AS sort_at,
     peer.id AS peer_id, peer.blockchain_address AS peer_address,
     peer.username AS peer_username, peer.avatar_url AS peer_avatar,
     (c.peer_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.peer_id)) AS blocked,
+    EXISTS (SELECT 1 FROM conversation_deletions reset
+        WHERE reset.conversation_id = c.id AND reset.hidden) AS can_request_after_delete,
     r.last_read_message_id,
     (SELECT count(*) FROM messages m
         WHERE m.conversation_id = c.id AND m.sender_user_id <> $1::INT
@@ -4638,9 +4641,10 @@ FROM (
 ) c
 LEFT JOIN users peer ON peer.id = c.peer_id
 LEFT JOIN conversation_reads r ON r.conversation_id = c.id AND r.user_id = $1::INT
+LEFT JOIN conversation_deletions d ON d.conversation_id = c.id AND d.user_id = $1::INT
 LEFT JOIN LATERAL (
     SELECT m.id, m.client_id, m.sender_user_id, m.body, m.image_urls, m.resource_context, m.created_at
-    FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1
+    FROM messages m WHERE m.conversation_id = c.id AND m.id > COALESCE(d.cleared_through_message_id, 0) ORDER BY m.id DESC LIMIT 1
 ) lm ON true;
 
 -- Find one direct conversation using the wallet and unique pair indexes.
@@ -4674,12 +4678,15 @@ WITH mine AS (
     SELECT c.*, NULL::INT AS peer_id FROM conversations c
     WHERE c.kind = 'helpdesk' AND c.user_a_id = $1::INT
 )
-SELECT c.id, c.kind, c.status, c.actor_id, c.intro, c.last_message_at, c.created_at, c.updated_at,
+SELECT c.id, c.kind, c.status, c.actor_id,
+    CASE WHEN d.hidden THEN NULL ELSE c.intro END AS intro, c.last_message_at, c.created_at, c.updated_at,
     GREATEST(c.last_message_at, c.updated_at) AS sort_at,
     peer.id AS peer_id, peer.blockchain_address AS peer_address,
     peer.username AS peer_username, peer.avatar_url AS peer_avatar,
     (c.peer_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.peer_id)) AS blocked,
+    EXISTS (SELECT 1 FROM conversation_deletions reset
+        WHERE reset.conversation_id = c.id AND reset.hidden) AS can_request_after_delete,
     r.last_read_message_id,
     (SELECT count(*) FROM messages m
         WHERE m.conversation_id = c.id AND m.sender_user_id <> $1::INT
@@ -4692,6 +4699,8 @@ FROM (
     -- Page first, then join: peer, marker and last message for at most $5 rows.
     SELECT * FROM mine c
     WHERE ($2::TEXT = '' OR c.kind = $2::TEXT)
+      AND NOT EXISTS (SELECT 1 FROM conversation_deletions d
+          WHERE d.conversation_id = c.id AND d.user_id = $1::INT AND d.hidden)
       AND NOT (c.status = 'pending' AND c.actor_id <> $1::INT
           AND EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.actor_id))
       AND ($3::TIMESTAMPTZ IS NULL
@@ -4701,9 +4710,10 @@ FROM (
 ) c
 LEFT JOIN users peer ON peer.id = c.peer_id
 LEFT JOIN conversation_reads r ON r.conversation_id = c.id AND r.user_id = $1::INT
+LEFT JOIN conversation_deletions d ON d.conversation_id = c.id AND d.user_id = $1::INT
 LEFT JOIN LATERAL (
     SELECT m.id, m.client_id, m.sender_user_id, m.body, m.image_urls, m.resource_context, m.created_at
-    FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1
+    FROM messages m WHERE m.conversation_id = c.id AND m.id > COALESCE(d.cleared_through_message_id, 0) ORDER BY m.id DESC LIMIT 1
 ) lm ON true
 ORDER BY GREATEST(c.last_message_at, c.updated_at) DESC, c.id DESC;
 
@@ -4725,8 +4735,10 @@ WITH mine AS (
 ), visible AS (
     SELECT mine.id, mine.kind, mine.status, mine.actor_id
     FROM mine
-    WHERE mine.peer_id IS NULL OR NOT EXISTS (
-        SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = mine.peer_id)
+    WHERE (mine.peer_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = mine.peer_id))
+      AND NOT EXISTS (SELECT 1 FROM conversation_deletions d
+          WHERE d.conversation_id = mine.id AND d.user_id = $1::INT AND d.hidden)
 ), unread AS (
     -- A request waiting on the caller counts once, under requests: its intro
     -- message is not also a direct unread.
@@ -4814,13 +4826,22 @@ VALUES ('direct', $1::INT, $2::INT, 'pending', $3::INT, $4)
 ON CONFLICT (user_a_id, user_b_id) WHERE kind = 'direct' DO NOTHING
 RETURNING id;
 
--- Only whoever declined or revoked may reopen a conversation.
+-- A deletion permits a fresh request from either member. Otherwise only the
+-- member who declined or revoked may reopen. Consent always returns to pending.
 --name: messaging-rerequest-direct-conversation
-UPDATE conversations
-SET status = 'pending', actor_id = $2::INT, intro = $3, updated_at = clock_timestamp()
-WHERE id = $1::BIGINT AND kind = 'direct' AND status IN ('declined', 'revoked')
-  AND actor_id = $2::INT
-RETURNING id;
+WITH reopened AS (
+    UPDATE conversations c
+    SET status = 'pending', actor_id = $2::INT, intro = $3, updated_at = clock_timestamp()
+    WHERE c.id = $1::BIGINT AND c.kind = 'direct' AND c.status IN ('declined', 'revoked')
+      AND $2::INT IN (c.user_a_id, c.user_b_id)
+      AND (c.actor_id = $2::INT OR EXISTS (
+          SELECT 1 FROM conversation_deletions d WHERE d.conversation_id = c.id AND d.hidden))
+    RETURNING c.id
+), visible AS (
+    UPDATE conversation_deletions SET hidden = false
+    WHERE conversation_id IN (SELECT id FROM reopened)
+)
+SELECT id FROM reopened;
 
 -- Accept or decline. One guarded UPDATE, so a concurrent accept and revoke
 -- cannot both apply. $3 is 'accepted' or 'declined'.
@@ -4837,6 +4858,24 @@ SET status = 'revoked', actor_id = $2::INT, updated_at = clock_timestamp()
 WHERE id = $1::BIGINT AND kind = 'direct' AND status = 'accepted'
   AND $2::INT IN (user_a_id, user_b_id)
 RETURNING id;
+
+-- The conversation row is already locked by the authorized member.
+--name: messaging-delete-conversation
+WITH hidden AS (
+    INSERT INTO conversation_deletions (conversation_id, user_id, cleared_through_message_id)
+    SELECT $1::BIGINT, $2::INT, COALESCE(max(m.id), 0) FROM messages m WHERE m.conversation_id = $1::BIGINT
+    ON CONFLICT (conversation_id, user_id) DO UPDATE
+    SET cleared_through_message_id = GREATEST(conversation_deletions.cleared_through_message_id, EXCLUDED.cleared_through_message_id),
+        cleared_at = clock_timestamp(), hidden = true
+    RETURNING cleared_through_message_id
+)
+UPDATE conversations SET status = 'revoked', actor_id = $2::INT, updated_at = clock_timestamp()
+WHERE id = $1::BIGINT AND kind = 'direct'
+RETURNING (SELECT cleared_through_message_id FROM hidden);
+
+--name: messaging-cleared-through
+SELECT COALESCE((SELECT cleared_through_message_id FROM conversation_deletions
+    WHERE conversation_id = $1::BIGINT AND user_id = $2::INT), 0)::BIGINT;
 
 --name: messaging-blocked-either-way
 SELECT EXISTS (
@@ -4884,7 +4923,7 @@ SELECT m.id, m.conversation_id, m.sender_user_id, u.blockchain_address AS sender
     m.client_id, m.body, m.image_urls, m.resource_context, m.created_at
 FROM messages m
 JOIN users u ON u.id = m.sender_user_id
-WHERE m.conversation_id = $1::BIGINT AND m.id < $2::BIGINT
+WHERE m.conversation_id = $1::BIGINT AND m.id > $4::BIGINT AND m.id < $2::BIGINT
 ORDER BY m.id DESC
 LIMIT $3::INT;
 
@@ -4893,7 +4932,7 @@ SELECT m.id, m.conversation_id, m.sender_user_id, u.blockchain_address AS sender
     m.client_id, m.body, m.image_urls, m.resource_context, m.created_at
 FROM messages m
 JOIN users u ON u.id = m.sender_user_id
-WHERE m.conversation_id = $1::BIGINT AND m.id > $2::BIGINT
+WHERE m.conversation_id = $1::BIGINT AND m.id > $4::BIGINT AND m.id > $2::BIGINT
 ORDER BY m.id ASC
 LIMIT $3::INT;
 
@@ -4943,7 +4982,10 @@ WHERE p.id = $1::INT AND p.status = 'APPROVED' AND NOT account_retiring(p.author
 
 --name: post-contact-for-requester
 SELECT r.id::TEXT AS id, r.post_id, r.post_title, r.requester_id, r.author_id,
-    r.status, r.intro, r.conversation_id, r.created_at
+    r.status, CASE WHEN EXISTS (SELECT 1 FROM conversation_deletions d
+        WHERE d.conversation_id = r.conversation_id AND d.user_id = $1::INT
+          AND r.created_at <= d.cleared_at) THEN NULL ELSE r.intro END AS intro,
+    r.conversation_id, r.created_at
 FROM post_contact_requests r
 WHERE r.requester_id = $1::INT AND r.post_id = $2::INT;
 
@@ -4966,7 +5008,10 @@ FROM post_contact_requests r
 LEFT JOIN users requester ON requester.id = r.requester_id AND r.author_id = $1::INT
 WHERE (r.requester_id = $1::INT OR (r.author_id = $1::INT AND (
     r.status <> 'pending' OR EXISTS (SELECT 1 FROM deliverable_post_contact_requests d WHERE d.id = r.id)
-))) AND ($2::UUID IS NULL OR (r.created_at, r.id) < (
+)))
+  AND NOT EXISTS (SELECT 1 FROM conversation_deletions d
+      WHERE d.conversation_id = r.conversation_id AND d.user_id = $1::INT AND r.created_at <= d.cleared_at)
+  AND ($2::UUID IS NULL OR (r.created_at, r.id) < (
     SELECT cursor_row.created_at, cursor_row.id FROM post_contact_requests cursor_row
     WHERE cursor_row.id = $2::UUID AND $1::INT IN (cursor_row.requester_id, cursor_row.author_id)
 ))
@@ -5002,6 +5047,15 @@ WHERE r.id = $1::UUID
          OR (b.blocker_id = r.author_id AND b.blocked_id = r.requester_id)
   )
 FOR SHARE OF p, author, requester;
+
+-- Check under the direct conversation row lock: an old request cannot restore
+-- consent withdrawn by its requester through conversation deletion.
+--name: post-contact-consent-current
+SELECT NOT EXISTS (
+    SELECT 1 FROM conversation_deletions d
+    WHERE d.conversation_id = $1::BIGINT AND d.user_id = $2::INT
+      AND d.cleared_at >= $3::TIMESTAMPTZ
+);
 
 --name: post-contact-set-status
 UPDATE post_contact_requests SET status = $2::TEXT, conversation_id = $3::BIGINT

@@ -387,6 +387,7 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/conversations/unread", a.unreadConversationsHandler, a.requireUserAuth())
 	apiGroup.POST("/conversations", a.createConversationHandler, a.requireUserAuth())
 	apiGroup.GET("/conversations/:id", a.getConversationHandler, a.requireUserAuth())
+	apiGroup.DELETE("/conversations/:id", a.deleteConversationHandler, a.requireUserAuth())
 	apiGroup.PUT("/conversations/:id/status", a.updateConversationStatusHandler, a.requireUserAuth())
 	apiGroup.GET("/conversations/:id/messages", a.listConversationMessagesHandler, a.requireUserAuth())
 	apiGroup.POST("/conversations/:id/messages", a.postConversationMessageHandler, a.requireUserAuth(), a.messageRateLimitMiddleware())

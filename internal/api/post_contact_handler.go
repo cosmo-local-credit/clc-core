@@ -243,6 +243,13 @@ func (a *API) acceptPostContact(ctx context.Context, tx pgx.Tx, request store.Po
 	} else if err != nil {
 		return 0, err
 	}
+	current, err := a.store.PostContactConsentCurrent(ctx, tx, thread.ID, request.RequesterID, request.CreatedAt)
+	if err != nil {
+		return 0, err
+	}
+	if !current {
+		return 0, messagingConflict("a fresh contact request is required")
+	}
 	if err := a.ensureAcceptedPostContactThread(ctx, tx, thread, request.RequesterID, author); err != nil {
 		return 0, err
 	}
@@ -267,8 +274,9 @@ func (a *API) ensureAcceptedPostContactThread(ctx context.Context, tx pgx.Tx, th
 	}
 	responder := author
 	if thread.Status == store.ConversationDeclined || thread.Status == store.ConversationRevoked {
-		// Only the participant who closed a thread can reopen it. Acceptance
-		// can express that choice for the author, never for the requester.
+		// A fresh request and the author's acceptance express both parties'
+		// consent after deletion. Ordinary revocation still permits only the
+		// participant who closed the thread to reopen it.
 		if _, err := a.rerequest(ctx, tx, thread, author, nil); err != nil {
 			return err
 		}
