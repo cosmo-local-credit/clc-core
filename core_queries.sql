@@ -4742,7 +4742,8 @@ SELECT
     COALESCE((SELECT n FROM unread WHERE kind = 'direct'), 0) AS direct,
     (SELECT count(*) FROM visible
         WHERE kind = 'direct' AND status = 'pending' AND actor_id <> $1::INT)::INT AS requests,
-    COALESCE((SELECT n FROM unread WHERE kind = 'helpdesk'), 0) AS helpdesk;
+    COALESCE((SELECT n FROM unread WHERE kind = 'helpdesk'), 0) AS helpdesk,
+    (SELECT count(*) FROM deliverable_post_contact_requests WHERE author_id = $1::INT)::INT AS post_requests;
 
 -- Membership in one query: the row, its members' addresses, and nothing for a
 -- non-member. $1 caller, $2 conversation.
@@ -4932,6 +4933,79 @@ SELECT v.address, COALESCE(NULLIF(v.display_name, ''), v.name, v.symbol, v.addre
     COALESCE(v.symbol, '') AS symbol
 FROM vouchers v
 WHERE v.chain_id = $1::BIGINT AND v.active AND lower(v.address) = lower($2::TEXT);
+
+--name: post-contact-target
+SELECT p.title, author.id AS author_id
+FROM reports p
+LEFT JOIN users author ON lower(author.blockchain_address) = lower(p.author_address)
+    AND author.status = 'APPROVED' AND NOT user_retiring(author.id)
+WHERE p.id = $1::INT AND p.status = 'APPROVED' AND NOT account_retiring(p.author_address);
+
+--name: post-contact-for-requester
+SELECT r.id::TEXT AS id, r.post_id, r.post_title, r.requester_id, r.author_id,
+    r.status, r.intro, r.conversation_id, r.created_at
+FROM post_contact_requests r
+WHERE r.requester_id = $1::INT AND r.post_id = $2::INT;
+
+--name: post-contact-insert
+INSERT INTO post_contact_requests (id, requester_id, post_id, post_title, intro)
+VALUES ($1::UUID, $2::INT, $3::INT, $4::TEXT, $5::TEXT)
+ON CONFLICT (requester_id, post_id) DO NOTHING
+RETURNING id::TEXT AS id, post_id, post_title, requester_id, author_id,
+    status, intro, conversation_id, created_at;
+
+--name: post-contact-assign-author
+UPDATE post_contact_requests SET author_id = $2::INT WHERE id = $1::UUID;
+
+--name: post-contact-list
+SELECT r.id::TEXT AS id, r.post_id, r.post_title, r.requester_id, r.author_id,
+    r.status, r.intro, r.conversation_id, r.created_at,
+    requester.blockchain_address AS requester_address, requester.username AS requester_username,
+    requester.avatar_url AS requester_avatar
+FROM post_contact_requests r
+LEFT JOIN users requester ON requester.id = r.requester_id AND r.author_id = $1::INT
+WHERE (r.requester_id = $1::INT OR (r.author_id = $1::INT AND (
+    r.status <> 'pending' OR EXISTS (SELECT 1 FROM deliverable_post_contact_requests d WHERE d.id = r.id)
+))) AND ($2::UUID IS NULL OR (r.created_at, r.id) < (
+    SELECT cursor_row.created_at, cursor_row.id FROM post_contact_requests cursor_row
+    WHERE cursor_row.id = $2::UUID AND $1::INT IN (cursor_row.requester_id, cursor_row.author_id)
+))
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT $3::INT;
+
+--name: post-contact-lock-author
+SELECT r.id::TEXT AS id, r.post_id, r.post_title, r.requester_id, r.author_id,
+    r.status, r.intro, r.conversation_id, r.created_at,
+    requester.blockchain_address AS requester_address, requester.username AS requester_username,
+    requester.avatar_url AS requester_avatar
+FROM post_contact_requests r
+JOIN users requester ON requester.id = r.requester_id
+WHERE r.id = $1::UUID AND r.author_id = $2::INT
+FOR UPDATE OF r;
+
+-- Hold the Post stable while finalizing a request. Block mutations take the
+-- same pair lock as the caller already holds before checking deliverability.
+--name: post-contact-lock-deliverable
+SELECT p.id
+FROM post_contact_requests r
+JOIN reports p ON p.id = r.post_id
+JOIN users author ON author.id = r.author_id
+JOIN users requester ON requester.id = r.requester_id
+WHERE r.id = $1::UUID
+  AND r.status = 'pending' AND p.status = 'APPROVED'
+  AND lower(p.author_address) = lower(author.blockchain_address)
+  AND author.status = 'APPROVED' AND requester.status = 'APPROVED'
+  AND NOT user_retiring(author.id) AND NOT user_retiring(requester.id)
+  AND NOT EXISTS (
+      SELECT 1 FROM user_blocks b
+      WHERE (b.blocker_id = r.requester_id AND b.blocked_id = r.author_id)
+         OR (b.blocker_id = r.author_id AND b.blocked_id = r.requester_id)
+  )
+FOR SHARE OF p, author, requester;
+
+--name: post-contact-set-status
+UPDATE post_contact_requests SET status = $2::TEXT, conversation_id = $3::BIGINT
+WHERE id = $1::UUID AND status = 'pending';
 
 -- The read marker only moves forward, and only to a message of that
 -- conversation. Returns a row only when the marker moved; the caller tells a

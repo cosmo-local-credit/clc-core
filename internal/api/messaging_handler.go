@@ -102,9 +102,10 @@ func (a *API) unreadConversationsHandler(c *echo.Context) error {
 		return err
 	}
 	return messagingResult(c, http.StatusOK, map[string]int{
-		"direct":   unread.Direct,
-		"requests": unread.Requests,
-		"helpdesk": unread.Helpdesk,
+		"direct":       unread.Direct,
+		"requests":     unread.Requests,
+		"helpdesk":     unread.Helpdesk,
+		"postRequests": unread.PostRequests,
 	})
 }
 

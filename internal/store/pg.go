@@ -365,6 +365,15 @@ type (
 		MessagingAdminListAbuseReports         string `query:"messaging-admin-list-abuse-reports"`
 		MessagingAdminGetAbuseReport           string `query:"messaging-admin-get-abuse-report"`
 		MessagingAdminResolveAbuseReport       string `query:"messaging-admin-resolve-abuse-report"`
+
+		PostContactTarget          string `query:"post-contact-target"`
+		PostContactForRequester    string `query:"post-contact-for-requester"`
+		PostContactInsert          string `query:"post-contact-insert"`
+		PostContactAssignAuthor    string `query:"post-contact-assign-author"`
+		PostContactList            string `query:"post-contact-list"`
+		PostContactLockAuthor      string `query:"post-contact-lock-author"`
+		PostContactLockDeliverable string `query:"post-contact-lock-deliverable"`
+		PostContactSetStatus       string `query:"post-contact-set-status"`
 	}
 
 	PgOpts struct {

@@ -339,7 +339,7 @@ func TestMessagingRequestAcceptSendReadDB(t *testing.T) {
 	require.True(t, seen.CanAccept)
 	require.False(t, seen.RequestedBySelf)
 	require.Equal(t, alice.Address, seen.Peer.Address)
-	require.Equal(t, map[string]int{"direct": 0, "requests": 1, "helpdesk": 0}, f.unread(bob),
+	require.Equal(t, map[string]int{"direct": 0, "requests": 1, "helpdesk": 0, "postRequests": 0}, f.unread(bob),
 		"the intro counts once, as the request")
 	require.NotNil(t, seen.LastMessage, "the intro is the first message")
 	require.Equal(t, "hi from the market", *seen.LastMessage.Body)
@@ -404,7 +404,7 @@ func TestMessagingRequestAcceptSendReadDB(t *testing.T) {
 	require.False(t, page.HasMore)
 
 	// Unread for Alice: Bob's two messages; her own never count.
-	require.Equal(t, map[string]int{"direct": 2, "requests": 0, "helpdesk": 0}, f.unread(alice))
+	require.Equal(t, map[string]int{"direct": 2, "requests": 0, "helpdesk": 0, "postRequests": 0}, f.unread(alice))
 
 	read := func(id int64) msgResponse {
 		return f.do(alice, http.MethodPut, fmt.Sprintf("/api/v2/conversations/%d/read", conv.ID),

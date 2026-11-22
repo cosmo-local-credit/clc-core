@@ -379,10 +379,11 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/retirement-requests/:id/cancel", a.decideRetirementRequestHandler, a.requireUserAuth())
 
 	// Messaging (clc-app docs/MESSAGING.md). User routes need a user session and
-	// grant a role nothing: each handler checks membership itself. Only POST
-	// /conversations spends the daily request quota; sends spend the
+	// grant a role nothing: each handler checks membership itself. New
+	// direct and Post requests spend the daily request quota; sends spend the
 	// per-minute message limiter.
 	apiGroup.GET("/conversations", a.listConversationsHandler, a.requireUserAuth())
+	apiGroup.GET("/messaging/resource-targets", a.messagingResourceTargetsHandler, a.requireUserAuth(), a.recipientRateLimitMiddleware())
 	apiGroup.GET("/conversations/unread", a.unreadConversationsHandler, a.requireUserAuth())
 	apiGroup.POST("/conversations", a.createConversationHandler, a.requireUserAuth())
 	apiGroup.GET("/conversations/:id", a.getConversationHandler, a.requireUserAuth())
@@ -395,6 +396,9 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/blocks/:address", a.putBlockHandler, a.requireUserAuth())
 	apiGroup.DELETE("/blocks/:address", a.deleteBlockHandler, a.requireUserAuth())
 	apiGroup.POST("/abuse-reports", a.createAbuseReportHandler, a.requireUserAuth())
+	apiGroup.GET("/messaging/post-requests", a.listPostContactRequestsHandler, a.requireUserAuth())
+	apiGroup.POST("/messaging/post-requests", a.createPostContactRequestHandler, a.requireUserAuth())
+	apiGroup.PUT("/messaging/post-requests/:id/status", a.updatePostContactRequestHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")

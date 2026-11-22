@@ -72,6 +72,14 @@ type (
 		ListAbuseReports(context.Context, pgx.Tx, string, *Keyset, int) ([]AbuseReportRow, error)
 		GetAbuseReport(context.Context, pgx.Tx, int64) (AbuseReportRow, error)
 		ResolveAbuseReport(context.Context, pgx.Tx, int64, string, int64) (bool, error)
+		PostContactTarget(context.Context, pgx.Tx, int64) (PostContactTarget, error)
+		PostContactForRequester(context.Context, pgx.Tx, int64, int64) (PostContactRequest, error)
+		InsertPostContact(context.Context, pgx.Tx, string, int64, int64, string, *string) (PostContactRequest, error)
+		AssignPostContactAuthor(context.Context, pgx.Tx, string, int64) error
+		ListPostContacts(context.Context, pgx.Tx, int64, *string, int) ([]PostContactRequest, error)
+		LockPostContactForAuthor(context.Context, pgx.Tx, string, int64) (PostContactRequest, error)
+		LockDeliverablePostContact(context.Context, pgx.Tx, string) error
+		SetPostContactStatus(context.Context, pgx.Tx, string, string, *int64) error
 	}
 
 	// Keyset is the (sort time, id) position of the last row of a page.
@@ -141,9 +149,10 @@ type (
 	}
 
 	MessagingUnread struct {
-		Direct   int `db:"direct"`
-		Requests int `db:"requests"`
-		Helpdesk int `db:"helpdesk"`
+		Direct       int `db:"direct"`
+		Requests     int `db:"requests"`
+		Helpdesk     int `db:"helpdesk"`
+		PostRequests int `db:"post_requests"`
 	}
 
 	AdminMessagingCounts struct {

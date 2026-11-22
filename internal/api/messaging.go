@@ -27,9 +27,9 @@ import (
 // every response names them by checksummed address only.
 //
 // Limits:
-//   - messagingDailyRequestQuota counts POST /conversations, the message
-//     request, in messaging_request_quota inside the request's transaction. It
-//     is the only route that spends it: sends have the per-minute limiter
+//   - messagingDailyRequestQuota counts new direct and Post contact
+//     requests in messaging_request_quota inside the request's transaction.
+//     Sends have the per-minute limiter
 //     below, and blocks, reports, read markers and helpdesk posts are not
 //     requests to a stranger.
 //   - messageRateLimit/messageRateBurst allow 30 messages per user per minute
