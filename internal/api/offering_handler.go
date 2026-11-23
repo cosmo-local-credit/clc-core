@@ -142,10 +142,22 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 		return err
 	}
 	write.Unit = unit
+	if write.Tags != nil {
+		tags, handled, tagErr := a.ensureTokenTags(c, tx, *write.Tags)
+		if handled || tagErr != nil {
+			return tagErr
+		}
+		write.Tags = &tags
+	}
 
 	id, err := a.store.CreateOffering(ctx, tx, voucher.ID, seller, write)
 	if err != nil {
 		return handleOfferingWriteError(c, err)
+	}
+	if write.Tags != nil {
+		if err := a.store.ReplaceOfferingTags(ctx, tx, id, *write.Tags); err != nil {
+			return handleOfferingWriteError(c, err)
+		}
 	}
 	saved, err := a.store.GetOfferingForMutation(ctx, tx, id)
 	if err != nil {
@@ -154,6 +166,7 @@ func (a *API) voucherOfferingCreateHandler(c *echo.Context) error {
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
+	a.marketMapCache.clear()
 
 	return respondOffering(c, http.StatusCreated, "Offering created", saved)
 }
@@ -193,9 +206,21 @@ func (a *API) voucherOfferingUpdateHandler(c *echo.Context) error {
 		return err
 	}
 	write.Unit = unit
+	if write.Tags != nil {
+		tags, handled, tagErr := a.ensureTokenTags(c, tx, *write.Tags)
+		if handled || tagErr != nil {
+			return tagErr
+		}
+		write.Tags = &tags
+	}
 
 	if err := a.store.UpdateOffering(ctx, tx, parent.ID, write); err != nil {
 		return handleOfferingWriteError(c, err)
+	}
+	if write.Tags != nil {
+		if err := a.store.ReplaceOfferingTags(ctx, tx, parent.ID, *write.Tags); err != nil {
+			return handleOfferingWriteError(c, err)
+		}
 	}
 	saved, err := a.store.GetOfferingForMutation(ctx, tx, parent.ID)
 	if err != nil {
@@ -204,6 +229,7 @@ func (a *API) voucherOfferingUpdateHandler(c *echo.Context) error {
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
+	a.marketMapCache.clear()
 
 	return respondOffering(c, http.StatusOK, "Offering updated", saved)
 }
@@ -245,6 +271,7 @@ func (a *API) voucherOfferingDeleteHandler(c *echo.Context) error {
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
+	a.marketMapCache.clear()
 
 	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
@@ -370,12 +397,22 @@ func (a *API) bindOfferingWrite(c *echo.Context) (store.OfferingWrite, bool, err
 		return store.OfferingWrite{}, true, offeringValidationError(c, "imageUrl must be an http or https URL")
 	}
 
+	var tags *[]string
+	if req.Tags != nil {
+		filter, err := store.NewCatalogFilter("", *req.Tags, store.TagMatchAny)
+		if err != nil {
+			return store.OfferingWrite{}, true, respondCatalogSearchError(c, err)
+		}
+		tags = &filter.Tags
+	}
+
 	return store.OfferingWrite{
 		CommodityName: req.CommodityName,
 		Description:   req.Description,
 		Unit:          req.Unit,
 		Price:         req.Price,
 		ImageURL:      imageURL,
+		Tags:          tags,
 	}, false, nil
 }
 

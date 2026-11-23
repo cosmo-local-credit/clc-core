@@ -129,6 +129,12 @@ type (
 		ApprovePendingUserByAddress(context.Context, pgx.Tx, string) (User, error)
 		UpdateUserLimits(context.Context, pgx.Tx, string, UserLimitsUpdate) (User, error)
 		UpdateUserProfile(context.Context, pgx.Tx, UserProfileUpdate) (User, error)
+		GetProfileVisibility(context.Context, pgx.Tx, string) (ProfileVisibility, error)
+		UpdateProfileVisibility(context.Context, pgx.Tx, string, ProfileVisibility) error
+		GetPublicProfile(context.Context, pgx.Tx, string) (PublicProfile, error)
+		ListPublicProfileResources(context.Context, pgx.Tx, string, string, uint64, uint64) ([]PublicProfileResource, error)
+		ResolvePublicResourceProfiles(context.Context, pgx.Tx, string, string, int64, int64) ([]PublicProfileReference, error)
+		GetWantForEdit(context.Context, pgx.Tx, uint64) (*Want, error)
 		InsertUserShare(context.Context, pgx.Tx, UserShare) (uint64, error)
 		GetUserShareByTxHash(context.Context, pgx.Tx, string, uint64) (UserShareDetails, error)
 		ListUserShareTxHashes(context.Context, pgx.Tx, []string, uint64) ([]string, error)
@@ -196,6 +202,7 @@ type (
 		LockOfferingVoucherOwner(context.Context, pgx.Tx, uint64, string) (*OfferingParent, error)
 		CreateOffering(context.Context, pgx.Tx, uint64, string, OfferingWrite) (uint64, error)
 		UpdateOffering(context.Context, pgx.Tx, uint64, OfferingWrite) error
+		ReplaceOfferingTags(context.Context, pgx.Tx, uint64, []string) error
 		DeleteOffering(context.Context, pgx.Tx, uint64) (uint64, error)
 		ListReports(context.Context, pgx.Tx, uint64) ([]Report, error)
 		ListReportsNext(context.Context, pgx.Tx, ReportCursor, uint64) ([]Report, error)
@@ -247,6 +254,7 @@ type (
 		ListWants(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds, CatalogPage, uint64, uint64) ([]Want, error)
 		ListWantTagFacets(context.Context, pgx.Tx, CatalogFilter, *MarketVoucherBounds) ([]TagFacet, error)
 		ListPoolWants(context.Context, pgx.Tx, string, CatalogPage, uint64, uint64) ([]Want, error)
+		ListVoucherWants(context.Context, pgx.Tx, string, int64, CatalogPage, uint64, uint64) ([]Want, error)
 		ListWantCreatorVouchers(context.Context, pgx.Tx, uint64, CatalogPage, uint64, uint64) ([]WantCreatorVoucher, error)
 		ListWantCreatorPools(context.Context, pgx.Tx, uint64, CatalogPage, uint64, uint64) ([]WantCreatorPool, error)
 		ListOwnedWants(context.Context, pgx.Tx, uint64, uint64, uint64) ([]Want, error)

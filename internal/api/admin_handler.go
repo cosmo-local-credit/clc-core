@@ -279,6 +279,15 @@ func (a *API) adminUpdateUserProfileHandler(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return handleBindError(c, err)
 	}
+	// Publication is the account owner's consent decision. Administrators can
+	// correct profile data, but must use neither this route nor a copied owner
+	// payload to opt another account into contacts, Posts, or Activity.
+	if req.VisibilityOnly || req.PublicProfile != nil {
+		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+			Ok: false, ErrCode: apiresp.ErrCodeValidationFailed,
+			Description: "public profile visibility can only be changed by the account owner",
+		})
+	}
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
 	}

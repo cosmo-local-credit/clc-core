@@ -7455,3 +7455,70 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | POST | `/api/v2/relayer/relay/preview` | Public |
 | GET | `/api/v2/relayer/webauthn/challenge` | Public |
 | POST | `/api/v2/relayer/webauthn/recover` | Public |
+
+
+## 18. Public profiles and resource editor access
+
+### Publication settings
+
+`GET /auth/profile` and `POST /auth/profile` return `publicProfile`. The optional
+`publicProfile` write object contains boolean publication choices:
+`enabled`, `avatar`, `name`, `bio`, `website`, `email`, `phone`, `country`,
+`locationName`, `preciseLocation`, `preferredCurrency`, `vouchers`, `offers`,
+`wants`, `pools`, `posts`, `catalogs`, and `activity`.
+
+Omitting the object preserves all choices. A supplied object replaces the choices.
+Only the account owner may change publication settings; Admin profile corrections
+must omit the object. A visibility-only save sends `visibilityOnly: true` with
+`publicProfile` to the same authenticated `POST /auth/profile` route. It changes
+only publication choices and preserves all stored contact/profile fields, so
+legacy accounts can disable publication without supplying new personal data.
+Full detail edits retain their existing validation and write semantics. Defaults enable the profile, existing public avatar, and
+Vouchers/Offers/Wants/Pools/Catalogs. Posts authorship, Activity and additional
+personal fields are opt-in. Selected email, phone and location require sign-in.
+These choices govern profile aggregation, not the visibility of public resources
+and blockchain data elsewhere.
+
+### Public reads
+
+| Method | Route | Result |
+|---|---|---|
+| GET | `/api/v2/profiles/:address` | `{profile}`: address, username, selected avatar/name/bio/website/country/unit, section switches and `hasPrivateDetails` |
+| GET | `/api/v2/profiles/:address/details` | Authenticated `{details}` containing only selected email, phone, location label and coordinates |
+| GET | `/api/v2/profiles/:address/:section` | `{items, nextCursor}` for vouchers, offers, wants, pools, posts or activity; use `/catalogs` for Catalogs |
+| GET | `/api/v2/profiles/resource/:kind/:id` | `{profiles}` for current direct owner or multisig signers; anonymous Post authors require explicit Posts consent |
+
+Public reads are cookie-independent and use `Cache-Control: no-store`. Selected
+private details require a verified user session and `Cache-Control: private,
+no-store`. Disabled, unapproved, retiring/erased, and replaced old addresses are
+unavailable. Every section and page independently checks publication choices.
+
+Section lists are global, independent of a viewer's map viewport. They accept
+`perPage` (maximum 50; the app requests 20) and the previous `nextCursor`.
+`nextCursor` is a decimal string or `null` at the end. Voucher/Pool management
+includes current same-chain Safe signers. Offers follow their parent Voucher's
+current owner, rather than their historical seller. Posts expose only approved
+content after the owner opts into authorship association. Public Activity contains
+confirmed indexed transaction IDs, hashes, chain ID, timestamp and kind; it omits
+private notes, attachment indicators, relay records and app-only valuations.
+
+### Editing and related Wants
+
+- `GET /api/v2/wants/:id/edit` returns a complete private Want editor record to
+  its creator or an Admin/Superadmin.
+- `PUT /api/v2/wants/:id` updates an existing Want for those roles, preserving
+  creator, lifecycle and creator quota. Non-owner Admin edits may change contact
+  instructions; stored email/phone sharing permission bits remain unchanged.
+  Missing creator contacts do not block unrelated Admin corrections. Existing
+  owner close, reopen and delete routes retain their authorization rules.
+- Catalog creators and Admins may edit metadata and add/remove catalog entries.
+  Whole-Catalog deletion remains creator-only.
+- Offer writes accept optional `tags` (maximum 12). Omission preserves existing
+  tags; `[]` clears them. Validation and vocabulary rules are shared with other
+  resources; product and tag writes commit atomically.
+- `GET /api/v2/vouchers/:address/wants` returns active Wants of the current owner
+  or Safe signers, on the API's configured chain. Public contacts stay redacted.
+  Cursor pagination uses `last` and `next=true`; Pool Wants use the same signer
+  expansion through their accepted active Vouchers, with deduplication.
+
+Deploy migration `085_public_profiles.sql` and these APIs before the app.

@@ -171,6 +171,26 @@ func (pg *Pg) ListPoolWants(ctx context.Context, tx pgx.Tx, address string, page
 	return rows, err
 }
 
+func (pg *Pg) ListVoucherWants(
+	ctx context.Context,
+	tx pgx.Tx,
+	address string,
+	chainID int64,
+	page CatalogPage,
+	cursor, limit uint64,
+) ([]Want, error) {
+	query := pg.queries.ListVoucherWants
+	switch page {
+	case CatalogNextPage:
+		query = pg.queries.ListVoucherWantsNext
+	case CatalogPrevPage:
+		query = pg.queries.ListVoucherWantsPrev
+	}
+	rows := []Want{}
+	err := pgxscan.Select(ctx, tx, &rows, query, address, chainID, cursor, limit)
+	return rows, err
+}
+
 func (pg *Pg) ListWantCreatorVouchers(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -218,6 +238,17 @@ func (pg *Pg) ListOwnedWants(ctx context.Context, tx pgx.Tx, ownerID, cursor, li
 func (pg *Pg) GetWant(ctx context.Context, tx pgx.Tx, id uint64, ownerID *uint64) (*Want, error) {
 	rows := []Want{}
 	if err := pgxscan.Select(ctx, tx, &rows, pg.queries.GetWant, id, ownerID); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return &rows[0], nil
+}
+
+func (pg *Pg) GetWantForEdit(ctx context.Context, tx pgx.Tx, id uint64) (*Want, error) {
+	rows := []Want{}
+	if err := pgxscan.Select(ctx, tx, &rows, pg.queries.GetWantForEdit, id); err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {

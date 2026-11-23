@@ -161,6 +161,17 @@ type (
 		ApprovePendingUserByAddress    string `query:"approve-pending-user-by-address"`
 		UpdateUserLimits               string `query:"update-user-limits"`
 		UpdateUserProfile              string `query:"update-user-profile"`
+		GetProfileVisibility           string `query:"get-profile-visibility"`
+		UpdateProfileVisibility        string `query:"update-profile-visibility"`
+		GetPublicProfile               string `query:"get-public-profile"`
+		ListPublicProfileVouchers      string `query:"list-public-profile-vouchers"`
+		ListPublicProfileOffers        string `query:"list-public-profile-offers"`
+		ListPublicProfileWants         string `query:"list-public-profile-wants"`
+		ListPublicProfilePools         string `query:"list-public-profile-pools"`
+		ListPublicProfilePosts         string `query:"list-public-profile-posts"`
+		ListPublicProfileCatalogs      string `query:"list-public-profile-catalogs"`
+		ResolvePublicResourceProfiles  string `query:"resolve-public-resource-profiles"`
+		GetWantForEdit                 string `query:"get-want-for-edit"`
 		InsertUserShare                string `query:"insert-user-share"`
 		GetUserShareByTxHash           string `query:"get-user-share-by-tx-hash"`
 		ListUserShareTxHashes          string `query:"list-user-share-tx-hashes"`
@@ -236,6 +247,8 @@ type (
 		CreateOffering               string `query:"create-offering"`
 		UpdateOffering               string `query:"update-offering"`
 		DeleteOffering               string `query:"delete-offering"`
+		DeleteOfferingTags           string `query:"delete-offering-tags"`
+		InsertOfferingTag            string `query:"insert-offering-tag"`
 		ListReports                  string `query:"list-reports"`
 		ListReportsNext              string `query:"list-reports-next"`
 		GetReport                    string `query:"get-report"`
@@ -302,6 +315,9 @@ type (
 		ListPoolWants               string `query:"list-pool-wants"`
 		ListPoolWantsNext           string `query:"list-pool-wants-next"`
 		ListPoolWantsPrev           string `query:"list-pool-wants-prev"`
+		ListVoucherWants            string `query:"list-voucher-wants"`
+		ListVoucherWantsNext        string `query:"list-voucher-wants-next"`
+		ListVoucherWantsPrev        string `query:"list-voucher-wants-prev"`
 		ListWantCreatorVouchers     string `query:"list-want-creator-vouchers"`
 		ListWantCreatorVouchersNext string `query:"list-want-creator-vouchers-next"`
 		ListWantCreatorVouchersPrev string `query:"list-want-creator-vouchers-prev"`

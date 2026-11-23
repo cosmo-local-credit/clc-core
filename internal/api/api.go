@@ -264,6 +264,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/vouchers/:address/wants", a.voucherWantsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/pools/:address/reviews", a.poolReviewsListHandler, a.marketRateLimitMiddleware())
@@ -282,6 +283,20 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/catalogs/:id", a.curatedCatalogDetailHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/catalogs/:id/pools", a.curatedMembersHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/catalogs/:id/vouchers", a.curatedMembersHandler, a.marketRateLimitMiddleware())
+	// Public profiles deliberately expose one exact account at a time. Each
+	// resource section is a separate page so a hidden section is never fetched
+	// as a side effect of opening the profile header.
+	router.GET(apiVersion+"/profiles/resource/:kind/:id", a.publicResourceProfilesHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address", a.publicProfileHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/vouchers", a.publicProfileVouchersHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/offers", a.publicProfileOffersHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/wants", a.publicProfileWantsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/pools", a.publicProfilePoolsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/posts", a.publicProfilePostsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/catalogs", a.publicProfileCatalogsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	if a.federationStore != nil {
+		router.GET(apiVersion+"/profiles/:address/activity", a.publicProfileActivityRouteHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	}
 
 	// Network pool catalog (imported + clc-core deploys; reads the pools
 	// table). Distinct from /users/me/pools which is
@@ -304,6 +319,9 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/vouchers/:address/info", a.voucherInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/pools/:address/info", a.poolInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/wants/:id/contact", a.wantContactHandler, a.requireUserAuth())
+	apiGroup.GET("/wants/:id/edit", a.wantEditHandler, a.requireUserAuth())
+	apiGroup.PUT("/wants/:id", a.wantCanonicalUpdateHandler, a.requireUserAuth())
+	apiGroup.GET("/profiles/:address/details", a.publicProfileDetailsHandler, publicProfileNoStoreMiddleware(), a.requireUserAuth())
 
 	apiGroup.GET("/vouchers/:address/reviews/me", a.voucherReviewAccessHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
