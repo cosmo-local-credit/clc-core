@@ -76,7 +76,34 @@ type (
 		PoolName            string              `db:"-" json:"poolName,omitempty"`
 		HasNote             *bool               `db:"-" json:"hasNote,omitempty"`
 	}
+
+	// PublicAccountActivity is the public-profile transaction projection. It
+	// contains confirmed chain facts only and deliberately has no parties,
+	// amounts, note state, valuations or relay metadata.
+	PublicAccountActivity struct {
+		ID        uint64    `db:"id"         json:"id"`
+		TxHash    string    `db:"tx_hash"    json:"txHash"`
+		DateBlock time.Time `db:"date_block" json:"timestamp"`
+		Kind      string    `db:"kind"       json:"kind"`
+	}
 )
+
+func (s *FederationPg) ListPublicAccountActivity(
+	ctx context.Context,
+	address string,
+	cursor *uint64,
+	limit uint64,
+) ([]PublicAccountActivity, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var cursorArg any
+	if cursor != nil {
+		cursorArg = int64(*cursor)
+	}
+	var rows []PublicAccountActivity
+	err := pgxscan.Select(ctx, s.db, &rows, s.queries.ListPublicAccountActivity, address, cursorArg, limit)
+	return rows, err
+}
 
 // NormalizeAccountActivityKinds accepts comma-separated and repeated query
 // values, deduplicating them into the stable order used by the app and cache.

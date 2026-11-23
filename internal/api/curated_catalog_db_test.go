@@ -70,6 +70,42 @@ func seedCuratedAPIUser(t *testing.T, a *API, priv ed25519.PrivateKey) (uint64, 
 	return id, token
 }
 
+func TestCuratedCatalogAdministratorMayEditAndCurateButOnlyOwnerDeletesDB(t *testing.T) {
+	a, priv := newOfferingAPI(t)
+	ownerID, ownerToken := seedCuratedAPIUser(t, a, priv)
+	adminToken := offeringToken(t, priv, offeringOperatorAddr, "ADMIN")
+	superadminToken := offeringToken(t, priv, offeringStrangerAddr, "SUPERADMIN")
+
+	created := curatedResult(t, curatedRequest(a, "POST", "/api/v2/catalogs", ownerToken,
+		`{"name":"Administrative fixture","locationName":"Nairobi","geoLat":-1.286,"geoLng":36.817}`), 200).Catalog
+	path := fmt.Sprintf("/api/v2/catalogs/%d", created.ID)
+	ctx := context.Background()
+	var voucherID uint64
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `
+        INSERT INTO vouchers(chain_id,address,name,active)
+        VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),'Administrator fixture voucher',true)
+        RETURNING id`).Scan(&voucherID))
+	t.Cleanup(func() {
+		_, err := a.store.Pool().Exec(ctx, `DELETE FROM vouchers WHERE id=$1`, voucherID)
+		require.NoError(t, err)
+	})
+
+	updatedBody := `{"name":"Edited by administrator","locationName":"Nairobi","geoLat":-1.286,"geoLng":36.817}`
+	for _, token := range []string{adminToken, superadminToken} {
+		updated := curatedResult(t, curatedRequest(a, "PUT", path, token, updatedBody), 200).Catalog
+		require.Equal(t, "Edited by administrator", updated.Name)
+		memberPath := fmt.Sprintf("%s/vouchers/%d", path, voucherID)
+		require.True(t, curatedResult(t, curatedRequest(a, "PUT", memberPath, token, ""), 200).Added)
+		curatedResult(t, curatedRequest(a, "DELETE", memberPath, token, ""), 200)
+		curatedResult(t, curatedRequest(a, "DELETE", path, token, ""), 403)
+	}
+
+	curatedResult(t, curatedRequest(a, "DELETE", path, ownerToken, ""), 200)
+	var remaining int
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `SELECT count(*) FROM catalogs WHERE id=$1 AND owner_user_id=$2`, created.ID, ownerID).Scan(&remaining))
+	require.Zero(t, remaining)
+}
+
 func TestCuratedCatalogOwnershipConcurrentCreateAndMembershipDB(t *testing.T) {
 	a, priv := newOfferingAPI(t)
 	t.Cleanup(func() { a.store.Pool().Close() })

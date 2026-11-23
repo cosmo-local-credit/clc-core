@@ -277,6 +277,26 @@ func (a *API) poolWantsListHandler(c *echo.Context) error {
 		}, catalogListHooks{onSuccess: setMarketCacheHeaders})
 }
 
+func (a *API) voucherWantsListHandler(c *echo.Context) error {
+	return catalogAddressListHandler(c, a, "wants", "Wants for voucher %s",
+		func(w store.Want) uint64 { return w.ID },
+		func(ctx context.Context, tx pgx.Tx, address string, limit uint64) ([]store.Want, error) {
+			rows, err := a.store.ListVoucherWants(ctx, tx, address, a.chainID, store.CatalogFirstPage, 0, limit)
+			redactWantContacts(rows)
+			return rows, err
+		},
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Want, error) {
+			rows, err := a.store.ListVoucherWants(ctx, tx, address, a.chainID, store.CatalogNextPage, cursor, limit)
+			redactWantContacts(rows)
+			return rows, err
+		},
+		func(ctx context.Context, tx pgx.Tx, address string, cursor, limit uint64) ([]store.Want, error) {
+			rows, err := a.store.ListVoucherWants(ctx, tx, address, a.chainID, store.CatalogPrevPage, cursor, limit)
+			redactWantContacts(rows)
+			return rows, err
+		}, catalogListHooks{onSuccess: setMarketCacheHeaders})
+}
+
 func redactWantContacts(wants []store.Want) {
 	for index := range wants {
 		wants[index].ContactPermission = 0
@@ -341,6 +361,132 @@ func (a *API) wantUpdateHandler(c *echo.Context) error {
 	}
 	userID, _, _ := getUserClaims(c)
 	return a.saveWant(c, id, userID, write, false, false)
+}
+
+// wantEditHandler returns the complete editor record to the creator or an
+// administrative user. It is distinct from the public detail so lifecycle and
+// selected contact permissions never ride an anonymous response.
+func (a *API) wantEditHandler(c *echo.Context) error {
+	id, err := wantIDParam(c)
+	if err != nil {
+		return err
+	}
+	userID, _, role := getUserClaims(c)
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	want, err := a.store.GetWantForEdit(ctx, tx, id)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if want == nil {
+		return wantNotFound(c)
+	}
+	if want.OwnerUserID != userID && !store.IsAdministrativeRole(role) {
+		return handleForbiddenError(c, "only the Want creator or an administrator may edit it")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Want editor record", Result: map[string]any{"want": want},
+	})
+}
+
+// wantCanonicalUpdateHandler lets both owners and administrators use the same
+// route. For a non-owner administrator the creator's email/phone permission
+// bits are copied from the locked row; submitted booleans cannot opt the
+// creator in or out. Contact instructions and the public Want fields remain
+// editable, while lifecycle, owner, and quota state are preserved.
+func (a *API) wantCanonicalUpdateHandler(c *echo.Context) error {
+	id, err := wantIDParam(c)
+	if err != nil {
+		return err
+	}
+	var req wantWriteRequest
+	if err := c.Bind(&req); err != nil {
+		return handleBindError(c, err)
+	}
+	write, err := normalizeWantWrite(req)
+	if err != nil {
+		return respondCatalogSearchError(c, err)
+	}
+	userID, _, role := getUserClaims(c)
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	ownerID, err := a.store.LockWantOwner(ctx, tx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return wantNotFound(c)
+	}
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	isOwner := ownerID == userID
+	if !isOwner && !store.IsAdministrativeRole(role) {
+		return handleForbiddenError(c, "only the Want creator or an administrator may edit it")
+	}
+	current, err := a.store.GetWantForEdit(ctx, tx, id)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if current == nil {
+		return wantNotFound(c)
+	}
+	creator, err := a.store.GetUserByID(ctx, tx, ownerID)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if isOwner {
+		if err := validateWantProfile(write, creator); err != nil {
+			return respondCatalogSearchError(c, err)
+		}
+	} else {
+		write.ContactPermission = current.ContactPermission
+	}
+	// Extending an expired-but-open Want makes it consume quota again. Apply the
+	// creator's allowance even when an administrator performs the edit; the
+	// operator's own unlimited role must not bypass the creator's limit.
+	now := time.Now()
+	currentlyCounts := current.Status == store.WantStatusOpen &&
+		(current.ExpiresAt == nil || current.ExpiresAt.After(now))
+	nextCounts := current.Status == store.WantStatusOpen &&
+		(write.ExpiresAt == nil || write.ExpiresAt.After(now))
+	if nextCounts && !currentlyCounts {
+		if err := a.store.CheckUserResourceLimit(ctx, tx, ownerID, "wants"); err != nil {
+			return handleResourceLimitError(c, err)
+		}
+	}
+	tags, handled, tagErr := a.ensureTokenTags(c, tx, write.Tags)
+	if handled {
+		return tagErr
+	}
+	write.Tags = tags
+	if err := a.store.UpdateWant(ctx, tx, id, write, false); err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := a.store.ReplaceWantTags(ctx, tx, id, write.Tags); err != nil {
+		return handlePostgresError(c, err)
+	}
+	want, err := a.store.GetWantForEdit(ctx, tx, id)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+	a.marketMapCache.clear()
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Want saved", Result: map[string]any{"want": want},
+	})
 }
 
 func (a *API) wantReopenHandler(c *echo.Context) error {
@@ -426,6 +572,7 @@ func (a *API) saveWant(c *echo.Context, id, userID uint64, write store.WantWrite
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
+	a.marketMapCache.clear()
 	status := http.StatusOK
 	if create {
 		status = http.StatusCreated
@@ -469,6 +616,7 @@ func (a *API) finishWant(c *echo.Context, remove bool) error {
 	if err := tx.Commit(ctx); err != nil {
 		return handlePostgresError(c, err)
 	}
+	a.marketMapCache.clear()
 	return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "Want updated"})
 }
 

@@ -75,6 +75,10 @@ type (
 		// that knows nothing about avatars cannot remove one.
 		ClearAvatar bool
 		AvatarURL   *string
+		// PublicProfile is assign-all when present and preserved when omitted.
+		// Keeping the pointer at the store boundary protects visibility choices
+		// from older clients that know only the original profile fields.
+		PublicProfile *ProfileVisibility
 	}
 )
 
@@ -263,6 +267,11 @@ func (pg *Pg) UpdateUserProfile(ctx context.Context, tx pgx.Tx, update UserProfi
 
 	if err := pgxscan.ScanOne(&u, row); err != nil {
 		return u, err
+	}
+	if update.PublicProfile != nil {
+		if err := pg.UpdateProfileVisibility(ctx, tx, update.Address, *update.PublicProfile); err != nil {
+			return User{}, err
+		}
 	}
 
 	return u, nil

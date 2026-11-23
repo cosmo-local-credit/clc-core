@@ -92,6 +92,7 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "082_safe_approval_milestones.sql")
 	assert.Contains(t, sqlFiles, "083_post_contact_requests.sql")
 	assert.Contains(t, sqlFiles, "084_conversation_deletions.sql")
+	assert.Contains(t, sqlFiles, "085_public_profiles.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -200,7 +201,8 @@ func TestMigrationFiles(t *testing.T) {
 				name == "081_message_resource_context.sql" ||
 				name == "082_safe_approval_milestones.sql" ||
 				name == "083_post_contact_requests.sql" ||
-				name == "084_conversation_deletions.sql",
+				name == "084_conversation_deletions.sql" ||
+				name == "085_public_profiles.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -294,7 +296,22 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"082_safe_approval_milestones.sql",
 		"083_post_contact_requests.sql",
 		"084_conversation_deletions.sql",
+		"085_public_profiles.sql",
 	}, files)
+}
+
+func TestPublicProfileMigrationKeepsPersonalFieldsOptIn(t *testing.T) {
+	content, err := os.ReadFile("085_public_profiles.sql")
+	require.NoError(t, err)
+	up, _, found := strings.Cut(string(content), "---- create above / drop below ----")
+	require.True(t, found)
+	assert.Contains(t, up, "public_profile_enabled BOOLEAN NOT NULL DEFAULT TRUE")
+	assert.Contains(t, up, "public_profile_avatar BOOLEAN NOT NULL DEFAULT TRUE")
+	assert.Contains(t, up, "public_profile_vouchers BOOLEAN NOT NULL DEFAULT TRUE")
+	assert.Contains(t, up, "public_profile_posts BOOLEAN NOT NULL DEFAULT FALSE")
+	for _, field := range []string{"name", "bio", "website", "email", "phone", "country", "location_name", "precise_location", "preferred_currency", "activity"} {
+		assert.Contains(t, up, "public_profile_"+field+" BOOLEAN NOT NULL DEFAULT FALSE")
+	}
 }
 
 func TestMessageResourceContextMigration(t *testing.T) {

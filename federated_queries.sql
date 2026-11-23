@@ -483,6 +483,51 @@ WITH account_transfers AS MATERIALIZED (
 )
 SELECT * FROM page ORDER BY id DESC;
 
+-- Public-profile activity is intentionally narrower than the signed-in wallet
+-- feed. It exposes one successful indexed transaction fact, without amounts,
+-- counterparties, notes, app-only valuation data or relay metadata. A swap
+-- initiated by the profile address takes precedence over its transfer legs.
+--name: list-public-account-activity
+WITH candidate_transactions AS (
+    (SELECT tt.tx_id FROM token_transfer tt JOIN tx ON tx.id=tt.tx_id AND tx.success
+     WHERE lower(tt.sender_address)=lower($1)
+       AND ($2::BIGINT IS NULL OR tt.tx_id < $2::BIGINT/1000000)
+     GROUP BY tt.tx_id ORDER BY tt.tx_id DESC LIMIT $3)
+    UNION
+    (SELECT tt.tx_id FROM token_transfer tt JOIN tx ON tx.id=tt.tx_id AND tx.success
+     WHERE lower(tt.recipient_address)=lower($1)
+       AND ($2::BIGINT IS NULL OR tt.tx_id < $2::BIGINT/1000000)
+     GROUP BY tt.tx_id ORDER BY tt.tx_id DESC LIMIT $3)
+    UNION
+    (SELECT ps.tx_id FROM pool_swap ps JOIN tx ON tx.id=ps.tx_id AND tx.success
+     WHERE lower(ps.initiator_address)=lower($1)
+       AND ($2::BIGINT IS NULL OR ps.tx_id < $2::BIGINT/1000000)
+     GROUP BY ps.tx_id ORDER BY ps.tx_id DESC LIMIT $3)
+), page AS (
+    SELECT tx.id, tx.tx_hash, tx.date_block,
+        CASE
+            WHEN EXISTS (SELECT 1 FROM pool_swap ps
+                WHERE ps.tx_id=tx.id AND lower(ps.initiator_address)=lower($1))
+                THEN 'swapped'
+            WHEN EXISTS (SELECT 1 FROM token_transfer tt
+                WHERE tt.tx_id=tx.id
+                  AND tt.sender_address='0x0000000000000000000000000000000000000000'
+                  AND lower(tt.recipient_address)=lower($1))
+                THEN 'creation'
+            WHEN EXISTS (SELECT 1 FROM token_transfer tt
+                WHERE tt.tx_id=tx.id AND lower(tt.sender_address)=lower($1))
+                THEN 'sent'
+            ELSE 'received'
+        END AS kind
+    FROM candidate_transactions candidate
+    JOIN tx ON tx.id=candidate.tx_id
+    WHERE tx.success
+      AND ($2::BIGINT IS NULL OR tx.id*1000000 < $2::BIGINT)
+    ORDER BY tx.id DESC
+    LIMIT $3
+)
+SELECT id*1000000 AS id, tx_hash, date_block, kind FROM page ORDER BY id DESC;
+
 -- Filled envelope series from tx only. One foreign scan:
 -- postgres_fdw ships the date filter but not GROUP BY, so the remote
 -- returns date_block rows and we bucket locally. A separate COUNT(*) is

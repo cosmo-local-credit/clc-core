@@ -25,7 +25,8 @@ type (
 )
 
 var (
-	errCuratedOwner   = errors.New("only the catalog owner may change this catalog")
+	errCuratedOwner   = errors.New("only the catalog owner may delete this catalog")
+	errCuratedEditor  = errors.New("only the catalog owner or an administrator may change this catalog")
 	errCuratedHandled = errors.New("catalog response already written")
 )
 
@@ -52,7 +53,7 @@ func (a *API) curatedResponse(c *echo.Context, run func(pgx.Tx) (map[string]any,
 		if errors.As(err, &validation) {
 			return respondCatalogSearchError(c, err)
 		}
-		if errors.Is(err, errCuratedOwner) {
+		if errors.Is(err, errCuratedOwner) || errors.Is(err, errCuratedEditor) {
 			return handleForbiddenError(c, err.Error())
 		}
 		return handleResourceLimitError(c, err)
@@ -156,6 +157,18 @@ func (a *API) requireCuratedOwner(c *echo.Context, tx pgx.Tx, id uint64) error {
 		return errCuratedOwner
 	}
 	return nil
+}
+
+func (a *API) requireCuratedEditor(c *echo.Context, tx pgx.Tx, id uint64) error {
+	owner, err := a.store.LockCuratedCatalog(c.Request().Context(), tx, id)
+	if err != nil {
+		return err
+	}
+	caller, _, role := getUserClaims(c)
+	if caller == owner || store.IsAdministrativeRole(role) {
+		return nil
+	}
+	return errCuratedEditor
 }
 func (a *API) curatedCatalogListHandler(c *echo.Context) error {
 	size, err := curatedPageSize(c)
@@ -289,10 +302,10 @@ func (a *API) curatedCatalogSaveHandler(c *echo.Context) error {
 	if err = validateCuratedWrite(&write); err != nil {
 		return respondCatalogSearchError(c, err)
 	}
-	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
+	err = a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
 		ctx := c.Request().Context()
 		if id != 0 {
-			if err = a.requireCuratedOwner(c, tx, id); err != nil {
+			if err = a.requireCuratedEditor(c, tx, id); err != nil {
 				return nil, err
 			}
 		}
@@ -323,6 +336,10 @@ func (a *API) curatedCatalogSaveHandler(c *echo.Context) error {
 		row, readErr := a.store.GetCuratedCatalog(ctx, tx, id)
 		return map[string]any{"catalog": row}, readErr
 	})
+	if err == nil {
+		a.marketMapCache.clear()
+	}
+	return err
 }
 
 func (a *API) curatedCatalogDeleteHandler(c *echo.Context) error {
@@ -400,8 +417,8 @@ func (a *API) curatedMembershipHandler(c *echo.Context) error {
 	if err != nil {
 		return respondCatalogSearchError(c, err)
 	}
-	return a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
-		if ownerErr := a.requireCuratedOwner(c, tx, id); ownerErr != nil {
+	err = a.curatedResponse(c, func(tx pgx.Tx) (map[string]any, error) {
+		if ownerErr := a.requireCuratedEditor(c, tx, id); ownerErr != nil {
 			return nil, ownerErr
 		}
 		ctx := c.Request().Context()
@@ -413,4 +430,8 @@ func (a *API) curatedMembershipHandler(c *echo.Context) error {
 		added, readErr := a.store.CuratedMembership(ctx, tx, id, voucher, resource)
 		return map[string]any{"added": added}, readErr
 	})
+	if err == nil && c.Request().Method != http.MethodGet {
+		a.marketMapCache.clear()
+	}
+	return err
 }

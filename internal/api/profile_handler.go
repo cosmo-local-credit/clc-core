@@ -47,6 +47,21 @@ func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) 
 		ClearAvatar:       req.ClearAvatar,
 		AvatarURL:         req.AvatarURL,
 	}
+	if req.PublicProfile != nil {
+		update.PublicProfile = &store.ProfileVisibility{
+			Enabled: req.PublicProfile.Enabled, Avatar: req.PublicProfile.Avatar,
+			Name: req.PublicProfile.Name, Bio: req.PublicProfile.Bio,
+			Website: req.PublicProfile.Website, Email: req.PublicProfile.Email,
+			Phone: req.PublicProfile.Phone, Country: req.PublicProfile.Country,
+			LocationName:      req.PublicProfile.LocationName,
+			PreciseLocation:   req.PublicProfile.PreciseLocation,
+			PreferredCurrency: req.PublicProfile.PreferredCurrency,
+			Vouchers:          req.PublicProfile.Vouchers, Offers: req.PublicProfile.Offers,
+			Wants: req.PublicProfile.Wants, Pools: req.PublicProfile.Pools,
+			Posts: req.PublicProfile.Posts, Catalogs: req.PublicProfile.Catalogs,
+			Activity: req.PublicProfile.Activity,
+		}
+	}
 
 	if req.Username != nil {
 		name := norm.NFC.String(strings.TrimSpace(*req.Username))
@@ -224,6 +239,10 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 		}
 		return err
 	}
+	visibility, err := a.store.GetProfileVisibility(ctx, tx, addr)
+	if err != nil {
+		return err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return err
@@ -247,6 +266,7 @@ func (a *API) profileGetHandler(c *echo.Context) error {
 			"geoLng":            user.GeoLng,
 			"avatarUrl":         user.AvatarURL,
 			"createdAt":         user.CreatedAt.Format(time.RFC3339),
+			"publicProfile":     visibility,
 		},
 	})
 }
@@ -257,11 +277,20 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return handleBindError(c, err)
 	}
+	_, addr, _ := getUserClaims(c)
+	if req.VisibilityOnly {
+		if req.PublicProfile == nil {
+			return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
+				Ok: false, ErrCode: apiresp.ErrCodeValidationFailed,
+				Description: "publicProfile is required when visibilityOnly is true",
+			})
+		}
+		return a.profileVisibilityUpdateHandler(c, addr, *req.PublicProfile)
+	}
 	if err := c.Validate(req); err != nil {
 		return a.handleValidateError(c, err)
 	}
 
-	_, addr, _ := getUserClaims(c)
 	update, err := profileUpdateFromRequest(addr, req)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, apiresp.ErrResponse{
@@ -302,6 +331,10 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 		}
 		return err
 	}
+	visibility, err := a.store.GetProfileVisibility(ctx, tx, addr)
+	if err != nil {
+		return err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return err
@@ -324,6 +357,68 @@ func (a *API) profileUpdateHandler(c *echo.Context) error {
 			"geoLat":            user.GeoLat,
 			"geoLng":            user.GeoLng,
 			"avatarUrl":         user.AvatarURL,
+			"publicProfile":     visibility,
+		},
+	})
+}
+
+// profileVisibilityUpdateHandler lets an approved legacy account change only
+// publication consent. It deliberately ignores every base-profile field in an
+// explicit visibility-only request so a stale form cannot erase or replace
+// identity, contacts, location, avatar, or preferences.
+func (a *API) profileVisibilityUpdateHandler(
+	c *echo.Context,
+	address string,
+	requested apiresp.ProfileVisibility,
+) error {
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	visibility := store.ProfileVisibility{
+		Enabled: requested.Enabled, Avatar: requested.Avatar,
+		Name: requested.Name, Bio: requested.Bio,
+		Website: requested.Website, Email: requested.Email,
+		Phone: requested.Phone, Country: requested.Country,
+		LocationName:      requested.LocationName,
+		PreciseLocation:   requested.PreciseLocation,
+		PreferredCurrency: requested.PreferredCurrency,
+		Vouchers:          requested.Vouchers, Offers: requested.Offers,
+		Wants: requested.Wants, Pools: requested.Pools,
+		Posts: requested.Posts, Catalogs: requested.Catalogs,
+		Activity: requested.Activity,
+	}
+	if err := a.store.UpdateProfileVisibility(ctx, tx, address, visibility); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+				Ok: false, ErrCode: apiresp.ErrCodeNotFound, Description: "user not found",
+			})
+		}
+		return err
+	}
+	user, err := a.store.GetUserByAddress(ctx, tx, address)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+				Ok: false, ErrCode: apiresp.ErrCodeNotFound, Description: "user not found",
+			})
+		}
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok: true, Description: "Profile updated",
+		Result: map[string]any{
+			"address": user.EthereumAddress, "name": user.Name,
+			"username": user.Username, "email": user.Email, "phone": user.Phone,
+			"country": user.Country, "preferredCurrency": user.PreferredCurrency,
+			"bio": user.Bio, "website": user.Website,
+			"locationName": user.LocationName, "geoLat": user.GeoLat, "geoLng": user.GeoLng,
+			"avatarUrl": user.AvatarURL, "publicProfile": visibility,
 		},
 	})
 }

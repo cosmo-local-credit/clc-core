@@ -26,6 +26,7 @@ type (
 		ListUserTransferHistoryPrevious     string `query:"list-user-transfer-history-prev"`
 		ListUserActivity                    string `query:"list-user-activity"`
 		ListAccountActivityTransactions     string `query:"list-account-activity-transactions"`
+		ListPublicAccountActivity           string `query:"list-public-account-activity"`
 		LatestPoolReviewSwap                string `query:"latest-pool-review-swap"`
 		DashboardTransactionSeries          string `query:"dashboard-transaction-series"`
 	}
@@ -49,6 +50,7 @@ type (
 		ListUserTransferHistoryNext(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
 		ListUserTransferHistoryPrevious(context.Context, string, uint64, uint64) ([]FederationTransfer, error)
 		ListUserActivity(context.Context, string, AccountActivityFilter, *uint64, uint64, bool) ([]FederationAccountActivity, error)
+		ListPublicAccountActivity(context.Context, string, *uint64, uint64) ([]PublicAccountActivity, error)
 		LatestPoolReviewSwap(context.Context, string, string) (*time.Time, error)
 		DashboardTransactionSeries(context.Context, time.Time, time.Time, int64) ([]DashboardTransactionPoint, error)
 		ListAdminVoucherTransactions(context.Context, *uint64, uint64, bool, string, string, AdminTransactionSearch) ([]AdminVoucherTransaction, error)

@@ -63,6 +63,14 @@
     {
       "name": "Admin",
       "description": "Administrative routes for users, catalogs, moderation and statistics. Role mutation requires SUPERADMIN."
+    },
+    {
+      "name": "Public profiles",
+      "description": "Owner-selected profile publication, public resources, and authenticated selected contacts."
+    },
+    {
+      "name": "Wants",
+      "description": "Public Wants and protected owner/administrator editing."
     }
   ],
   "paths": {
@@ -879,7 +887,7 @@
           "Auth endpoints"
         ],
         "summary": "Get the profile of the caller",
-        "description": "Returns the profile of the signed-in user. The address comes from the session. Access: User session. A service token returns '403' with 'E10'. A caller without a valid credential gets '401' with 'E06'.",
+        "description": "Returns the profile of the signed-in user. The address comes from the session. Access: User session. A service token returns '403' with 'E10'. A caller without a valid credential gets '401' with 'E06'. Publication choices are returned as publicProfile; only the account owner can change them, and omitted choices remain unchanged.",
         "operationId": "getAuthProfile",
         "responses": {
           "200": {
@@ -940,6 +948,9 @@
                         "createdAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "publicProfile": {
+                          "$ref": "#/components/schemas/ProfileVisibility"
                         }
                       }
                     }
@@ -996,7 +1007,7 @@
           "Auth endpoints"
         ],
         "summary": "Save the profile of the caller",
-        "description": "Saves the profile and returns the saved values. The response has the same fields as GET /auth/profile except createdAt. Access: User session. A service token returns '403' with 'E10'. A caller without a valid credential gets '401' with 'E06'.",
+        "description": "Saves the profile and returns the saved values. The response has the same fields as GET /auth/profile except createdAt. Access: User session. A service token returns '403' with 'E10'. A caller without a valid credential gets '401' with 'E06'. Publication choices are returned as publicProfile; only the account owner can change them, and omitted choices remain unchanged. A visibility-only save sends visibilityOnly=true and publicProfile; it preserves all stored profile details and permits legacy accounts to change publication choices without supplying new contact information.",
         "operationId": "postAuthProfile",
         "requestBody": {
           "required": true,
@@ -1064,8 +1075,35 @@
                   "clearAvatar": {
                     "type": "boolean",
                     "description": "If 'true', the server clears 'avatarUrl'."
+                  },
+                  "publicProfile": {
+                    "$ref": "#/components/schemas/ProfileVisibility"
+                  },
+                  "visibilityOnly": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, update only publicProfile and preserve every stored profile/contact field. publicProfile is required in this mode."
                   }
-                }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "visibilityOnly": {
+                          "const": true
+                        }
+                      },
+                      "required": [
+                        "visibilityOnly"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "publicProfile"
+                      ]
+                    }
+                  }
+                ]
               }
             }
           }
@@ -1125,6 +1163,9 @@
                         },
                         "avatarUrl": {
                           "type": "string"
+                        },
+                        "publicProfile": {
+                          "$ref": "#/components/schemas/ProfileVisibility"
                         }
                       }
                     }
@@ -1840,6 +1881,16 @@
                       "null"
                     ],
                     "description": "An 'http' or 'https' URL. An empty string or 'null' means no image."
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "description": "Omission preserves current tags on edits; an empty array clears them. Existing vocabulary normalization and permissions apply."
                   }
                 },
                 "required": [
@@ -2049,6 +2100,16 @@
                       "null"
                     ],
                     "description": "An 'http' or 'https' URL. An empty string or 'null' means no image."
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "description": "Omission preserves current tags on edits; an empty array clears them. Existing vocabulary normalization and permissions apply."
                   }
                 },
                 "required": [
@@ -4018,7 +4079,7 @@
           "Curated catalogs"
         ],
         "summary": "Replace a catalog",
-        "description": "Replaces the editable state of a catalog. An omitted optional field is cleared. Access: User session. For 'PUT', the caller must be the owner of the catalog.",
+        "description": "Replaces the editable state of a catalog. An omitted optional field is cleared. Access: User session. For 'PUT', the caller must be the owner of the catalog. The Catalog creator or ADMIN/SUPERADMIN may edit metadata and curate entries. Whole-Catalog deletion remains creator-only.",
         "operationId": "putCatalogsById",
         "parameters": [
           {
@@ -5482,7 +5543,7 @@
           "Curated catalogs"
         ],
         "summary": "Add a pool to a catalog",
-        "description": "Adds a pool to the catalog. The route is idempotent. The pool ID must be a positive integer. Access: User session. The caller must be the owner of the catalog.",
+        "description": "Adds a pool to the catalog. The route is idempotent. The pool ID must be a positive integer. Access: User session. The caller must be the owner of the catalog. The Catalog creator or ADMIN/SUPERADMIN may edit metadata and curate entries. Whole-Catalog deletion remains creator-only.",
         "operationId": "putCatalogsByIdPoolsByPoolId",
         "parameters": [
           {
@@ -5571,7 +5632,7 @@
           "Curated catalogs"
         ],
         "summary": "Remove a pool from a catalog",
-        "description": "Removes a pool from the catalog. The route is idempotent. The pool ID must be a positive integer. Access: User session. The caller must be the owner of the catalog.",
+        "description": "Removes a pool from the catalog. The route is idempotent. The pool ID must be a positive integer. Access: User session. The caller must be the owner of the catalog. The Catalog creator or ADMIN/SUPERADMIN may edit metadata and curate entries. Whole-Catalog deletion remains creator-only.",
         "operationId": "deleteCatalogsByIdPoolsByPoolId",
         "parameters": [
           {
@@ -5662,7 +5723,7 @@
           "Curated catalogs"
         ],
         "summary": "Add a voucher to a catalog",
-        "description": "Adds a voucher to the catalog. The route is idempotent. The voucher ID must be a positive integer. Access: User session. The caller must be the owner of the catalog.",
+        "description": "Adds a voucher to the catalog. The route is idempotent. The voucher ID must be a positive integer. Access: User session. The caller must be the owner of the catalog. The Catalog creator or ADMIN/SUPERADMIN may edit metadata and curate entries. Whole-Catalog deletion remains creator-only.",
         "operationId": "putCatalogsByIdVouchersByVoucherId",
         "parameters": [
           {
@@ -5751,7 +5812,7 @@
           "Curated catalogs"
         ],
         "summary": "Remove a voucher from a catalog",
-        "description": "Removes a voucher from the catalog. The route is idempotent. The voucher ID must be a positive integer. Access: User session. The caller must be the owner of the catalog.",
+        "description": "Removes a voucher from the catalog. The route is idempotent. The voucher ID must be a positive integer. Access: User session. The caller must be the owner of the catalog. The Catalog creator or ADMIN/SUPERADMIN may edit metadata and curate entries. Whole-Catalog deletion remains creator-only.",
         "operationId": "deleteCatalogsByIdVouchersByVoucherId",
         "parameters": [
           {
@@ -20345,6 +20406,1301 @@
           }
         ]
       }
+    },
+    "/api/v2/profiles/{address}": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "Read an opted-in public profile",
+        "operationId": "getPublicProfile",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          }
+        ],
+        "security": [],
+        "description": "Cookie-independent allowlisted projection for the current address of an Approved, enabled, active account. Disabled, retired, erased and replaced addresses are unavailable. No email, phone or precise location is returned.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "profile": {
+                          "$ref": "#/components/schemas/PublicProfile"
+                        }
+                      },
+                      "required": [
+                        "profile"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/{address}/details": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "Read selected profile contacts and location",
+        "operationId": "getSelectedProfileDetails",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Any verified user session may read only the profile owner-selected email, phone, location label and exact coordinates. All account visibility/lifecycle gates apply.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "details": {
+                          "$ref": "#/components/schemas/PublicProfileDetails"
+                        }
+                      },
+                      "required": [
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/{address}/vouchers": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "List public profile vouchers",
+        "operationId": "getPublicProfileVouchers",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "The app requests 20 rows."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Use the previous response nextCursor."
+          }
+        ],
+        "security": [],
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PublicProfileResource"
+                          }
+                        },
+                        "nextCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/{address}/offers": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "List public profile offers",
+        "operationId": "getPublicProfileOffers",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "The app requests 20 rows."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Use the previous response nextCursor."
+          }
+        ],
+        "security": [],
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PublicProfileResource"
+                          }
+                        },
+                        "nextCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/{address}/wants": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "List public profile wants",
+        "operationId": "getPublicProfileWants",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "The app requests 20 rows."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Use the previous response nextCursor."
+          }
+        ],
+        "security": [],
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PublicProfileResource"
+                          }
+                        },
+                        "nextCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/{address}/pools": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "List public profile pools",
+        "operationId": "getPublicProfilePools",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "The app requests 20 rows."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Use the previous response nextCursor."
+          }
+        ],
+        "security": [],
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PublicProfileResource"
+                          }
+                        },
+                        "nextCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/{address}/posts": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "List public profile posts",
+        "operationId": "getPublicProfilePosts",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "The app requests 20 rows."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Use the previous response nextCursor."
+          }
+        ],
+        "security": [],
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PublicProfileResource"
+                          }
+                        },
+                        "nextCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/{address}/catalogs": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "List public profile catalogs",
+        "operationId": "getPublicProfileCatalogs",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "The app requests 20 rows."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Use the previous response nextCursor."
+          }
+        ],
+        "security": [],
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PublicProfileResource"
+                          }
+                        },
+                        "nextCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/{address}/activity": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "List public profile activity",
+        "operationId": "getPublicProfileActivity",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "The app requests 20 rows."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Use the previous response nextCursor."
+          }
+        ],
+        "security": [],
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PublicProfileActivity"
+                          }
+                        },
+                        "nextCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/resource/{kind}/{id}": {
+      "get": {
+        "tags": [
+          "Public profiles"
+        ],
+        "summary": "Resolve available public profiles for a resource",
+        "operationId": "getResourceProfiles",
+        "security": [],
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "voucher",
+                "offer",
+                "want",
+                "pool",
+                "post",
+                "catalog"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Voucher/Pool address, otherwise a positive record ID."
+          }
+        ],
+        "description": "Resolves current direct owner or Safe signers without excluding the current viewer. Resource-section consent applies; Post authors are absent until Posts publication is selected.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "profiles": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "username": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "username"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "profiles"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v2/wants/{id}/edit": {
+      "get": {
+        "tags": [
+          "Wants"
+        ],
+        "summary": "Read a complete Want editor record",
+        "operationId": "getWantForEdit",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Creator or ADMIN/SUPERADMIN. Contains lifecycle and selected contact permission state omitted by public reads.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "want": {
+                          "$ref": "#/components/schemas/EditableWant"
+                        }
+                      },
+                      "required": [
+                        "want"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v2/wants/{id}": {
+      "put": {
+        "tags": [
+          "Wants"
+        ],
+        "summary": "Edit a Want as its creator or an administrator",
+        "operationId": "putWantForEdit",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "Preserves owner and status. Non-owner ADMIN/SUPERADMIN edits may change instructions and public fields; email/phone sharing bits are copied from the locked creator record. Current creator quota governs transitions back into counted active Wants. Close/reopen/delete stay on owner-only routes.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WantWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "want": {
+                          "$ref": "#/components/schemas/EditableWant"
+                        }
+                      },
+                      "required": [
+                        "want"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v2/vouchers/{address}/wants": {
+      "get": {
+        "tags": [
+          "Vouchers and offerings"
+        ],
+        "summary": "List active Wants of a Voucher owner or current Safe signers",
+        "operationId": "getVoucherOwnerWants",
+        "security": [],
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{40}$"
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "next",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Set true when requesting the next page with last as cursor."
+          }
+        ],
+        "description": "Uses the configured chain, current membership, active lifecycle, and redacted public contacts. Pool Wants apply the same signer expansion through their accepted Vouchers.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "wants": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {}
+                          }
+                        },
+                        "first": {
+                          "type": "integer"
+                        },
+                        "last": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "wants",
+                        "first",
+                        "last"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "result"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -22079,6 +23435,485 @@
           "active": {
             "type": "boolean",
             "description": "'false' for a retired voucher."
+          }
+        }
+      },
+      "ProfileVisibility": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "avatar": {
+            "type": "boolean",
+            "default": true
+          },
+          "name": {
+            "type": "boolean",
+            "default": false
+          },
+          "bio": {
+            "type": "boolean",
+            "default": false
+          },
+          "website": {
+            "type": "boolean",
+            "default": false
+          },
+          "email": {
+            "type": "boolean",
+            "default": false
+          },
+          "phone": {
+            "type": "boolean",
+            "default": false
+          },
+          "country": {
+            "type": "boolean",
+            "default": false
+          },
+          "locationName": {
+            "type": "boolean",
+            "default": false
+          },
+          "preciseLocation": {
+            "type": "boolean",
+            "default": false
+          },
+          "preferredCurrency": {
+            "type": "boolean",
+            "default": false
+          },
+          "vouchers": {
+            "type": "boolean",
+            "default": true
+          },
+          "offers": {
+            "type": "boolean",
+            "default": true
+          },
+          "wants": {
+            "type": "boolean",
+            "default": true
+          },
+          "pools": {
+            "type": "boolean",
+            "default": true
+          },
+          "posts": {
+            "type": "boolean",
+            "default": false
+          },
+          "catalogs": {
+            "type": "boolean",
+            "default": true
+          },
+          "activity": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "description": "Assign-all publication choices when supplied by the account owner. Omission preserves stored choices. Posts authorship, Activity and additional personal details are opt-in; email, phone and location require authenticated viewers.",
+        "required": [
+          "enabled",
+          "avatar",
+          "name",
+          "bio",
+          "website",
+          "email",
+          "phone",
+          "country",
+          "locationName",
+          "preciseLocation",
+          "preferredCurrency",
+          "vouchers",
+          "offers",
+          "wants",
+          "pools",
+          "posts",
+          "catalogs",
+          "activity"
+        ]
+      },
+      "PublicProfile": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatarUrl": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "bio": {
+            "type": "string"
+          },
+          "website": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "preferredCurrency": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "object",
+            "properties": {
+              "vouchers": {
+                "type": "boolean"
+              },
+              "offers": {
+                "type": "boolean"
+              },
+              "wants": {
+                "type": "boolean"
+              },
+              "pools": {
+                "type": "boolean"
+              },
+              "posts": {
+                "type": "boolean"
+              },
+              "catalogs": {
+                "type": "boolean"
+              },
+              "activity": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "vouchers",
+              "offers",
+              "wants",
+              "pools",
+              "posts",
+              "catalogs",
+              "activity"
+            ]
+          },
+          "hasPrivateDetails": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "address",
+          "username",
+          "sections",
+          "hasPrivateDetails"
+        ]
+      },
+      "PublicProfileDetails": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "locationName": {
+            "type": "string"
+          },
+          "geoLat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "geoLng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        }
+      },
+      "PublicProfileResource": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "voucher",
+              "offer",
+              "want",
+              "pool",
+              "post",
+              "catalog"
+            ]
+          },
+          "resourceId": {
+            "type": "string",
+            "description": "Parent Voucher address for an Offer; address for Voucher/Pool; record ID for other kinds."
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "imageUrl": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "management": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "multisig"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "resourceId",
+          "name",
+          "management"
+        ]
+      },
+      "PublicProfileActivity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "txHash": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{64}$"
+          },
+          "chainId": {
+            "type": "integer"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "creation",
+              "sent",
+              "received",
+              "swapped"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "txHash",
+          "chainId",
+          "timestamp",
+          "kind"
+        ]
+      },
+      "WantWrite": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "locationName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "geoLat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "geoLng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "imageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contactText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "shareEmail": {
+            "type": "boolean"
+          },
+          "sharePhone": {
+            "type": "boolean"
+          },
+          "markerIcon": {
+            "type": "string",
+            "enum": [
+              "question",
+              "message",
+              "request"
+            ]
+          },
+          "markerColor": {
+            "type": "string",
+            "enum": [
+              "blue",
+              "brown",
+              "cyan",
+              "orange",
+              "pink",
+              "purple"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "maxLength": 100
+            }
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "locationName",
+          "geoLat",
+          "geoLng",
+          "startsAt",
+          "markerIcon",
+          "markerColor"
+        ]
+      },
+      "EditableWant": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "locationName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "geoLat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "geoLng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "imageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contactText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "markerIcon": {
+            "type": "string",
+            "enum": [
+              "question",
+              "message",
+              "request"
+            ]
+          },
+          "markerColor": {
+            "type": "string",
+            "enum": [
+              "blue",
+              "brown",
+              "cyan",
+              "orange",
+              "pink",
+              "purple"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "id": {
+            "type": "integer"
+          },
+          "ownerUserId": {
+            "type": "integer"
+          },
+          "ownerAddress": {
+            "type": "string"
+          },
+          "contactPermission": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "CLOSED"
+            ]
           }
         }
       }

@@ -60,6 +60,8 @@ type (
 		// holds values float64 silently rounds.
 		Price    string
 		ImageURL *string
+		// nil preserves existing tags; a non-nil empty slice clears them.
+		Tags *[]string
 	}
 
 	// VoucherOfferingParent is the locked voucher a create authorizes against.
@@ -245,6 +247,18 @@ func (pg *Pg) UpdateOffering(ctx context.Context, tx pgx.Tx, id uint64, offering
 		offering.ImageURL,
 	)
 	return err
+}
+
+func (pg *Pg) ReplaceOfferingTags(ctx context.Context, tx pgx.Tx, id uint64, tags []string) error {
+	if _, err := tx.Exec(ctx, pg.queries.DeleteOfferingTags, id); err != nil {
+		return err
+	}
+	for _, tag := range tags {
+		if _, err := tx.Exec(ctx, pg.queries.InsertOfferingTag, id, tag); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DeleteOffering unlists an offering and returns its id. The row survives so the
