@@ -48,6 +48,50 @@ VALUES (100,$1,$2,$3,$4,$5) RETURNING id`, address, term+address[len(address)-6:
 	require.NoError(t, pg.CheckPoolOperationsAllowed(ctx, tx, 1, []string{strings.ToLower(retiredAddress)}), "same address on another chain is independent")
 }
 
+func TestPoolCatalogExposesChainSealState(t *testing.T) {
+	pg, tx, cleanup := newMarketTestPg(t)
+	defer cleanup()
+	ctx := context.Background()
+	address := randomAddress(t, tx)
+	var poolID uint64
+	require.NoError(t, tx.QueryRow(ctx, `INSERT INTO pools (chain_id,address,name,symbol,active)
+VALUES (100,$1,'Seal pool','SEAL',true) RETURNING id`, address).Scan(&poolID))
+
+	// No chain state yet → NULL, never a guessed zero.
+	pool, err := pg.GetPoolByAddress(ctx, tx, address)
+	require.NoError(t, err)
+	require.Nil(t, pool.SealState)
+
+	_, err = tx.Exec(ctx, `INSERT INTO pool_chain_state
+		(pool_id,default_fee_ppm,protocol_fee_ppm,seal_state,block_number)
+		VALUES ($1,0,0,11,42)`, poolID)
+	require.NoError(t, err)
+
+	pool, err = pg.GetPoolByAddress(ctx, tx, address)
+	require.NoError(t, err)
+	require.NotNil(t, pool.SealState)
+	require.Equal(t, int16(11), *pool.SealState)
+
+	// Both catalog page shapes carry it: the static statement and the
+	// composed filtered projection.
+	static, err := pg.ListPools(ctx, tx, 10)
+	require.NoError(t, err)
+	var saw bool
+	for _, p := range static {
+		if p.ID == poolID {
+			saw = true
+			require.NotNil(t, p.SealState)
+			require.Equal(t, int16(11), *p.SealState)
+		}
+	}
+	require.True(t, saw)
+	filtered, err := pg.ListPoolsFiltered(ctx, tx, CatalogFilter{Term: "Seal"}, CatalogFirstPage, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	require.NotNil(t, filtered[0].SealState)
+	require.Equal(t, int16(11), *filtered[0].SealState)
+}
+
 func TestRetiredPoolKeepsProtectedComposition(t *testing.T) {
 	pg, tx, cleanup := newMarketTestPg(t)
 	defer cleanup()

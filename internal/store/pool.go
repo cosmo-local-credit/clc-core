@@ -33,7 +33,12 @@ type (
 		// relative). NULL for imported pools and for deploys that predate
 		// migration 020 — the three quoters are indistinguishable over ERC-165,
 		// so nothing can reconstruct it after the fact.
-		QuoterType                   *string   `db:"quoter_type"                     json:"quoterType"`
+		QuoterType *string `db:"quoter_type"                     json:"quoterType"`
+		// SealState mirrors SwapPool.sealState() via pool_chain_state —
+		// the contract's freeze bitmask (registry/pool/fee bits). NULL
+		// until the chain reconciler has read this pool once; imported
+		// pools without chain state stay NULL rather than guessing 0.
+		SealState                    *int16    `db:"seal_state"                       json:"sealState"`
 		FeePolicyAddress             *string   `db:"fee_policy_address"              json:"feePolicyAddress"`
 		ProtocolFeeControllerAddress *string   `db:"protocol_fee_controller_address" json:"protocolFeeControllerAddress"`
 		FeesDecoupled                *bool     `db:"fees_decoupled"                  json:"feesDecoupled"`

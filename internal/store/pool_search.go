@@ -30,11 +30,12 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
-    p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    p.default_voucher_id, p.platform_contract_id, s.seal_state, p.created_at, p.updated_at,
     (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(pool_tag_list.tags, ARRAY[]::TEXT[]) AS tags
 FROM page
 INNER JOIN pools p ON p.id = page.id
+LEFT JOIN pool_chain_state s ON s.pool_id = p.id
 LEFT JOIN LATERAL (
     SELECT array_agg(pt.tag_value ORDER BY pt.tag_value) AS tags
     FROM pool_tags pt

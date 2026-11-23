@@ -1485,13 +1485,14 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
-    p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    p.default_voucher_id, p.platform_contract_id, s.seal_state, p.created_at, p.updated_at,
     (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
+LEFT JOIN pool_chain_state s ON s.pool_id = p.id
 WHERE p.active
-GROUP BY p.id
+GROUP BY p.id, s.pool_id
 ORDER BY p.id DESC
 LIMIT $1;
 
@@ -1503,13 +1504,14 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
-    p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    p.default_voucher_id, p.platform_contract_id, s.seal_state, p.created_at, p.updated_at,
     (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
+LEFT JOIN pool_chain_state s ON s.pool_id = p.id
 WHERE p.active AND p.id < $1
-GROUP BY p.id
+GROUP BY p.id, s.pool_id
 ORDER BY p.id DESC
 LIMIT $2;
 
@@ -1522,13 +1524,14 @@ SELECT * FROM (
         p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
         p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
         p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
-        p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+        p.default_voucher_id, p.platform_contract_id, s.seal_state, p.created_at, p.updated_at,
         (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
         COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
     FROM pools p
     LEFT JOIN pool_tags pt ON pt.pool_id = p.id
+    LEFT JOIN pool_chain_state s ON s.pool_id = p.id
     WHERE p.active AND p.id > $1
-    GROUP BY p.id
+    GROUP BY p.id, s.pool_id
     ORDER BY p.id ASC
     LIMIT $2
 ) page
@@ -1543,13 +1546,14 @@ SELECT p.id, p.chain_id, p.address, COALESCE(p.display_name, p.name) AS name,
     p.fee_policy_address, p.protocol_fee_controller_address, p.fees_decoupled,
     p.decimals, p.description, p.unit_of_account, p.location_name, p.geo_lat, p.geo_lng,
     p.email, p.website, p.phone, p.image_url, p.banner_url, p.terms,
-    p.default_voucher_id, p.platform_contract_id, p.created_at, p.updated_at,
+    p.default_voucher_id, p.platform_contract_id, s.seal_state, p.created_at, p.updated_at,
     (SELECT COUNT(*) FROM pool_tokens pv JOIN vouchers member ON member.id = pv.voucher_id AND member.active WHERE pv.pool_id = p.id AND pv.is_allowed) AS voucher_count,
     COALESCE(array_agg(pt.tag_value ORDER BY pt.tag_value) FILTER (WHERE pt.tag_value IS NOT NULL), ARRAY[]::TEXT[]) AS tags
 FROM pools p
 LEFT JOIN pool_tags pt ON pt.pool_id = p.id
+LEFT JOIN pool_chain_state s ON s.pool_id = p.id
 WHERE lower(p.address) = lower($1)
-GROUP BY p.id;
+GROUP BY p.id, s.pool_id;
 
 -- The owner profile route authorizes from this row and writes it in the same
 -- transaction. Imported pools may have no owner; only an administrator may manage
