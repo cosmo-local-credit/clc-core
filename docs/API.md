@@ -7465,7 +7465,8 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 `publicProfile` write object contains boolean publication choices:
 `enabled`, `avatar`, `name`, `bio`, `website`, `email`, `phone`, `country`,
 `locationName`, `preciseLocation`, `preferredCurrency`, `vouchers`, `offers`,
-`wants`, `pools`, `posts`, `catalogs`, and `activity`.
+`wants`, `pools`, `posts`, and `catalogs`. The deprecated `activity` field is
+accepted and ignored on writes, and always returned as `false` for older clients.
 
 Omitting the object preserves all choices. A supplied object replaces the choices.
 Only the account owner may change publication settings; Admin profile corrections
@@ -7474,7 +7475,7 @@ must omit the object. A visibility-only save sends `visibilityOnly: true` with
 only publication choices and preserves all stored contact/profile fields, so
 legacy accounts can disable publication without supplying new personal data.
 Full detail edits retain their existing validation and write semantics. Defaults enable the profile, existing public avatar, and
-Vouchers/Offers/Wants/Pools/Catalogs. Posts authorship, Activity and additional
+Vouchers/Offers/Wants/Pools/Catalogs. Posts authorship and additional
 personal fields are opt-in. Selected email, phone and location require sign-in.
 These choices govern profile aggregation, not the visibility of public resources
 and blockchain data elsewhere.
@@ -7485,7 +7486,7 @@ and blockchain data elsewhere.
 |---|---|---|
 | GET | `/api/v2/profiles/:address` | `{profile}`: address, username, selected avatar/name/bio/website/country/unit, section switches and `hasPrivateDetails` |
 | GET | `/api/v2/profiles/:address/details` | Authenticated `{details}` containing only selected email, phone, location label and coordinates |
-| GET | `/api/v2/profiles/:address/:section` | `{items, nextCursor}` for vouchers, offers, wants, pools, posts or activity; use `/catalogs` for Catalogs |
+| GET | `/api/v2/profiles/:address/:section` | `{items, nextCursor}` for vouchers, offers, wants, pools, posts or catalogs |
 | GET | `/api/v2/profiles/resource/:kind/:id` | `{profiles}` for current direct owner or multisig signers; anonymous Post authors require explicit Posts consent |
 
 Public reads are cookie-independent and use `Cache-Control: no-store`. Selected
@@ -7498,9 +7499,9 @@ Section lists are global, independent of a viewer's map viewport. They accept
 `nextCursor` is a decimal string or `null` at the end. Voucher/Pool management
 includes current same-chain Safe signers. Offers follow their parent Voucher's
 current owner, rather than their historical seller. Posts expose only approved
-content after the owner opts into authorship association. Public Activity contains
-confirmed indexed transaction IDs, hashes, chain ID, timestamp and kind; it omits
-private notes, attachment indicators, relay records and app-only valuations.
+content after the owner opts into authorship association. The retired
+`/api/v2/profiles/:address/activity` route returns `404` with `Cache-Control: no-store`
+without querying transaction storage. Signed-in account Activity is unchanged.
 
 ### Editing and related Wants
 

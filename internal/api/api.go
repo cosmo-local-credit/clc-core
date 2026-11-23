@@ -294,9 +294,8 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/profiles/:address/pools", a.publicProfilePoolsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/profiles/:address/posts", a.publicProfilePostsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/profiles/:address/catalogs", a.publicProfileCatalogsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
-	if a.federationStore != nil {
-		router.GET(apiVersion+"/profiles/:address/activity", a.publicProfileActivityRouteHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
-	}
+	// Older clients receive a stable, uncached 404 for the retired public section.
+	router.GET(apiVersion+"/profiles/:address/activity", publicProfileNotFound, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
 
 	// Network pool catalog (imported + clc-core deploys; reads the pools
 	// table). Distinct from /users/me/pools which is

@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
@@ -45,14 +44,6 @@ type (
 		GeoLat       *float64 `json:"geoLat,omitempty"`
 		GeoLng       *float64 `json:"geoLng,omitempty"`
 	}
-
-	publicProfileActivityItem struct {
-		ID        uint64    `json:"id"`
-		TxHash    string    `json:"txHash"`
-		ChainID   int64     `json:"chainId"`
-		Timestamp time.Time `json:"timestamp"`
-		Kind      string    `json:"kind"`
-	}
 )
 
 func publicProfileNoStoreMiddleware() echo.MiddlewareFunc {
@@ -85,7 +76,6 @@ func projectPublicProfile(profile store.PublicProfile) publicProfileResponse {
 		Sections: publicProfileSections{
 			Vouchers: profile.Vouchers, Offers: profile.Offers, Wants: profile.Wants,
 			Pools: profile.Pools, Posts: profile.Posts, Catalogs: profile.Catalogs,
-			Activity: profile.Activity,
 		},
 		HasPrivateDetails: profileHasPrivateDetails(profile),
 	}
@@ -208,8 +198,6 @@ func profileSectionEnabled(profile store.PublicProfile, section string) bool {
 		return profile.Posts
 	case "catalogs":
 		return profile.Catalogs
-	case "activity":
-		return profile.Activity
 	default:
 		return false
 	}
@@ -219,9 +207,6 @@ func (a *API) publicProfileResourcesHandler(c *echo.Context, section string) err
 	address, err := bindProfileAddress(c)
 	if err != nil {
 		return a.handleValidateError(c, err)
-	}
-	if section == "activity" {
-		return a.publicProfileActivityHandler(c, address)
 	}
 	profile, err := a.loadPublicProfile(c, address)
 	if err != nil || !profileSectionEnabled(profile, section) {
@@ -288,56 +273,6 @@ func (a *API) publicProfilePostsHandler(c *echo.Context) error {
 
 func (a *API) publicProfileCatalogsHandler(c *echo.Context) error {
 	return a.publicProfileResourcesHandler(c, "catalogs")
-}
-
-func (a *API) publicProfileActivityRouteHandler(c *echo.Context) error {
-	return a.publicProfileResourcesHandler(c, "activity")
-}
-
-func (a *API) publicProfileActivityHandler(c *echo.Context, address string) error {
-	if a.federationStore == nil {
-		return c.JSON(http.StatusServiceUnavailable, apiresp.ErrResponse{
-			Ok: false, ErrCode: apiresp.ErrCodeInternalServerError, Description: "activity is unavailable",
-		})
-	}
-	profile, err := a.loadPublicProfile(c, address)
-	if err != nil || !profile.Activity {
-		if err == nil || errors.Is(err, pgx.ErrNoRows) {
-			return publicProfileNotFound(c)
-		}
-		return handlePostgresError(c, err)
-	}
-	request := apiresp.CursorPaginationRequest{}
-	if err := c.Bind(&request); err != nil {
-		return handleBindError(c, err)
-	}
-	page := normalizePaginationWithMax(request, 50)
-	var cursor *uint64
-	if page.Cursor > 0 {
-		value := page.Cursor
-		cursor = &value
-	}
-	rows, err := a.federationStore.ListPublicAccountActivity(c.Request().Context(), address, cursor, page.PerPage+1)
-	if err != nil {
-		return err
-	}
-	items := make([]publicProfileActivityItem, len(rows))
-	for i, row := range rows {
-		items[i] = publicProfileActivityItem{
-			ID: row.ID, TxHash: row.TxHash, ChainID: a.chainID,
-			Timestamp: row.DateBlock, Kind: row.Kind,
-		}
-	}
-	var nextCursor *string
-	if uint64(len(items)) > page.PerPage {
-		value := strconv.FormatUint(items[page.PerPage-1].ID, 10)
-		nextCursor = &value
-		items = items[:page.PerPage]
-	}
-	return c.JSON(http.StatusOK, apiresp.OKResponse{
-		Ok: true, Description: "Public profile activity",
-		Result: map[string]any{"items": items, "nextCursor": nextCursor},
-	})
 }
 
 func (a *API) publicResourceProfilesHandler(c *echo.Context) error {

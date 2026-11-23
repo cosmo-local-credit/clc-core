@@ -996,7 +996,7 @@ UPDATE users SET
     public_profile_pools = $16,
     public_profile_posts = $17,
     public_profile_catalogs = $18,
-    public_profile_activity = $19
+    public_profile_activity = FALSE
 WHERE lower(blockchain_address) = lower($1::TEXT);
 
 --name: get-profile-visibility
@@ -1006,7 +1006,7 @@ SELECT public_profile_enabled, public_profile_avatar, public_profile_name,
     public_profile_location_name, public_profile_precise_location,
     public_profile_preferred_currency, public_profile_vouchers,
     public_profile_offers, public_profile_wants, public_profile_pools,
-    public_profile_posts, public_profile_catalogs, public_profile_activity
+    public_profile_posts, public_profile_catalogs, FALSE AS public_profile_activity
 FROM users
 WHERE lower(blockchain_address) = lower($1::TEXT);
 
@@ -1020,7 +1020,7 @@ SELECT u.id, u.blockchain_address AS address, u.username, u.name,
     u.public_profile_location_name, u.public_profile_precise_location,
     u.public_profile_preferred_currency, u.public_profile_vouchers,
     u.public_profile_offers, u.public_profile_wants, u.public_profile_pools,
-    u.public_profile_posts, u.public_profile_catalogs, u.public_profile_activity
+    u.public_profile_posts, u.public_profile_catalogs, FALSE AS public_profile_activity
 FROM users u
 WHERE lower(u.blockchain_address) = lower($1::TEXT)
   AND u.status = 'APPROVED'

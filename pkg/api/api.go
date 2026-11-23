@@ -438,7 +438,8 @@ type (
 		Pools             bool `json:"pools"`
 		Posts             bool `json:"posts"`
 		Catalogs          bool `json:"catalogs"`
-		Activity          bool `json:"activity"`
+		// Legacy compatibility field; accepted from older clients, ignored, and returned false.
+		Activity bool `json:"activity"`
 	}
 
 	// UpdateProfileRequest carries optional profile fields. Omitted location
