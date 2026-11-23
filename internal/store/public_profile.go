@@ -36,7 +36,8 @@ type (
 		Pools             bool `db:"public_profile_pools"              json:"pools"`
 		Posts             bool `db:"public_profile_posts"              json:"posts"`
 		Catalogs          bool `db:"public_profile_catalogs"           json:"catalogs"`
-		Activity          bool `db:"public_profile_activity"           json:"activity"`
+		// Legacy compatibility field; always false because public transaction activity is retired.
+		Activity bool `db:"public_profile_activity"           json:"activity"`
 	}
 
 	PublicProfile struct {
@@ -92,8 +93,7 @@ func (pg *Pg) UpdateProfileVisibility(ctx context.Context, tx pgx.Tx, address st
 		visibility.Bio, visibility.Website, visibility.Email, visibility.Phone,
 		visibility.Country, visibility.LocationName, visibility.PreciseLocation,
 		visibility.PreferredCurrency, visibility.Vouchers, visibility.Offers,
-		visibility.Wants, visibility.Pools, visibility.Posts, visibility.Catalogs,
-		visibility.Activity)
+		visibility.Wants, visibility.Pools, visibility.Posts, visibility.Catalogs)
 	if err != nil {
 		return err
 	}

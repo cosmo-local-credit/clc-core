@@ -59,7 +59,6 @@ func profileUpdateFromRequest(address string, req apiresp.UpdateProfileRequest) 
 			Vouchers:          req.PublicProfile.Vouchers, Offers: req.PublicProfile.Offers,
 			Wants: req.PublicProfile.Wants, Pools: req.PublicProfile.Pools,
 			Posts: req.PublicProfile.Posts, Catalogs: req.PublicProfile.Catalogs,
-			Activity: req.PublicProfile.Activity,
 		}
 	}
 
@@ -388,7 +387,6 @@ func (a *API) profileVisibilityUpdateHandler(
 		Vouchers:          requested.Vouchers, Offers: requested.Offers,
 		Wants: requested.Wants, Pools: requested.Pools,
 		Posts: requested.Posts, Catalogs: requested.Catalogs,
-		Activity: requested.Activity,
 	}
 	if err := a.store.UpdateProfileVisibility(ctx, tx, address, visibility); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

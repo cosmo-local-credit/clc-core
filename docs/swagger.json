@@ -20603,7 +20603,7 @@
           }
         ],
         "security": [],
-        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent.",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -20709,7 +20709,7 @@
           }
         ],
         "security": [],
-        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent.",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -20815,7 +20815,7 @@
           }
         ],
         "security": [],
-        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent.",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -20921,7 +20921,7 @@
           }
         ],
         "security": [],
-        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent.",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -21027,7 +21027,7 @@
           }
         ],
         "security": [],
-        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent.",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -21133,7 +21133,7 @@
           }
         ],
         "security": [],
-        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
+        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent.",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -21163,112 +21163,6 @@
                           "type": "array",
                           "items": {
                             "$ref": "#/components/schemas/PublicProfileResource"
-                          }
-                        },
-                        "nextCursor": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "items",
-                        "nextCursor"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "ok",
-                    "result"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
-          }
-        }
-      }
-    },
-    "/api/v2/profiles/{address}/activity": {
-      "get": {
-        "tags": [
-          "Public profiles"
-        ],
-        "summary": "List public profile activity",
-        "operationId": "getPublicProfileActivity",
-        "parameters": [
-          {
-            "name": "address",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "pattern": "^0x[0-9a-fA-F]{40}$"
-            }
-          },
-          {
-            "name": "perPage",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 50
-            },
-            "description": "The app requests 20 rows."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "pattern": "^[0-9]+$"
-            },
-            "description": "Use the previous response nextCursor."
-          }
-        ],
-        "security": [],
-        "description": "Global profile-scoped list, independent of viewer map bounds. The master and section publication choices are checked on every request. Voucher/Pool ownership includes current same-chain Safe signers. Offers follow the current parent Voucher owner. Posts require explicit authorship consent. Activity contains confirmed indexed chain facts only.",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "headers": {
-              "Cache-Control": {
-                "schema": {
-                  "type": "string"
-                },
-                "example": "no-store"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "const": true
-                    },
-                    "description": {
-                      "type": "string"
-                    },
-                    "result": {
-                      "type": "object",
-                      "properties": {
-                        "items": {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/PublicProfileActivity"
                           }
                         },
                         "nextCursor": {
@@ -23511,10 +23405,12 @@
           },
           "activity": {
             "type": "boolean",
-            "default": false
+            "default": false,
+            "deprecated": true,
+            "description": "Ignored on writes; always false. Public profile transaction activity is retired."
           }
         },
-        "description": "Assign-all publication choices when supplied by the account owner. Omission preserves stored choices. Posts authorship, Activity and additional personal details are opt-in; email, phone and location require authenticated viewers.",
+        "description": "Assign-all publication choices when supplied by the account owner. Omission preserves stored choices. Posts authorship and additional personal details are opt-in; email, phone and location require authenticated viewers.",
         "required": [
           "enabled",
           "avatar",
@@ -23532,8 +23428,7 @@
           "wants",
           "pools",
           "posts",
-          "catalogs",
-          "activity"
+          "catalogs"
         ]
       },
       "PublicProfile": {
@@ -23588,7 +23483,9 @@
                 "type": "boolean"
               },
               "activity": {
-                "type": "boolean"
+                "type": "boolean",
+                "deprecated": true,
+                "description": "Always false. Public profile transaction activity is retired."
               }
             },
             "required": [
@@ -23683,41 +23580,6 @@
           "resourceId",
           "name",
           "management"
-        ]
-      },
-      "PublicProfileActivity": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "txHash": {
-            "type": "string",
-            "pattern": "^0x[0-9a-fA-F]{64}$"
-          },
-          "chainId": {
-            "type": "integer"
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "creation",
-              "sent",
-              "received",
-              "swapped"
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "txHash",
-          "chainId",
-          "timestamp",
-          "kind"
         ]
       },
       "WantWrite": {

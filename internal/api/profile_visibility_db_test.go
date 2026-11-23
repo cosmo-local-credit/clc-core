@@ -61,7 +61,7 @@ func TestProfileVisibilityOnlyPreservesLegacyProfileFieldsDB(t *testing.T) {
         FROM users WHERE id=$1`, ownerID).Scan(&enabled, &avatar, &activity))
 	require.False(t, enabled)
 	require.False(t, avatar)
-	require.True(t, activity)
+	require.False(t, activity, "legacy activity opt-ins must be ignored")
 
 	res, _ = postJSON(t, a, ownerToken, "/auth/profile", map[string]any{"visibilityOnly": true})
 	require.Equal(t, http.StatusBadRequest, res.Code, res.Body.String())

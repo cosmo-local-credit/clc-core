@@ -28,15 +28,6 @@ type (
 		voucher, pool                                         string
 		request                                               uint64
 	}
-
-	publicProfileActivityBoundarySource struct {
-		store.FederationStore
-
-		rows    []store.PublicAccountActivity
-		calls   int
-		address string
-		limit   uint64
-	}
 )
 
 func newPublicProfileBoundary(t *testing.T) *publicProfileBoundary {
@@ -388,73 +379,42 @@ func TestPublicProfileBoundaryCurrentSafeOwnership(t *testing.T) {
 	}
 }
 
-func (s *publicProfileActivityBoundarySource) ListPublicAccountActivity(_ context.Context, address string, cursor *uint64, limit uint64) ([]store.PublicAccountActivity, error) {
-	s.calls++
-	s.address, s.limit = address, limit
-	rows := []store.PublicAccountActivity{}
-	for _, row := range s.rows {
-		if cursor != nil && row.ID >= *cursor {
-			continue
-		}
-		rows = append(rows, row)
-		if uint64(len(rows)) == limit {
-			break
-		}
-	}
-	return rows, nil
-}
-
-func TestPublicProfileActivityHTTPBoundaryDB(t *testing.T) {
+func TestRetiredPublicProfileActivityHTTPBoundaryDB(t *testing.T) {
 	f := newPublicProfileBoundary(t)
-	source := &publicProfileActivityBoundarySource{rows: []store.PublicAccountActivity{
-		{ID: 3000000, TxHash: "0xswap", Kind: "swapped"},
-		{ID: 2000000, TxHash: "0xsent", Kind: "sent"},
-		{ID: 1000000, TxHash: "0xreceived", Kind: "received"},
-	}}
-	// Register the real optional route by constructing the API with its source.
-	// Core profile consent still runs through PostgreSQL; source SQL itself is
-	// covered by TestPublicProfileActivityQueryPrivacyPaginationAndPlansDB.
-	f.a = New(APIOpts{Logg: f.a.logg, Store: f.a.store, SigningKey: f.a.signingKey, VerifyingKey: f.a.verifyingKey, ChainID: 100, FederationStore: source})
-	path := "/api/v2/profiles/" + f.owner.Address + "/activity?perPage=1"
-	hidden := f.get(path, "")
-	require.Equal(t, http.StatusNotFound, hidden.Code, hidden.Body.String())
-	require.Equal(t, "no-store", hidden.Header().Get("Cache-Control"))
-	require.Zero(t, source.calls, "disabled Activity must not touch transaction storage")
+	ctx, db := t.Context(), f.a.store.Pool()
+	// Historical opt-ins must be suppressed before the account next saves.
+	_, err := db.Exec(ctx, `UPDATE users SET public_profile_activity=true WHERE id=$1`, f.owner.ID)
+	require.NoError(t, err)
+	path := "/api/v2/profiles/" + f.owner.Address
+	for _, token := range []string{"", f.viewer.Token, "forged-session"} {
+		res := f.get(path, token)
+		header := resourceResultObject(t, res, "profile")
+		var sections map[string]bool
+		require.NoError(t, json.Unmarshal(header["sections"], &sections))
+		require.Contains(t, sections, "activity", "cached clients require the compatibility field")
+		require.False(t, sections["activity"])
+		require.True(t, sections["vouchers"])
+	}
+	own := resourceResultObject(t, f.get("/auth/profile", f.owner.Token), "publicProfile")
+	require.Equal(t, json.RawMessage("false"), own["activity"])
 	visibility := profileBoundaryVisibility()
-	visibility.Activity = true
+	visibility.Activity, visibility.Posts = true, true
 	f.publish(visibility)
-	first := f.get(path, "")
-	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
-	require.Equal(t, "no-store", first.Header().Get("Cache-Control"))
-	require.Equal(t, f.owner.Address, source.address)
-	require.Equal(t, uint64(2), source.limit, "one lookahead item bounds pagination")
-	var envelope struct {
-		Result struct {
-			Items []map[string]json.RawMessage `json:"items"`
-			Next  *string                      `json:"nextCursor"`
-		} `json:"result"`
+	var activity, posts bool
+	require.NoError(t, db.QueryRow(ctx, `SELECT public_profile_activity,public_profile_posts FROM users WHERE id=$1`, f.owner.ID).Scan(&activity, &posts))
+	require.False(t, activity)
+	require.True(t, posts, "remaining publication preferences must still save")
+
+	// Removing both stores proves the tombstone route has no database dependency.
+	originalStore, originalFederation := f.a.store, f.a.federationStore
+	f.a.store, f.a.federationStore = nil, nil
+	defer func() { f.a.store, f.a.federationStore = originalStore, originalFederation }()
+	key, ok := f.a.signingKey.(ed25519.PrivateKey)
+	require.True(t, ok)
+	for _, token := range []string{"", f.owner.Token, f.viewer.Token, "forged-session", offeringServiceToken(t, key)} {
+		res := f.get(path+"/activity?perPage=20", token)
+		require.Equal(t, http.StatusNotFound, res.Code, res.Body.String())
+		require.Equal(t, "no-store", res.Header().Get("Cache-Control"))
+		require.NotContains(t, res.Body.String(), "items")
 	}
-	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &envelope))
-	require.Len(t, envelope.Result.Items, 1)
-	require.Len(t, envelope.Result.Items[0], 5, "private transaction metadata must remain absent")
-	for _, key := range []string{"id", "txHash", "chainId", "timestamp", "kind"} {
-		require.Contains(t, envelope.Result.Items[0], key)
-	}
-	require.NotNil(t, envelope.Result.Next)
-	require.Equal(t, json.RawMessage("100"), envelope.Result.Items[0]["chainId"])
-	require.Equal(t, "3000000", *envelope.Result.Next)
-	second := f.get(path+"&cursor="+*envelope.Result.Next, f.viewer.Token)
-	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &envelope))
-	require.NotNil(t, envelope.Result.Next)
-	require.Equal(t, "2000000", *envelope.Result.Next)
-	third := f.get(path+"&cursor="+*envelope.Result.Next, "")
-	require.NoError(t, json.Unmarshal(third.Body.Bytes(), &envelope))
-	require.Len(t, envelope.Result.Items, 1)
-	require.Equal(t, json.RawMessage("1000000"), envelope.Result.Items[0]["id"])
-	require.Nil(t, envelope.Result.Next)
-	visibility.Activity = false
-	f.publish(visibility)
-	calls := source.calls
-	require.Equal(t, http.StatusNotFound, f.get(path, "").Code)
-	require.Equal(t, calls, source.calls)
 }
