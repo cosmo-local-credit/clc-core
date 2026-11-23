@@ -296,6 +296,12 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/pools/:address/offerings", a.poolOfferingsListHandler, a.poolCatalogMiddleware())
 	router.GET(apiVersion+"/pools/:address/wants", a.poolWantsListHandler, a.poolCatalogMiddleware())
 
+	// Public OTX status — minimal disclosure (aggregate outcome + mined
+	// tx hashes only; no raw transactions, signers, or nonces) for
+	// integrators holding a tracking ID without a service credential.
+	// The full chain stays on the authenticated /otx/track route.
+	router.GET(apiVersion+"/otx/status/:trackingId", a.trackOTXStatusHandler, a.marketRateLimitMiddleware())
+
 	// Protected routes — user JWT cookie or service JWT header/cookie required
 	apiGroup := router.Group(apiVersion)
 	apiGroup.Use(a.flexibleAuthMiddleware())

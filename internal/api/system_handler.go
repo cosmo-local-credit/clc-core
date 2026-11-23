@@ -119,6 +119,106 @@ func (a *API) trackOTXHandler(c *echo.Context) error {
 	})
 }
 
+// trackOTXStatusHandler godoc
+//
+//	@Summary		Public minimal-disclosure status for an OTX tracking ID
+//	@Description	Returns only the aggregate dispatch outcome and mined
+//	@Description	transaction hashes — never raw transactions, signer
+//	@Description	accounts, or nonces. Exists for integrators that hold a
+//	@Description	tracking ID but no service credential; the full chain
+//	@Description	stays on the authenticated /otx/track/{trackingId}.
+//	@Tags			OTX
+//	@Produce		json
+//	@Param			trackingId	path		string	true	"Tracking ID"
+//	@Success		200			{object}	apiresp.OKResponse
+//	@Failure		404			{object}	apiresp.ErrResponse
+//	@Failure		410			{object}	apiresp.ErrResponse
+//	@Router			/otx/status/{trackingId} [get]
+func (a *API) trackOTXStatusHandler(c *echo.Context) error {
+	ctx := c.Request().Context()
+	trackingID := c.Param("trackingId")
+
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	otxs, err := a.store.GetOTXByTrackingID(ctx, tx, trackingID)
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	if len(otxs) == 0 {
+		// Same terminal-failure read as the authenticated endpoint, so a
+		// discarded job answers 410 rather than looking pending forever.
+		failure, err := a.store.TrackingJobFailure(ctx, tx, trackingID, nil)
+		if err != nil {
+			return handlePostgresError(c, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return handlePostgresError(c, err)
+		}
+		if failure != nil {
+			return c.JSON(http.StatusGone, apiresp.ErrResponse{
+				Ok:          false,
+				ErrCode:     apiresp.ErrCodeTrackingFailed,
+				Description: trackingFailureDescription(failure),
+			})
+		}
+		return c.JSON(http.StatusNotFound, apiresp.ErrResponse{
+			Ok:          false,
+			ErrCode:     apiresp.ErrCodeNotFound,
+			Description: fmt.Sprintf("No tracking record for %s", trackingID),
+		})
+	}
+
+	// Aggregate the OTX chain: any SUCCESS confirms the tracking goal;
+	// settled non-success statuses with nothing still in flight read as
+	// failed; anything else is pending. tx_hash values are public chain
+	// data; raw_tx, signer accounts and nonces are deliberately absent.
+	status := "PENDING"
+	inFlight := false
+	txHashes := make([]string, 0, len(otxs))
+	latest := otxs[0].UpdatedAt
+	for _, o := range otxs {
+		if o.TxHash != "" {
+			txHashes = append(txHashes, o.TxHash)
+		}
+		if o.UpdatedAt.After(latest) {
+			latest = o.UpdatedAt
+		}
+		switch {
+		case o.DispatchStatus == store.SUCCESS:
+			status = "SUCCESS"
+		case !store.IsTerminalDispatchStatus(o.DispatchStatus):
+			inFlight = true
+		}
+	}
+	if status != "SUCCESS" {
+		if inFlight {
+			status = "PENDING"
+		} else {
+			status = "FAILED"
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return handlePostgresError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, apiresp.OKResponse{
+		Ok:          true,
+		Description: fmt.Sprintf("OTX status for tracking ID %s", trackingID),
+		Result: map[string]any{
+			"trackingId": trackingID,
+			"status":     status,
+			"txHashes":   txHashes,
+			"updatedAt":  latest.UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+		},
+	})
+}
+
 // trackContractHandler returns the deployed contract (token or pool) for a given tracking ID.
 // Returns 204 No Content when the deployment has not completed yet.
 func (a *API) trackContractHandler(c *echo.Context) error {
