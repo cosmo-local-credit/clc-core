@@ -639,4 +639,7 @@ const (
 	// ErrCodeCursorStale: the route listing changed between pages; restart from
 	// the first page (HTTP 409).
 	ErrCodeCursorStale = "E28"
+	// ErrCodeSafeQuotaExhausted: the upstream Safe account's monthly request
+	// quota is exhausted (HTTP 429).
+	ErrCodeSafeQuotaExhausted = "E29"
 )

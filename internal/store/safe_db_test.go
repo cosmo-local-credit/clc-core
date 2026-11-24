@@ -141,11 +141,6 @@ func TestSafeApprovalMilestonesAndResourcesDB(t *testing.T) {
 	_, err = pg.ReplaceSafeSigners(ctx, tx, 42220, safeAddr, []string{signer}, 1, 10, 0)
 	require.NoError(t, err)
 
-	states, err := pg.ListSafeStates(ctx, tx, 42220)
-	require.NoError(t, err)
-	require.Len(t, states, 1)
-	require.Equal(t, lower(safeAddr), states[0].Address)
-
 	resources, err := pg.ListSafeApprovalResources(ctx, tx, 42220, safeAddr, []string{registry, token}, false)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []SafeApprovalResource{

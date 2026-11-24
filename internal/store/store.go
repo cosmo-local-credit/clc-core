@@ -85,7 +85,6 @@ type (
 		ReplaceSafeSigners(context.Context, pgx.Tx, int64, string, []string, int, uint64, uint64) (bool, error)
 		GetSafeState(context.Context, pgx.Tx, int64, string) (SafeState, error)
 		ListSafesSignedBy(context.Context, pgx.Tx, int64, string) ([]SafeState, error)
-		ListSafeStates(context.Context, pgx.Tx, int64) ([]SafeState, error)
 		ListOwnerMessageTargets(context.Context, pgx.Tx, int64, string) ([]OwnerMessageTarget, error)
 		ListSafeApprovalResources(context.Context, pgx.Tx, int64, string, []string, bool) ([]SafeApprovalResource, error)
 		RecordSafeApprovalMilestone(context.Context, pgx.Tx, int64, string, string, string, time.Time) (bool, error)

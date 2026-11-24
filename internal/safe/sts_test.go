@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	stsTx = `{"safe":"0x1111111111111111111111111111111111111111","to":"0x2222222222222222222222222222222222222222",
+	stsSafe = "0x1111111111111111111111111111111111111111"
+	stsHash = "0x1111111111111111111111111111111111111111111111111111111111111111"
+	stsTx   = `{"safe":"0x1111111111111111111111111111111111111111","to":"0x2222222222222222222222222222222222222222",
 "value":"0","data":null,"operation":0,"gasToken":"0x0000000000000000000000000000000000000000","safeTxGas":0,"baseGas":0,
 "gasPrice":"0","refundReceiver":null,"nonce":5,"isExecuted":false,"isSuccessful":null,"transactionHash":null,
-"safeTxHash":"0xabc","confirmationsRequired":2,
+"safeTxHash":"` + stsHash + `","confirmationsRequired":2,
 "confirmations":[{"owner":"0xA1","signature":"0x11","submissionDate":"2026-10-25T10:00:00Z"}]}`
 )
 
@@ -46,7 +48,7 @@ func TestSTSSendsKeyOnlyAsBearerAndNeverInErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		_, _ = io.WriteString(w, `{"nonce":["already used"]}`)
+		_, _ = io.WriteString(w, `{"nonce":["already used"],"echoed_token":"s3cret"}`)
 	}))
 	defer srv.Close()
 
@@ -126,26 +128,53 @@ func TestSTSProposeChecksumsAddresses(t *testing.T) {
 	}
 }
 
-func TestSTSQueuedAndNonce(t *testing.T) {
+func TestSTSQueuedFiltersByNonce(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/safes/0xsafe/":
-			_, _ = io.WriteString(w, `{"nonce":4,"threshold":2}`)
-		default:
-			if r.URL.Query().Get("nonce__gte") != "4" {
-				t.Errorf("query %s", r.URL.RawQuery)
-			}
-			_, _ = io.WriteString(w, `{"count":1,"results":[`+stsTx+`]}`)
+		if r.URL.Path != "/api/v1/safes/"+stsSafe+"/multisig-transactions/" {
+			t.Errorf("path %s", r.URL.Path)
 		}
+		q := r.URL.Query()
+		if q.Get("nonce__gte") != "4" || q.Get("executed") != "false" || q.Get("ordering") != "nonce" {
+			t.Errorf("query %s", r.URL.RawQuery)
+		}
+		_, _ = io.WriteString(w, `{"count":1,"results":[`+stsTx+`]}`)
 	}))
 	defer srv.Close()
-	c := NewSTS(srv.URL, "")
-	if n, err := c.Nonce(context.Background(), "0xsafe"); err != nil || n != "4" {
-		t.Fatalf("nonce %q %v", n, err)
-	}
-	list, err := c.Queued(context.Background(), "0xsafe", "4")
+	list, err := NewSTS(srv.URL, "").Queued(t.Context(), stsSafe, "4")
 	if err != nil || len(list) != 1 {
 		t.Fatalf("%v %v", list, err)
+	}
+}
+
+func TestSTSQueuedDistinguishesEmptyFromMalformed(t *testing.T) {
+	const differentSafe = "0x2222222222222222222222222222222222222222"
+	tests := map[string]string{
+		"empty body":     "",
+		"missing rows":   `{"count":0}`,
+		"null rows":      `{"results":null}`,
+		"wrong shape":    `{"results":{}}`,
+		"null row":       `{"results":[null]}`,
+		"different Safe": `{"results":[` + strings.Replace(stsTx, stsSafe, differentSafe, 1) + `]}`,
+		"bad hash":       `{"results":[` + strings.Replace(stsTx, stsHash, "0xabc", 1) + `]}`,
+		"missing nonce":  `{"results":[` + strings.Replace(stsTx, `"nonce":5,`, "", 1) + `]}`,
+		"empty queue":    `{"count":0,"results":[]}`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, body)
+			}))
+			defer srv.Close()
+
+			list, err := NewSTS(srv.URL, "").Queued(t.Context(), stsSafe, "4")
+			if name == "empty queue" {
+				if err != nil || list == nil || len(list) != 0 {
+					t.Fatalf("expected a valid empty queue, got %v %v", list, err)
+				}
+			} else if err == nil || list != nil {
+				t.Fatalf("accepted malformed queue, got %v %v", list, err)
+			}
+		})
 	}
 }
 

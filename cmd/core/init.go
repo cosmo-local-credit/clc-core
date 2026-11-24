@@ -148,7 +148,7 @@ func loadRegistry(chainProvider *ethutils.Provider) common.Address {
 	return accountIndex
 }
 
-func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer, accountIndexAddress common.Address, pubInst *pub.Pub) *worker.WorkerContainer {
+func loadWorker(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, gasOracle gas.GasOracle, relayerInst *relayer.Relayer, accountIndexAddress common.Address, pubInst *pub.Pub, safeQuota *safe.STSQuota) *worker.WorkerContainer {
 	maxWorkers := ko.Int("workers.max")
 	if maxWorkers <= 0 {
 		maxWorkers = runtime.NumCPU() * 2
@@ -164,11 +164,12 @@ func loadWorker(pgStore store.Store, federationStore store.FederationStore, chai
 		Relayer:             relayerInst,
 		AccountIndexAddress: accountIndexAddress,
 		ChainID:             ko.MustInt64("chain.id"),
-		SafeExecutor:        loadSafeExecutor(pgStore, chainProvider),
+		SafeExecutor:        loadSafeExecutor(pgStore, chainProvider, safeQuota),
 		MessagingPublisher:  pubInst,
 		SafeSTSURL:          ko.String("safe.sts_base_url"),
 		SafeSTSKey:          ko.String("safe.sts_api_key"),
 		SafeMultiSend:       ko.Strings("safe.multisend_call_only"),
+		SafeQuota:           safeQuota,
 	})
 	if err := workerContainer.Bootstrap(); err != nil {
 		lo.Error("could not initialize worker container", "error", err)
@@ -284,7 +285,7 @@ func loadPretium() *pretium.PretiumClient {
 	return pretium.New(baseURL)
 }
 
-func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer, relayerInst *relayer.Relayer, pretiumClient *pretium.PretiumClient, routerInst *router.Service) *api.API {
+func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainProvider *ethutils.Provider, workerContainer *worker.WorkerContainer, relayerInst *relayer.Relayer, pretiumClient *pretium.PretiumClient, routerInst *router.Service, safeQuota *safe.STSQuota) *api.API {
 	privateKey, publicKey, err := util.LoadSigningKey(ko.MustString("api.private_key"))
 	if err != nil {
 		lo.Error("could not load signing key", "error", err)
@@ -310,6 +311,7 @@ func loadAPI(pgStore store.Store, federationStore store.FederationStore, chainPr
 		SafeMultiSend:   ko.Strings("safe.multisend_call_only"),
 		SafeSTSURL:      ko.String("safe.sts_base_url"),
 		SafeSTSKey:      ko.String("safe.sts_api_key"),
+		SafeQuota:       safeQuota,
 		SafeAutoExecute: safeAutoExecute(),
 		Router:          routerInst,
 		RouteDeadlineHorizon: time.Duration(
@@ -420,7 +422,7 @@ func safeAutoExecute() bool {
 		len(ko.Strings("safe.multisend_call_only")) > 0
 }
 
-func loadSafeExecutor(pgStore store.Store, chainProvider *ethutils.Provider) *safe.Executor {
+func loadSafeExecutor(pgStore store.Store, chainProvider *ethutils.Provider, quota *safe.STSQuota) *safe.Executor {
 	if !safeAutoExecute() {
 		return nil
 	}
@@ -430,6 +432,6 @@ func loadSafeExecutor(pgStore store.Store, chainProvider *ethutils.Provider) *sa
 		multiSend = append(multiSend, common.HexToAddress(address))
 	}
 	policy := safe.NewPolicy(worker.NewSafeResolver(pgStore, chainID), multiSend, safe.DefaultAllowedSignatures)
-	sts := safe.NewSTS(ko.String("safe.sts_base_url"), ko.String("safe.sts_api_key"))
+	sts := safe.NewSTS(ko.String("safe.sts_base_url"), ko.String("safe.sts_api_key")).WithQuota(quota)
 	return safe.NewExecutor(chainID, policy, sts, safe.NewReader(chainProvider))
 }

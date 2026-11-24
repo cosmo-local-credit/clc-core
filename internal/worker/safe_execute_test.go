@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/ethereum/go-ethereum/common"
@@ -93,6 +94,16 @@ func TestSafeExecuteWorkerOutcomes(t *testing.T) {
 			prepare: &fakePreparer{err: errors.New("sts unavailable")},
 			check: func(t *testing.T, err error, sent []string) {
 				require.EqualError(t, err, "sts unavailable")
+				require.Empty(t, sent)
+			},
+		},
+		"waits for monthly quota recovery without sending": {
+			prepare: &fakePreparer{err: &safe.QuotaLimitError{Monthly: true, RetryAt: time.Now().Add(time.Hour)}},
+			check: func(t *testing.T, err error, sent []string) {
+				var snooze *river.JobSnoozeError
+				require.ErrorAs(t, err, &snooze)
+				require.Greater(t, snooze.Duration, 59*time.Minute)
+				require.LessOrEqual(t, snooze.Duration, time.Hour)
 				require.Empty(t, sent)
 			},
 		},

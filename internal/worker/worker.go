@@ -47,6 +47,7 @@ type (
 		MessagingPublisher *pub.Pub
 		SafeSTSURL         string
 		SafeSTSKey         string
+		SafeQuota          *safe.STSQuota
 		SafeMultiSend      []string
 	}
 
@@ -94,7 +95,7 @@ func New(o WorkerOpts) *WorkerContainer {
 			}
 		}
 		if len(addresses) > 0 {
-			wc.safeApprovalSTS = safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey)
+			wc.safeApprovalSTS = safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey).WithQuota(o.SafeQuota)
 			wc.safeApprovalPolicy = safe.NewPolicy(workerSafeResolver{wc: wc}, addresses, safe.DefaultAllowedSignatures)
 		}
 	}
@@ -126,13 +127,6 @@ func (w *WorkerContainer) Bootstrap() error {
 			func() (river.JobArgs, *river.InsertOpts) { return NonceReconcilerArgs{}, nil },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
-	}
-	if w.safeApprovalSTS != nil && w.safeApprovalPolicy != nil {
-		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
-			river.PeriodicInterval(safeApprovalReconcileInterval),
-			func() (river.JobArgs, *river.InsertOpts) { return SafeApprovalReconcileArgs{}, nil },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
 	}
 	w.queueClient, err = river.NewClient(riverPgxDriver, &river.Config{
 		Queues: map[string]river.QueueConfig{
@@ -240,9 +234,9 @@ func setupWorkers(wc *WorkerContainer) (*river.Workers, error) {
 		if err := river.AddWorkerSafely(workers, &SafeApprovalSyncWorker{wc: wc, sts: wc.safeApprovalSTS, policy: wc.safeApprovalPolicy}); err != nil {
 			return nil, err
 		}
-		if err := river.AddWorkerSafely(workers, &SafeApprovalReconcileWorker{wc: wc}); err != nil {
-			return nil, err
-		}
+	}
+	if err := river.AddWorkerSafely(workers, &SafeApprovalReconcileWorker{}); err != nil {
+		return nil, err
 	}
 
 	return workers, nil

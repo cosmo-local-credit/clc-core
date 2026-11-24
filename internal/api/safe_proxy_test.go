@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
+	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -38,6 +40,8 @@ type (
 		proposed     []string
 		confirmed    []string
 		queued       []safe.Transaction
+		queueNonces  []string
+		readbackErr  error
 		err          error
 	}
 
@@ -86,15 +90,17 @@ func (f *fakeSTS) Transaction(_ context.Context, hash string) (*safe.Transaction
 	if f.err != nil {
 		return nil, f.err
 	}
+	if f.readbackErr != nil {
+		return nil, f.readbackErr
+	}
 	if tx := f.transactions[strings.ToLower(hash)]; tx != nil {
 		return tx, nil
 	}
 	return f.stored, nil
 }
 
-func (f *fakeSTS) Nonce(context.Context, string) (string, error) { return "4", f.err }
-
-func (f *fakeSTS) Queued(context.Context, string, string) ([]safe.Transaction, error) {
+func (f *fakeSTS) Queued(_ context.Context, _ string, nonce string) ([]safe.Transaction, error) {
+	f.queueNonces = append(f.queueNonces, nonce)
 	return f.queued, f.err
 }
 
@@ -123,6 +129,9 @@ func newProxyFixture(t *testing.T, signersOK bool) *proxyFixture {
 			policy:  safe.NewPolicy(assetResolver{}, nil, safe.DefaultAllowedSignatures),
 			sts:     sts,
 			signers: fakeSigners{signers: []string{strings.ToLower(addr), proxyOther.Hex()}, ok: signersOK},
+			readNonce: func(context.Context, common.Address) (string, error) {
+				return "4", nil
+			},
 		},
 		sign: func(h common.Hash) string {
 			sig, _ := crypto.Sign(h[:], key)
@@ -161,6 +170,20 @@ func TestProposeAcceptsASignersPolicyCompliantTransaction(t *testing.T) {
 	if len(f.sts.proposed) != 1 || !strings.EqualFold(f.sts.proposed[0], req.SafeTxHash+":"+f.key) {
 		t.Fatalf("proposed %v", f.sts.proposed)
 	}
+}
+
+func TestProposeQueuesSignerNotificationWhenReadbackIsQuotaLimited(t *testing.T) {
+	f := newProxyFixture(t, true)
+	req := f.proposal(t, txFor(proxyAsset, ownershipCall()))
+	f.sts.readbackErr = &safe.QuotaLimitError{Monthly: true}
+	var jobs [][]string
+	f.svc.syncApproval = func(_ context.Context, address, hash, signer string) {
+		jobs = append(jobs, []string{address, hash, signer})
+	}
+	_, err := f.svc.propose(t.Context(), f.key, req)
+	require.Equal(t, http.StatusTooManyRequests, status(t, err))
+	require.Len(t, f.sts.proposed, 1)
+	require.Equal(t, [][]string{{proxySafe.Hex(), req.SafeTxHash, f.key}}, jobs)
 }
 
 func TestRejectProposesCanonicalSameNonceTransaction(t *testing.T) {
@@ -207,7 +230,7 @@ func TestRejectRetryRequeuesNotificationSyncWithoutDuplicateConfirmation(t *test
 	}
 	f.sts.queued = []safe.Transaction{original, existing}
 	synced := 0
-	f.svc.syncApproval = func(context.Context, string, string) { synced++ }
+	f.svc.syncApproval = func(context.Context, string, string, string) { synced++ }
 
 	_, err = f.svc.reject(context.Background(), f.key, originalHash.Hex(), safeRejectionRequest{
 		SafeTxHash: rejectionHash.Hex(), Signature: f.sign(rejectionHash), Tx: rejection,
@@ -374,6 +397,7 @@ func TestPendingAndTransactionRequireASigner(t *testing.T) {
 	if err != nil || len(results) != 1 {
 		t.Fatalf("pending %v, %v", results, err)
 	}
+	require.Equal(t, []string{"4"}, f.sts.queueNonces)
 	if _, err := f.svc.transaction(context.Background(), f.key, f.sts.stored.SafeTxHash); err != nil {
 		t.Fatal(err)
 	}
@@ -383,6 +407,7 @@ func TestPendingAndTransactionRequireASigner(t *testing.T) {
 	if got := status(t, err); got != 403 {
 		t.Fatalf("pending non-signer %d", got)
 	}
+	require.Equal(t, []string{"4"}, f.sts.queueNonces)
 	_, err = f.svc.transaction(context.Background(), f.key, f.sts.stored.SafeTxHash)
 	if got := status(t, err); got != 403 {
 		t.Fatalf("transaction non-signer %d", got)
@@ -390,6 +415,56 @@ func TestPendingAndTransactionRequireASigner(t *testing.T) {
 	_, err = f.svc.pending(context.Background(), f.key, "nope")
 	if got := status(t, err); got != 400 {
 		t.Fatalf("bad address %d", got)
+	}
+}
+
+func TestPendingSafeNonceFailureStopsBeforeQueueRead(t *testing.T) {
+	f := newProxyFixture(t, true)
+	f.svc.readNonce = func(_ context.Context, address common.Address) (string, error) {
+		require.Equal(t, proxySafe, address)
+		return "", errors.New("RPC unavailable")
+	}
+	rows, err := f.svc.pending(t.Context(), f.key, proxySafe.Hex())
+	require.Equal(t, http.StatusServiceUnavailable, status(t, err))
+	require.Nil(t, rows)
+	require.Empty(t, f.sts.queueNonces)
+}
+
+func TestPendingSafeQuotaHTTPResponse(t *testing.T) {
+	reset := time.Date(2026, 11, 25, 17, 50, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name       string
+		limit      safe.QuotaLimitError
+		code       string
+		retryAfter string
+	}{
+		{"monthly reset", safe.QuotaLimitError{Monthly: true, ResetAt: reset, RetryAt: reset}, apiresp.ErrCodeSafeQuotaExhausted, reset.Format(http.TimeFormat)},
+		{"unknown monthly reset", safe.QuotaLimitError{Monthly: true, RetryAt: reset}, apiresp.ErrCodeSafeQuotaExhausted, ""},
+		{"short throttle", safe.QuotaLimitError{RetryAt: reset}, apiresp.ErrCodeLimitExceeded, reset.Format(http.TimeFormat)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newProxyFixture(t, true)
+			f.sts.err = &tc.limit
+			a := &API{safeProxy: f.svc}
+			e := echo.New()
+			e.GET("/api/v2/safe/:address/pending", func(c *echo.Context) error {
+				c.Set("callerAddress", f.key)
+				return a.safePendingHandler(c)
+			})
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v2/safe/"+proxySafe.Hex()+"/pending", nil))
+			require.Equal(t, http.StatusTooManyRequests, rec.Code)
+			require.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+			require.Equal(t, tc.retryAfter, rec.Header().Get("Retry-After"))
+			if tc.retryAfter != "" {
+				require.Equal(t, "Retry-After", rec.Header().Get("Access-Control-Expose-Headers"))
+			}
+			var body apiresp.ErrResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.False(t, body.Ok)
+			require.Equal(t, tc.code, body.ErrCode)
+			require.Equal(t, []string{"4"}, f.sts.queueNonces)
+		})
 	}
 }
 

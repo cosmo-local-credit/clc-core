@@ -87,6 +87,15 @@ func (r *Reader) ReadSafeLatest(ctx context.Context, address common.Address) (*S
 	return state, head.Uint64(), err
 }
 
+// ReadNonce returns the Safe's current nonce without using the Transaction Service.
+func (r *Reader) ReadNonce(ctx context.Context, address common.Address) (string, error) {
+	var nonce big.Int
+	if err := r.provider.Client.CallCtx(ctx, eth.CallFunc(address, nonceFunc).Returns(&nonce)); err != nil {
+		return "", fmt.Errorf("safe: read nonce: %w", err)
+	}
+	return nonce.String(), nil
+}
+
 // ReadExecState reads the signer set, threshold and next nonce at one head
 // block, so an execution is judged against a single consistent state. Contract
 // signatures are verified at that block too.

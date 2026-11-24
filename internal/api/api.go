@@ -51,6 +51,7 @@ type (
 		// not mounted.
 		SafeSTSURL string
 		SafeSTSKey string
+		SafeQuota  *safe.STSQuota
 		// SafeAutoExecute has clc-core execute a proposal once its signers
 		// reach the threshold; the worker must run the matching executor.
 		SafeAutoExecute bool
@@ -149,16 +150,21 @@ func New(o APIOpts) *API {
 		a.safeProxy = &safeService{
 			chainID: o.ChainID,
 			policy:  a.safePolicy,
-			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey),
+			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey).WithQuota(o.SafeQuota),
 			signers: storeSafeSigners{a: a},
 		}
-		a.safeProxy.syncApproval = func(ctx context.Context, safeAddress, safeTxHash string) {
-			if err := worker.EnqueueSafeApprovalSync(ctx, a.queueClient, safeAddress, safeTxHash); err != nil {
+		a.safeProxy.syncApproval = func(ctx context.Context, safeAddress, safeTxHash, signer string) {
+			// Safe has accepted the action. A disconnected caller should still
+			// leave a job to reconcile the successful signature.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancel()
+			if err := worker.EnqueueSafeApprovalSync(ctx, a.queueClient, safeAddress, safeTxHash, signer); err != nil {
 				a.logg.Error("could not queue Safe approval notification sync", "safe", safeAddress, "safe_tx_hash", safeTxHash, "err", err)
 			}
 		}
 		if safeReader != nil {
 			a.safeProxy.contracts = safeReader.ContractVerifierLatest
+			a.safeProxy.readNonce = safeReader.ReadNonce
 		}
 		if o.SafeAutoExecute {
 			a.safeProxy.requestExecution = a.requestSafeExecution

@@ -185,7 +185,7 @@ func (w *SafeExecuteWorker) Work(ctx context.Context, job *river.Job[SafeExecute
 	case errors.Is(err, safe.ErrRejected):
 		return river.JobCancel(err)
 	case err != nil:
-		return err
+		return snoozeSafeQuota(err)
 	}
 	if !strings.EqualFold(exec.Safe.Hex(), job.Args.Safe) {
 		return river.JobCancel(fmt.Errorf("safe execution: transaction belongs to %s, not %s", exec.Safe.Hex(), job.Args.Safe))
