@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/util"
 	"github.com/knadh/koanf/v2"
 )
@@ -64,10 +65,11 @@ func main() {
 	accountIndexAddress := loadRegistry(chainProvider)
 	relayerComponent := loadRelayer(pgStore, chainProvider, gasOracleInst)
 	pubComponent, jsComponent := loadPub()
-	workerComponent := loadWorker(pgStore, federationStore, chainProvider, gasOracleInst, relayerComponent, accountIndexAddress, pubComponent)
+	safeQuota := safe.NewSTSQuota(lo)
+	workerComponent := loadWorker(pgStore, federationStore, chainProvider, gasOracleInst, relayerComponent, accountIndexAddress, pubComponent, safeQuota)
 	pretiumComponent := loadPretium()
 	routerComponent := loadRouter(pgStore, federationStore, chainProvider, relayerComponent)
-	apiComponent := loadAPI(pgStore, federationStore, chainProvider, workerComponent, relayerComponent, pretiumComponent, routerComponent)
+	apiComponent := loadAPI(pgStore, federationStore, chainProvider, workerComponent, relayerComponent, pretiumComponent, routerComponent, safeQuota)
 	subComponent := loadSub(pgStore, chainProvider, workerComponent, pubComponent, jsComponent, routerComponent)
 
 	lo.Info("starting clc-core", "build", build)

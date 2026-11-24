@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -19,8 +20,7 @@ import (
 )
 
 const (
-	safeApprovalReconcileInterval = 30 * time.Second
-	safeApprovalAudienceChunk     = 16
+	safeApprovalAudienceChunk = 16
 )
 
 var (
@@ -31,15 +31,17 @@ var (
 type (
 	safeApprovalSTS interface {
 		Transaction(context.Context, string) (*safe.Transaction, error)
-		Nonce(context.Context, string) (string, error)
 		Queued(context.Context, string, string) ([]safe.Transaction, error)
 	}
 
 	SafeApprovalSyncArgs struct {
 		SafeAddress string `json:"safeAddress"`
 		SafeTxHash  string `json:"safeTxHash,omitempty"`
+		Signer      string `json:"signer,omitempty"`
 	}
 
+	// SafeApprovalReconcileArgs identifies scheduled jobs from older releases
+	// so the new worker can drain them.
 	SafeApprovalReconcileArgs struct{}
 
 	SafeApprovalSyncWorker struct {
@@ -52,8 +54,6 @@ type (
 
 	SafeApprovalReconcileWorker struct {
 		river.WorkerDefaults[SafeApprovalReconcileArgs]
-
-		wc *WorkerContainer
 	}
 
 	workerSafeResolver struct{ wc *WorkerContainer }
@@ -69,19 +69,25 @@ func safeApprovalSyncInsertOpts() *river.InsertOpts {
 	}}}
 }
 
-func EnqueueSafeApprovalSync(ctx context.Context, queue *river.Client[pgx.Tx], safeAddress, safeTxHash string) error {
+func EnqueueSafeApprovalSync(ctx context.Context, queue *river.Client[pgx.Tx], safeAddress, safeTxHash, signer string) error {
 	if queue == nil {
 		return errors.New("safe approval sync: no queue client")
 	}
 	if !common.IsHexAddress(safeAddress) {
 		return errors.New("safe approval sync: invalid Safe address")
 	}
-	if safeTxHash != "" && len(safeTxHash) != 66 {
+	if len(safeTxHash) != 66 {
 		return errors.New("safe approval sync: invalid transaction hash")
 	}
+	if !common.IsHexAddress(signer) {
+		return errors.New("safe approval sync: invalid signer")
+	}
+	// River deduplicates by args. Key on the signer too so a local confirmation
+	// can schedule a fresh read even if the proposal's earlier sync is running.
 	_, err := queue.Insert(ctx, SafeApprovalSyncArgs{
 		SafeAddress: common.HexToAddress(safeAddress).Hex(),
 		SafeTxHash:  strings.ToLower(safeTxHash),
+		Signer:      strings.ToLower(signer),
 	}, safeApprovalSyncInsertOpts())
 	return err
 }
@@ -108,49 +114,32 @@ func (r workerSafeResolver) ManagesAsset(ctx context.Context, safeAddress, targe
 	return r.wc.store.SafeManagesAsset(ctx, tx, r.wc.chainID, safeAddress.Hex(), target.Hex())
 }
 
-func (w *SafeApprovalReconcileWorker) Work(ctx context.Context, _ *river.Job[SafeApprovalReconcileArgs]) error {
-	tx, err := w.wc.store.Pool().Begin(ctx)
-	if err != nil {
-		return err
-	}
-	states, err := w.wc.store.ListSafeStates(ctx, tx, w.wc.chainID)
-	if err != nil {
-		tx.Rollback(ctx)
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	for _, state := range states {
-		if err := EnqueueSafeApprovalSync(ctx, w.wc.queueClient, state.Address, ""); err != nil {
-			return err
-		}
-	}
+func (*SafeApprovalReconcileWorker) Work(context.Context, *river.Job[SafeApprovalReconcileArgs]) error {
 	return nil
 }
 
 func (w *SafeApprovalSyncWorker) Work(ctx context.Context, job *river.Job[SafeApprovalSyncArgs]) error {
-	if job.Args.SafeTxHash != "" {
-		tx, err := w.sts.Transaction(ctx, job.Args.SafeTxHash)
-		if err != nil {
-			return err
-		}
-		return w.syncTransaction(ctx, tx)
+	if job.Args.SafeTxHash == "" {
+		// Older reconcilers queued hashless jobs to scan a Safe's whole queue.
+		return nil
 	}
-	nonce, err := w.sts.Nonce(ctx, job.Args.SafeAddress)
+	tx, err := w.sts.Transaction(ctx, job.Args.SafeTxHash)
 	if err != nil {
-		return err
+		return snoozeSafeQuota(err)
 	}
-	txs, err := w.sts.Queued(ctx, job.Args.SafeAddress, nonce)
-	if err != nil {
-		return err
+	if job.Args.Signer != "" && (tx == nil || !slices.ContainsFunc(tx.Confirmations, func(confirmation safe.Confirmation) bool {
+		return strings.EqualFold(confirmation.Owner, job.Args.Signer)
+	})) {
+		return errors.New("safe approval sync: accepted signature not visible yet")
 	}
-	for i := range txs {
-		if err := w.syncTransaction(ctx, &txs[i]); err != nil {
-			return err
-		}
+	return snoozeSafeQuota(w.syncTransaction(ctx, tx))
+}
+
+func snoozeSafeQuota(err error) error {
+	if limit, ok := safe.QuotaFailure(err); ok && limit.Monthly {
+		return river.JobSnooze(max(time.Second, time.Until(limit.RetryAt)))
 	}
-	return nil
+	return err
 }
 
 func (w *SafeApprovalSyncWorker) syncTransaction(ctx context.Context, safeTx *safe.Transaction) error {
