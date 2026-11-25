@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cosmo-local-credit/clc-core/internal/safe"
 	"github.com/cosmo-local-credit/clc-core/internal/store"
@@ -29,7 +30,6 @@ type (
 		Propose(ctx context.Context, safe, safeTxHash, sender, signature string, f safe.TxFields) error
 		Confirm(ctx context.Context, safeTxHash, signature string) error
 		Transaction(ctx context.Context, safeTxHash string) (*safe.Transaction, error)
-		Nonce(ctx context.Context, safe string) (string, error)
 		Queued(ctx context.Context, safe, nonceGte string) ([]safe.Transaction, error)
 	}
 
@@ -46,16 +46,17 @@ type (
 	}
 
 	safeService struct {
-		chainID int64
-		policy  *safe.Policy
-		sts     safeSTSClient
-		signers safeSignerSource
+		chainID   int64
+		policy    *safe.Policy
+		sts       safeSTSClient
+		signers   safeSignerSource
+		readNonce func(context.Context, common.Address) (string, error)
 		// requestExecution queues or retries sponsored execution, while
 		// executionStates reports its durable lifecycle. Both nil leaves
 		// execution to the Safe app for backward-compatible deployments.
 		requestExecution func(ctx context.Context, safe, safeTxHash string) safe.ExecutionState
 		executionStates  func(ctx context.Context, safeTxHashes []string) map[string]safe.ExecutionState
-		syncApproval     func(ctx context.Context, safe, safeTxHash string)
+		syncApproval     func(ctx context.Context, safe, safeTxHash, signer string)
 		// contracts verifies contract (v 0) signatures against a Safe at the
 		// latest block; nil rejects them.
 		contracts func(safe common.Address) safe.ContractVerifier
@@ -87,12 +88,20 @@ type (
 		message string
 	}
 
+	proxyRateLimitError struct {
+		*proxyError
+
+		retryAt time.Time
+	}
+
 	// storeSafeSigners reads the persisted signer projection, discovering an
 	// existing multisig if needed.
 	storeSafeSigners struct{ a *API }
 )
 
 func (e *proxyError) Error() string { return e.message }
+
+func (e *proxyRateLimitError) Unwrap() error { return e.proxyError }
 
 func badRequest(msg string) error {
 	return &proxyError{http.StatusBadRequest, apiresp.ErrCodeValidationFailed, msg}
@@ -102,20 +111,42 @@ func forbidden(msg string) error {
 	return &proxyError{http.StatusForbidden, apiresp.ErrCodeForbidden, msg}
 }
 
-// upstreamError maps a Transaction Service failure. A 4xx is the service
-// refusing the content (a used nonce, a duplicate): the caller's conflict, not
-// an outage. Everything else is a bad gateway.
+// upstreamError maps provider throttling separately from transaction conflicts.
 func upstreamError(err error) error {
+	if limit, ok := safe.QuotaFailure(err); ok {
+		if limit.Monthly {
+			return &proxyRateLimitError{
+				&proxyError{http.StatusTooManyRequests, apiresp.ErrCodeSafeQuotaExhausted, "Safe’s monthly request limit has been reached"},
+				limit.ResetAt,
+			}
+		}
+		return &proxyRateLimitError{
+			&proxyError{http.StatusTooManyRequests, apiresp.ErrCodeLimitExceeded, "Safe is receiving too many requests"},
+			limit.RetryAt,
+		}
+	}
 	var sErr *safe.STSError
 	if errors.As(err, &sErr) {
 		switch {
 		case sErr.Status == http.StatusNotFound:
 			return &proxyError{http.StatusNotFound, apiresp.ErrCodeNotFound, "Safe transaction not found"}
+		case sErr.Status == http.StatusUnauthorized || sErr.Status == http.StatusForbidden:
+			return &proxyError{http.StatusBadGateway, apiresp.ErrCodeInternalServerError, "Safe Transaction Service authentication failed"}
 		case sErr.Status >= 400 && sErr.Status < 500:
 			return &proxyError{http.StatusConflict, apiresp.ErrCodeConflict, "Safe Transaction Service refused the request: " + sErr.Message}
 		}
 	}
 	return &proxyError{http.StatusBadGateway, apiresp.ErrCodeInternalServerError, "Safe Transaction Service unavailable"}
+}
+
+func (s *safeService) currentNonce(ctx context.Context, address common.Address) (string, error) {
+	if s.readNonce != nil {
+		nonce, err := s.readNonce(ctx, address)
+		if err == nil {
+			return nonce, nil
+		}
+	}
+	return "", &proxyError{http.StatusServiceUnavailable, apiresp.ErrCodeInternalServerError, "could not read the on-chain Safe nonce"}
 }
 
 func policyError(err error) error {
@@ -231,15 +262,19 @@ func (s *safeService) propose(ctx context.Context, caller string, req safePropos
 	if err := s.sts.Propose(ctx, safeAddress.Hex(), hash.Hex(), signer.Hex(), req.Signature, req.Tx); err != nil {
 		return nil, upstreamError(err)
 	}
+	s.recordApproval(ctx, safeAddress, hash, signer)
 	tx, err := s.sts.Transaction(ctx, hash.Hex())
 	if err != nil {
 		return nil, upstreamError(err)
 	}
 	s.queueExecution(ctx, tx)
-	if s.syncApproval != nil {
-		s.syncApproval(ctx, tx.Safe, tx.SafeTxHash)
-	}
 	return tx, nil
+}
+
+func (s *safeService) recordApproval(ctx context.Context, address common.Address, hash common.Hash, signer common.Address) {
+	if s.syncApproval != nil {
+		s.syncApproval(ctx, address.Hex(), hash.Hex(), signer.Hex())
+	}
 }
 
 // queueExecution hands a transaction that has just reached its threshold to
@@ -347,14 +382,12 @@ func (s *safeService) confirm(ctx context.Context, caller string, req safeConfir
 	if err := s.sts.Confirm(ctx, hash.Hex(), req.Signature); err != nil {
 		return nil, upstreamError(err)
 	}
+	s.recordApproval(ctx, safeAddress, hash, signer)
 	updated, err := s.sts.Transaction(ctx, hash.Hex())
 	if err != nil {
 		return nil, upstreamError(err)
 	}
 	s.queueExecution(ctx, updated)
-	if s.syncApproval != nil {
-		s.syncApproval(ctx, updated.Safe, updated.SafeTxHash)
-	}
 	return updated, nil
 }
 
@@ -366,9 +399,9 @@ func (s *safeService) pending(ctx context.Context, caller, safeAddress string) (
 	if err := s.requireSigner(ctx, caller, address); err != nil {
 		return nil, err
 	}
-	nonce, err := s.sts.Nonce(ctx, address.Hex())
+	nonce, err := s.currentNonce(ctx, address)
 	if err != nil {
-		return nil, upstreamError(err)
+		return nil, err
 	}
 	queued, err := s.sts.Queued(ctx, address.Hex(), nonce)
 	if err != nil {
@@ -421,9 +454,9 @@ func (s *safeService) reject(ctx context.Context, caller, originalHash string, r
 		return nil, forbidden("signature was not made by the signed-in account")
 	}
 
-	nonce, err := s.sts.Nonce(ctx, safeAddress.Hex())
+	nonce, err := s.currentNonce(ctx, safeAddress)
 	if err != nil {
-		return nil, upstreamError(err)
+		return nil, err
 	}
 	queued, err := s.sts.Queued(ctx, safeAddress.Hex(), nonce)
 	if err != nil {
@@ -470,6 +503,8 @@ func (s *safeService) reject(ctx context.Context, caller, originalHash string, r
 			}
 		}
 	}
+	// An already-signed retry can recover a previously interrupted enqueue.
+	s.recordApproval(ctx, safeAddress, hash, signer)
 	updated, err := s.sts.Transaction(ctx, hash.Hex())
 	if err != nil {
 		return nil, upstreamError(err)
@@ -477,9 +512,6 @@ func (s *safeService) reject(ctx context.Context, caller, originalHash string, r
 	updated.TransactionKind = "rejection"
 	updated.RejectsSafeTxHashes = []string{strings.ToLower(original.SafeTxHash)}
 	s.queueExecution(ctx, updated)
-	if s.syncApproval != nil {
-		s.syncApproval(ctx, updated.Safe, updated.SafeTxHash)
-	}
 	return updated, nil
 }
 
@@ -497,9 +529,9 @@ func (s *safeService) transaction(ctx context.Context, caller, safeTxHash string
 	if err := s.requireSigner(ctx, caller, common.HexToAddress(tx.Safe)); err != nil {
 		return nil, err
 	}
-	nonce, err := s.sts.Nonce(ctx, tx.Safe)
+	nonce, err := s.currentNonce(ctx, common.HexToAddress(tx.Safe))
 	if err != nil {
-		return nil, upstreamError(err)
+		return nil, err
 	}
 	single := []safe.Transaction{*tx}
 	s.markExecution(ctx, single, nonce)
@@ -536,9 +568,9 @@ func (s *safeService) executeTransaction(ctx context.Context, caller, safeTxHash
 	if tx.ConfirmationsRequired < 1 || len(tx.Confirmations) < tx.ConfirmationsRequired {
 		return nil, &proxyError{http.StatusConflict, apiresp.ErrCodeConflict, "Safe transaction still needs confirmations"}
 	}
-	chainNonceRaw, err := s.sts.Nonce(ctx, tx.Safe)
+	chainNonceRaw, err := s.currentNonce(ctx, safeAddress)
 	if err != nil {
-		return nil, upstreamError(err)
+		return nil, err
 	}
 	chainNonce, chainOK := new(big.Int).SetString(chainNonceRaw, 10)
 	txNonce, txOK := new(big.Int).SetString(tx.Nonce, 10)
@@ -707,6 +739,14 @@ func (a *API) userSafesHandler(c *echo.Context) error {
 }
 
 func (a *API) writeProxyError(c *echo.Context, err error) error {
+	var limit *proxyRateLimitError
+	if errors.As(err, &limit) {
+		c.Response().Header().Set("Cache-Control", "no-store")
+		if !limit.retryAt.IsZero() {
+			c.Response().Header().Set("Retry-After", limit.retryAt.UTC().Format(http.TimeFormat))
+			c.Response().Header().Add("Access-Control-Expose-Headers", "Retry-After")
+		}
+	}
 	var pErr *proxyError
 	if !errors.As(err, &pErr) {
 		a.logg.Error("safe proxy failed", "err", err)

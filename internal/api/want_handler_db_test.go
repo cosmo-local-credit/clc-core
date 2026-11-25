@@ -131,6 +131,69 @@ func wantBodyWithImage(t *testing.T, name string, starts time.Time, imageURL str
 	return string(encoded)
 }
 
+func TestWantAdministrativeEditPreservesCreatorPrivacyLifecycleAndQuotaDB(t *testing.T) {
+	a, priv := newOfferingAPI(t)
+	ownerID, ownerToken := seedCuratedAPIUser(t, a, priv)
+	_, strangerToken := seedCuratedAPIUser(t, a, priv)
+	adminToken := offeringToken(t, priv, offeringOperatorAddr, "ADMIN")
+	superadminToken := offeringToken(t, priv, offeringStrangerAddr, "SUPERADMIN")
+
+	ctx := context.Background()
+	_, err := a.store.Pool().Exec(ctx, `UPDATE users SET email='owner@example.test',phone='+254700000001',max_wants=1 WHERE id=$1`, ownerID)
+	require.NoError(t, err)
+	expired := time.Now().Add(-time.Hour)
+	var wantID uint64
+	err = a.store.Pool().QueryRow(ctx, `
+        INSERT INTO wants(owner_user_id,name,description,location_name,geo_lat,geo_lng,starts_at,expires_at,status,contact_permission,contact_text)
+        VALUES($1,'Expired administrative fixture','Before edit','Nairobi',-1.286,36.817,now()-interval '2 hours',$2,'OPEN',3,'Original instructions')
+        RETURNING id`, ownerID, expired).Scan(&wantID)
+	require.NoError(t, err)
+	var activeID uint64
+	err = a.store.Pool().QueryRow(ctx, `
+        INSERT INTO wants(owner_user_id,name,description,location_name,geo_lat,geo_lng,starts_at,status,contact_text)
+        VALUES($1,'Active quota fixture','Uses the only slot','Nairobi',-1.286,36.817,now()-interval '1 hour','OPEN','Meet publicly')
+        RETURNING id`, ownerID).Scan(&activeID)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := a.store.Pool().Exec(ctx, `DELETE FROM wants WHERE id=ANY($1::BIGINT[])`, []uint64{wantID, activeID})
+		require.NoError(t, cleanupErr)
+	})
+
+	editPath := fmt.Sprintf("/api/v2/wants/%d/edit", wantID)
+	for _, token := range []string{adminToken, superadminToken, ownerToken} {
+		result := wantResult(t, curatedRequest(a, http.MethodGet, editPath, token, ""), http.StatusOK)
+		require.Equal(t, wantID, result.Want.ID)
+	}
+	wantResult(t, curatedRequest(a, http.MethodGet, editPath, strangerToken, ""), http.StatusForbidden)
+
+	updatePath := fmt.Sprintf("/api/v2/wants/%d", wantID)
+	adminEdit := wantBody(t, "Admin edited", time.Now().Add(-2*time.Hour), &expired, "Updated instructions", false, false)
+	wantResult(t, curatedRequest(a, http.MethodPut, updatePath, adminToken, adminEdit), http.StatusOK)
+	var ownerAfter uint64
+	var statusAfter string
+	var permissionAfter int
+	var contactAfter string
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `SELECT owner_user_id,status,contact_permission,contact_text FROM wants WHERE id=$1`, wantID).
+		Scan(&ownerAfter, &statusAfter, &permissionAfter, &contactAfter))
+	require.Equal(t, ownerID, ownerAfter)
+	require.Equal(t, store.WantStatusOpen, statusAfter)
+	require.Equal(t, 3, permissionAfter, "an administrator cannot change creator-selected contact sharing")
+	require.Equal(t, "Updated instructions", contactAfter)
+
+	future := time.Now().Add(24 * time.Hour)
+	extend := wantBody(t, "Extended", time.Now().Add(-time.Hour), &future, "Still public", true, true)
+	for _, token := range []string{adminToken, ownerToken} {
+		res := curatedRequest(a, http.MethodPut, updatePath, token, extend)
+		require.Equal(t, http.StatusTooManyRequests, res.Code, res.Body.String())
+	}
+
+	_, err = a.store.Pool().Exec(ctx, `UPDATE wants SET status='CLOSED' WHERE id=$1`, wantID)
+	require.NoError(t, err)
+	wantResult(t, curatedRequest(a, http.MethodPut, updatePath, adminToken, extend), http.StatusOK)
+	require.NoError(t, a.store.Pool().QueryRow(ctx, `SELECT status FROM wants WHERE id=$1`, wantID).Scan(&statusAfter))
+	require.Equal(t, store.WantStatusClosed, statusAfter, "canonical edit must never reopen a Want")
+}
+
 func TestWantLifecyclePrivacyQuotaDiscoveryAndPoolDerivationDB(t *testing.T) {
 	a, priv := newOfferingAPI(t)
 	t.Cleanup(func() { a.store.Pool().Close() })

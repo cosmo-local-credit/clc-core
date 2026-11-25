@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/cosmo-local-credit/clc-core/internal/store"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 )
 
 // End-to-end coverage of offering CRUD through the real route table, auth
@@ -460,6 +462,58 @@ func TestOfferingCreateIgnoresSellerAndVoucherInTheBody(t *testing.T) {
 	if got := offering["sourceId"]; got != nil {
 		t.Errorf("sourceId = %v, want null; provenance is not a request field", got)
 	}
+}
+
+func TestOfferingTagsCreatePreserveAndExplicitClearDB(t *testing.T) {
+	a, priv := newOfferingAPI(t)
+	fx, cleanupFixtures := seedOfferingFixtures(t, a)
+	tags := []string{"Offering Fixture Repair", "Offering Fixture Produce"}
+	defer func() {
+		cleanupFixtures()
+		_, err := a.store.Pool().Exec(context.Background(), `DELETE FROM token_tag WHERE value=ANY($1::TEXT[])`, tags)
+		if err != nil {
+			t.Errorf("cleanup offering tag vocabulary: %v", err)
+		}
+	}()
+
+	token := offeringToken(t, priv, offeringOwnerAddress, "USER")
+	path := "/api/v2/vouchers/" + fx.ownedAddress + "/offerings"
+	res, result := offeringRequest(t, a, http.MethodPost, path, token,
+		offeringBody(map[string]any{"tags": tags}))
+	require.Equal(t, http.StatusCreated, res.Code, res.Body.String())
+	offering := offeringFrom(t, result)
+	rawID, ok := offering["id"].(float64)
+	require.True(t, ok, "offering id should be a JSON number: %#v", offering["id"])
+	id := uint64(rawID)
+	require.ElementsMatch(t, tags, offering["tags"])
+
+	updatePath := fmt.Sprintf("%s/%d", path, id)
+	res, result = offeringRequest(t, a, http.MethodPut, updatePath, token,
+		offeringBody(map[string]any{"commodityName": "Preserve tags"}))
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	require.ElementsMatch(t, tags, offeringFrom(t, result)["tags"])
+
+	res, result = offeringRequest(t, a, http.MethodPut, updatePath, token,
+		offeringBody(map[string]any{"commodityName": "Clear tags", "tags": []string{}}))
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	require.Empty(t, offeringFrom(t, result)["tags"])
+
+	tooMany := make([]string, 13)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("Offering Overflow %02d", i)
+	}
+	res, _ = offeringRequest(t, a, http.MethodPut, updatePath, token,
+		offeringBody(map[string]any{"commodityName": "Rejected tags", "tags": tooMany}))
+	require.Equal(t, http.StatusBadRequest, res.Code, res.Body.String())
+	var storedName string
+	var storedTags []string
+	require.NoError(t, a.store.Pool().QueryRow(context.Background(), `
+        SELECT o.commodity_name,COALESCE(array_agg(ot.tag_value ORDER BY ot.tag_value)
+            FILTER (WHERE ot.tag_value IS NOT NULL),ARRAY[]::TEXT[])
+        FROM offerings o LEFT JOIN offering_tags ot ON ot.offering_id=o.id
+        WHERE o.id=$1 GROUP BY o.id`, id).Scan(&storedName, &storedTags))
+	require.Equal(t, "Clear tags", storedName)
+	require.Empty(t, storedTags)
 }
 
 func TestOfferingCreateAuthorization(t *testing.T) {

@@ -417,6 +417,31 @@ type (
 		DisplayName string `json:"displayName" validate:"required,max=120"`
 	}
 
+	// ProfileVisibility is assign-all when present on a profile update. Personal
+	// contact and precise location choices are served only to authenticated
+	// readers; resource sections contain already-public catalog data.
+	ProfileVisibility struct {
+		Enabled           bool `json:"enabled"`
+		Avatar            bool `json:"avatar"`
+		Name              bool `json:"name"`
+		Bio               bool `json:"bio"`
+		Website           bool `json:"website"`
+		Email             bool `json:"email"`
+		Phone             bool `json:"phone"`
+		Country           bool `json:"country"`
+		LocationName      bool `json:"locationName"`
+		PreciseLocation   bool `json:"preciseLocation"`
+		PreferredCurrency bool `json:"preferredCurrency"`
+		Vouchers          bool `json:"vouchers"`
+		Offers            bool `json:"offers"`
+		Wants             bool `json:"wants"`
+		Pools             bool `json:"pools"`
+		Posts             bool `json:"posts"`
+		Catalogs          bool `json:"catalogs"`
+		// Legacy compatibility field; accepted from older clients, ignored, and returned false.
+		Activity bool `json:"activity"`
+	}
+
 	// UpdateProfileRequest carries optional profile fields. Omitted location
 	// values preserve stored data; ClearLocation explicitly removes the pin, and
 	// ClearAvatar does the same for the profile image.
@@ -440,8 +465,10 @@ type (
 		// http_url, never url: the latter accepts ftp:, data: and javascript:,
 		// which users_avatar_url_http would then reject at the database — after
 		// the request had already been accepted.
-		AvatarURL   *string `json:"avatarUrl,omitempty" validate:"omitempty,http_url"`
-		ClearAvatar bool    `json:"clearAvatar,omitempty"`
+		AvatarURL      *string            `json:"avatarUrl,omitempty" validate:"omitempty,http_url"`
+		ClearAvatar    bool               `json:"clearAvatar,omitempty"`
+		VisibilityOnly bool               `json:"visibilityOnly,omitempty"`
+		PublicProfile  *ProfileVisibility `json:"publicProfile,omitempty"`
 	}
 
 	// ReportVoucherRefRequest names a voucher by its stable public identity.
@@ -523,6 +550,9 @@ type (
 		Unit          string  `json:"unit"          validate:"required,max=32"`
 		Price         string  `json:"price"         validate:"required,max=64"`
 		ImageURL      *string `json:"imageUrl,omitempty"`
+		// nil preserves tags on update for older clients; a present empty array
+		// explicitly clears them.
+		Tags *[]string `json:"tags,omitempty" validate:"omitempty,max=12"`
 	}
 )
 
@@ -609,4 +639,7 @@ const (
 	// ErrCodeCursorStale: the route listing changed between pages; restart from
 	// the first page (HTTP 409).
 	ErrCodeCursorStale = "E28"
+	// ErrCodeSafeQuotaExhausted: the upstream Safe account's monthly request
+	// quota is exhausted (HTTP 429).
+	ErrCodeSafeQuotaExhausted = "E29"
 )

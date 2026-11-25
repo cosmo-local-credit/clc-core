@@ -27,9 +27,9 @@ import (
 // every response names them by checksummed address only.
 //
 // Limits:
-//   - messagingDailyRequestQuota counts POST /conversations, the message
-//     request, in messaging_request_quota inside the request's transaction. It
-//     is the only route that spends it: sends have the per-minute limiter
+//   - messagingDailyRequestQuota counts new direct and Post contact
+//     requests in messaging_request_quota inside the request's transaction.
+//     Sends have the per-minute limiter
 //     below, and blocks, reports, read markers and helpdesk posts are not
 //     requests to a stranger.
 //   - messageRateLimit/messageRateBurst allow 30 messages per user per minute
@@ -440,7 +440,7 @@ func conversationWire(v store.ConversationView, caller int64) messagingConversat
 		Intro:             v.Intro,
 		RequestedBySelf:   byCaller,
 		CanAccept:         direct && v.Status == store.ConversationPending && !byCaller,
-		CanRequest:        byCaller && (v.Status == store.ConversationDeclined || v.Status == store.ConversationRevoked),
+		CanRequest:        (byCaller || v.CanRequestAfterDelete) && (v.Status == store.ConversationDeclined || v.Status == store.ConversationRevoked),
 		Blocked:           direct && v.Blocked,
 		LastMessageAt:     utcPtr(v.LastMessageAt),
 		LastReadMessageID: v.LastReadMessageID,

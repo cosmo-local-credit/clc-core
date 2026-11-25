@@ -102,9 +102,10 @@ func (a *API) unreadConversationsHandler(c *echo.Context) error {
 		return err
 	}
 	return messagingResult(c, http.StatusOK, map[string]int{
-		"direct":   unread.Direct,
-		"requests": unread.Requests,
-		"helpdesk": unread.Helpdesk,
+		"direct":       unread.Direct,
+		"requests":     unread.Requests,
+		"helpdesk":     unread.Helpdesk,
+		"postRequests": unread.PostRequests,
 	})
 }
 
@@ -294,8 +295,8 @@ func (a *API) validateMessageContext(ctx context.Context, tx pgx.Tx, recipientAd
 	return encoded, err
 }
 
-// rerequest reopens an existing direct row. Only whoever declined or revoked
-// it may; anything else is a 409.
+// rerequest reopens a direct row after deletion, or for the member who declined
+// or revoked it. Every reopening requires the recipient to accept again.
 func (a *API) rerequest(ctx context.Context, tx pgx.Tx, existing store.ConversationMembers, caller int64, intro *string) (int64, error) {
 	if existing.Status != store.ConversationDeclined && existing.Status != store.ConversationRevoked {
 		return 0, messagingConflict("a conversation with this person already exists")
@@ -435,6 +436,10 @@ func (a *API) listConversationMessagesHandler(c *echo.Context) error {
 	if err != nil {
 		return messagingRespond(c, err)
 	}
+	page.ClearedThrough, err = a.store.ConversationClearedThrough(ctx, tx, id, caller)
+	if err != nil {
+		return err
+	}
 	messages, more, err := a.store.ListMessages(ctx, tx, id, page)
 	if err != nil {
 		return err
@@ -443,7 +448,7 @@ func (a *API) listConversationMessagesHandler(c *echo.Context) error {
 	for _, message := range messages {
 		items = append(items, userMessageWire(members.Kind, caller, message))
 	}
-	return messagingResult(c, http.StatusOK, map[string]any{"items": items, "hasMore": more})
+	return messagingResult(c, http.StatusOK, map[string]any{"items": items, "hasMore": more, "clearedThrough": page.ClearedThrough})
 }
 
 // storedMessage answers a send whose clientId the sender already used: the
@@ -491,6 +496,15 @@ func (a *API) postConversationMessageHandler(c *echo.Context) error {
 	if existing, found, err := storedMessage(ctx, a.store, tx, caller, input.ClientID, id); err != nil || found {
 		if err != nil {
 			return messagingRespond(c, err)
+		}
+		if members.Kind == store.ConversationDirect {
+			cleared, err := a.store.ConversationClearedThrough(ctx, tx, id, caller)
+			if err != nil {
+				return err
+			}
+			if existing.ID <= cleared {
+				return messagingRespond(c, messagingConflict("the message belongs to cleared history"))
+			}
 		}
 		return messagingResult(c, http.StatusOK, userMessageWire(members.Kind, caller, existing))
 	}
@@ -830,4 +844,47 @@ func (a *API) createAbuseReportHandler(c *echo.Context) error {
 		return err
 	}
 	return messagingResult(c, http.StatusCreated, map[string]int64{"id": id})
+}
+
+// DELETE /conversations/:id clears the caller's copy and requires a fresh request.
+func (a *API) deleteConversationHandler(c *echo.Context) error {
+	id, err := messagingIDParam(c)
+	if err != nil {
+		return messagingRespond(c, err)
+	}
+	caller, callerAddress := messagingCaller(c)
+	ctx := c.Request().Context()
+	tx, err := a.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	members, err := a.store.MemberConversation(ctx, tx, caller, id, true)
+	if err != nil {
+		return messagingRespond(c, err)
+	}
+	if members.Kind != store.ConversationDirect {
+		return messagingRespond(c, errMessagingNotFound)
+	}
+	cleared, err := a.store.DeleteConversation(ctx, tx, id, caller)
+	if err != nil {
+		return err
+	}
+	if cleared > 0 {
+		if _, err := a.store.AdvanceReadMarker(ctx, tx, id, caller, cleared); err != nil {
+			return err
+		}
+	}
+	// Reuse the revocation sync event for both participants' other devices.
+	// Deletion and revocation never request a push notification.
+	ev := newMessagingEvent(event.ConversationRevoked, id, store.ConversationDirect, caller, callerAddress, time.Now())
+	ev.Audience = membersAudience(members, 0)
+	if err := a.enqueueMessagingEvent(c, tx, ev); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return c.NoContent(http.StatusNoContent)
 }

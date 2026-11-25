@@ -974,6 +974,209 @@ SET name = $2,
 WHERE blockchain_address = $1
 RETURNING id, blockchain_address AS ethereum_address, username, name, COALESCE(email, '') AS email, COALESCE(phone, '') AS phone, COALESCE(country, '') AS country, preferred_currency, bio, website, location_name, geo_lat, geo_lng, avatar_url, role, status, max_pools, max_tokens, max_catalogs, max_offers, max_wants, created_at, updated_at;
 
+-- Public-profile preferences are an assign-all nested object, updated only
+-- when a client sends that object. Keeping this separate from the older
+-- profile statement means older clients preserve every visibility choice.
+--name: update-profile-visibility
+UPDATE users SET
+    public_profile_enabled = $2,
+    public_profile_avatar = $3,
+    public_profile_name = $4,
+    public_profile_bio = $5,
+    public_profile_website = $6,
+    public_profile_email = $7,
+    public_profile_phone = $8,
+    public_profile_country = $9,
+    public_profile_location_name = $10,
+    public_profile_precise_location = $11,
+    public_profile_preferred_currency = $12,
+    public_profile_vouchers = $13,
+    public_profile_offers = $14,
+    public_profile_wants = $15,
+    public_profile_pools = $16,
+    public_profile_posts = $17,
+    public_profile_catalogs = $18,
+    public_profile_activity = FALSE
+WHERE lower(blockchain_address) = lower($1::TEXT);
+
+--name: get-profile-visibility
+SELECT public_profile_enabled, public_profile_avatar, public_profile_name,
+    public_profile_bio, public_profile_website, public_profile_email,
+    public_profile_phone, public_profile_country,
+    public_profile_location_name, public_profile_precise_location,
+    public_profile_preferred_currency, public_profile_vouchers,
+    public_profile_offers, public_profile_wants, public_profile_pools,
+    public_profile_posts, public_profile_catalogs, FALSE AS public_profile_activity
+FROM users
+WHERE lower(blockchain_address) = lower($1::TEXT);
+
+--name: get-public-profile
+SELECT u.id, u.blockchain_address AS address, u.username, u.name,
+    u.email, u.phone, u.country, u.preferred_currency, u.bio, u.website,
+    u.location_name, u.geo_lat, u.geo_lng, u.avatar_url, u.created_at,
+    u.public_profile_enabled, u.public_profile_avatar, u.public_profile_name,
+    u.public_profile_bio, u.public_profile_website, u.public_profile_email,
+    u.public_profile_phone, u.public_profile_country,
+    u.public_profile_location_name, u.public_profile_precise_location,
+    u.public_profile_preferred_currency, u.public_profile_vouchers,
+    u.public_profile_offers, u.public_profile_wants, u.public_profile_pools,
+    u.public_profile_posts, u.public_profile_catalogs, FALSE AS public_profile_activity
+FROM users u
+WHERE lower(u.blockchain_address) = lower($1::TEXT)
+  AND u.status = 'APPROVED'
+  AND u.public_profile_enabled
+  AND NOT account_retiring(u.blockchain_address);
+
+-- Every section statement repeats the profile gate. A preference changed
+-- between the profile and page reads therefore closes the page rather than
+-- leaking one last page from a stale handler decision.
+--name: list-public-profile-vouchers
+SELECT v.id::BIGINT, v.address AS resource_id, 'voucher'::TEXT AS kind,
+    COALESCE(v.display_name, v.name, v.symbol, v.address) AS name,
+    v.icon_url AS image_url, v.description, v.symbol,
+    CASE WHEN lower(v.owner_address) = lower(u.blockchain_address)
+        THEN 'direct' ELSE 'multisig' END AS management
+FROM users u
+JOIN vouchers v ON lower(v.owner_address) = lower(u.blockchain_address)
+    OR EXISTS (SELECT 1 FROM safe_signers ss
+        WHERE ss.chain_id = v.chain_id
+          AND ss.safe_address = lower(v.owner_address)
+          AND ss.signer = lower(u.blockchain_address))
+WHERE lower(u.blockchain_address) = lower($1::TEXT)
+  AND u.status = 'APPROVED' AND u.public_profile_enabled
+  AND u.public_profile_vouchers AND NOT account_retiring(u.blockchain_address)
+  AND v.active AND ($2::BIGINT = 0 OR v.id < $2)
+ORDER BY v.id DESC LIMIT $3;
+
+--name: list-public-profile-offers
+SELECT o.id::BIGINT, v.address AS resource_id, 'offer'::TEXT AS kind,
+    o.commodity_name AS name, o.image_url,
+    NULLIF(o.description, '') AS description, v.symbol,
+    CASE WHEN lower(v.owner_address) = lower(u.blockchain_address)
+        THEN 'direct' ELSE 'multisig' END AS management
+FROM users u
+JOIN vouchers v ON lower(v.owner_address) = lower(u.blockchain_address)
+    OR EXISTS (SELECT 1 FROM safe_signers ss
+        WHERE ss.chain_id = v.chain_id
+          AND ss.safe_address = lower(v.owner_address)
+          AND ss.signer = lower(u.blockchain_address))
+JOIN offerings o ON o.voucher_id = v.id
+WHERE lower(u.blockchain_address) = lower($1::TEXT)
+  AND u.status = 'APPROVED' AND u.public_profile_enabled
+  AND u.public_profile_offers AND NOT account_retiring(u.blockchain_address)
+  AND v.active AND o.available AND ($2::BIGINT = 0 OR o.id < $2)
+ORDER BY o.id DESC LIMIT $3;
+
+--name: list-public-profile-wants
+SELECT w.id::BIGINT, w.id::TEXT AS resource_id, 'want'::TEXT AS kind,
+    w.name, w.image_url, NULLIF(w.description, '') AS description,
+    NULL::TEXT AS symbol, 'direct'::TEXT AS management
+FROM users u JOIN wants w ON w.owner_user_id = u.id
+WHERE lower(u.blockchain_address) = lower($1::TEXT)
+  AND u.status = 'APPROVED' AND u.public_profile_enabled
+  AND u.public_profile_wants AND NOT account_retiring(u.blockchain_address)
+  AND w.status = 'OPEN' AND w.starts_at <= CURRENT_TIMESTAMP
+  AND (w.expires_at IS NULL OR w.expires_at > CURRENT_TIMESTAMP)
+  AND ($2::BIGINT = 0 OR w.id < $2)
+ORDER BY w.id DESC LIMIT $3;
+
+--name: list-public-profile-pools
+SELECT p.id::BIGINT, p.address AS resource_id, 'pool'::TEXT AS kind,
+    COALESCE(p.display_name, p.name, p.symbol, p.address) AS name,
+    p.image_url, p.description, p.symbol,
+    CASE WHEN lower(p.owner_address) = lower(u.blockchain_address)
+        THEN 'direct' ELSE 'multisig' END AS management
+FROM users u
+JOIN pools p ON lower(p.owner_address) = lower(u.blockchain_address)
+    OR EXISTS (SELECT 1 FROM safe_signers ss
+        WHERE ss.chain_id = p.chain_id
+          AND ss.safe_address = lower(p.owner_address)
+          AND ss.signer = lower(u.blockchain_address))
+WHERE lower(u.blockchain_address) = lower($1::TEXT)
+  AND u.status = 'APPROVED' AND u.public_profile_enabled
+  AND u.public_profile_pools AND NOT account_retiring(u.blockchain_address)
+  AND p.active AND ($2::BIGINT = 0 OR p.id < $2)
+ORDER BY p.id DESC LIMIT $3;
+
+--name: list-public-profile-posts
+SELECT r.id::BIGINT, r.id::TEXT AS resource_id, 'post'::TEXT AS kind,
+    r.title AS name, r.image_url, NULLIF(r.description, '') AS description,
+    NULL::TEXT AS symbol, 'direct'::TEXT AS management
+FROM users u JOIN reports r ON lower(r.author_address) = lower(u.blockchain_address)
+WHERE lower(u.blockchain_address) = lower($1::TEXT)
+  AND u.status = 'APPROVED' AND u.public_profile_enabled
+  AND u.public_profile_posts AND NOT account_retiring(u.blockchain_address)
+  AND r.status = 'APPROVED' AND ($2::BIGINT = 0 OR r.id < $2)
+ORDER BY r.id DESC LIMIT $3;
+
+--name: list-public-profile-catalogs
+SELECT c.id::BIGINT, c.id::TEXT AS resource_id, 'catalog'::TEXT AS kind,
+    c.name, c.image_url, c.description,
+    NULL::TEXT AS symbol, 'direct'::TEXT AS management
+FROM users u JOIN catalogs c ON c.owner_user_id = u.id
+WHERE lower(u.blockchain_address) = lower($1::TEXT)
+  AND u.status = 'APPROVED' AND u.public_profile_enabled
+  AND u.public_profile_catalogs AND NOT account_retiring(u.blockchain_address)
+  AND ($2::BIGINT = 0 OR c.id < $2)
+ORDER BY c.id DESC LIMIT $3;
+
+--name: resolve-public-resource-profiles
+WITH candidates AS (
+    SELECT u.id FROM vouchers v
+      JOIN users u ON lower(u.blockchain_address)=lower(v.owner_address)
+      WHERE $1::TEXT='voucher' AND v.chain_id=$4::BIGINT AND lower(v.address)=lower($2)
+        AND v.active AND u.public_profile_vouchers
+    UNION
+    SELECT u.id FROM vouchers v
+      JOIN safe_signers ss ON ss.chain_id=v.chain_id
+        AND ss.safe_address=lower(v.owner_address)
+      JOIN users u ON lower(u.blockchain_address)=ss.signer
+      WHERE $1::TEXT='voucher' AND v.chain_id=$4::BIGINT AND lower(v.address)=lower($2)
+        AND v.active AND u.public_profile_vouchers
+    UNION
+    SELECT u.id FROM offerings o JOIN vouchers v ON v.id=o.voucher_id
+      JOIN users u ON lower(u.blockchain_address)=lower(v.owner_address)
+      WHERE $1::TEXT='offer' AND o.id=$3::BIGINT AND o.available AND v.active
+        AND u.public_profile_offers
+    UNION
+    SELECT u.id FROM offerings o JOIN vouchers v ON v.id=o.voucher_id
+      JOIN safe_signers ss ON ss.chain_id=v.chain_id
+        AND ss.safe_address=lower(v.owner_address)
+      JOIN users u ON lower(u.blockchain_address)=ss.signer
+      WHERE $1::TEXT='offer' AND o.id=$3::BIGINT AND o.available AND v.active
+        AND u.public_profile_offers
+    UNION
+    SELECT u.id FROM users u JOIN wants w ON w.owner_user_id=u.id
+      WHERE $1::TEXT='want' AND w.id=$3::BIGINT AND u.public_profile_wants
+        AND w.status='OPEN' AND w.starts_at<=CURRENT_TIMESTAMP
+        AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+    UNION
+    SELECT u.id FROM pools p
+      JOIN users u ON lower(u.blockchain_address)=lower(p.owner_address)
+      WHERE $1::TEXT='pool' AND p.chain_id=$4::BIGINT AND lower(p.address)=lower($2)
+        AND p.active AND u.public_profile_pools
+    UNION
+    SELECT u.id FROM pools p
+      JOIN safe_signers ss ON ss.chain_id=p.chain_id
+        AND ss.safe_address=lower(p.owner_address)
+      JOIN users u ON lower(u.blockchain_address)=ss.signer
+      WHERE $1::TEXT='pool' AND p.chain_id=$4::BIGINT AND lower(p.address)=lower($2)
+        AND p.active AND u.public_profile_pools
+    UNION
+    SELECT u.id FROM users u JOIN reports r ON lower(r.author_address)=lower(u.blockchain_address)
+      WHERE $1::TEXT='post' AND r.id=$3::BIGINT AND r.status='APPROVED'
+        AND u.public_profile_posts
+    UNION
+    SELECT u.id FROM users u JOIN catalogs c ON c.owner_user_id=u.id
+      WHERE $1::TEXT='catalog' AND c.id=$3::BIGINT AND u.public_profile_catalogs
+)
+SELECT u.blockchain_address AS address, u.username,
+    CASE WHEN u.public_profile_avatar THEN u.avatar_url ELSE NULL END AS avatar_url
+FROM users u JOIN candidates c ON c.id=u.id
+WHERE u.status='APPROVED' AND u.public_profile_enabled
+  AND NOT account_retiring(u.blockchain_address)
+ORDER BY u.id;
+
 -- User shares
 --name: insert-user-share
 INSERT INTO user_shares (
@@ -2523,6 +2726,12 @@ SET commodity_name = $2,
     image_url = $6
 WHERE id = $1;
 
+--name: delete-offering-tags
+DELETE FROM offering_tags WHERE offering_id=$1;
+
+--name: insert-offering-tag
+INSERT INTO offering_tags(offering_id,tag_value) VALUES($1,$2);
+
 -- An unlist, not a destruction. The row keeps its Sarafu source_id, timestamps
 -- and provenance so a later catalog import reconciles it instead of inserting a
 -- duplicate, and every public read already filters on available.
@@ -3579,7 +3788,17 @@ SELECT w.id,w.owner_user_id,u.blockchain_address AS owner_address,w.name,w.descr
     NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
 FROM wants w JOIN users u ON u.id=w.owner_user_id
 WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
-  AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
+  AND EXISTS (
+      SELECT 1 FROM pools p
+      JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed
+      JOIN vouchers v ON v.id=pt.voucher_id AND v.active
+      WHERE lower(p.address)=lower($1)
+        AND (lower(v.owner_address)=lower(u.blockchain_address)
+          OR EXISTS (SELECT 1 FROM safe_signers ss
+              WHERE ss.chain_id=v.chain_id
+                AND ss.safe_address=lower(v.owner_address)
+                AND ss.signer=lower(u.blockchain_address)))
+  )
   AND $2::BIGINT=0
 ORDER BY w.id DESC LIMIT $3;
 
@@ -3592,7 +3811,17 @@ SELECT w.id,w.owner_user_id,u.blockchain_address AS owner_address,w.name,w.descr
     NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
 FROM wants w JOIN users u ON u.id=w.owner_user_id
 WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
-  AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
+  AND EXISTS (
+      SELECT 1 FROM pools p
+      JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed
+      JOIN vouchers v ON v.id=pt.voucher_id AND v.active
+      WHERE lower(p.address)=lower($1)
+        AND (lower(v.owner_address)=lower(u.blockchain_address)
+          OR EXISTS (SELECT 1 FROM safe_signers ss
+              WHERE ss.chain_id=v.chain_id
+                AND ss.safe_address=lower(v.owner_address)
+                AND ss.signer=lower(u.blockchain_address)))
+  )
   AND w.id<$2 ORDER BY w.id DESC LIMIT $3;
 
 --name: list-pool-wants-prev
@@ -3604,8 +3833,75 @@ SELECT * FROM (
         NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
     FROM wants w JOIN users u ON u.id=w.owner_user_id
     WHERE w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
-      AND EXISTS (SELECT 1 FROM pools p JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed JOIN vouchers v ON v.id=pt.voucher_id AND v.active WHERE lower(p.address)=lower($1) AND lower(v.owner_address)=lower(u.blockchain_address))
+      AND EXISTS (
+          SELECT 1 FROM pools p
+          JOIN pool_tokens pt ON pt.pool_id=p.id AND pt.is_allowed
+          JOIN vouchers v ON v.id=pt.voucher_id AND v.active
+          WHERE lower(p.address)=lower($1)
+            AND (lower(v.owner_address)=lower(u.blockchain_address)
+              OR EXISTS (SELECT 1 FROM safe_signers ss
+                  WHERE ss.chain_id=v.chain_id
+                    AND ss.safe_address=lower(v.owner_address)
+                    AND ss.signer=lower(u.blockchain_address)))
+      )
       AND w.id>$2 ORDER BY w.id ASC LIMIT $3
+) page ORDER BY id DESC;
+
+-- Wants related to a voucher follow its current controller. A direct owner
+-- contributes their Wants, while a Safe contributes the Wants of its current
+-- signers. Contact fields stay redacted on this public relationship endpoint.
+--name: list-voucher-wants
+SELECT w.id,w.owner_user_id,u.blockchain_address AS owner_address,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+    'active'::TEXT AS state,w.image_url,
+    0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,w.marker_icon,w.marker_color,
+    COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+    NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+FROM vouchers v
+JOIN users u ON lower(v.owner_address)=lower(u.blockchain_address)
+    OR EXISTS (SELECT 1 FROM safe_signers ss
+        WHERE ss.chain_id=v.chain_id
+          AND ss.safe_address=lower(v.owner_address)
+          AND ss.signer=lower(u.blockchain_address))
+JOIN wants w ON w.owner_user_id=u.id
+WHERE lower(v.address)=lower($1) AND v.chain_id=$2 AND v.active
+  AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+  AND $3::BIGINT=0
+ORDER BY w.id DESC LIMIT $4;
+
+--name: list-voucher-wants-next
+SELECT w.id,w.owner_user_id,u.blockchain_address AS owner_address,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+    'active'::TEXT AS state,w.image_url,
+    0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,w.marker_icon,w.marker_color,
+    COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+    NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+FROM vouchers v
+JOIN users u ON lower(v.owner_address)=lower(u.blockchain_address)
+    OR EXISTS (SELECT 1 FROM safe_signers ss
+        WHERE ss.chain_id=v.chain_id
+          AND ss.safe_address=lower(v.owner_address)
+          AND ss.signer=lower(u.blockchain_address))
+JOIN wants w ON w.owner_user_id=u.id
+WHERE lower(v.address)=lower($1) AND v.chain_id=$2 AND v.active
+  AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+  AND w.id<$3 ORDER BY w.id DESC LIMIT $4;
+
+--name: list-voucher-wants-prev
+SELECT * FROM (
+    SELECT w.id,w.owner_user_id,u.blockchain_address AS owner_address,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+        'active'::TEXT AS state,w.image_url,
+        0 AS contact_permission,NULL::TEXT AS contact_text,NULL::TEXT AS email,NULL::TEXT AS phone,w.marker_icon,w.marker_color,
+        COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+        NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+    FROM vouchers v
+    JOIN users u ON lower(v.owner_address)=lower(u.blockchain_address)
+        OR EXISTS (SELECT 1 FROM safe_signers ss
+            WHERE ss.chain_id=v.chain_id
+              AND ss.safe_address=lower(v.owner_address)
+              AND ss.signer=lower(u.blockchain_address))
+    JOIN wants w ON w.owner_user_id=u.id
+    WHERE lower(v.address)=lower($1) AND v.chain_id=$2 AND v.active
+      AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)
+      AND w.id>$3 ORDER BY w.id ASC LIMIT $4
 ) page ORDER BY id DESC;
 
 -- Resources related to a Want are keyed from its current creator, not copied
@@ -3733,6 +4029,19 @@ SELECT w.id,w.owner_user_id,u.blockchain_address AS owner_address,w.name,w.descr
 FROM wants w JOIN users u ON u.id=w.owner_user_id
 WHERE w.id=$1 AND (($2::BIGINT IS NOT NULL AND w.owner_user_id=$2) OR
     ($2::BIGINT IS NULL AND w.status='OPEN' AND NOT user_retiring(w.owner_user_id) AND w.starts_at<=CURRENT_TIMESTAMP AND (w.expires_at IS NULL OR w.expires_at>CURRENT_TIMESTAMP)));
+
+-- Full editor projection. Authorization is performed by the authenticated
+-- handler against owner_user_id (or an administrative role); this statement is
+-- never registered on a public route.
+--name: get-want-for-edit
+SELECT w.id,w.owner_user_id,u.blockchain_address AS owner_address,w.name,w.description,w.location_name,w.geo_lat,w.geo_lng,w.starts_at,w.expires_at,w.status,
+    CASE WHEN w.status='CLOSED' THEN 'closed' WHEN w.starts_at>CURRENT_TIMESTAMP THEN 'scheduled' WHEN w.expires_at IS NOT NULL AND w.expires_at<=CURRENT_TIMESTAMP THEN 'expired' ELSE 'active' END AS state,
+    w.image_url,w.contact_permission,w.contact_text,
+    CASE WHEN (w.contact_permission & 1)=1 AND u.email IS NOT NULL AND lower(u.email) NOT LIKE '%@clc.local' THEN u.email END AS email,
+    CASE WHEN (w.contact_permission & 2)=2 AND NULLIF(BTRIM(u.phone),'') IS NOT NULL THEN u.phone END AS phone,
+    w.marker_icon,w.marker_color,COALESCE((SELECT array_agg(x.tag_value ORDER BY x.tag_value) FROM want_tags x WHERE x.want_id=w.id),ARRAY[]::TEXT[]) AS tags,
+    NULL::FLOAT8 AS distance_meters,w.created_at,w.updated_at
+FROM wants w JOIN users u ON u.id=w.owner_user_id WHERE w.id=$1;
 
 --name: lock-want-owner
 SELECT owner_user_id FROM wants WHERE id=$1 FOR UPDATE;
@@ -4615,12 +4924,16 @@ WHERE lower(blockchain_address) = lower($1);
 -- The caller-relative view of one conversation: peer, block flag, read marker,
 -- unread count and last message. $1 caller, $2 conversation.
 --name: messaging-get-conversation
-SELECT c.id, c.kind, c.status, c.actor_id, c.intro, c.last_message_at, c.created_at, c.updated_at,
+SELECT c.id, c.kind, c.status, c.actor_id,
+    CASE WHEN d.hidden THEN NULL ELSE c.intro END AS intro, c.last_message_at, c.created_at, c.updated_at,
     GREATEST(c.last_message_at, c.updated_at) AS sort_at,
     peer.id AS peer_id, peer.blockchain_address AS peer_address,
     peer.username AS peer_username, peer.avatar_url AS peer_avatar,
     (c.peer_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.peer_id)) AS blocked,
+    EXISTS (SELECT 1 FROM conversation_deletions reset
+        WHERE reset.conversation_id = c.id AND reset.user_id = c.actor_id
+          AND reset.hidden) AS can_request_after_delete,
     r.last_read_message_id,
     (SELECT count(*) FROM messages m
         WHERE m.conversation_id = c.id AND m.sender_user_id <> $1::INT
@@ -4638,9 +4951,10 @@ FROM (
 ) c
 LEFT JOIN users peer ON peer.id = c.peer_id
 LEFT JOIN conversation_reads r ON r.conversation_id = c.id AND r.user_id = $1::INT
+LEFT JOIN conversation_deletions d ON d.conversation_id = c.id AND d.user_id = $1::INT
 LEFT JOIN LATERAL (
     SELECT m.id, m.client_id, m.sender_user_id, m.body, m.image_urls, m.resource_context, m.created_at
-    FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1
+    FROM messages m WHERE m.conversation_id = c.id AND m.id > COALESCE(d.cleared_through_message_id, 0) ORDER BY m.id DESC LIMIT 1
 ) lm ON true;
 
 -- Find one direct conversation using the wallet and unique pair indexes.
@@ -4674,12 +4988,16 @@ WITH mine AS (
     SELECT c.*, NULL::INT AS peer_id FROM conversations c
     WHERE c.kind = 'helpdesk' AND c.user_a_id = $1::INT
 )
-SELECT c.id, c.kind, c.status, c.actor_id, c.intro, c.last_message_at, c.created_at, c.updated_at,
+SELECT c.id, c.kind, c.status, c.actor_id,
+    CASE WHEN d.hidden THEN NULL ELSE c.intro END AS intro, c.last_message_at, c.created_at, c.updated_at,
     GREATEST(c.last_message_at, c.updated_at) AS sort_at,
     peer.id AS peer_id, peer.blockchain_address AS peer_address,
     peer.username AS peer_username, peer.avatar_url AS peer_avatar,
     (c.peer_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.peer_id)) AS blocked,
+    EXISTS (SELECT 1 FROM conversation_deletions reset
+        WHERE reset.conversation_id = c.id AND reset.user_id = c.actor_id
+          AND reset.hidden) AS can_request_after_delete,
     r.last_read_message_id,
     (SELECT count(*) FROM messages m
         WHERE m.conversation_id = c.id AND m.sender_user_id <> $1::INT
@@ -4692,6 +5010,8 @@ FROM (
     -- Page first, then join: peer, marker and last message for at most $5 rows.
     SELECT * FROM mine c
     WHERE ($2::TEXT = '' OR c.kind = $2::TEXT)
+      AND NOT EXISTS (SELECT 1 FROM conversation_deletions d
+          WHERE d.conversation_id = c.id AND d.user_id = $1::INT AND d.hidden)
       AND NOT (c.status = 'pending' AND c.actor_id <> $1::INT
           AND EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.actor_id))
       AND ($3::TIMESTAMPTZ IS NULL
@@ -4701,9 +5021,10 @@ FROM (
 ) c
 LEFT JOIN users peer ON peer.id = c.peer_id
 LEFT JOIN conversation_reads r ON r.conversation_id = c.id AND r.user_id = $1::INT
+LEFT JOIN conversation_deletions d ON d.conversation_id = c.id AND d.user_id = $1::INT
 LEFT JOIN LATERAL (
     SELECT m.id, m.client_id, m.sender_user_id, m.body, m.image_urls, m.resource_context, m.created_at
-    FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1
+    FROM messages m WHERE m.conversation_id = c.id AND m.id > COALESCE(d.cleared_through_message_id, 0) ORDER BY m.id DESC LIMIT 1
 ) lm ON true
 ORDER BY GREATEST(c.last_message_at, c.updated_at) DESC, c.id DESC;
 
@@ -4725,8 +5046,10 @@ WITH mine AS (
 ), visible AS (
     SELECT mine.id, mine.kind, mine.status, mine.actor_id
     FROM mine
-    WHERE mine.peer_id IS NULL OR NOT EXISTS (
-        SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = mine.peer_id)
+    WHERE (mine.peer_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = mine.peer_id))
+      AND NOT EXISTS (SELECT 1 FROM conversation_deletions d
+          WHERE d.conversation_id = mine.id AND d.user_id = $1::INT AND d.hidden)
 ), unread AS (
     -- A request waiting on the caller counts once, under requests: its intro
     -- message is not also a direct unread.
@@ -4742,7 +5065,8 @@ SELECT
     COALESCE((SELECT n FROM unread WHERE kind = 'direct'), 0) AS direct,
     (SELECT count(*) FROM visible
         WHERE kind = 'direct' AND status = 'pending' AND actor_id <> $1::INT)::INT AS requests,
-    COALESCE((SELECT n FROM unread WHERE kind = 'helpdesk'), 0) AS helpdesk;
+    COALESCE((SELECT n FROM unread WHERE kind = 'helpdesk'), 0) AS helpdesk,
+    (SELECT count(*) FROM deliverable_post_contact_requests WHERE author_id = $1::INT)::INT AS post_requests;
 
 -- Membership in one query: the row, its members' addresses, and nothing for a
 -- non-member. $1 caller, $2 conversation.
@@ -4813,13 +5137,25 @@ VALUES ('direct', $1::INT, $2::INT, 'pending', $3::INT, $4)
 ON CONFLICT (user_a_id, user_b_id) WHERE kind = 'direct' DO NOTHING
 RETURNING id;
 
--- Only whoever declined or revoked may reopen a conversation.
+-- The member who declined or revoked may reopen. Once that member deletes
+-- their copy, either member may make a fresh request. A deletion by the other
+-- member never overrides a decline or revocation. Consent always returns to
+-- pending.
 --name: messaging-rerequest-direct-conversation
-UPDATE conversations
-SET status = 'pending', actor_id = $2::INT, intro = $3, updated_at = clock_timestamp()
-WHERE id = $1::BIGINT AND kind = 'direct' AND status IN ('declined', 'revoked')
-  AND actor_id = $2::INT
-RETURNING id;
+WITH reopened AS (
+    UPDATE conversations c
+    SET status = 'pending', actor_id = $2::INT, intro = $3, updated_at = clock_timestamp()
+    WHERE c.id = $1::BIGINT AND c.kind = 'direct' AND c.status IN ('declined', 'revoked')
+      AND $2::INT IN (c.user_a_id, c.user_b_id)
+      AND (c.actor_id = $2::INT OR EXISTS (
+          SELECT 1 FROM conversation_deletions d
+          WHERE d.conversation_id = c.id AND d.user_id = c.actor_id AND d.hidden))
+    RETURNING c.id
+), visible AS (
+    UPDATE conversation_deletions SET hidden = false
+    WHERE conversation_id IN (SELECT id FROM reopened)
+)
+SELECT id FROM reopened;
 
 -- Accept or decline. One guarded UPDATE, so a concurrent accept and revoke
 -- cannot both apply. $3 is 'accepted' or 'declined'.
@@ -4836,6 +5172,30 @@ SET status = 'revoked', actor_id = $2::INT, updated_at = clock_timestamp()
 WHERE id = $1::BIGINT AND kind = 'direct' AND status = 'accepted'
   AND $2::INT IN (user_a_id, user_b_id)
 RETURNING id;
+
+-- The conversation row is already locked by the authorized member. Deleting
+-- a pending or accepted conversation closes it for both members. A declined
+-- or revoked conversation keeps the member who closed it, so the other member
+-- cannot delete their copy to get around a decline.
+--name: messaging-delete-conversation
+WITH hidden AS (
+    INSERT INTO conversation_deletions (conversation_id, user_id, cleared_through_message_id)
+    SELECT $1::BIGINT, $2::INT, COALESCE(max(m.id), 0) FROM messages m WHERE m.conversation_id = $1::BIGINT
+    ON CONFLICT (conversation_id, user_id) DO UPDATE
+    SET cleared_through_message_id = GREATEST(conversation_deletions.cleared_through_message_id, EXCLUDED.cleared_through_message_id),
+        cleared_at = clock_timestamp(), hidden = true
+    RETURNING cleared_through_message_id
+)
+UPDATE conversations SET
+    status = CASE WHEN status IN ('pending', 'accepted') THEN 'revoked' ELSE status END,
+    actor_id = CASE WHEN status IN ('pending', 'accepted') THEN $2::INT ELSE actor_id END,
+    updated_at = clock_timestamp()
+WHERE id = $1::BIGINT AND kind = 'direct'
+RETURNING (SELECT cleared_through_message_id FROM hidden);
+
+--name: messaging-cleared-through
+SELECT COALESCE((SELECT cleared_through_message_id FROM conversation_deletions
+    WHERE conversation_id = $1::BIGINT AND user_id = $2::INT), 0)::BIGINT;
 
 --name: messaging-blocked-either-way
 SELECT EXISTS (
@@ -4883,7 +5243,7 @@ SELECT m.id, m.conversation_id, m.sender_user_id, u.blockchain_address AS sender
     m.client_id, m.body, m.image_urls, m.resource_context, m.created_at
 FROM messages m
 JOIN users u ON u.id = m.sender_user_id
-WHERE m.conversation_id = $1::BIGINT AND m.id < $2::BIGINT
+WHERE m.conversation_id = $1::BIGINT AND m.id > $4::BIGINT AND m.id < $2::BIGINT
 ORDER BY m.id DESC
 LIMIT $3::INT;
 
@@ -4892,7 +5252,7 @@ SELECT m.id, m.conversation_id, m.sender_user_id, u.blockchain_address AS sender
     m.client_id, m.body, m.image_urls, m.resource_context, m.created_at
 FROM messages m
 JOIN users u ON u.id = m.sender_user_id
-WHERE m.conversation_id = $1::BIGINT AND m.id > $2::BIGINT
+WHERE m.conversation_id = $1::BIGINT AND m.id > $4::BIGINT AND m.id > $2::BIGINT
 ORDER BY m.id ASC
 LIMIT $3::INT;
 
@@ -4932,6 +5292,94 @@ SELECT v.address, COALESCE(NULLIF(v.display_name, ''), v.name, v.symbol, v.addre
     COALESCE(v.symbol, '') AS symbol
 FROM vouchers v
 WHERE v.chain_id = $1::BIGINT AND v.active AND lower(v.address) = lower($2::TEXT);
+
+--name: post-contact-target
+SELECT p.title, author.id AS author_id
+FROM reports p
+LEFT JOIN users author ON lower(author.blockchain_address) = lower(p.author_address)
+    AND author.status = 'APPROVED' AND NOT user_retiring(author.id)
+WHERE p.id = $1::INT AND p.status = 'APPROVED' AND NOT account_retiring(p.author_address);
+
+--name: post-contact-for-requester
+SELECT r.id::TEXT AS id, r.post_id, r.post_title, r.requester_id, r.author_id,
+    r.status, CASE WHEN EXISTS (SELECT 1 FROM conversation_deletions d
+        WHERE d.conversation_id = r.conversation_id AND d.user_id = $1::INT
+          AND r.created_at <= d.cleared_at) THEN NULL ELSE r.intro END AS intro,
+    r.conversation_id, r.created_at
+FROM post_contact_requests r
+WHERE r.requester_id = $1::INT AND r.post_id = $2::INT;
+
+--name: post-contact-insert
+INSERT INTO post_contact_requests (id, requester_id, post_id, post_title, intro)
+VALUES ($1::UUID, $2::INT, $3::INT, $4::TEXT, $5::TEXT)
+ON CONFLICT (requester_id, post_id) DO NOTHING
+RETURNING id::TEXT AS id, post_id, post_title, requester_id, author_id,
+    status, intro, conversation_id, created_at;
+
+--name: post-contact-assign-author
+UPDATE post_contact_requests SET author_id = $2::INT WHERE id = $1::UUID;
+
+--name: post-contact-list
+SELECT r.id::TEXT AS id, r.post_id, r.post_title, r.requester_id, r.author_id,
+    r.status, r.intro, r.conversation_id, r.created_at,
+    requester.blockchain_address AS requester_address, requester.username AS requester_username,
+    requester.avatar_url AS requester_avatar
+FROM post_contact_requests r
+LEFT JOIN users requester ON requester.id = r.requester_id AND r.author_id = $1::INT
+WHERE (r.requester_id = $1::INT OR (r.author_id = $1::INT AND (
+    r.status <> 'pending' OR EXISTS (SELECT 1 FROM deliverable_post_contact_requests d WHERE d.id = r.id)
+)))
+  AND NOT EXISTS (SELECT 1 FROM conversation_deletions d
+      WHERE d.conversation_id = r.conversation_id AND d.user_id = $1::INT AND r.created_at <= d.cleared_at)
+  AND ($2::UUID IS NULL OR (r.created_at, r.id) < (
+    SELECT cursor_row.created_at, cursor_row.id FROM post_contact_requests cursor_row
+    WHERE cursor_row.id = $2::UUID AND $1::INT IN (cursor_row.requester_id, cursor_row.author_id)
+))
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT $3::INT;
+
+--name: post-contact-lock-author
+SELECT r.id::TEXT AS id, r.post_id, r.post_title, r.requester_id, r.author_id,
+    r.status, r.intro, r.conversation_id, r.created_at,
+    requester.blockchain_address AS requester_address, requester.username AS requester_username,
+    requester.avatar_url AS requester_avatar
+FROM post_contact_requests r
+JOIN users requester ON requester.id = r.requester_id
+WHERE r.id = $1::UUID AND r.author_id = $2::INT
+FOR UPDATE OF r;
+
+-- Hold the Post stable while finalizing a request. Block mutations take the
+-- same pair lock as the caller already holds before checking deliverability.
+--name: post-contact-lock-deliverable
+SELECT p.id
+FROM post_contact_requests r
+JOIN reports p ON p.id = r.post_id
+JOIN users author ON author.id = r.author_id
+JOIN users requester ON requester.id = r.requester_id
+WHERE r.id = $1::UUID
+  AND r.status = 'pending' AND p.status = 'APPROVED'
+  AND lower(p.author_address) = lower(author.blockchain_address)
+  AND author.status = 'APPROVED' AND requester.status = 'APPROVED'
+  AND NOT user_retiring(author.id) AND NOT user_retiring(requester.id)
+  AND NOT EXISTS (
+      SELECT 1 FROM user_blocks b
+      WHERE (b.blocker_id = r.requester_id AND b.blocked_id = r.author_id)
+         OR (b.blocker_id = r.author_id AND b.blocked_id = r.requester_id)
+  )
+FOR SHARE OF p, author, requester;
+
+-- Check under the direct conversation row lock: an old request cannot restore
+-- consent withdrawn by its requester through conversation deletion.
+--name: post-contact-consent-current
+SELECT NOT EXISTS (
+    SELECT 1 FROM conversation_deletions d
+    WHERE d.conversation_id = $1::BIGINT AND d.user_id = $2::INT
+      AND d.cleared_at >= $3::TIMESTAMPTZ
+);
+
+--name: post-contact-set-status
+UPDATE post_contact_requests SET status = $2::TEXT, conversation_id = $3::BIGINT
+WHERE id = $1::UUID AND status = 'pending';
 
 -- The read marker only moves forward, and only to a message of that
 -- conversation. Returns a row only when the marker moved; the caller tells a

@@ -7073,7 +7073,7 @@ Pass `nextCursor` back as `cursor`. A cursor is opaque. `limit` defaults to 30 a
 `peer` is `null` for helpdesk.
 `requestedBySelf` is true when the caller made the current status of a direct conversation.
 `canAccept` is true for a pending conversation the caller did not request.
-`canRequest` is true for a declined or revoked conversation the caller closed.
+`canRequest` is true for a declined or revoked conversation the caller closed, or one whose closer has since deleted their copy.
 `blocked` is true when the caller has blocked the peer.
 
 **Message.**
@@ -7104,25 +7104,41 @@ An exact `peerAddress` lookup takes one wallet address and returns only the call
 The usual page contains zero or one item and `nextCursor: null`. A caller with no visible conversation receives an empty page.
 Use `kind=direct` or omit `kind`, and omit `cursor`. Invalid combinations return `400`.
 
+#### `GET /api/v2/messaging/resource-targets`
+
+Requires a user session. Query: one `kind` (`pool`, `voucher`, `want`, or `catalog`) and one `resourceId` (contract address for a Pool or Voucher, positive decimal ID for a Want or Catalog).
+Returns `{ "targets": [{ "address": "0x...", "username": null, "avatar": null }], "selfOnly": false }` with `Cache-Control: private, no-store`.
+The `selfOnly` flag is true when the caller is the only eligible recipient. Other eligible Safe signers remain available in `targets`.
+Targets are the current eligible owner or projected Safe signers, excluding the caller. A missing or ineligible resource or owner returns an empty array. Invalid parameters return `400`.
+This read uses the authenticated recipient rate limit. Request and send endpoints still enforce conversation status and blocking.
+
 ### 16.2 `GET /api/v2/conversations/unread`
 
-Returns `{ "direct": 3, "requests": 1, "helpdesk": 0 }`.
+Returns `{ "direct": 3, "requests": 1, "helpdesk": 0, "postRequests": 0 }`.
 A message is unread when someone other than the caller sent it and its id is above the caller's read marker.
 `direct` counts unread messages in every direct conversation, whatever its status. `requests` counts pending conversations the caller did not request. Both leave out anyone the caller blocked.
 `helpdesk` counts unread support replies.
+`postRequests` counts pending Post contact requests visible to the caller as author. Older clients can continue using the existing fields.
 
 ### 16.3 `POST /api/v2/conversations`
 
 Body: `{ "recipientAddress": "0x...", "intro": "optional", "context": optional }`.
 Requests a direct conversation and returns `201` with the conversation, status `pending`.
 A non-empty `intro` is also stored as the requester's first message, so it stays in the history after the request is answered. While the request waits on the recipient it counts under `requests` in the unread counts, not under `direct`.
-A conversation that the caller declined or revoked is reopened. Any other existing conversation returns `409` with code `E16`; only the person who declined or revoked may reopen one.
+A conversation that the caller declined or revoked is reopened. After the member who declined or revoked deletes their copy, either participant may make a fresh request. Deleting a pending or accepted conversation closes it, with the deleting member as the closer. Deleting a conversation the other member declined or revoked hides the caller's copy but does not let the caller reopen it. Reopening makes the conversation visible again and requires recipient acceptance. Other existing conversations return `409` with code `E16`.
 Spends one of the caller's 100 daily requests.
 When `context` is present, the recipient must be the resource's current EOA owner or a current projected Safe signer. Invalid, inactive or unrelated resources return the generic `404`. The context is stored as the first message even when `intro` is absent.
 
 ### 16.4 `GET /api/v2/conversations/:id`
 
 Returns the conversation.
+
+### 16.4.1 `DELETE /api/v2/conversations/:id`
+
+Clears the caller's direct-conversation history and hides it from their inbox. Returns `204` with `Cache-Control: private, no-store`.
+The other participant retains their history. Shared messages and abuse evidence remain stored.
+Deletion revokes messaging consent and clears the caller's unread state. Either member may make a fresh request through `POST /api/v2/conversations`; the recipient must accept before messaging resumes.
+Only later messages become visible to the deleting member. Repeated deletion is safe. Helpdesk conversations return the generic `404`.
 
 ### 16.5 `PUT /api/v2/conversations/:id/status`
 
@@ -7133,7 +7149,8 @@ A member whose conversation is in the wrong state gets `409`. A block does not c
 ### 16.6 `GET /api/v2/conversations/:id/messages`
 
 Query: `before` or `after` (a message id; both together return `400`), `limit` (default 50, at most 100).
-Returns `{ "items": Message[], "hasMore": boolean }` with items in ascending id order.
+Returns `{ "items": Message[], "hasMore": boolean, "clearedThrough": number }` with items in ascending id order.
+`clearedThrough` is the caller's deletion cutoff, or zero. All pages exclude messages at or below it. Clients must also discard cached messages through this cutoff.
 Without a cursor, or with `before`, it returns the newest `limit` messages below `before`; `hasMore` means older messages exist.
 With `after`, it returns the oldest `limit` messages above `after`; `hasMore` means newer messages exist.
 History stays readable after a revoke or a block.
@@ -7142,7 +7159,7 @@ History stays readable after a revoke or a block.
 
 Body: `{ "clientId": "uuid", "body": "optional", "imageUrls": ["https://..."], "context": optional }`.
 Returns `201` with the message.
-A repeated `clientId` returns `200` with the stored message and stores nothing. A `clientId` the caller used in another conversation returns `409`.
+A repeated `clientId` returns `200` with the stored message and stores nothing. A `clientId` the caller used in another conversation, or for a message the caller has cleared, returns `409`.
 A direct conversation must be `accepted` (`409` otherwise) and have no block in either direction (generic `404`).
 Posting to a resolved helpdesk conversation reopens it.
 Resource context is accepted only in direct conversations and is authorized against the receiving member at send time.
@@ -7230,6 +7247,16 @@ clc-app-notifications consumes the stream.
 
 `helpdesk.status_changed` is also sent when a helpdesk conversation is created or a user's post reopens it.
 A retried send with the same `clientId`, a read marker that does not move, a repeated block and a status that is already set send no event.
+
+### 16.14 Private Post contact requests
+
+All routes require a user session. Responses use the messaging envelope with `Cache-Control: no-store`.
+
+- `GET /api/v2/messaging/post-requests` returns `{ "items": PostContactRequest[], "nextCursor": string | null }`. Pass the returned cursor for the next page. `limit` defaults to 30 and has a maximum of 100.
+- `POST /api/v2/messaging/post-requests` takes `{ "postId": "123", "intro": "optional" }` and returns the outgoing request. The Post must be approved and public. The first request for a requester and Post spends daily messaging quota and returns `201`. Repeated submissions return the same request with `200`. Blocked, self and unavailable authors produce the same pending acknowledgement for the requester while suppressing delivery.
+- `PUT /api/v2/messaging/post-requests/:id/status` takes `{ "status": "accepted" | "declined" }`. Only the Post author can answer a deliverable request. Accepting creates or reuses an accepted direct conversation, respecting existing reopen rules, and copies the intro once. Repeating the same decision returns the existing result. A conflicting decision returns `409`.
+
+A request contains its UUID `id`, string `postId`, `postTitle`, `direction` of `incoming` or `outgoing`, `status` of `pending`, `accepted` or `declined`, nullable `intro`, nullable `conversationId`, nullable `requester` and RFC 3339 `createdAt`. `requester` uses the ordinary peer shape and appears only for the author. `conversationId` becomes available only after the author accepts contact about this Post. Ordinary conversation and message responses retain their existing shapes.
 
 ---
 
@@ -7392,9 +7419,11 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/admin/transactions/pools` | Administrative |
 | GET | `/api/v2/admin/transactions/otx` | Administrative |
 | GET | `/api/v2/conversations` | User session |
+| GET | `/api/v2/messaging/resource-targets` | User session |
 | GET | `/api/v2/conversations/unread` | User session |
 | POST | `/api/v2/conversations` | User session |
 | GET | `/api/v2/conversations/:id` | User session (member) |
+| DELETE | `/api/v2/conversations/:id` | User session (direct member) |
 | PUT | `/api/v2/conversations/:id/status` | User session (member) |
 | GET | `/api/v2/conversations/:id/messages` | User session (member) |
 | POST | `/api/v2/conversations/:id/messages` | User session (member) |
@@ -7404,6 +7433,9 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | PUT | `/api/v2/blocks/:address` | User session |
 | DELETE | `/api/v2/blocks/:address` | User session |
 | POST | `/api/v2/abuse-reports` | User session |
+| GET | `/api/v2/messaging/post-requests` | User session |
+| POST | `/api/v2/messaging/post-requests` | User session |
+| PUT | `/api/v2/messaging/post-requests/:id/status` | User session (Post author) |
 | GET | `/api/v2/admin/messaging/counts` | Administrative |
 | GET | `/api/v2/admin/helpdesk` | Administrative |
 | GET | `/api/v2/admin/helpdesk/:id` | Administrative |
@@ -7423,3 +7455,71 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | POST | `/api/v2/relayer/relay/preview` | Public |
 | GET | `/api/v2/relayer/webauthn/challenge` | Public |
 | POST | `/api/v2/relayer/webauthn/recover` | Public |
+
+
+## 18. Public profiles and resource editor access
+
+### Publication settings
+
+`GET /auth/profile` and `POST /auth/profile` return `publicProfile`. The optional
+`publicProfile` write object contains boolean publication choices:
+`enabled`, `avatar`, `name`, `bio`, `website`, `email`, `phone`, `country`,
+`locationName`, `preciseLocation`, `preferredCurrency`, `vouchers`, `offers`,
+`wants`, `pools`, `posts`, and `catalogs`. The deprecated `activity` field is
+accepted and ignored on writes, and always returned as `false` for older clients.
+
+Omitting the object preserves all choices. A supplied object replaces the choices.
+Only the account owner may change publication settings; Admin profile corrections
+must omit the object. A visibility-only save sends `visibilityOnly: true` with
+`publicProfile` to the same authenticated `POST /auth/profile` route. It changes
+only publication choices and preserves all stored contact/profile fields, so
+legacy accounts can disable publication without supplying new personal data.
+Full detail edits retain their existing validation and write semantics. Defaults enable the profile, existing public avatar, and
+Vouchers/Offers/Wants/Pools/Catalogs. Posts authorship and additional
+personal fields are opt-in. Selected email, phone and location require sign-in.
+These choices govern profile aggregation, not the visibility of public resources
+and blockchain data elsewhere.
+
+### Public reads
+
+| Method | Route | Result |
+|---|---|---|
+| GET | `/api/v2/profiles/:address` | `{profile}`: address, username, selected avatar/name/bio/website/country/unit, section switches and `hasPrivateDetails` |
+| GET | `/api/v2/profiles/:address/details` | Authenticated `{details}` containing only selected email, phone, location label and coordinates |
+| GET | `/api/v2/profiles/:address/:section` | `{items, nextCursor}` for vouchers, offers, wants, pools, posts or catalogs |
+| GET | `/api/v2/profiles/resource/:kind/:id` | `{profiles}` for current direct owner or multisig signers; anonymous Post authors require explicit Posts consent |
+
+Public reads are cookie-independent and use `Cache-Control: no-store`. Selected
+private details require a verified user session and `Cache-Control: private,
+no-store`. Disabled, unapproved, retiring/erased, and replaced old addresses are
+unavailable. Every section and page independently checks publication choices.
+
+Section lists are global, independent of a viewer's map viewport. They accept
+`perPage` (maximum 50; the app requests 20) and the previous `nextCursor`.
+`nextCursor` is a decimal string or `null` at the end. Voucher/Pool management
+includes current same-chain Safe signers. Offers follow their parent Voucher's
+current owner, rather than their historical seller. Posts expose only approved
+content after the owner opts into authorship association. The retired
+`/api/v2/profiles/:address/activity` route returns `404` with `Cache-Control: no-store`
+without querying transaction storage. Signed-in account Activity is unchanged.
+
+### Editing and related Wants
+
+- `GET /api/v2/wants/:id/edit` returns a complete private Want editor record to
+  its creator or an Admin/Superadmin.
+- `PUT /api/v2/wants/:id` updates an existing Want for those roles, preserving
+  creator, lifecycle and creator quota. Non-owner Admin edits may change contact
+  instructions; stored email/phone sharing permission bits remain unchanged.
+  Missing creator contacts do not block unrelated Admin corrections. Existing
+  owner close, reopen and delete routes retain their authorization rules.
+- Catalog creators and Admins may edit metadata and add/remove catalog entries.
+  Whole-Catalog deletion remains creator-only.
+- Offer writes accept optional `tags` (maximum 12). Omission preserves existing
+  tags; `[]` clears them. Validation and vocabulary rules are shared with other
+  resources; product and tag writes commit atomically.
+- `GET /api/v2/vouchers/:address/wants` returns active Wants of the current owner
+  or Safe signers, on the API's configured chain. Public contacts stay redacted.
+  Cursor pagination uses `last` and `next=true`; Pool Wants use the same signer
+  expansion through their accepted active Vouchers, with deduplication.
+
+Deploy migration `085_public_profiles.sql` and these APIs before the app.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 const (
@@ -29,6 +30,7 @@ type (
 	STSError struct {
 		Status  int
 		Message string
+		quota   *QuotaLimitError
 	}
 
 	// STS is a client for the Safe Transaction Service. The API key stays in this
@@ -37,6 +39,7 @@ type (
 		base   string
 		apiKey string
 		http   *http.Client
+		quota  *STSQuota
 	}
 
 	// stsTransaction is the upstream shape. nonce and the gas fields arrive as
@@ -70,12 +73,29 @@ func (e *STSError) Error() string {
 	return fmt.Sprintf("safe transaction service: status %d: %s", e.Status, e.Message)
 }
 
+func (e *STSError) Unwrap() error {
+	if e.quota == nil {
+		return nil
+	}
+	return e.quota
+}
+
 func NewSTS(baseURL, apiKey string) *STS {
 	return &STS{
 		base:   strings.TrimRight(baseURL, "/"),
 		apiKey: apiKey,
 		http:   &http.Client{Timeout: stsTimeout},
+		quota:  NewSTSQuota(nil),
 	}
+}
+
+// WithQuota shares cooldown and quota logging with other clients in this process.
+// Configure clients before their first request.
+func (s *STS) WithQuota(quota *STSQuota) *STS {
+	if quota != nil {
+		s.quota = quota
+	}
+	return s
 }
 
 func (t stsTransaction) transaction() Transaction {
@@ -107,7 +127,13 @@ func (t stsTransaction) transaction() Transaction {
 	return out
 }
 
-func (s *STS) do(ctx context.Context, method, path string, body any, out any) error {
+func (s *STS) do(ctx context.Context, operation, method, path string, body any, out any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if limit, blocked := s.quota.blocked(); blocked {
+		return stsQuotaError(limit)
+	}
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -129,6 +155,7 @@ func (s *STS) do(ctx context.Context, method, path string, body any, out any) er
 	}
 	resp, err := s.http.Do(req)
 	if err != nil {
+		s.quota.logTransportFailure(ctx, operation)
 		// url.Error carries the URL but never request headers.
 		var uerr *url.Error
 		if errors.As(err, &uerr) {
@@ -137,6 +164,13 @@ func (s *STS) do(ctx context.Context, method, path string, body any, out any) er
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	s.quota.logResponse(ctx, operation, resp)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		// Headers can identify the limit even if its response body is unavailable.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxQuotaBody+1))
+		limit := s.quota.observeLimit(ctx, operation, resp.Header, raw)
+		return stsQuotaError(limit)
+	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSTSBody+1))
 	if err != nil {
 		return err
@@ -146,6 +180,9 @@ func (s *STS) do(ctx context.Context, method, path string, body any, out any) er
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg := strings.TrimSpace(string(raw))
+		if s.apiKey != "" {
+			msg = strings.ReplaceAll(msg, s.apiKey, "[redacted]")
+		}
 		if len(msg) > 300 {
 			msg = msg[:300]
 		}
@@ -179,33 +216,22 @@ func (s *STS) Propose(ctx context.Context, safe, safeTxHash, sender, signature s
 		"gasPrice": json.Number(f.GasPrice), "refundReceiver": checksumAddress(f.RefundReceiver), "nonce": json.Number(f.Nonce),
 		"contractTransactionHash": safeTxHash, "sender": checksumAddress(sender), "signature": signature,
 	}
-	return s.do(ctx, http.MethodPost, "/api/v1/safes/"+checksumAddress(safe)+"/multisig-transactions/", body, nil)
+	return s.do(ctx, "propose", http.MethodPost, "/api/v1/safes/"+checksumAddress(safe)+"/multisig-transactions/", body, nil)
 }
 
 // Confirm adds a signature to a proposed transaction.
 func (s *STS) Confirm(ctx context.Context, safeTxHash, signature string) error {
-	return s.do(ctx, http.MethodPost, "/api/v1/multisig-transactions/"+safeTxHash+"/confirmations/",
+	return s.do(ctx, "confirm", http.MethodPost, "/api/v1/multisig-transactions/"+safeTxHash+"/confirmations/",
 		map[string]string{"signature": signature}, nil)
 }
 
 func (s *STS) Transaction(ctx context.Context, safeTxHash string) (*Transaction, error) {
 	var raw stsTransaction
-	if err := s.do(ctx, http.MethodGet, "/api/v1/multisig-transactions/"+safeTxHash+"/", nil, &raw); err != nil {
+	if err := s.do(ctx, "transaction", http.MethodGet, "/api/v1/multisig-transactions/"+safeTxHash+"/", nil, &raw); err != nil {
 		return nil, err
 	}
 	tx := raw.transaction()
 	return &tx, nil
-}
-
-// Nonce is the Safe's current nonce: the first one not yet executed.
-func (s *STS) Nonce(ctx context.Context, safe string) (string, error) {
-	var info struct {
-		Nonce json.Number `json:"nonce"`
-	}
-	if err := s.do(ctx, http.MethodGet, "/api/v1/safes/"+safe+"/", nil, &info); err != nil {
-		return "", err
-	}
-	return info.Nonce.String(), nil
 }
 
 // Queued lists transactions at or above nonce, oldest first.
@@ -214,12 +240,23 @@ func (s *STS) Queued(ctx context.Context, safe, nonceGte string) ([]Transaction,
 		Results []stsTransaction `json:"results"`
 	}
 	q := url.Values{"nonce__gte": {nonceGte}, "executed": {"false"}, "ordering": {"nonce"}}
-	if err := s.do(ctx, http.MethodGet, "/api/v1/safes/"+safe+"/multisig-transactions/?"+q.Encode(), nil, &page); err != nil {
+	if err := s.do(ctx, "queue", http.MethodGet, "/api/v1/safes/"+safe+"/multisig-transactions/?"+q.Encode(), nil, &page); err != nil {
 		return nil, err
+	}
+	if page.Results == nil {
+		return nil, errors.New("safe transaction service: queue results are missing")
 	}
 	out := make([]Transaction, 0, len(page.Results))
 	for _, r := range page.Results {
-		out = append(out, r.transaction())
+		tx := r.transaction()
+		hash, err := hexutil.Decode(tx.SafeTxHash)
+		if err != nil || len(hash) != common.HashLength || !strings.EqualFold(tx.Safe, safe) {
+			return nil, errors.New("safe transaction service: invalid queued transaction identity")
+		}
+		if _, err := uintOf("nonce", tx.Nonce); err != nil {
+			return nil, fmt.Errorf("safe transaction service: invalid queued transaction: %w", err)
+		}
+		out = append(out, tx)
 	}
 	return out, nil
 }

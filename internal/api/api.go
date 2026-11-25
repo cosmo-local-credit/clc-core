@@ -51,6 +51,7 @@ type (
 		// not mounted.
 		SafeSTSURL string
 		SafeSTSKey string
+		SafeQuota  *safe.STSQuota
 		// SafeAutoExecute has clc-core execute a proposal once its signers
 		// reach the threshold; the worker must run the matching executor.
 		SafeAutoExecute bool
@@ -149,16 +150,21 @@ func New(o APIOpts) *API {
 		a.safeProxy = &safeService{
 			chainID: o.ChainID,
 			policy:  a.safePolicy,
-			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey),
+			sts:     safe.NewSTS(o.SafeSTSURL, o.SafeSTSKey).WithQuota(o.SafeQuota),
 			signers: storeSafeSigners{a: a},
 		}
-		a.safeProxy.syncApproval = func(ctx context.Context, safeAddress, safeTxHash string) {
-			if err := worker.EnqueueSafeApprovalSync(ctx, a.queueClient, safeAddress, safeTxHash); err != nil {
+		a.safeProxy.syncApproval = func(ctx context.Context, safeAddress, safeTxHash, signer string) {
+			// Safe has accepted the action. A disconnected caller should still
+			// leave a job to reconcile the successful signature.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancel()
+			if err := worker.EnqueueSafeApprovalSync(ctx, a.queueClient, safeAddress, safeTxHash, signer); err != nil {
 				a.logg.Error("could not queue Safe approval notification sync", "safe", safeAddress, "safe_tx_hash", safeTxHash, "err", err)
 			}
 		}
 		if safeReader != nil {
 			a.safeProxy.contracts = safeReader.ContractVerifierLatest
+			a.safeProxy.readNonce = safeReader.ReadNonce
 		}
 		if o.SafeAutoExecute {
 			a.safeProxy.requestExecution = a.requestSafeExecution
@@ -264,6 +270,7 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/vouchers", a.vouchersListHandler, a.marketRateLimitMiddleware(), a.nearbyCatalogAuth())
 	router.GET(apiVersion+"/vouchers/:address", a.voucherByAddressHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings", a.voucherOfferingsListHandler, a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/vouchers/:address/wants", a.voucherWantsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/offerings/:id", a.voucherOfferingHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/vouchers/:address/reviews", a.voucherReviewsListHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/pools/:address/reviews", a.poolReviewsListHandler, a.marketRateLimitMiddleware())
@@ -282,6 +289,19 @@ func New(o APIOpts) *API {
 	router.GET(apiVersion+"/catalogs/:id", a.curatedCatalogDetailHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/catalogs/:id/pools", a.curatedMembersHandler, a.marketRateLimitMiddleware())
 	router.GET(apiVersion+"/catalogs/:id/vouchers", a.curatedMembersHandler, a.marketRateLimitMiddleware())
+	// Public profiles deliberately expose one exact account at a time. Each
+	// resource section is a separate page so a hidden section is never fetched
+	// as a side effect of opening the profile header.
+	router.GET(apiVersion+"/profiles/resource/:kind/:id", a.publicResourceProfilesHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address", a.publicProfileHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/vouchers", a.publicProfileVouchersHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/offers", a.publicProfileOffersHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/wants", a.publicProfileWantsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/pools", a.publicProfilePoolsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/posts", a.publicProfilePostsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	router.GET(apiVersion+"/profiles/:address/catalogs", a.publicProfileCatalogsHandler, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
+	// Older clients receive a stable, uncached 404 for the retired public section.
+	router.GET(apiVersion+"/profiles/:address/activity", publicProfileNotFound, publicProfileNoStoreMiddleware(), a.marketRateLimitMiddleware())
 
 	// Network pool catalog (imported + clc-core deploys; reads the pools
 	// table). Distinct from /users/me/pools which is
@@ -304,6 +324,9 @@ func New(o APIOpts) *API {
 	apiGroup.GET("/vouchers/:address/info", a.voucherInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/pools/:address/info", a.poolInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/wants/:id/contact", a.wantContactHandler, a.requireUserAuth())
+	apiGroup.GET("/wants/:id/edit", a.wantEditHandler, a.requireUserAuth())
+	apiGroup.PUT("/wants/:id", a.wantCanonicalUpdateHandler, a.requireUserAuth())
+	apiGroup.GET("/profiles/:address/details", a.publicProfileDetailsHandler, publicProfileNoStoreMiddleware(), a.requireUserAuth())
 
 	apiGroup.GET("/vouchers/:address/reviews/me", a.voucherReviewAccessHandler, a.requireUserAuth())
 	apiGroup.PUT("/vouchers/:address/reviews/me", a.voucherReviewSaveHandler, a.requireUserAuth())
@@ -379,13 +402,15 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/retirement-requests/:id/cancel", a.decideRetirementRequestHandler, a.requireUserAuth())
 
 	// Messaging (clc-app docs/MESSAGING.md). User routes need a user session and
-	// grant a role nothing: each handler checks membership itself. Only POST
-	// /conversations spends the daily request quota; sends spend the
+	// grant a role nothing: each handler checks membership itself. New
+	// direct and Post requests spend the daily request quota; sends spend the
 	// per-minute message limiter.
 	apiGroup.GET("/conversations", a.listConversationsHandler, a.requireUserAuth())
+	apiGroup.GET("/messaging/resource-targets", a.messagingResourceTargetsHandler, a.requireUserAuth(), a.recipientRateLimitMiddleware())
 	apiGroup.GET("/conversations/unread", a.unreadConversationsHandler, a.requireUserAuth())
 	apiGroup.POST("/conversations", a.createConversationHandler, a.requireUserAuth())
 	apiGroup.GET("/conversations/:id", a.getConversationHandler, a.requireUserAuth())
+	apiGroup.DELETE("/conversations/:id", a.deleteConversationHandler, a.requireUserAuth())
 	apiGroup.PUT("/conversations/:id/status", a.updateConversationStatusHandler, a.requireUserAuth())
 	apiGroup.GET("/conversations/:id/messages", a.listConversationMessagesHandler, a.requireUserAuth())
 	apiGroup.POST("/conversations/:id/messages", a.postConversationMessageHandler, a.requireUserAuth(), a.messageRateLimitMiddleware())
@@ -395,6 +420,9 @@ func New(o APIOpts) *API {
 	apiGroup.PUT("/blocks/:address", a.putBlockHandler, a.requireUserAuth())
 	apiGroup.DELETE("/blocks/:address", a.deleteBlockHandler, a.requireUserAuth())
 	apiGroup.POST("/abuse-reports", a.createAbuseReportHandler, a.requireUserAuth())
+	apiGroup.GET("/messaging/post-requests", a.listPostContactRequestsHandler, a.requireUserAuth())
+	apiGroup.POST("/messaging/post-requests", a.createPostContactRequestHandler, a.requireUserAuth())
+	apiGroup.PUT("/messaging/post-requests/:id/status", a.updatePostContactRequestHandler, a.requireUserAuth())
 
 	if a.pretium != nil {
 		pretiumGroup := apiGroup.Group("/pretium")

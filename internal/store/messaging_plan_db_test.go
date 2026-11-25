@@ -69,8 +69,10 @@ func TestMessagingQueryPlans(t *testing.T) {
 		args        []any
 		indexes     []string
 	}{
-		{"messages_before", pg.queries.MessagingMessagesBefore, []any{conversation, int64(1 << 62), 51}, []string{"messages_conversation_page_idx"}},
-		{"messages_after", pg.queries.MessagingMessagesAfter, []any{conversation, int64(1), 51}, []string{"messages_conversation_page_idx"}},
+		{"messages_before", pg.queries.MessagingMessagesBefore, []any{conversation, int64(1 << 62), 51, int64(0)}, []string{"messages_conversation_page_idx"}},
+		{"messages_after", pg.queries.MessagingMessagesAfter, []any{conversation, int64(1), 51, int64(0)}, []string{"messages_conversation_page_idx"}},
+		{"cleared_messages_before", pg.queries.MessagingMessagesBefore, []any{conversation, int64(1 << 62), 51, int64(10)}, []string{"messages_conversation_page_idx"}},
+		{"cleared_messages_after", pg.queries.MessagingMessagesAfter, []any{conversation, int64(10), 51, int64(10)}, []string{"messages_conversation_page_idx"}},
 		{"member", pg.queries.MessagingMemberConversation, []any{caller, conversation}, []string{"conversations_pkey"}},
 		// Either the pair index or user_b's is a single-row lookup; only a scan fails.
 		{"pair", pg.queries.MessagingLockDirectPair, []any{low, high}, nil},

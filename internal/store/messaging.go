@@ -38,6 +38,8 @@ type (
 		MessagingResourceByID(context.Context, pgx.Tx, int64, string, string) (MessagingResource, error)
 		MessagingVoucherByAddress(context.Context, pgx.Tx, int64, string) (MessagingVoucher, error)
 		GetConversationView(context.Context, pgx.Tx, int64, int64) (ConversationView, error)
+		DeleteConversation(context.Context, pgx.Tx, int64, int64) (int64, error)
+		ConversationClearedThrough(context.Context, pgx.Tx, int64, int64) (int64, error)
 		GetDirectConversationViewByPeer(context.Context, pgx.Tx, int64, string) (ConversationView, error)
 		ListConversationViews(context.Context, pgx.Tx, int64, string, *Keyset, int) ([]ConversationView, error)
 		MessagingUnreadCounts(context.Context, pgx.Tx, int64) (MessagingUnread, error)
@@ -72,6 +74,15 @@ type (
 		ListAbuseReports(context.Context, pgx.Tx, string, *Keyset, int) ([]AbuseReportRow, error)
 		GetAbuseReport(context.Context, pgx.Tx, int64) (AbuseReportRow, error)
 		ResolveAbuseReport(context.Context, pgx.Tx, int64, string, int64) (bool, error)
+		PostContactTarget(context.Context, pgx.Tx, int64) (PostContactTarget, error)
+		PostContactForRequester(context.Context, pgx.Tx, int64, int64) (PostContactRequest, error)
+		InsertPostContact(context.Context, pgx.Tx, string, int64, int64, string, *string) (PostContactRequest, error)
+		AssignPostContactAuthor(context.Context, pgx.Tx, string, int64) error
+		ListPostContacts(context.Context, pgx.Tx, int64, *string, int) ([]PostContactRequest, error)
+		LockPostContactForAuthor(context.Context, pgx.Tx, string, int64) (PostContactRequest, error)
+		LockDeliverablePostContact(context.Context, pgx.Tx, string) error
+		PostContactConsentCurrent(context.Context, pgx.Tx, int64, int64, time.Time) (bool, error)
+		SetPostContactStatus(context.Context, pgx.Tx, string, string, *int64) error
 	}
 
 	// Keyset is the (sort time, id) position of the last row of a page.
@@ -115,35 +126,37 @@ type (
 
 	// ConversationView is one conversation as its caller sees it.
 	ConversationView struct {
-		ID                   int64           `db:"id"`
-		Kind                 string          `db:"kind"`
-		Status               string          `db:"status"`
-		ActorID              *int64          `db:"actor_id"`
-		Intro                *string         `db:"intro"`
-		LastMessageAt        *time.Time      `db:"last_message_at"`
-		CreatedAt            time.Time       `db:"created_at"`
-		UpdatedAt            time.Time       `db:"updated_at"`
-		SortAt               time.Time       `db:"sort_at"`
-		PeerID               *int64          `db:"peer_id"`
-		PeerAddress          *string         `db:"peer_address"`
-		PeerUsername         *string         `db:"peer_username"`
-		PeerAvatar           *string         `db:"peer_avatar"`
-		Blocked              bool            `db:"blocked"`
-		LastReadMessageID    *int64          `db:"last_read_message_id"`
-		UnreadCount          int             `db:"unread_count"`
-		LastMessageID        *int64          `db:"last_message_id"`
-		LastMessageClientID  *string         `db:"last_message_client_id"`
-		LastMessageSenderID  *int64          `db:"last_message_sender_id"`
-		LastMessageBody      *string         `db:"last_message_body"`
-		LastMessageImageURLs []string        `db:"last_message_image_urls"`
-		LastMessageContext   json.RawMessage `db:"last_message_context"`
-		LastMessageCreatedAt *time.Time      `db:"last_message_created_at"`
+		ID                    int64           `db:"id"`
+		Kind                  string          `db:"kind"`
+		Status                string          `db:"status"`
+		ActorID               *int64          `db:"actor_id"`
+		Intro                 *string         `db:"intro"`
+		LastMessageAt         *time.Time      `db:"last_message_at"`
+		CreatedAt             time.Time       `db:"created_at"`
+		UpdatedAt             time.Time       `db:"updated_at"`
+		SortAt                time.Time       `db:"sort_at"`
+		PeerID                *int64          `db:"peer_id"`
+		PeerAddress           *string         `db:"peer_address"`
+		PeerUsername          *string         `db:"peer_username"`
+		PeerAvatar            *string         `db:"peer_avatar"`
+		Blocked               bool            `db:"blocked"`
+		CanRequestAfterDelete bool            `db:"can_request_after_delete"`
+		LastReadMessageID     *int64          `db:"last_read_message_id"`
+		UnreadCount           int             `db:"unread_count"`
+		LastMessageID         *int64          `db:"last_message_id"`
+		LastMessageClientID   *string         `db:"last_message_client_id"`
+		LastMessageSenderID   *int64          `db:"last_message_sender_id"`
+		LastMessageBody       *string         `db:"last_message_body"`
+		LastMessageImageURLs  []string        `db:"last_message_image_urls"`
+		LastMessageContext    json.RawMessage `db:"last_message_context"`
+		LastMessageCreatedAt  *time.Time      `db:"last_message_created_at"`
 	}
 
 	MessagingUnread struct {
-		Direct   int `db:"direct"`
-		Requests int `db:"requests"`
-		Helpdesk int `db:"helpdesk"`
+		Direct       int `db:"direct"`
+		Requests     int `db:"requests"`
+		Helpdesk     int `db:"helpdesk"`
+		PostRequests int `db:"post_requests"`
 	}
 
 	AdminMessagingCounts struct {
@@ -175,9 +188,10 @@ type (
 	// MessagePage selects the newest Limit messages below Before (0 for the
 	// newest overall), or the oldest Limit above After when After > 0.
 	MessagePage struct {
-		Before int64
-		After  int64
-		Limit  int
+		ClearedThrough int64
+		Before         int64
+		After          int64
+		Limit          int
 	}
 
 	BlockedUser struct {
@@ -409,7 +423,7 @@ func (pg *Pg) ListMessages(ctx context.Context, tx pgx.Tx, conversation int64, p
 	var messages []Message
 	if page.After > 0 {
 		if err := pgxscan.Select(ctx, tx, &messages, pg.queries.MessagingMessagesAfter,
-			conversation, page.After, page.Limit+1); err != nil {
+			conversation, max(page.After, page.ClearedThrough), page.Limit+1, page.ClearedThrough); err != nil {
 			return nil, false, err
 		}
 		more := len(messages) > page.Limit
@@ -424,7 +438,7 @@ func (pg *Pg) ListMessages(ctx context.Context, tx pgx.Tx, conversation int64, p
 		before = 1<<63 - 1
 	}
 	if err := pgxscan.Select(ctx, tx, &messages, pg.queries.MessagingMessagesBefore,
-		conversation, before, page.Limit+1); err != nil {
+		conversation, before, page.Limit+1, page.ClearedThrough); err != nil {
 		return nil, false, err
 	}
 	more := len(messages) > page.Limit
@@ -541,4 +555,16 @@ func (pg *Pg) GetAbuseReport(ctx context.Context, tx pgx.Tx, id int64) (AbuseRep
 
 func (pg *Pg) ResolveAbuseReport(ctx context.Context, tx pgx.Tx, id int64, status string, admin int64) (bool, error) {
 	return returnedRow(ctx, tx, pg.queries.MessagingAdminResolveAbuseReport, id, status, admin)
+}
+
+func (pg *Pg) DeleteConversation(ctx context.Context, tx pgx.Tx, id, caller int64) (int64, error) {
+	var cleared int64
+	err := tx.QueryRow(ctx, pg.queries.MessagingDeleteConversation, id, caller).Scan(&cleared)
+	return cleared, err
+}
+
+func (pg *Pg) ConversationClearedThrough(ctx context.Context, tx pgx.Tx, id, caller int64) (int64, error) {
+	var cleared int64
+	err := tx.QueryRow(ctx, pg.queries.MessagingClearedThrough, id, caller).Scan(&cleared)
+	return cleared, err
 }

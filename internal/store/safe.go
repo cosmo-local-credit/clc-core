@@ -169,34 +169,6 @@ ORDER BY s.safe_address`, chainID, signer)
 	return states, rows.Err()
 }
 
-// ListSafeStates returns every known Safe and its current signer projection.
-// It is used only by the bounded Safe Transaction Service reconciliation job.
-func (pg *Pg) ListSafeStates(ctx context.Context, tx pgx.Tx, chainID int64) ([]SafeState, error) {
-	rows, err := tx.Query(ctx, `
-SELECT s.safe_address, COALESCE(s.threshold, 0), s.block_number, s.refreshed_at,
-       array_agg(member.signer ORDER BY member.signer)
-FROM safe_state s
-JOIN safe_signers member ON member.chain_id = s.chain_id AND member.safe_address = s.safe_address
-WHERE s.chain_id = $1
-GROUP BY s.safe_address, s.threshold, s.block_number, s.refreshed_at
-ORDER BY s.safe_address`, chainID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var states []SafeState
-	for rows.Next() {
-		var state SafeState
-		var block int64
-		if err := rows.Scan(&state.Address, &state.Threshold, &block, &state.RefreshedAt, &state.Signers); err != nil {
-			return nil, err
-		}
-		state.Block = uint64(block)
-		states = append(states, state)
-	}
-	return states, rows.Err()
-}
-
 // ListSafeApprovalResources resolves managed transaction targets to their
 // public Voucher or Pool. Pool wiring contracts collapse to the parent Pool.
 // A Safe self-management call can affect every resource it owns.
