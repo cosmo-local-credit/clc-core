@@ -58,6 +58,30 @@ func TestMarketPaginationKeepsCursorSemantics(t *testing.T) {
 	}
 }
 
+// A direction without an anchor has no defined meaning: `next` applies to
+// a cursor, so a bare `?next=true` reads as the same first page a plain
+// request returns — not a silently empty page. Clearing the flag makes the
+// normalized params identical to the canonical first-page request.
+func TestCursorlessNextReadsAsFirstPage(t *testing.T) {
+	for name, req := range map[string]apiresp.CursorPaginationRequest{
+		"next alone":         {Next: true},
+		"next with cursor=0": {Next: true, Cursor: 0},
+	} {
+		got := normalizePagination(req)
+		if !got.FirstPage {
+			t.Errorf("%s: firstPage = false, want a cursorless next to read as the first page", name)
+		}
+		if got.Next {
+			t.Errorf("%s: next = true, want the unanchored direction cleared", name)
+		}
+	}
+
+	anchored := normalizePagination(apiresp.CursorPaginationRequest{Next: true, Cursor: 42})
+	if anchored.FirstPage || !anchored.Next {
+		t.Error("next with a cursor must keep its direction and stay off the first page")
+	}
+}
+
 func TestParseMarketBoundsAcceptsAValidViewport(t *testing.T) {
 	bounds, err := parseMarketBounds("36.6,-1.5,37.1,-1.1")
 	if err != nil {

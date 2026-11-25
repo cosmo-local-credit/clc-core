@@ -325,6 +325,14 @@ func normalizePaginationWithMax(q apiresp.CursorPaginationRequest, maxPerPage ui
 	if q.PerPage == 0 || q.PerPage > maxPerPage {
 		q.PerPage = maxPerPage
 	}
+	// A direction without an anchor has no meaning: `next` applies to a
+	// cursor. Clearing it normalizes `?next=true` (or `cursor=0`) into the
+	// same first-page request a bare call produces — previously every
+	// consumer answered a silently empty page (id < 0), which a cursor
+	// loop reads as end-of-list.
+	if q.Cursor < 1 {
+		q.Next = false
+	}
 	return paginationParams{
 		CursorPaginationRequest: q,
 		FirstPage:               !q.Next && q.Cursor < 1,
