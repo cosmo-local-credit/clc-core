@@ -7073,7 +7073,7 @@ Pass `nextCursor` back as `cursor`. A cursor is opaque. `limit` defaults to 30 a
 `peer` is `null` for helpdesk.
 `requestedBySelf` is true when the caller made the current status of a direct conversation.
 `canAccept` is true for a pending conversation the caller did not request.
-`canRequest` is true for a declined or revoked conversation the caller closed.
+`canRequest` is true for a declined or revoked conversation the caller closed, or one whose closer has since deleted their copy.
 `blocked` is true when the caller has blocked the peer.
 
 **Message.**
@@ -7125,7 +7125,7 @@ A message is unread when someone other than the caller sent it and its id is abo
 Body: `{ "recipientAddress": "0x...", "intro": "optional", "context": optional }`.
 Requests a direct conversation and returns `201` with the conversation, status `pending`.
 A non-empty `intro` is also stored as the requester's first message, so it stays in the history after the request is answered. While the request waits on the recipient it counts under `requests` in the unread counts, not under `direct`.
-A conversation that the caller declined or revoked is reopened. After a member deletes their copy, either participant may make a fresh request. Reopening makes the conversation visible again and requires recipient acceptance. Other existing conversations return `409` with code `E16`.
+A conversation that the caller declined or revoked is reopened. After the member who declined or revoked deletes their copy, either participant may make a fresh request. Deleting a pending or accepted conversation closes it, with the deleting member as the closer. Deleting a conversation the other member declined or revoked hides the caller's copy but does not let the caller reopen it. Reopening makes the conversation visible again and requires recipient acceptance. Other existing conversations return `409` with code `E16`.
 Spends one of the caller's 100 daily requests.
 When `context` is present, the recipient must be the resource's current EOA owner or a current projected Safe signer. Invalid, inactive or unrelated resources return the generic `404`. The context is stored as the first message even when `intro` is absent.
 
