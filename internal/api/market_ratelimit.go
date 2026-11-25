@@ -203,7 +203,7 @@ func (a *API) marketRateLimitMiddleware() echo.MiddlewareFunc {
 }
 
 func (a *API) marketMapRateLimitIdentity(c *echo.Context) (*marketRateLimiter, string) {
-	if a.authenticateCaller(c) {
+	if a.authenticateCaller(c) == callerVerified {
 		_, address, role := getUserClaims(c)
 		if address != "" && role != "SERVICE" {
 			return a.marketMapUserLimiter, strings.ToLower(address)
@@ -240,7 +240,7 @@ func (a *API) recipientRateLimitMiddleware() echo.MiddlewareFunc {
 func (a *API) poolCatalogMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if a.authenticateCaller(c) {
+			if a.authenticateCaller(c) == callerVerified {
 				return next(c)
 			}
 			return a.throttle(c, a.poolLimiter, next)

@@ -581,7 +581,7 @@
           "Auth endpoints"
         ],
         "summary": "Return the session of the caller",
-        "description": "Returns the current database-backed session of the caller. When the stored role differs from the cookie claim, the response refreshes the cookie. This response does not use the standard envelope. Access: Public. The route reads the '__clc_auth' cookie. It ignores the 'Authorization' header.",
+        "description": "Returns the current database-backed session of the caller. When the stored role differs from the cookie claim, the response refreshes the cookie. All responses are private and no-store. Access: Public. The route reads the '__clc_auth' cookie. It ignores the 'Authorization' header.",
         "operationId": "getAuthSession",
         "responses": {
           "200": {
@@ -623,6 +623,25 @@
           },
           "204": {
             "description": "The cookie is missing or is not valid. The response has no body."
+          },
+          "503": {
+            "description": "E01. Session verification is temporarily unavailable. The session cookie stays intact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before verifying the session again.",
+                "schema": {
+                  "type": "integer",
+                  "example": 5
+                }
+              }
+            }
           }
         },
         "security": [
