@@ -4932,7 +4932,8 @@ SELECT c.id, c.kind, c.status, c.actor_id,
     (c.peer_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.peer_id)) AS blocked,
     EXISTS (SELECT 1 FROM conversation_deletions reset
-        WHERE reset.conversation_id = c.id AND reset.hidden) AS can_request_after_delete,
+        WHERE reset.conversation_id = c.id AND reset.user_id = c.actor_id
+          AND reset.hidden) AS can_request_after_delete,
     r.last_read_message_id,
     (SELECT count(*) FROM messages m
         WHERE m.conversation_id = c.id AND m.sender_user_id <> $1::INT
@@ -4995,7 +4996,8 @@ SELECT c.id, c.kind, c.status, c.actor_id,
     (c.peer_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM user_blocks b WHERE b.blocker_id = $1::INT AND b.blocked_id = c.peer_id)) AS blocked,
     EXISTS (SELECT 1 FROM conversation_deletions reset
-        WHERE reset.conversation_id = c.id AND reset.hidden) AS can_request_after_delete,
+        WHERE reset.conversation_id = c.id AND reset.user_id = c.actor_id
+          AND reset.hidden) AS can_request_after_delete,
     r.last_read_message_id,
     (SELECT count(*) FROM messages m
         WHERE m.conversation_id = c.id AND m.sender_user_id <> $1::INT
@@ -5135,8 +5137,10 @@ VALUES ('direct', $1::INT, $2::INT, 'pending', $3::INT, $4)
 ON CONFLICT (user_a_id, user_b_id) WHERE kind = 'direct' DO NOTHING
 RETURNING id;
 
--- A deletion permits a fresh request from either member. Otherwise only the
--- member who declined or revoked may reopen. Consent always returns to pending.
+-- The member who declined or revoked may reopen. Once that member deletes
+-- their copy, either member may make a fresh request. A deletion by the other
+-- member never overrides a decline or revocation. Consent always returns to
+-- pending.
 --name: messaging-rerequest-direct-conversation
 WITH reopened AS (
     UPDATE conversations c
@@ -5144,7 +5148,8 @@ WITH reopened AS (
     WHERE c.id = $1::BIGINT AND c.kind = 'direct' AND c.status IN ('declined', 'revoked')
       AND $2::INT IN (c.user_a_id, c.user_b_id)
       AND (c.actor_id = $2::INT OR EXISTS (
-          SELECT 1 FROM conversation_deletions d WHERE d.conversation_id = c.id AND d.hidden))
+          SELECT 1 FROM conversation_deletions d
+          WHERE d.conversation_id = c.id AND d.user_id = c.actor_id AND d.hidden))
     RETURNING c.id
 ), visible AS (
     UPDATE conversation_deletions SET hidden = false
@@ -5168,7 +5173,10 @@ WHERE id = $1::BIGINT AND kind = 'direct' AND status = 'accepted'
   AND $2::INT IN (user_a_id, user_b_id)
 RETURNING id;
 
--- The conversation row is already locked by the authorized member.
+-- The conversation row is already locked by the authorized member. Deleting
+-- a pending or accepted conversation closes it for both members. A declined
+-- or revoked conversation keeps the member who closed it, so the other member
+-- cannot delete their copy to get around a decline.
 --name: messaging-delete-conversation
 WITH hidden AS (
     INSERT INTO conversation_deletions (conversation_id, user_id, cleared_through_message_id)
@@ -5178,7 +5186,10 @@ WITH hidden AS (
         cleared_at = clock_timestamp(), hidden = true
     RETURNING cleared_through_message_id
 )
-UPDATE conversations SET status = 'revoked', actor_id = $2::INT, updated_at = clock_timestamp()
+UPDATE conversations SET
+    status = CASE WHEN status IN ('pending', 'accepted') THEN 'revoked' ELSE status END,
+    actor_id = CASE WHEN status IN ('pending', 'accepted') THEN $2::INT ELSE actor_id END,
+    updated_at = clock_timestamp()
 WHERE id = $1::BIGINT AND kind = 'direct'
 RETURNING (SELECT cleared_through_message_id FROM hidden);
 

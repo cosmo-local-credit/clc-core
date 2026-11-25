@@ -200,3 +200,50 @@ func TestMessagingDeleteRequiresFreshPostConsentDB(t *testing.T) {
 	require.Len(t, page.Items, 1)
 	require.Equal(t, "New request", *page.Items[0].Body)
 }
+
+func TestMessagingDeleteCannotOverrideDeclineDB(t *testing.T) {
+	f := newMessagingFixture(t)
+	alice, bob := f.approved(), f.approved()
+	thread := f.request(alice, bob).ID
+	path := fmt.Sprintf("/api/v2/conversations/%d", thread)
+	require.Equal(t, http.StatusOK, f.setStatus(bob, thread, "declined").Code)
+	request := func() msgResponse {
+		return f.do(alice, http.MethodPost, "/api/v2/conversations", map[string]string{
+			"recipientAddress": bob.Address, "intro": "Please reconsider",
+		})
+	}
+	require.Equal(t, http.StatusConflict, request().Code)
+
+	// The declined requester can hide their copy, but cannot reopen it.
+	require.Equal(t, http.StatusNoContent, f.do(alice, http.MethodDelete, path, nil).Code)
+	res := request()
+	require.Equal(t, http.StatusConflict, res.Code, res.Raw)
+	require.Zero(t, f.unread(bob)["requests"])
+	var view messagingConversation
+	f.do(bob, http.MethodGet, path, nil).decode(t, &view)
+	require.Equal(t, "declined", view.Status)
+	require.True(t, view.CanRequest, "the member who declined may still reopen")
+	f.do(alice, http.MethodGet, path, nil).decode(t, &view)
+	require.False(t, view.CanRequest)
+
+	// When the member who declined deletes their copy, either side may ask again.
+	require.Equal(t, http.StatusNoContent, f.do(bob, http.MethodDelete, path, nil).Code)
+	f.do(alice, http.MethodGet, path, nil).decode(t, &view)
+	require.True(t, view.CanRequest)
+	res = request()
+	require.Equal(t, http.StatusCreated, res.Code, res.Raw)
+	require.Equal(t, 1, f.unread(bob)["requests"])
+}
+
+func TestMessagingDeleteCannotOverrideRevocationDB(t *testing.T) {
+	f := newMessagingFixture(t)
+	alice, bob := f.approved(), f.approved()
+	thread := f.connect(alice, bob)
+	require.Equal(t, http.StatusOK, f.setStatus(bob, thread, "revoked").Code)
+	require.Equal(t, http.StatusNoContent, f.do(alice, http.MethodDelete, fmt.Sprintf("/api/v2/conversations/%d", thread), nil).Code)
+	res := f.do(alice, http.MethodPost, "/api/v2/conversations", map[string]string{
+		"recipientAddress": bob.Address, "intro": "Reopen?",
+	})
+	require.Equal(t, http.StatusConflict, res.Code, res.Raw)
+	require.Zero(t, f.unread(bob)["requests"])
+}
