@@ -15,13 +15,9 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-const (
-	userAuthCookieName    = "__clc_auth"
-	serviceAuthCookieName = "__ge_cust_auth"
-	userCookieDuration    = 30 * 24 * time.Hour
-)
-
 type (
+	callerVerification uint8
+
 	// JWTCustomClaims holds claims for EdDSA service tokens.
 	JWTCustomClaims struct {
 		jwt.RegisteredClaims
@@ -38,6 +34,16 @@ type (
 		EthereumAddress string `json:"ethereumAddress"`
 		Role            string `json:"role"`
 	}
+)
+
+const (
+	callerInvalid callerVerification = iota
+	callerVerified
+	callerUnavailable
+
+	userAuthCookieName    = "__clc_auth"
+	serviceAuthCookieName = "__ge_cust_auth"
+	userCookieDuration    = 30 * 24 * time.Hour
 )
 
 // generateUserToken creates a signed EdDSA JWT for a user session valid for 30 days.
@@ -172,23 +178,29 @@ func (a *API) storageTokenHandler(c *echo.Context) error {
 func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if a.authenticateCaller(c) {
+			verification := a.authenticateCaller(c)
+			if verification == callerVerified {
 				return next(c)
 			}
-			return handleJWTAuthError(c, "valid authentication required")
+			return callerVerificationFailure(c, verification, "valid authentication required")
 		}
 	}
 }
 
 // authenticateCaller sets the context keys flexibleAuthMiddleware documents
-// from the first valid credential on the request, and reports whether it
-// found one. It writes no response, so a public route can fall back to
-// treating the caller as signed out.
-func (a *API) authenticateCaller(c *echo.Context) bool {
+// from the first valid credential. It reports an unavailable lookup only if
+// no other credential succeeds, preserving service and user bearer fallback.
+// It writes no response, so public reads can still fall back to guest access.
+func (a *API) authenticateCaller(c *echo.Context) callerVerification {
+	verification := callerInvalid
+
 	// 1. Try user JWT from __clc_auth cookie.
 	if cookie, err := c.Cookie(userAuthCookieName); err == nil && cookie.Value != "" {
-		if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil && a.userSessionCurrent(c, claims) {
-			return true
+		if claims, parseErr := a.parseUserJWT(cookie.Value); parseErr == nil {
+			verification = a.verifyUserCredential(c, claims)
+			if verification == callerVerified {
+				return callerVerified
+			}
 		}
 	}
 
@@ -201,7 +213,7 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 	}
 
 	if tokenStr == "" {
-		return false
+		return verification
 	}
 
 	// 2a. Try service JWT first. A genuine service token also
@@ -224,19 +236,21 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 			c.Set("callerRole", "SERVICE")
 			c.Set("publicKey", claims.PublicKey)
 			c.Set("service", claims.Service)
-			return true
+			return callerVerified
 		}
 	}
 
 	// 2b. Fall back to user JWT — allows clients to send Bearer <user-jwt>.
-	if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil && a.userSessionCurrent(c, claims) {
-		return true
+	if claims, parseErr := a.parseUserJWT(tokenStr); parseErr == nil {
+		if bearerVerification := a.verifyUserCredential(c, claims); bearerVerification != callerInvalid {
+			return bearerVerification
+		}
 	}
 
-	return false
+	return verification
 }
 
-// userSessionCurrent reports whether a user JWT is still current, and on success
+// verifyUserCredential reports whether a user JWT is still current, and on success
 // sets the caller context keys authenticateCaller documents.
 //
 // Two things make a token stale. Replacing a sign-in card moves the account to a
@@ -244,31 +258,33 @@ func (a *API) authenticateCaller(c *echo.Context) bool {
 // address -- including any copy held by whoever compromised that card -- must
 // stop authenticating the moment the rotation commits. And a ban
 // (users.status REJECTED) must end every open session at once, not only block
-// the next sign-in. It is one primary-key lookup per request; a failed lookup
-// counts as signed out rather than trusting the token.
+// the next sign-in. A failed primary-key lookup never establishes a caller.
 //
 // A retiring account stays signed in but loses its stored role for the request:
 // callerRole is USER, so no administrative guard admits it, and
 // enforceRecoveryAccess limits what it may write.
-func (a *API) userSessionCurrent(c *echo.Context, claims *UserJWTClaims) bool {
+func (a *API) verifyUserCredential(c *echo.Context, claims *UserJWTClaims) callerVerification {
 	if a.store == nil {
-		return false
+		return callerUnavailable
 	}
 	ctx := c.Request().Context()
 	access, err := a.store.GetUserAccessByID(ctx, claims.UserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return callerInvalid
+	}
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) && a.logg != nil {
+		if a.logg != nil {
 			a.logg.ErrorContext(ctx, "user session lookup failed", "user_id", claims.UserID, "err", err)
 		}
-		return false
+		return callerUnavailable
 	}
 	if !strings.EqualFold(access.EthereumAddress, claims.EthereumAddress) {
-		return false
+		return callerInvalid
 	}
 	// Only a ban ends a session here. A pending account keeps the access it had
 	// before this check existed; sign-in is what gates approval.
 	if access.Status == "REJECTED" {
-		return false
+		return callerInvalid
 	}
 
 	lifecycle := access.Lifecycle
@@ -285,7 +301,27 @@ func (a *API) userSessionCurrent(c *echo.Context, claims *UserJWTClaims) bool {
 	c.Set("callerRole", role)
 	c.Set("callerLifecycle", lifecycle)
 	c.Set("callerClosesAt", access.ClosesAt)
-	return true
+	return callerVerified
+}
+
+// Keep the current write error behavior so a newly retryable error cannot
+// change an existing mutation's replay policy.
+func callerVerificationFailure(c *echo.Context, verification callerVerification, reason string) error {
+	method := c.Request().Method
+	if verification == callerUnavailable && (method == http.MethodGet || method == http.MethodHead) {
+		return sessionUnavailable(c)
+	}
+	return handleJWTAuthError(c, reason)
+}
+
+func sessionUnavailable(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	c.Response().Header().Set("Retry-After", "5")
+	return c.JSON(http.StatusServiceUnavailable, apiresp.ErrResponse{
+		Ok:          false,
+		ErrCode:     apiresp.ErrCodeInternalServerError,
+		Description: "Session verification is temporarily unavailable. Please retry.",
+	})
 }
 
 // requireUserAuth rejects requests that arrived via a service JWT.
@@ -318,7 +354,7 @@ func (a *API) revalidatePrivilegedRole() echo.MiddlewareFunc {
 				return next(c)
 			}
 			if a.store == nil {
-				return handleJWTAuthError(c, "current account status could not be verified")
+				return callerVerificationFailure(c, callerUnavailable, "current account status could not be verified")
 			}
 
 			userID, _ := c.Get("callerUserID").(uint64)
@@ -327,6 +363,9 @@ func (a *API) revalidatePrivilegedRole() echo.MiddlewareFunc {
 			claimedAddress, _ := c.Get("callerAddress").(string)
 			if err != nil {
 				a.logPrivilegedRoleRevalidationFailure(ctx, userID, "lookup_failed", err)
+				if !errors.Is(err, pgx.ErrNoRows) {
+					return callerVerificationFailure(c, callerUnavailable, "current account status could not be verified")
+				}
 				return handleJWTAuthError(c, "current account status could not be verified")
 			}
 			if user.Status != "APPROVED" || !strings.EqualFold(user.EthereumAddress, claimedAddress) {

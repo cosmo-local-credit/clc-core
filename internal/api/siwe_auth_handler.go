@@ -454,8 +454,9 @@ func (a *API) movedPasskeySignin(ctx context.Context, tx pgx.Tx, req apiresp.Web
 }
 
 // sessionHandler returns the current session's address, chainId and role.
-// Returns 204 No Content when no valid session cookie is present.
+// Returns 204 for an invalid session or 503 when verification needs a retry.
 func (a *API) sessionHandler(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "private, no-store")
 	cookie, err := c.Cookie(userAuthCookieName)
 	if err != nil || cookie.Value == "" {
 		return c.NoContent(http.StatusNoContent)
@@ -467,55 +468,54 @@ func (a *API) sessionHandler(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	tx, err := a.store.Pool().Begin(ctx)
-	if err != nil {
-		return err
+	if a.store == nil {
+		return sessionUnavailable(c)
 	}
-	defer tx.Rollback(ctx)
-	user, err := a.store.GetUserByID(ctx, tx, token.UserID)
-	if err != nil || user.Status != "APPROVED" || !strings.EqualFold(user.EthereumAddress, token.EthereumAddress) {
+	access, err := a.store.GetUserAccessByID(ctx, token.UserID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		if a.logg != nil {
+			a.logg.ErrorContext(ctx, "user session lookup failed", "user_id", token.UserID, "err", err)
+		}
+		return sessionUnavailable(c)
+	}
+	if err != nil || access.Status != "APPROVED" || !strings.EqualFold(access.EthereumAddress, token.EthereumAddress) {
 		a.clearUserAuthCookie(c)
 		return c.NoContent(http.StatusNoContent)
 	}
-	retirement, retired, err := store.GetOpenAccountRetirement(ctx, tx, user.ID, false)
-	if err != nil {
-		return err
-	}
-	lifecycle := store.LifecycleActive
-	var closesAt *time.Time
-	if retired {
-		lifecycle = retirement.State
-		closesAt = &retirement.ClosesAt
+	lifecycle := access.Lifecycle
+	if lifecycle == "" {
+		lifecycle = store.LifecycleActive
 	}
 	// A retiring account has no administrative role for the session, whatever
 	// the table says: the same rule authenticateCaller applies per request.
-	role := user.Role
-	if retired {
+	role := access.Role
+	if lifecycle != store.LifecycleActive {
 		role = string(store.UserRoleUser)
 	}
 	if role != token.Role {
-		refreshed := user
-		refreshed.Role = role
-		token, signErr := a.generateUserToken(refreshed)
+		token, signErr := a.generateUserToken(store.User{
+			ID:              token.UserID,
+			EthereumAddress: access.EthereumAddress,
+			Role:            role,
+		})
 		if signErr != nil {
 			return signErr
 		}
 		a.setUserAuthCookie(c, token)
 	}
 
-	c.Response().Header().Set("Cache-Control", "private, no-store")
 	return c.JSON(http.StatusOK, map[string]any{
 		// Always emit the EIP-55 checksummed form, even for legacy lowercase
 		// tokens, so clients receive a consistent canonical address.
-		"address": common.HexToAddress(user.EthereumAddress).Hex(),
+		"address": common.HexToAddress(access.EthereumAddress).Hex(),
 		"chainId": a.chainID,
 		// The role the signin response already returns. Without it a client that
 		// gates on privilege has to re-derive it after every reload by probing an
 		// admin endpoint and reading the 403.
 		"role":             role,
 		"accountLifecycle": lifecycle,
-		"closesAt":         closesAt,
-		"capabilities":     lifecycleSessionCapabilities(lifecycle, closesAt),
+		"closesAt":         access.ClosesAt,
+		"capabilities":     lifecycleSessionCapabilities(lifecycle, access.ClosesAt),
 	})
 }
 

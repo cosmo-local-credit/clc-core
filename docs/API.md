@@ -74,6 +74,7 @@ The route section lists these checks.
 The service reads the list of allowed origins from its configuration.
 For an allowed origin, the service sets `Access-Control-Allow-Credentials: true`.
 The allowed request headers are `Origin`, `Content-Type`, `Accept` and `Authorization`.
+The browser may read the `Retry-After` response header on allowed origins.
 Browsers can cache a preflight response for 86400 seconds.
 
 ---
@@ -156,6 +157,10 @@ A route with the level "User session" rejects service tokens.
 A route with the level "Administrative" rejects every caller whose role is neither `ADMIN` nor `SUPERADMIN`.
 A route with the level "Superadmin" rejects every caller whose role is not `SUPERADMIN`.
 A missing or invalid credential on a protected route returns status 401 with code `E06`.
+If the database cannot verify a signed session during a protected read, the
+read returns `503 E01` with `Retry-After: 5` and `Cache-Control: private, no-store`.
+This also applies to discovery that explicitly needs a wallet through Nearby or
+Credit. Optional public personalization keeps its guest fallback.
 
 ### 2.3 Sign-in flow
 
@@ -532,7 +537,8 @@ Errors:
 
 **Access:** Public. The route reads the `__clc_auth` cookie. It ignores the `Authorization` header.
 
-Returns the session of the caller. This response does not use the standard envelope.
+Returns the session of the caller. The successful response does not use the
+standard envelope. All responses are private and marked `no-store`.
 
 Response `200`:
 
@@ -546,10 +552,14 @@ Response `200`:
 
 `address` is in EIP-55 checksum form. `role` is `USER`, `ADMIN` or `SUPERADMIN`.
 The database role is authoritative. If it differs from the cookie claim, this
-route returns the current role and refreshes the cookie. An unapproved or
-rejected account receives `204` and its stale cookie is cleared.
+route returns the current role and refreshes the cookie. A signed cookie for a
+missing or unapproved account, or one with a wallet that no longer matches the
+account, receives `204` and its stale cookie is cleared.
 
 Response `204` with no body: the cookie is missing or is not valid.
+
+Response `503 E01`: the database could not verify the session. The response
+uses the standard error envelope with `Retry-After: 5` and keeps the cookie.
 
 ### 4.8 `GET /auth/webauthn/credentials`
 

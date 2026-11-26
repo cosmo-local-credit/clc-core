@@ -66,8 +66,8 @@ func (a *API) resolveCreditDepth(c *echo.Context, creditablePools bool) (filter 
 		})
 	}
 	c.Response().Header().Set("Cache-Control", "private, no-store")
-	if !a.authenticateCaller(c) {
-		return nil, true, handleJWTAuthError(c, "creditDepth needs a signed-in wallet")
+	if verification := a.authenticateCaller(c); verification != callerVerified {
+		return nil, true, callerVerificationFailure(c, verification, "creditDepth needs a signed-in wallet")
 	}
 	if caller, _ := c.Get("callerType").(string); caller != "user" {
 		return nil, true, handleForbiddenError(c, "creditDepth needs a user session")

@@ -11,6 +11,7 @@ func newCORSConfig(allowedOrigins []string) middleware.CORSConfig {
 		AllowOrigins:     allowedOrigins,
 		AllowCredentials: true,
 		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+		ExposeHeaders:    []string{"Retry-After"},
 		MaxAge:           86400,
 		UnsafeAllowOriginFunc: func(c *echo.Context, origin string) (string, bool, error) {
 			if util.OriginAllowed(origin, allowedOrigins) {
