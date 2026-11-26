@@ -96,21 +96,12 @@ func (a *API) adminUpdateUserRoleHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// A regional assignment can change this role on the same row. Lock before
-	// deciding which transitions are legal so the audit and conflict response
-	// reflect the committed assignment.
-	if _, _, _, err := store.LockUserForLifecycle(ctx, tx, address); err != nil {
-		return handlePostgresError(c, err)
-	}
 	previous, err := a.store.GetUserByAddress(ctx, tx, address)
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
 	if store.IsSuperadminRole(previous.Role) {
 		return c.JSON(http.StatusConflict, apiresp.ErrResponse{Ok: false, ErrCode: apiresp.ErrCodeConflict, Description: "superadmin roles cannot be changed here"})
-	}
-	if store.IsRegionalAdminRole(previous.Role) {
-		return handleConflictError(c, "remove regional assignments before changing the global role")
 	}
 	if previous.Role == req.Role {
 		return c.JSON(http.StatusOK, apiresp.OKResponse{Ok: true, Description: "User role unchanged", Result: map[string]any{"user": previous}})

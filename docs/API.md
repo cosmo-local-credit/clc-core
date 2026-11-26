@@ -107,7 +107,7 @@ The token has these claims:
 |---|---|---|
 | `userId` | number | Internal user identifier. |
 | `ethereumAddress` | string | Address of the user. |
-| `role` | string | `USER`, `REGIONAL_ADMIN`, `ADMIN` or `SUPERADMIN`. |
+| `role` | string | `USER`, `ADMIN` or `SUPERADMIN`. |
 | `iat`, `exp` | number | Issue and expiry time. |
 
 The service checks the cookie first. If the cookie is missing or invalid, the service checks the `Authorization` header.
@@ -550,7 +550,7 @@ Response `200`:
 }
 ```
 
-`address` is in EIP-55 checksum form. `role` is `USER`, `REGIONAL_ADMIN`, `ADMIN` or `SUPERADMIN`.
+`address` is in EIP-55 checksum form. `role` is `USER`, `ADMIN` or `SUPERADMIN`.
 The database role is authoritative. If it differs from the cookie claim, this
 route returns the current role and refreshes the cookie. A signed cookie for a
 missing or unapproved account, or one with a wallet that no longer matches the
@@ -4570,7 +4570,7 @@ The response is the upstream response.
 All routes in this section need a user session.
 A service token returns `403` with code `E10`.
 A missing or invalid credential returns `401` with code `E06`.
-`USER`, `REGIONAL_ADMIN`, `ADMIN` and `SUPERADMIN` callers can use these routes.
+`USER`, `ADMIN` and `SUPERADMIN` callers can use these routes.
 The user routes for posts and catalogs (`GET /api/v2/users/me/reports`, `GET /api/v2/users/me/catalogs`) are in other sections.
 
 **Cursor pagination** applies to `/me/vouchers`, `/me/tokens` and `/me/pools`.
@@ -4645,7 +4645,7 @@ Returns the profile of the caller.
 | `username` | string or `null` | Public user name. |
 | `name`, `email`, `phone`, `country` | string | Contact fields. Empty string if not set. |
 | `preferredCurrency`, `bio`, `website`, `locationName`, `geoLat`, `geoLng`, `avatarUrl` | mixed | Profile fields. Not present if not set. |
-| `role` | string | `USER`, `REGIONAL_ADMIN`, `ADMIN` or `SUPERADMIN`. |
+| `role` | string | `USER`, `ADMIN` or `SUPERADMIN`. |
 | `status` | string | `PENDING`, `APPROVED` or `REJECTED`. |
 | `maxPools`, `maxTokens`, `maxCatalogs` | number | Limits for pools, vouchers and catalogs. |
 | `maxOffers` | number | Maximum available offerings on each voucher the user owns. |
@@ -5348,40 +5348,6 @@ These routes use the same cursor pagination: `GET /api/v2/admin/users`, `GET /ap
 
 `GET /api/v2/admin/tokens`, `GET /api/v2/admin/pools` and `GET /api/v2/admin/deployments` return the full list in one response. They have no query parameters.
 
-### 15.1a Regional authority
-
-`GET /api/v2/admin/regions` returns `result.regions`. It requires an
-`ADMIN` or `SUPERADMIN` session and does not depend on a regional assignment.
-`GET /api/v2/regions/me` is a user-session route. It returns the caller's active
-assignments only, or an empty array. Region reads are private and not cacheable.
-
-`GET /api/v2/admin/regions/countries` returns country and territory names and
-ISO alpha-3 codes. `GET /api/v2/admin/regions/countries/:code` returns the selected
-preset, including its GeoJSON boundary.
-
-`POST /api/v2/admin/regions` creates a region (201).
-`PUT /api/v2/admin/regions/:id` updates it; send the current `revision`.
-Both accept `name`, `active`, and either `countryCode` or a custom `boundary`.
-Country presets always use the server's geometry. Custom boundaries must be
-valid two-dimensional WGS84 polygons or multipolygons, split at the
-antimeridian if needed. Active regions may share an edge, but cannot have
-overlapping interiors. A stale revision or overlap returns 409. A point on a
-shared edge is covered by both regions. Its governing-region rule must be
-defined and tested before enabling listing approval or placement restrictions.
-
-`PUT /api/v2/admin/regions/:id/assignments/:address` accepts
-`{"assigned": true}` or `{"assigned": false}`. It is idempotent. Assigning an
-approved, active User grants `REGIONAL_ADMIN`. A Global Admin can only be
-converted by a Superadmin with `confirmGlobalConversion: true`. Superadmin
-accounts cannot be assigned. Removing the last active assignment returns the
-account to `USER`. Deactivating a region removes its assignments.
-
-Writes return `result.region` with its identity, country code (if applicable),
-GeoJSON boundary, active state, revision and assigned administrators. The
-`poolApproval` field is always false at this stage. Approval and placement
-enforcement are not enabled, and `poolApproval: true` is rejected. A regional
-assignment grants no access to existing global administrative routes.
-
 ### 15.2 `GET /api/v2/admin/users`
 
 **Access:** Administrative.
@@ -5394,7 +5360,7 @@ Return one page of the account directory. Rows are newest first.
 |---|---|---|---|
 | `q` | string | No | Search term. The server searches the name, username, email, phone and address of each account. It does not search country or role. See section 15.1. |
 | `status` | string | No | Filter by approval status. Values are `PENDING`, `APPROVED` and `REJECTED`. The case does not matter. |
-| `roles` | string | No | Filter by role. Send `USER`, `REGIONAL_ADMIN`, `ADMIN`, or `SUPERADMIN` as a comma-separated value, repeat the parameter, or combine both forms. Unknown roles return `400`. Selected roles use OR semantics. |
+| `roles` | string | No | Filter by role. Send `USER`, `ADMIN`, or `SUPERADMIN` as a comma-separated value, repeat the parameter, or combine both forms. Unknown roles return `400`. Selected roles use OR semantics. |
 | `perPage`, `cursor`, `next` | | No | See section 15.1. |
 
 **Response 200**
@@ -7428,12 +7394,6 @@ Routes marked with * exist only when the related feature is configured: `/api/v2
 | GET | `/api/v2/admin/router/graph` | Admin |
 | GET | `/api/v2/users/me/reports` | User session |
 | GET | `/api/v2/users/me/reports/:id` | User session |
-| GET | `/api/v2/regions/me` | User session |
-| GET, POST | `/api/v2/admin/regions` | Administrative |
-| GET | `/api/v2/admin/regions/countries` | Administrative |
-| GET | `/api/v2/admin/regions/countries/:code` | Administrative |
-| PUT | `/api/v2/admin/regions/:id` | Administrative |
-| PUT | `/api/v2/admin/regions/:id/assignments/:address` | Administrative |
 | GET | `/api/v2/admin/users` | Administrative |
 | PUT | `/api/v2/admin/users/:address/role` | Superadmin |
 | POST | `/api/v2/admin/users/:address/key-rotation` | Superadmin |

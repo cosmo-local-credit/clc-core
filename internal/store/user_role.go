@@ -11,15 +11,14 @@ type (
 )
 
 const (
-	UserRoleUser          UserRole = "USER"
-	UserRoleAdmin         UserRole = "ADMIN"
-	UserRoleRegionalAdmin UserRole = "REGIONAL_ADMIN"
-	UserRoleSuperadmin    UserRole = "SUPERADMIN"
+	UserRoleUser       UserRole = "USER"
+	UserRoleAdmin      UserRole = "ADMIN"
+	UserRoleSuperadmin UserRole = "SUPERADMIN"
 )
 
 var (
-	userRoles          = []UserRole{UserRoleUser, UserRoleRegionalAdmin, UserRoleAdmin, UserRoleSuperadmin}
-	ErrUnknownUserRole = errors.New(`role must be "USER", "REGIONAL_ADMIN", "ADMIN" or "SUPERADMIN"`)
+	userRoles          = []UserRole{UserRoleUser, UserRoleAdmin, UserRoleSuperadmin}
+	ErrUnknownUserRole = errors.New(`role must be "USER", "ADMIN" or "SUPERADMIN"`)
 )
 
 func ParseUserRoles(rawValues []string) ([]UserRole, error) {
@@ -47,10 +46,6 @@ func ParseUserRoles(rawValues []string) ([]UserRole, error) {
 
 func IsAdministrativeRole(role string) bool {
 	return role == string(UserRoleAdmin) || role == string(UserRoleSuperadmin)
-}
-
-func IsRegionalAdminRole(role string) bool {
-	return role == string(UserRoleRegionalAdmin)
 }
 
 func IsSuperadminRole(role string) bool {

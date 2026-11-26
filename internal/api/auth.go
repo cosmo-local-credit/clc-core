@@ -173,7 +173,7 @@ func (a *API) storageTokenHandler(c *echo.Context) error {
 //	"callerType"    → "user" or "service"
 //	"callerUserID"  → uint64 user id (user callers only)
 //	"callerAddress" → lowercase Ethereum address
-//	"callerRole"    → "USER", "REGIONAL_ADMIN", "ADMIN", "SUPERADMIN", or "SERVICE"
+//	"callerRole"    → "USER", "ADMIN", "SUPERADMIN", or "SERVICE"
 //	"callerLifecycle" → the account's retirement state (user callers only)
 func (a *API) flexibleAuthMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -325,7 +325,7 @@ func sessionUnavailable(c *echo.Context) error {
 }
 
 // requireUserAuth rejects requests that arrived via a service JWT.
-// USER, REGIONAL_ADMIN, ADMIN, and SUPERADMIN callers pass this guard.
+// USER, ADMIN, and SUPERADMIN callers pass this guard.
 func (a *API) requireUserAuth() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -338,7 +338,7 @@ func (a *API) requireUserAuth() echo.MiddlewareFunc {
 }
 
 // revalidatePrivilegedRole makes the database authoritative for long-lived
-// global and regional administrative sessions. A stale privileged JWT is never enough to
+// administrative sessions. A stale ADMIN/SUPERADMIN JWT is never enough to
 // authorize a protected request after the account has been demoted or rejected.
 // The access lookup owns no transaction beyond its Scan: holding a connection
 // while next runs can starve handlers that need another pooled connection when
@@ -350,7 +350,7 @@ func (a *API) revalidatePrivilegedRole() echo.MiddlewareFunc {
 				return next(c)
 			}
 			role, _ := c.Get("callerRole").(string)
-			if !store.IsAdministrativeRole(role) && !store.IsRegionalAdminRole(role) {
+			if !store.IsAdministrativeRole(role) {
 				return next(c)
 			}
 			if a.store == nil {
