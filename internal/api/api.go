@@ -321,6 +321,7 @@ func New(o APIOpts) *API {
 	apiGroup.Use(a.flexibleAuthMiddleware())
 	apiGroup.Use(a.revalidatePrivilegedRole())
 	apiGroup.Use(a.enforceRecoveryAccess())
+	apiGroup.GET("/regions/me", a.myRegions, a.requireUserAuth())
 	apiGroup.GET("/vouchers/:address/info", a.voucherInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/pools/:address/info", a.poolInfoHandler, a.requireUserAuth())
 	apiGroup.GET("/wants/:id/contact", a.wantContactHandler, a.requireUserAuth())
@@ -507,6 +508,12 @@ func New(o APIOpts) *API {
 
 	// Administrative routes. Role mutation adds a second, superadmin-only guard.
 	adminGroup := apiGroup.Group("/admin", a.requireAdmin())
+	adminGroup.GET("/regions", a.listAdminRegions)
+	adminGroup.GET("/regions/countries", a.listRegionCountries)
+	adminGroup.GET("/regions/countries/:code", a.getRegionCountry)
+	adminGroup.POST("/regions", a.createAdminRegion)
+	adminGroup.PUT("/regions/:id", a.updateAdminRegion)
+	adminGroup.PUT("/regions/:id/assignments/:address", a.setAdminRegionAssignment)
 	adminGroup.GET("/users", a.adminListUsersHandler)
 	adminGroup.PUT("/users/:address/role", a.adminUpdateUserRoleHandler, a.requireSuperAdmin())
 	adminGroup.POST("/users/:address/key-rotation", a.adminKeyRotationHandler, a.requireSuperAdmin())

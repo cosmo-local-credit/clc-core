@@ -14,6 +14,22 @@ import (
 
 type (
 	Queries struct {
+		RegionalAuthorityLock             string `query:"regional-authority-lock"`
+		RegionalAuthorityLockActor        string `query:"regional-authority-lock-actor"`
+		RegionalAuthorityLockAssignee     string `query:"regional-authority-lock-assignee"`
+		RegionalListRegions               string `query:"regional-list-regions"`
+		RegionalCheckBoundary             string `query:"regional-check-boundary"`
+		RegionalFindOverlap               string `query:"regional-find-overlap"`
+		RegionalCoveringRegions           string `query:"regional-covering-regions"`
+		RegionalLockRegion                string `query:"regional-lock-region"`
+		RegionalInsertRegion              string `query:"regional-insert-region"`
+		RegionalUpdateRegion              string `query:"regional-update-region"`
+		RegionalClearAssignments          string `query:"regional-clear-assignments"`
+		RegionalSetAssignments            string `query:"regional-set-assignments"`
+		RegionalRemoveAssignment          string `query:"regional-remove-assignment"`
+		RegionalSetRole                   string `query:"regional-set-role"`
+		RegionalReturnUnassignedToUser    string `query:"regional-return-unassigned-to-user"`
+		RegionalInsertEvent               string `query:"regional-insert-event"`
 		CreateCuratedCatalog              string `query:"create-curated-catalog"`
 		UpdateCuratedCatalog              string `query:"update-curated-catalog"`
 		DeleteCuratedCatalog              string `query:"delete-curated-catalog"`
