@@ -5751,3 +5751,118 @@ SELECT tracking_id::TEXT AS tracking_id, hop_index, pool_address, token_in, toke
 FROM routed_swap_hops
 WHERE tracking_id = ANY($1::UUID[])
 ORDER BY tracking_id, hop_index;
+
+--name: regional-authority-lock
+-- Serialize region policy, overlap checks and assignment changes.
+SELECT pg_advisory_xact_lock(910485, 1);
+
+--name: regional-authority-lock-actor
+SELECT u.role
+FROM users u
+WHERE u.id = $1::BIGINT AND LOWER(u.blockchain_address) = LOWER($2::TEXT)
+  AND u.status = 'APPROVED'
+  AND NOT EXISTS (SELECT 1 FROM account_retirements a WHERE a.user_id = u.id AND a.restored_at IS NULL)
+FOR UPDATE OF u;
+
+--name: regional-authority-lock-assignee
+SELECT u.id, u.role, u.status = 'APPROVED' AND
+    NOT EXISTS (SELECT 1 FROM account_retirements a WHERE a.user_id = u.id AND a.restored_at IS NULL)
+FROM users u
+WHERE LOWER(u.blockchain_address) = LOWER($1::TEXT)
+FOR UPDATE OF u;
+
+--name: regional-list-regions
+SELECT r.id::TEXT, r.name, r.country_code, r.active, r.revision, ST_AsGeoJSON(r.boundary, 15)::JSONB,
+    COALESCE(
+        (SELECT JSONB_AGG(JSONB_BUILD_OBJECT('address', assigned.blockchain_address, 'username', assigned.username) ORDER BY assigned.id)
+        FROM marketplace_region_assignments a JOIN users assigned ON assigned.id = a.user_id
+        WHERE a.region_id = r.id AND ($2::BOOLEAN OR a.user_id = $1::BIGINT)),
+        '[]'::JSONB
+    )
+FROM marketplace_regions r
+WHERE ($3::BIGINT = 0 OR r.id = $3::BIGINT)
+  AND (
+    ($2::BOOLEAN AND EXISTS (
+        SELECT 1 FROM users actor
+        WHERE actor.id = $1::BIGINT AND LOWER(actor.blockchain_address) = LOWER($4::TEXT)
+          AND actor.status = 'APPROVED' AND actor.role IN ('ADMIN', 'SUPERADMIN')
+          AND NOT EXISTS (SELECT 1 FROM account_retirements ar WHERE ar.user_id = actor.id AND ar.restored_at IS NULL)
+    )) OR
+    (NOT $2::BOOLEAN AND r.active AND EXISTS (
+        SELECT 1
+        FROM marketplace_region_assignments a JOIN users actor ON actor.id = a.user_id
+        WHERE a.region_id = r.id AND a.user_id = $1::BIGINT AND LOWER(actor.blockchain_address) = LOWER($4::TEXT)
+          AND actor.status = 'APPROVED' AND actor.role = 'REGIONAL_ADMIN'
+          AND NOT EXISTS (SELECT 1 FROM account_retirements ar WHERE ar.user_id = actor.id AND ar.restored_at IS NULL)
+    ))
+  )
+ORDER BY LOWER(r.name), r.id;
+
+--name: regional-check-boundary
+WITH candidate AS (
+    SELECT ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($1::JSONB), 4326)) AS boundary
+)
+SELECT ST_IsValid(boundary) AND NOT ST_IsEmpty(boundary)
+FROM candidate;
+
+--name: regional-find-overlap
+WITH candidate AS (
+    SELECT ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($1::JSONB), 4326)) AS boundary
+)
+SELECT r.name FROM marketplace_regions r CROSS JOIN candidate c
+WHERE r.active AND r.id <> $2::BIGINT AND r.boundary && c.boundary
+  -- Inclusive edges do not overlap, but interior intersections and
+  -- containment both do.
+  AND ST_Relate(r.boundary, c.boundary, 'T********')
+ORDER BY r.id
+LIMIT 1;
+
+--name: regional-covering-regions
+SELECT id::TEXT, name
+FROM marketplace_regions
+WHERE active AND (
+    ST_Covers(boundary, ST_SetSRID(ST_MakePoint($1::FLOAT8, $2::FLOAT8), 4326))
+    OR (ABS($1::FLOAT8) = 180 AND ST_Covers(boundary, ST_SetSRID(ST_MakePoint(-$1::FLOAT8, $2::FLOAT8), 4326)))
+)
+ORDER BY id;
+
+--name: regional-lock-region
+SELECT active, revision FROM marketplace_regions WHERE id = $1::BIGINT FOR UPDATE;
+
+--name: regional-insert-region
+INSERT INTO marketplace_regions (name, country_code, active, boundary)
+VALUES ($1::TEXT, $2::TEXT, $3::BOOLEAN, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($4::JSONB), 4326)))
+RETURNING id;
+
+--name: regional-update-region
+UPDATE marketplace_regions SET
+    name = $2::TEXT, country_code = $3::TEXT, active = $4::BOOLEAN,
+    boundary = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($5::JSONB), 4326)),
+    revision = revision + 1
+WHERE id = $1::BIGINT;
+
+--name: regional-clear-assignments
+DELETE FROM marketplace_region_assignments WHERE region_id = $1::BIGINT
+RETURNING user_id;
+
+--name: regional-set-assignments
+INSERT INTO marketplace_region_assignments (region_id, user_id)
+VALUES ($1::BIGINT, $2::BIGINT)
+ON CONFLICT DO NOTHING;
+
+--name: regional-remove-assignment
+DELETE FROM marketplace_region_assignments
+WHERE region_id = $1::BIGINT AND user_id = $2::BIGINT;
+
+--name: regional-set-role
+UPDATE users SET role = 'REGIONAL_ADMIN', updated_at = NOW()
+WHERE id = $1::BIGINT AND role <> 'REGIONAL_ADMIN';
+
+--name: regional-return-unassigned-to-user
+UPDATE users u SET role = 'USER', updated_at = NOW()
+WHERE u.id = $1::BIGINT AND u.role = 'REGIONAL_ADMIN'
+  AND NOT EXISTS (SELECT 1 FROM marketplace_region_assignments a WHERE a.user_id = u.id);
+
+--name: regional-insert-event
+INSERT INTO marketplace_region_events (region_id, actor_id, subject_id, event, revision)
+VALUES ($1::BIGINT, $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT);
