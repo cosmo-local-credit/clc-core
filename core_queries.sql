@@ -103,7 +103,9 @@ WHERE otx_id = $1 AND status = 'PENDING';
 -- no opinion about (sink, and active/internal state). The icon and banner are
 -- part of the request now, so they merge on the same COALESCE terms: a deploy
 -- that carried an image sets it, one that did not leaves an imported image alone.
--- The map marker merges the same way.
+-- The map marker merges the same way. The catalog display symbol must be used
+-- in both the proposed row and the conflict update: PostgreSQL checks the
+-- proposed insert's constraints before deciding whether to update instead.
 --name: upsert-voucher-from-deploy
 WITH deploy AS (
     SELECT
@@ -154,8 +156,11 @@ upserted AS (
         d.geo_lat, d.geo_lng, d.email, d.website, d.phone, d.terms,
         d.icon_url, d.banner_url, d.marker_icon, d.marker_color,
         NULLIF(d.contract_version, ''), d.platform_contract_id,
-        COALESCE(d.display_symbol, CASE WHEN btrim(d.symbol) ~ '^[A-Za-z0-9]{3,6}$' THEN upper(btrim(d.symbol)) END)
+        COALESCE(existing.display_symbol, d.display_symbol,
+                 CASE WHEN btrim(d.symbol) COLLATE "C" ~ '^[A-Za-z0-9]{3,6}$'
+                      THEN upper(btrim(d.symbol) COLLATE "C") END)
     FROM deploy d
+    LEFT JOIN vouchers existing ON existing.chain_id = d.chain_id AND lower(existing.address) = lower(d.address)
     ON CONFLICT (chain_id, lower(address)) DO UPDATE SET
         name                 = COALESCE(EXCLUDED.name,          vouchers.name),
         symbol               = COALESCE(EXCLUDED.symbol,        vouchers.symbol),
