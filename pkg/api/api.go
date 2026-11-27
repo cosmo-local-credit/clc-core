@@ -57,6 +57,7 @@ type (
 	}
 
 	DeployTokenRequest struct {
+		DisplaySymbol *string `json:"displaySymbol,omitempty"`
 		// max mirrors vouchers_display_name_valid (migration 030), for the reason
 		// DeployPoolRequest gives above.
 		Name            string `json:"name" validate:"required,max=120"`
@@ -376,6 +377,7 @@ type (
 	// and the owner all come from the chain and are not editable. Terms is a link
 	// or the terms themselves as Markdown, as on DeployTokenRequest.
 	UpdateVoucherProfileRequest struct {
+		DisplaySymbol *string `json:"displaySymbol,omitempty"`
 		// DisplayName is an off-chain override for the deployed ERC20 name.
 		// Omitted preserves the existing override; an empty string clears it and
 		// makes catalog reads fall back to the immutable contract name.

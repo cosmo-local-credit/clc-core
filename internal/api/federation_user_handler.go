@@ -81,6 +81,7 @@ func (a *API) enrichTokenBalances(ctx context.Context, items []store.FederationT
 		if !ok {
 			continue
 		}
+		items[i].DisplaySymbol = m.DisplaySymbol
 		if m.Symbol != nil {
 			items[i].TokenSymbol = *m.Symbol
 		}
@@ -180,6 +181,7 @@ func (a *API) enrichTransfers(ctx context.Context, items []store.FederationTrans
 
 		m, ok := meta[strings.ToLower(items[i].TokenAddress)]
 		if ok {
+			items[i].DisplaySymbol = m.DisplaySymbol
 			if m.Symbol != nil {
 				items[i].TokenSymbol = *m.Symbol
 			}
@@ -239,6 +241,7 @@ func activityLeg(
 	if m.Name != nil {
 		leg.TokenName = *m.Name
 	}
+	leg.DisplaySymbol = m.DisplaySymbol
 	if m.Symbol != nil {
 		leg.TokenSymbol = *m.Symbol
 	}

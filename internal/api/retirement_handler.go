@@ -17,8 +17,9 @@ import (
 
 type (
 	retirementWrite struct {
-		Reason              string `json:"reason"`
-		AcknowledgeBalances bool   `json:"acknowledgeBalances"`
+		DisplaySymbol       *string `json:"displaySymbol,omitempty"`
+		Reason              string  `json:"reason"`
+		AcknowledgeBalances bool    `json:"acknowledgeBalances"`
 	}
 )
 

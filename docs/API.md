@@ -1301,7 +1301,8 @@ Queues a job that deploys a voucher (ERC-20 proxy).
 | Field | Type | Required | Rules |
 |---|---|---|---|
 | `name` | string | Yes | Trimmed, inner spaces collapsed. Must not be blank. Maximum 120 characters. |
-| `symbol` | string | Yes | Must be unique (see Name rules below). |
+| `symbol` | string | Yes | Legacy native-symbol input. When `displaySymbol` is supplied, it is only a preference. Otherwise its trimmed value must be 3 to 6 ASCII letters or digits and supplies the initial CLC label. |
+| `displaySymbol` | string | No | CLC symbol. Three to six ASCII letters or digits, trimmed and uppercased. |
 | `decimals` | string | Yes | Send an integer from 0 to 255 as a string. The API does not check the format (see Late checks). |
 | `owner` | string | Yes | Checksummed address. |
 | `expiryTimestamp` | string | No | Unix time in seconds, as a string. The API does not check the format (see Late checks). |
@@ -1326,8 +1327,7 @@ The API trims `name` and collapses inner white space before it checks anything.
 The deployed contract receives the cleaned name.
 The name must not match another voucher name, including a deploy in progress.
 The comparison ignores case and extra white space.
-The `symbol` is reserved in a shared claim table, together with pool symbols.
-A deploy that fails releases its name and symbol.
+CLC display symbols and native contract symbols are reserved independently, with Pool symbols occupying both namespaces. When `displaySymbol` is supplied, the server can allocate a different available native ticker. Legacy requests that omit it retain their native-symbol behavior. A failed deployment releases its reservations. An occupied display symbol returns `409 E16` and `result.field = "displaySymbol"`.
 
 **Tags.**
 Each tag has inner white space collapsed.
@@ -1876,6 +1876,8 @@ The body has `ok` set to `false`, the description `Federation DB unreachable`, a
 
 A voucher is a token issued by an account. An offering is a product or service that the voucher owner publishes against a voucher. This section covers the public market reads, the review routes, and the owner writes for vouchers and offerings.
 
+`displaySymbol` is the editable CLC ticker. It can be null on catalog rows that have not been assigned an editable label. CLC surfaces should render this field, or a name or shortened address when it is absent, rather than exposing the contract ticker. For older API consumers, `symbol`, `voucherSymbol`, and `tokenSymbol` retain their existing native/ledger meanings. Renaming a CLC symbol never changes the contract.
+
 All paths in this section start with `/api/v2`. The error envelope and the codes `E01` to `E21` are defined in section 3.
 
 ### 7.1 Shared behavior of the market reads
@@ -2008,7 +2010,8 @@ The offering routes return this object. The fields that only `GET /api/v2/offeri
 | `voucherId` | integer | Voucher ID. |
 | `voucherAddress` | string | Voucher address. |
 | `voucherName` | string or null | Display name of the voucher. |
-| `voucherSymbol` | string or null | |
+| `voucherSymbol` | string or null | Native voucher symbol. |
+| `displaySymbol` | string or null | Editable CLC symbol of the voucher. |
 | `voucherUoa` | string or null | Unit of account of the voucher. |
 | `priceInUnitOfAccount` | string or null | `price` multiplied by the voucher value, as decimal text. The value is `null` unless the price, the unit, the voucher value and the unit of account are all set and positive. |
 | `voucherDecimals` | integer or null | |
@@ -2111,7 +2114,8 @@ Voucher summary fields:
 | `chainId` | integer | |
 | `address` | string | |
 | `name` | string or null | The display name, or the contract name when no display name is set. |
-| `symbol` | string or null | |
+| `symbol` | string or null | Native contract symbol. |
+| `displaySymbol` | string or null | Editable CLC symbol. |
 | `iconUrl` | string or null | |
 | `locationName` | string or null | |
 | `geoLat`, `geoLng` | number | Never `null` on this route. |
@@ -2175,7 +2179,8 @@ Status `200`, description `Market voucher`. The `result` is `{"voucher": {...}}`
 | `id`, `chainId`, `address` | | As in the list. |
 | `name` | string or null | The display name, or the contract name. |
 | `contractName` | string or null | The name stored on the contract. |
-| `symbol` | string or null | |
+| `symbol` | string or null | Native contract symbol. |
+| `displaySymbol` | string or null | Editable CLC symbol. |
 | `decimals` | integer or null | |
 | `ownerAddress` | string or null | |
 | `description` | string or null | |
@@ -2344,18 +2349,20 @@ Row fields:
 | `address` | string or null | The voucher address for an offering. `null` for a catalog. |
 | `name` | string | |
 | `description` | string or null | |
-| `symbol` | string or null | |
+| `symbol` | string or null | Native contract symbol. |
+| `displaySymbol` | string or null | Editable CLC symbol for voucher and offering rows. |
 | `imageUrl` | string or null | |
 | `markerIcon`, `markerColor`, `voucherKind` | string or null | For a voucher row only. |
 | `locationName` | string or null | |
 | `geoLat`, `geoLng` | number | |
 | `distanceMeters` | number or null | Set with `nearby=true`. |
 | `tags` | array of string | |
-| `voucherAddress`, `voucherName`, `voucherSymbol`, `voucherUoa` | string or null | For an offering row only. |
+| `voucherAddress`, `voucherName`, `voucherSymbol`, `voucherDisplaySymbol`, `voucherUoa` | string or null | For an offering row only. |
 | `priceInUnitOfAccount`, `unit` | string or null | For an offering row only. |
 | `poolCount` | integer or null | For a catalog row only. |
 | `voucherCount` | integer or null | For a pool row and a catalog row. |
 | `relatedKind`, `relatedName`, `relatedSymbol` | string or null | For a Post row, one related voucher or pool summary when available. |
+| `relatedDisplaySymbol` | string or null | Editable CLC symbol when a Post’s related resource is a voucher. |
 | `createdAt`, `updatedAt` | string | RFC 3339 time. |
 
 ```json
@@ -2729,10 +2736,11 @@ Replaces the off-chain profile of a voucher.
 The route writes every field, so a request must send the full record.
 An omitted field is cleared.
 The fields `displayName`, `iconUrl`, `bannerUrl`, `markerIcon` and `markerColor` are the exception: an omitted field keeps its stored value, and an empty string clears it.
-The tags are always replaced.
+The tags are always replaced. An omitted `displaySymbol` preserves the current CLC symbol. An occupied symbol returns `409 E16` with `result.field = "displaySymbol"`. For a retired Voucher, set a display symbol only while restoring it.
 
 | Body field | Type | Rules |
 |---|---|---|
+| `displaySymbol` | string | Optional. Three to six ASCII letters or digits, trimmed and uppercased. |
 | `displayName` | string | At most 120 characters. The server trims it. |
 | `description` | string | At most 500 characters. |
 | `voucherUoa` | string | At most 32 characters. Must not be blank. A new value becomes a custom unit of account. Omit the field to clear it. |
@@ -3836,10 +3844,11 @@ Shows the symbols that are in use under one symbol stem. Use it before a voucher
 |---|---|---|---|
 | `kind` | `voucher` or `pool` | Yes | Type of the symbol. |
 | `prefix` | string | Yes | 1 to 6 letters or digits. |
+| `scope` | `display` | No | Voucher-only. Check the editable CLC namespace; omission retains the legacy lookup. |
 
 The service changes `prefix` to upper case.
 A symbol is taken when it equals the prefix, or when it is the prefix followed by 1 or 2 digits.
-Taken symbols come from existing vouchers, pools, and open deployments.
+Taken display symbols come from active vouchers, Pool symbols, and open deployments. Retirement releases a voucher’s editable CLC claim; it does not release its native symbol. Legacy rows that still lack a mapped CLC symbol reserve their former label while active.
 The response has at most 128 symbols in sorted order.
 It has `Cache-Control: no-store`.
 
@@ -3851,7 +3860,7 @@ It has `Cache-Control: no-store`.
 }
 ```
 
-An invalid `kind` or `prefix` returns `400 E04`.
+An invalid `kind`, `prefix`, or `scope` returns `400 E04`.
 
 ### 11.6 `GET /api/v2/names`
 
@@ -6196,6 +6205,7 @@ See section 7, Vouchers and offerings.
 
 | Field | Type | Description |
 |---|---|---|
+| `displaySymbol` | string | Optional editable CLC ticker. Omission preserves it. Same validation and conflicts as section 7.14. |
 | `displayName` | string | Maximum 120 characters. Omit it to keep the old value. Send `""` to remove the override. |
 | `description` | string | Maximum 500 characters. |
 | `voucherUoa` | string | Maximum 32 characters. The server handles it like `unitOfAccount` in section 15.11. |
@@ -6214,7 +6224,7 @@ See section 7, Vouchers and offerings.
 | `tags` | array of strings | The new full set of tags. The tag rules are the same as in section 15.11. |
 
 - The route assigns the whole record. The fields `description`, `voucherUoa`, `voucherValue`, `email`, `website`, `phone`, `terms`, `locationName`, `geoLat`, `geoLng` and `tags` are replaced by the values that you send. If you omit one of these fields, the server clears it.
-- Only `displayName`, `iconUrl`, `bannerUrl`, `markerIcon` and `markerColor` keep the old value when you omit them.
+- `displaySymbol`, `displayName`, `iconUrl`, `bannerUrl`, `markerIcon` and `markerColor` keep the old value when you omit them.
 - The server saves the profile and the tags together.
 
 **Response 200**
@@ -6238,7 +6248,7 @@ The server reads the voucher back through the public query. This query hides a r
 
 **Access:** Administrative.
 
-Return a retired voucher to the public catalog. The route has no owner version. The request has no body.
+Return a retired voucher to the public catalog. The route has no owner version. The optional JSON body accepts `reason` and `displaySymbol`. The restore reclaims the previous CLC label when it is still available; if it has been taken, submit an available replacement. If a legacy voucher has no editable label, the server uses its normalized native ticker when valid and available. Otherwise provide an editable label. The native contract symbol remains unchanged.
 
 - The restore must fit the limits of the affected users. If it does not fit, the route returns `429`.
 - If the voucher is already active, the route changes nothing and returns `200`.
@@ -6251,8 +6261,9 @@ The description is `Voucher restored`. The result has the key `voucher` with the
 
 | Status | Code | Cause |
 |---|---|---|
-| `400` | `E04` | `address` is not valid. |
+| `400` | `E04` | `address` is not valid, the submitted symbol is invalid, or an unmapped legacy ticker needs a replacement. Symbol errors set `result.field` to `displaySymbol`. |
 | `404` | `E07` | The catalog does not hold this address. |
+| `409` | `E16` | The previous or requested CLC symbol is unavailable. `result.field` is `displaySymbol`. |
 | `429` | `E11` | The restore puts a user over a limit. The response has `result` with `resource` (`vouchers` or `offers`), `used` and `limit`. |
 
 ```json

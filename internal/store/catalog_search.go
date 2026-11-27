@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/jackc/pgx/v5"
 )
@@ -146,12 +147,13 @@ type (
 	// VoucherFacet is one relationship-filter option and the number of entities
 	// matching the current non-voucher filters that carry it.
 	VoucherFacet struct {
-		ID      uint64 `db:"id"          json:"id"`
-		ChainID int64  `db:"chain_id"    json:"chainId"`
-		Address string `db:"address"     json:"address"`
-		Name    string `db:"name"        json:"name"`
-		Symbol  string `db:"symbol"      json:"symbol"`
-		Count   uint64 `db:"match_count" json:"count"`
+		DisplaySymbol *string `db:"display_symbol" json:"displaySymbol"`
+		ID            uint64  `db:"id"          json:"id"`
+		ChainID       int64   `db:"chain_id"    json:"chainId"`
+		Address       string  `db:"address"     json:"address"`
+		Name          string  `db:"name"        json:"name"`
+		Symbol        string  `db:"symbol"      json:"symbol"`
+		Count         uint64  `db:"match_count" json:"count"`
 	}
 
 	// sqlArgs collects bound values and hands back the placeholder that refers
@@ -707,16 +709,29 @@ func searchPredicate(args *sqlArgs, filter CatalogFilter, table string) string {
 	}
 
 	placeholder := args.bind(filter.likeTerm())
-	name := table + ".name"
-	if table == "v" || table == "p" {
-		name = "COALESCE(" + table + ".display_name, " + table + ".name)"
+	return catalogLabelPredicate(filter, table, placeholder, table == "v")
+}
+
+// catalogLabelPredicate builds a search over current CLC names and tickers.
+// Legacy entries without a display symbol keep their original search until
+// cutover. Full addresses bypass the label check to avoid an unindexed OR on
+// normal text searches.
+func catalogLabelPredicate(filter CatalogFilter, table, placeholder string, voucher bool) string {
+	if voucher && len(filter.Term) == 2*common.AddressLength+2 && common.IsHexAddress(filter.Term) {
+		return "lower(" + table + ".address) = lower(" + placeholder + ")"
+	}
+	name := "COALESCE(" + table + ".display_name, " + table + ".name)"
+	symbol := table + ".symbol"
+	if voucher {
+		symbol = "COALESCE(" + table + ".display_symbol, " + symbol + ")"
 	}
 	if filter.prefixOnly() {
 		return "(lower(" + name + ") LIKE lower(" + placeholder + ") || '%' ESCAPE '\\'" +
-			"\n            OR lower(" + table + ".symbol) LIKE lower(" + args.reuse() + ") || '%' ESCAPE '\\')"
+			"\n            OR lower(" + symbol + ") LIKE lower(" + placeholder + ") || '%' ESCAPE '\\')"
 	}
 	return "(lower(" + name + ") LIKE '%' || lower(" + placeholder + ") || '%' ESCAPE '\\'" +
-		"\n            OR lower(" + table + ".symbol) LIKE '%' || lower(" + args.reuse() + ") || '%' ESCAPE '\\')"
+		"\n            OR lower(" + symbol + ") LIKE '%' || lower(" + placeholder + ") || '%' ESCAPE '\\')"
+
 }
 
 // voucherTagPredicate returns the voucher tag reducer, over both sources a

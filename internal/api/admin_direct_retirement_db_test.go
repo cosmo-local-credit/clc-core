@@ -75,7 +75,11 @@ func TestAdminDirectResourceRetirement(t *testing.T) {
 
 			restore := "/api/v2/admin/" + kind + "s/" + address + "/restore"
 			a.marketMapCache.set(cacheKey, store.MarketMapResult{})
-			response, _ = offeringRequest(t, a, http.MethodPut, restore, admin, map[string]any{"reason": "Back in use"})
+			restoreBody := map[string]any{"reason": "Back in use"}
+			if kind == "voucher" {
+				restoreBody["displaySymbol"] = "ZQRDIR"
+			}
+			response, _ = offeringRequest(t, a, http.MethodPut, restore, admin, restoreBody)
 			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 			require.True(t, active())
 			_, cached = a.marketMapCache.get(cacheKey)

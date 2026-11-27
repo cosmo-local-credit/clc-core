@@ -38,13 +38,14 @@ type (
 	}
 
 	AccountActivityLeg struct {
-		TokenAddress  string `json:"tokenAddress"`
-		TokenName     string `json:"tokenName"`
-		TokenSymbol   string `json:"tokenSymbol"`
-		TokenDecimals uint8  `json:"tokenDecimals"`
-		Amount        string `json:"amount"`
-		UOAValue      string `json:"uoaValue,omitempty"`
-		UOA           string `json:"uoa,omitempty"`
+		TokenAddress  string  `json:"tokenAddress"`
+		TokenName     string  `json:"tokenName"`
+		TokenSymbol   string  `json:"tokenSymbol"`
+		DisplaySymbol *string `json:"displaySymbol"`
+		TokenDecimals uint8   `json:"tokenDecimals"`
+		Amount        string  `json:"amount"`
+		UOAValue      string  `json:"uoaValue,omitempty"`
+		UOA           string  `json:"uoa,omitempty"`
 	}
 
 	// FederationAccountActivity is the flat row returned by the federation query.

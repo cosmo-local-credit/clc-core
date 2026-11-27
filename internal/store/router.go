@@ -46,13 +46,14 @@ type (
 	}
 
 	routerVoucherRow struct {
-		ID          int64  `db:"id"`
-		Address     string `db:"address"`
-		Symbol      string `db:"symbol"`
-		Name        string `db:"name"`
-		Decimals    *int   `db:"decimals"`
-		Active      bool   `db:"active"`
-		VoucherType string `db:"voucher_type"`
+		ID            int64   `db:"id"`
+		Address       string  `db:"address"`
+		Symbol        string  `db:"symbol"`
+		DisplaySymbol *string `db:"display_symbol"`
+		Name          string  `db:"name"`
+		Decimals      *int    `db:"decimals"`
+		Active        bool    `db:"active"`
+		VoucherType   string  `db:"voucher_type"`
 	}
 
 	routerEdgeRow struct {
@@ -250,7 +251,7 @@ func (pg *Pg) LoadRouterState(ctx context.Context, chainID int64) (router.StateR
 	}
 	for _, v := range vouchers {
 		out.Tokens = append(out.Tokens, router.TokenRow{
-			ID: uint64(v.ID), Address: v.Address, Symbol: v.Symbol, Name: v.Name,
+			ID: uint64(v.ID), Address: v.Address, Symbol: v.Symbol, DisplaySymbol: v.DisplaySymbol, Name: v.Name,
 			Decimals: v.Decimals, Active: v.Active, VoucherType: v.VoucherType,
 		})
 	}

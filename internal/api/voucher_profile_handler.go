@@ -15,8 +15,8 @@ import (
 // updateVoucherProfileHandler lets the current voucher owner edit the whole
 // off-chain record their deploy wrote — the same fields the create flow asked
 // for, on the same assign-all terms as the admin route. Chain facts (contract
-// name, symbol, decimals, owner) stay out of it; the display name is the one
-// label that overrides a chain value, and only for catalog reads.
+// name, symbol, decimals, owner) stay out of it. Display name and display
+// symbol are independent off-chain labels.
 //
 // Authorization is the offering rule: the locked voucher row's current owner,
 // or an administrator. Locking and writing in one transaction means an ownership
@@ -64,6 +64,9 @@ func (a *API) updateVoucherProfileHandler(c *echo.Context) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	if req.DisplaySymbol != nil {
+		a.marketMapCache.clear()
+	}
 
 	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.JSON(http.StatusOK, apiresp.OKResponse{
@@ -84,6 +87,11 @@ func (a *API) bindVoucherProfileRequest(c *echo.Context) (apiresp.UpdateVoucherP
 	}
 	if err := c.Validate(req); err != nil {
 		return req, true, a.handleValidateError(c, err)
+	}
+	var valid bool
+	req.DisplaySymbol, valid = normalizeDisplaySymbol(req.DisplaySymbol)
+	if !valid {
+		return req, true, invalidDisplaySymbol(c)
 	}
 
 	// A label without coordinates, or coordinates without a label, describes a
@@ -161,21 +169,22 @@ func (a *API) saveVoucherProfile(
 	}
 
 	voucherID, err := a.store.UpdateVoucherProfile(ctx, tx, address, store.VoucherProfile{
-		DisplayName:  req.DisplayName,
-		Description:  req.Description,
-		VoucherUOA:   req.VoucherUoa,
-		VoucherValue: req.VoucherValue,
-		Email:        req.Email,
-		Website:      req.Website,
-		Phone:        req.Phone,
-		Terms:        req.Terms,
-		LocationName: req.LocationName,
-		GeoLat:       req.GeoLat,
-		GeoLng:       req.GeoLng,
-		IconURL:      req.IconURL,
-		BannerURL:    req.BannerURL,
-		MarkerIcon:   req.MarkerIcon,
-		MarkerColor:  req.MarkerColor,
+		DisplayName:   req.DisplayName,
+		DisplaySymbol: req.DisplaySymbol,
+		Description:   req.Description,
+		VoucherUOA:    req.VoucherUoa,
+		VoucherValue:  req.VoucherValue,
+		Email:         req.Email,
+		Website:       req.Website,
+		Phone:         req.Phone,
+		Terms:         req.Terms,
+		LocationName:  req.LocationName,
+		GeoLat:        req.GeoLat,
+		GeoLng:        req.GeoLng,
+		IconURL:       req.IconURL,
+		BannerURL:     req.BannerURL,
+		MarkerIcon:    req.MarkerIcon,
+		MarkerColor:   req.MarkerColor,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

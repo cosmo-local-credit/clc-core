@@ -35,6 +35,7 @@ type (
 		TrackingID            string   `json:"trackingId"`
 		Name                  string   `json:"name"`
 		Symbol                string   `json:"symbol"`
+		DisplaySymbol         *string  `json:"displaySymbol,omitempty"`
 		Decimals              string   `json:"decimals"`
 		Owner                 string   `json:"owner"`
 		ExpiryTimestamp       string   `json:"expiryTimestamp"`
@@ -148,6 +149,7 @@ func (w *DeployTokenWorker) Work(ctx context.Context, job *river.Job[DeployToken
 		OTXID:              proxyTx.OTXID,
 		PlatformContractID: args.PlatformContractID,
 		Symbol:             args.Symbol,
+		DisplaySymbol:      args.DisplaySymbol,
 		Name:               args.Name,
 		Decimals:           uint8(decimals),
 		Admin:              args.Owner,

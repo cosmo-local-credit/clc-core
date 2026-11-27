@@ -144,6 +144,10 @@ func (a *API) adminRestoreVoucherHandler(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	displaySymbol, valid := normalizeDisplaySymbol(body.DisplaySymbol)
+	if !valid {
+		return invalidDisplaySymbol(c)
+	}
 	if body.Reason == "" {
 		body.Reason = "Restored by administrator"
 	}
@@ -159,7 +163,10 @@ func (a *API) adminRestoreVoucherHandler(c *echo.Context) error {
 	if err != nil {
 		return handlePostgresError(c, err)
 	}
-	changed, err := a.store.RestoreVoucherWithinLimitsChanged(ctx, tx, address)
+	changed, err := a.store.RestoreVoucherWithinLimitsWithSymbolChanged(ctx, tx, address, displaySymbol)
+	if errors.Is(err, store.ErrVoucherDisplaySymbolRequired) {
+		return invalidDisplaySymbol(c)
+	}
 	if err != nil {
 		return handleResourceLimitError(c, err)
 	}

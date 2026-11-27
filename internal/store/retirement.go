@@ -20,6 +20,7 @@ type (
 		ChainID         int64   `db:"chain_id"`
 		Name            string  `db:"name"`
 		Symbol          string  `db:"symbol"`
+		DisplaySymbol   *string `db:"display_symbol"`
 		Decimals        int     `db:"decimals"`
 		OwnerAddress    string  `db:"owner_address"`
 		Active          bool    `db:"active"`
@@ -33,6 +34,7 @@ type (
 		OwnerAddress          string    `json:"ownerAddress"`
 		Active                bool      `json:"active"`
 		Symbol                string    `json:"symbol"`
+		DisplaySymbol         *string   `json:"displaySymbol"`
 		Decimals              int       `json:"decimals"`
 		AmountOutsideOwnerRaw *string   `json:"amountOutsideOwnerRaw"`
 		PositiveTokenCount    *int      `json:"positiveTokenCount"`
@@ -51,6 +53,7 @@ type (
 		ResourceAddress  string             `db:"resource_address" json:"resourceAddress"`
 		ResourceName     string             `db:"resource_name" json:"resourceName"`
 		Symbol           string             `db:"symbol" json:"symbol"`
+		DisplaySymbol    *string            `db:"display_symbol" json:"displaySymbol"`
 		ChainID          int64              `db:"chain_id" json:"chainId"`
 		RequesterAddress string             `db:"requester_address" json:"requesterAddress"`
 		OwnerAddress     string             `db:"owner_address" json:"ownerAddress"`
@@ -89,7 +92,7 @@ const (
     CASE WHEN r.voucher_id IS NOT NULL THEN 'voucher' ELSE 'pool' END AS resource_type,
     COALESCE(v.address,p.address) AS resource_address,
     COALESCE(v.display_name,v.name,p.display_name,p.name,'') AS resource_name,
-    COALESCE(v.symbol,p.symbol,'') AS symbol,COALESCE(v.chain_id,p.chain_id) AS chain_id,
+    COALESCE(v.symbol,p.symbol,'') AS symbol,v.display_symbol,COALESCE(v.chain_id,p.chain_id) AS chain_id,
     r.requester_address,r.owner_address,r.reason,r.status,r.source,r.snapshot,r.requested_at,
     r.decision_at,r.decision_by,r.decision_reason,r.decision_snapshot
     FROM retirement_requests r LEFT JOIN vouchers v ON v.id=r.voucher_id LEFT JOIN pools p ON p.id=r.pool_id`
@@ -115,12 +118,14 @@ func GetRetirementResource(ctx context.Context, tx pgx.Tx, kind, address string,
 	if err != nil {
 		return RetirementResource{}, err
 	}
-	registry := "NULL::text"
+	registry, displaySymbol := "NULL::text", "NULL::text"
 	if kind == "pool" {
 		registry = "token_registry_address"
+	} else {
+		displaySymbol = "display_symbol"
 	}
 	query := `SELECT id,address,chain_id,COALESCE(display_name,name,'') AS name,
-        COALESCE(symbol,'') AS symbol,COALESCE(decimals,0) AS decimals,
+        COALESCE(symbol,'') AS symbol,` + displaySymbol + ` AS display_symbol,COALESCE(decimals,0) AS decimals,
         COALESCE(owner_address,'') AS owner_address,active,` + registry + ` AS registry_address
         FROM ` + table + ` WHERE lower(address)=lower($1) AND ($2::bigint=0 OR chain_id=$2)`
 	if lock {

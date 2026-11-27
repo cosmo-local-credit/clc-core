@@ -69,8 +69,8 @@ WHERE chain_id = $1 AND contract_type = $2::contract_type;
 INSERT INTO deployed_tokens (
     otx_id, platform_contract_id, status, symbol, name, decimals, admin,
     description, website, email, phone, terms, voucher_uoa, voucher_value,
-    location_name, geo_lat, geo_lng, icon_url, banner_url, marker_icon, marker_color
-) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+    location_name, geo_lat, geo_lng, icon_url, banner_url, marker_icon, marker_color, display_symbol
+) VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING id;
 
 --name: confirm-deployed-token
@@ -113,6 +113,7 @@ WITH deploy AS (
         dt.address,
         dt.name,
         dt.symbol,
+        dt.display_symbol,
         dt.decimals,
         dt.admin,
         dt.description,
@@ -139,7 +140,7 @@ upserted AS (
         chain_id, address, name, symbol, decimals, owner_address, voucher_type,
         description, voucher_uoa, voucher_value, location_name, geo_lat, geo_lng,
         email, website, phone, terms, icon_url, banner_url, marker_icon,
-        marker_color, contract_version, platform_contract_id
+        marker_color, contract_version, platform_contract_id, display_symbol
     )
     SELECT
         d.chain_id, d.address, d.name, d.symbol, d.decimals,
@@ -152,11 +153,13 @@ upserted AS (
         d.description, d.voucher_uoa, d.voucher_value, d.location_name,
         d.geo_lat, d.geo_lng, d.email, d.website, d.phone, d.terms,
         d.icon_url, d.banner_url, d.marker_icon, d.marker_color,
-        NULLIF(d.contract_version, ''), d.platform_contract_id
+        NULLIF(d.contract_version, ''), d.platform_contract_id,
+        COALESCE(d.display_symbol, CASE WHEN btrim(d.symbol) ~ '^[A-Za-z0-9]{3,6}$' THEN upper(btrim(d.symbol)) END)
     FROM deploy d
     ON CONFLICT (chain_id, lower(address)) DO UPDATE SET
         name                 = COALESCE(EXCLUDED.name,          vouchers.name),
         symbol               = COALESCE(EXCLUDED.symbol,        vouchers.symbol),
+        display_symbol       = COALESCE(vouchers.display_symbol, EXCLUDED.display_symbol),
         decimals             = COALESCE(EXCLUDED.decimals,      vouchers.decimals),
         owner_address        = COALESCE((SELECT o.owner_address FROM catalog_ownership o WHERE o.chain_id = vouchers.chain_id AND o.address = lower(vouchers.address)), vouchers.owner_address, EXCLUDED.owner_address),
         voucher_type         = COALESCE(EXCLUDED.voucher_type,   vouchers.voucher_type),
@@ -195,11 +198,18 @@ copied_tags AS (
 )
 SELECT id FROM upserted;
 
+--name: release-promoted-voucher-display-claim
+DELETE FROM identity_claims c USING deployed_tokens d, otx o
+WHERE d.id = $1 AND d.voucher_id IS NOT NULL AND o.id = d.otx_id
+  AND c.namespace = 'display_symbol' AND c.owner_kind = 'voucher'
+  AND c.owner_key = 'deploy:' || o.tracking_id::TEXT;
+
 --name: insert-deployed-token-tag
 INSERT INTO deployed_token_tags (deployed_token_id, tag_value) VALUES ($1, $2);
 
 --name: get-deployed-token-by-address
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
+       CASE WHEN v.id IS NULL THEN dt.display_symbol ELSE v.display_symbol END AS display_symbol,
        COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
        dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url,
@@ -214,6 +224,7 @@ GROUP BY dt.id, v.id, o.tracking_id;
 
 --name: get-deployed-token-by-tracking-id
 SELECT dt.id, dt.otx_id, dt.platform_contract_id, dt.status, dt.address, dt.symbol,
+       CASE WHEN v.id IS NULL THEN dt.display_symbol ELSE v.display_symbol END AS display_symbol,
        COALESCE(v.display_name, dt.name) AS name, dt.decimals, dt.admin,
        dt.description, dt.website, dt.email, dt.phone, dt.terms, dt.voucher_uoa, dt.voucher_value,
        dt.location_name, dt.geo_lat, dt.geo_lng, dt.icon_url, dt.banner_url,
@@ -432,16 +443,37 @@ SELECT
 -- predicate mirrors the client's bare-stem plus numeric-suffix candidates;
 -- unrelated symbols which merely share the prefix do not occupy it.
 --name: list-taken-voucher-symbols
-SELECT upper(name) AS symbol FROM identity_claims
-WHERE namespace = 'symbol' AND starts_with(name, lower($1))
-  AND (name = lower($1) OR substring(name FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
-ORDER BY name LIMIT 128;
+SELECT upper(symbol_key) AS symbol
+FROM (
+    SELECT symbol_key FROM clc_symbol_occupancy('symbol')
+    UNION SELECT symbol_key FROM clc_symbol_occupancy('display_symbol')
+) occupied
+WHERE starts_with(symbol_key, lower($1))
+  AND (symbol_key = lower($1) OR substring(symbol_key FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
+ORDER BY symbol_key LIMIT 128;
 
 --name: list-taken-pool-symbols
-SELECT upper(name) AS symbol FROM identity_claims
-WHERE namespace = 'symbol' AND starts_with(name, lower($1))
-  AND (name = lower($1) OR substring(name FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
-ORDER BY name LIMIT 128;
+SELECT upper(symbol_key) AS symbol
+FROM (
+    SELECT symbol_key FROM clc_symbol_occupancy('symbol')
+    UNION SELECT symbol_key FROM clc_symbol_occupancy('display_symbol')
+) occupied
+WHERE starts_with(symbol_key, lower($1))
+  AND (symbol_key = lower($1) OR substring(symbol_key FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
+ORDER BY symbol_key LIMIT 128;
+
+--name: list-taken-display-symbols
+SELECT DISTINCT upper(symbol_key) AS symbol
+FROM clc_symbol_occupancy('display_symbol')
+WHERE starts_with(symbol_key, lower($1))
+  AND (symbol_key = lower($1) OR substring(symbol_key FROM char_length($1) + 1) ~ '^[0-9]{1,2}$')
+ORDER BY symbol LIMIT 128;
+
+--name: try-reserve-native-symbol
+SELECT try_reserve_clc_native_symbol($1, $2, $3);
+
+--name: reserve-display-symbol
+SELECT claim_clc_display_symbol($1, $2, $3);
 
 -- A display name is occupied by a catalog row or by a deploy which may still
 -- land on-chain. FAILED deploys are deliberately reusable, as with symbols, and
@@ -1032,8 +1064,8 @@ WHERE lower(u.blockchain_address) = lower($1::TEXT)
 -- leaking one last page from a stale handler decision.
 --name: list-public-profile-vouchers
 SELECT v.id::BIGINT, v.address AS resource_id, 'voucher'::TEXT AS kind,
-    COALESCE(v.display_name, v.name, v.symbol, v.address) AS name,
-    v.icon_url AS image_url, v.description, v.symbol,
+    COALESCE(v.display_name, v.name, v.display_symbol, v.address) AS name,
+    v.icon_url AS image_url, v.description, v.symbol, v.display_symbol,
     CASE WHEN lower(v.owner_address) = lower(u.blockchain_address)
         THEN 'direct' ELSE 'multisig' END AS management
 FROM users u
@@ -1051,7 +1083,7 @@ ORDER BY v.id DESC LIMIT $3;
 --name: list-public-profile-offers
 SELECT o.id::BIGINT, v.address AS resource_id, 'offer'::TEXT AS kind,
     o.commodity_name AS name, o.image_url,
-    NULLIF(o.description, '') AS description, v.symbol,
+    NULLIF(o.description, '') AS description, v.symbol, v.display_symbol,
     CASE WHEN lower(v.owner_address) = lower(u.blockchain_address)
         THEN 'direct' ELSE 'multisig' END AS management
 FROM users u
@@ -1334,7 +1366,7 @@ LIMIT $3;
 --name: list-owned-vouchers
 WITH me AS (SELECT lower(u.blockchain_address) AS addr FROM users u WHERE u.id = $1)
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
-    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol, v.display_symbol,
     v.decimals, v.icon_url, v.owner_address, v.active
 FROM vouchers v
 WHERE (lower(v.owner_address) IN (SELECT addr FROM me)
@@ -1346,7 +1378,7 @@ LIMIT $2;
 --name: list-owned-vouchers-next
 WITH me AS (SELECT lower(u.blockchain_address) AS addr FROM users u WHERE u.id = $1)
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
-    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol, v.display_symbol,
     v.decimals, v.icon_url, v.owner_address, v.active
 FROM vouchers v
 WHERE (lower(v.owner_address) IN (SELECT addr FROM me)
@@ -1359,7 +1391,7 @@ LIMIT $3;
 WITH me AS (SELECT lower(u.blockchain_address) AS addr FROM users u WHERE u.id = $1)
 SELECT * FROM (
     SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
-        COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+        COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol, v.display_symbol,
         v.decimals, v.icon_url, v.owner_address, v.active
     FROM vouchers v
     WHERE (lower(v.owner_address) IN (SELECT addr FROM me)
@@ -1376,7 +1408,7 @@ ORDER BY page.id DESC;
 -- the card's to move.
 --name: list-vouchers-owned-by-address
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
-    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol, v.display_symbol,
     v.decimals, v.icon_url, v.owner_address, v.active
 FROM vouchers v
 WHERE lower(v.owner_address) = lower($1::TEXT)
@@ -1385,7 +1417,7 @@ LIMIT $2;
 
 --name: list-vouchers-owned-by-address-next
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
-    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol, v.display_symbol,
     v.decimals, v.icon_url, v.owner_address, v.active
 FROM vouchers v
 WHERE lower(v.owner_address) = lower($1::TEXT) AND v.id < $2
@@ -1395,7 +1427,7 @@ LIMIT $3;
 --name: list-vouchers-owned-by-address-prev
 SELECT * FROM (
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name, v.address) AS name,
-    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol,
+    COALESCE(v.symbol, left(v.address, 6) || '…' || right(v.address, 4)) AS symbol, v.display_symbol,
     v.decimals, v.icon_url, v.owner_address, v.active
 FROM vouchers v
     WHERE lower(v.owner_address) = lower($1::TEXT) AND v.id > $2
@@ -1673,7 +1705,7 @@ WHERE keystore_id = (SELECT id FROM keystore WHERE public_key = $1)
 -- (chain_data_v2.tokens / sarafu_network.vouchers) — the local catalog is the
 -- single home for living voucher attributes.
 --name: list-voucher-metadata-by-addresses
-SELECT address, symbol, COALESCE(display_name, name) AS name, decimals, icon_url, active,
+SELECT address, symbol, display_symbol, COALESCE(display_name, name) AS name, decimals, icon_url, active,
     voucher_value::text AS voucher_value, voucher_uoa
 FROM vouchers
 WHERE lower(address) = ANY($1);
@@ -1846,7 +1878,8 @@ SET display_name  = CASE WHEN $2::TEXT IS NULL THEN display_name ELSE NULLIF(btr
     icon_url      = CASE WHEN $13::TEXT IS NULL THEN icon_url   ELSE NULLIF($13, '') END,
     banner_url    = CASE WHEN $14::TEXT IS NULL THEN banner_url ELSE NULLIF($14, '') END,
     marker_icon   = CASE WHEN $15::TEXT IS NULL THEN marker_icon  ELSE NULLIF($15, '') END,
-    marker_color  = CASE WHEN $16::TEXT IS NULL THEN marker_color ELSE NULLIF($16, '') END
+    marker_color  = CASE WHEN $16::TEXT IS NULL THEN marker_color ELSE NULLIF($16, '') END,
+    display_symbol = COALESCE($17::TEXT, display_symbol)
 WHERE lower(address) = lower($1)
 RETURNING id;
 
@@ -1869,6 +1902,17 @@ UPDATE vouchers
 SET active = $2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1;
+
+-- Before the backfill only active Vouchers get a reviewed CLC label.
+-- A retired legacy row can use its valid native ticker on restoration, but
+-- must store that label just like other active Vouchers, even for old clients.
+--name: restore-voucher-active
+UPDATE vouchers
+SET active = TRUE,
+    display_symbol = COALESCE($2::TEXT, display_symbol, upper(btrim(symbol) COLLATE "C")),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND ($2::TEXT IS NOT NULL OR display_symbol IS NOT NULL OR btrim(symbol) COLLATE "C" ~ '^[A-Za-z0-9]{3,6}$');
 
 -- Tags are a junction, so a replace is a clear and a re-insert, both inside the
 -- caller's transaction with the profile update — as for pools, an operator who
@@ -1939,7 +1983,7 @@ SELECT p.address AS pool_address,
     COALESCE(NULLIF(p.display_name, ''), p.name, p.symbol, p.address) AS pool_name,
     p.owner_address AS pool_owner,
     v.address AS voucher_address,
-    COALESCE(NULLIF(v.display_name, ''), v.name, v.symbol, v.address) AS voucher_name,
+    COALESCE(NULLIF(v.display_name, ''), v.name, v.display_symbol, v.address) AS voucher_name,
     v.owner_address AS voucher_owner
 FROM pools p JOIN vouchers v ON v.id = $2::BIGINT
 WHERE p.id = $1::BIGINT AND p.owner_address IS NOT NULL AND v.owner_address IS NOT NULL;
@@ -2034,7 +2078,7 @@ RETURNING pt.pool_id, pt.voucher_id;
 -- Pool voucher composition. Oracle feeds replace legacy
 -- fixed exchange rates; offering counts are local catalog facts.
 --name: list-pool-vouchers
-SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.decimals, v.owner_address,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.decimals, v.owner_address,
     v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
     v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
@@ -2057,7 +2101,7 @@ ORDER BY v.id DESC
 LIMIT $2;
 
 --name: list-pool-vouchers-next
-SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.decimals, v.owner_address,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.decimals, v.owner_address,
     v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
     v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
@@ -2081,7 +2125,7 @@ LIMIT $3;
 
 --name: list-pool-vouchers-prev
 SELECT * FROM (
-    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.decimals, v.owner_address,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.decimals, v.owner_address,
         v.voucher_type, v.sink_address, v.redemption_address, v.description, v.voucher_uoa,
         v.voucher_value::TEXT AS voucher_value, v.location_name, v.geo_lat, v.geo_lng,
         v.email, v.website, v.phone, v.icon_url, v.banner_url, v.terms, v.contract_version,
@@ -2108,7 +2152,7 @@ ORDER BY id DESC;
 -- Marketplace offerings, enriched with voucher identity and shared tags.
 --name: list-offerings
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2130,7 +2174,7 @@ LIMIT $1;
 
 --name: list-offerings-next
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2154,7 +2198,7 @@ LIMIT $2;
 --name: list-offerings-prev
 SELECT * FROM (
     SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
         v.voucher_uoa AS voucher_uoa,
         CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
             AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2179,7 +2223,7 @@ ORDER BY id DESC;
 
 --name: list-voucher-offerings
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2202,7 +2246,7 @@ LIMIT $2;
 
 --name: list-voucher-offerings-next
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2226,7 +2270,7 @@ LIMIT $3;
 --name: list-voucher-offerings-prev
 SELECT * FROM (
     SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
         v.voucher_uoa AS voucher_uoa,
         CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
             AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2256,7 +2300,7 @@ ORDER BY id DESC;
 -- they are reached through the pool or through the voucher.
 --name: list-pool-offerings
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2281,7 +2325,7 @@ LIMIT $2;
 
 --name: list-pool-offerings-next
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2308,7 +2352,7 @@ LIMIT $3;
 --name: list-pool-offerings-prev
 SELECT * FROM (
     SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+        COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
         v.voucher_uoa AS voucher_uoa,
         CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
             AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2347,7 +2391,7 @@ ORDER BY id DESC;
 -- to reconcile two representations of the row it just saved.
 --name: get-voucher-offering
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2371,7 +2415,7 @@ WHERE lower(v.address) = lower($1) AND o.id = $2 AND o.available AND v.active;
 -- after DELETE unlisted it, and the public statement above would return nothing.
 --name: get-offering-for-mutation
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2406,7 +2450,7 @@ WITH candidates AS MATERIALIZED (
             lower(o.commodity_name) LIKE lower($1) || '%' ESCAPE '\'
          OR lower(o.description) LIKE lower($1) || '%' ESCAPE '\'
          OR lower(COALESCE(v.display_name, v.name, '')) LIKE lower($1) || '%' ESCAPE '\'
-         OR lower(COALESCE(v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags search_ot
                     WHERE search_ot.offering_id = o.id
                       AND lower(search_ot.tag_value) LIKE lower($1) || '%' ESCAPE '\')
@@ -2414,7 +2458,7 @@ WITH candidates AS MATERIALIZED (
             lower(o.commodity_name) LIKE '%' || lower($1) || '%' ESCAPE '\'
          OR lower(o.description) LIKE '%' || lower($1) || '%' ESCAPE '\'
          OR lower(COALESCE(v.display_name, v.name, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
-         OR lower(COALESCE(v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags search_ot
                     WHERE search_ot.offering_id = o.id
                       AND lower(search_ot.tag_value) LIKE '%' || lower($1) || '%' ESCAPE '\')
@@ -2441,7 +2485,7 @@ WITH candidates AS MATERIALIZED (
     LIMIT $7
 )
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2483,14 +2527,14 @@ WITH candidates AS MATERIALIZED (
             lower(o.commodity_name) LIKE lower($1) || '%' ESCAPE '\'
          OR lower(o.description) LIKE lower($1) || '%' ESCAPE '\'
          OR lower(COALESCE(v.display_name, v.name, '')) LIKE lower($1) || '%' ESCAPE '\'
-         OR lower(COALESCE(v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags search_ot WHERE search_ot.offering_id = o.id
                      AND lower(search_ot.tag_value) LIKE lower($1) || '%' ESCAPE '\')
         ) ELSE (
             lower(o.commodity_name) LIKE '%' || lower($1) || '%' ESCAPE '\'
          OR lower(o.description) LIKE '%' || lower($1) || '%' ESCAPE '\'
          OR lower(COALESCE(v.display_name, v.name, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
-         OR lower(COALESCE(v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags search_ot WHERE search_ot.offering_id = o.id
                      AND lower(search_ot.tag_value) LIKE '%' || lower($1) || '%' ESCAPE '\')
         ) END)
@@ -2515,7 +2559,7 @@ WITH candidates AS MATERIALIZED (
     LIMIT $20
 )
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2564,14 +2608,14 @@ WITH candidates AS MATERIALIZED (
             lower(o.commodity_name) LIKE lower($1) || '%' ESCAPE '\'
          OR lower(o.description) LIKE lower($1) || '%' ESCAPE '\'
          OR lower(COALESCE(v.display_name, v.name, '')) LIKE lower($1) || '%' ESCAPE '\'
-         OR lower(COALESCE(v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags search_ot WHERE search_ot.offering_id = o.id
                      AND lower(search_ot.tag_value) LIKE lower($1) || '%' ESCAPE '\')
         ) ELSE (
             lower(o.commodity_name) LIKE '%' || lower($1) || '%' ESCAPE '\'
          OR lower(o.description) LIKE '%' || lower($1) || '%' ESCAPE '\'
          OR lower(COALESCE(v.display_name, v.name, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
-         OR lower(COALESCE(v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags search_ot WHERE search_ot.offering_id = o.id
                      AND lower(search_ot.tag_value) LIKE '%' || lower($1) || '%' ESCAPE '\')
         ) END)
@@ -2593,7 +2637,7 @@ WITH candidates AS MATERIALIZED (
     LIMIT $14
 )
 SELECT o.id, o.source_id, o.voucher_id, v.address AS voucher_address,
-    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol,
+    COALESCE(v.display_name, v.name) AS voucher_name, v.symbol AS voucher_symbol, v.display_symbol,
     v.voucher_uoa AS voucher_uoa,
     CASE WHEN o.price > 0 AND NULLIF(BTRIM(o.unit), '') IS NOT NULL
         AND v.voucher_value > 0 AND NULLIF(BTRIM(v.voucher_uoa), '') IS NOT NULL
@@ -2629,13 +2673,13 @@ WITH candidates AS MATERIALIZED (
             lower(o.commodity_name) LIKE lower($1) || '%' ESCAPE '\'
          OR lower(o.description) LIKE lower($1) || '%' ESCAPE '\'
          OR lower(COALESCE(v.display_name, v.name, '')) LIKE lower($1) || '%' ESCAPE '\'
-         OR lower(COALESCE(v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE lower($1) || '%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags s WHERE s.offering_id=o.id AND lower(s.tag_value) LIKE lower($1) || '%' ESCAPE '\')
         ) ELSE (
             lower(o.commodity_name) LIKE '%' || lower($1) || '%' ESCAPE '\'
          OR lower(o.description) LIKE '%' || lower($1) || '%' ESCAPE '\'
          OR lower(COALESCE(v.display_name, v.name, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
-         OR lower(COALESCE(v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\'
+         OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE '%' || lower($1) || '%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags s WHERE s.offering_id=o.id AND lower(s.tag_value) LIKE '%' || lower($1) || '%' ESCAPE '\')
         ) END)
       AND (cardinality($3::BIGINT[]) = 0 OR EXISTS (
@@ -2663,11 +2707,11 @@ WITH candidates AS MATERIALIZED (
           )))) <= 1000000 ELSE false END
       AND ($1 = '' OR CASE WHEN $2 THEN (
             lower(o.commodity_name) LIKE lower($1)||'%' ESCAPE '\' OR lower(o.description) LIKE lower($1)||'%' ESCAPE '\'
-         OR lower(COALESCE(v.display_name,v.name,'')) LIKE lower($1)||'%' ESCAPE '\' OR lower(COALESCE(v.symbol,'')) LIKE lower($1)||'%' ESCAPE '\'
+         OR lower(COALESCE(v.display_name,v.name,'')) LIKE lower($1)||'%' ESCAPE '\' OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE lower($1)||'%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags s WHERE s.offering_id=o.id AND lower(s.tag_value) LIKE lower($1)||'%' ESCAPE '\')
         ) ELSE (
             lower(o.commodity_name) LIKE '%'||lower($1)||'%' ESCAPE '\' OR lower(o.description) LIKE '%'||lower($1)||'%' ESCAPE '\'
-         OR lower(COALESCE(v.display_name,v.name,'')) LIKE '%'||lower($1)||'%' ESCAPE '\' OR lower(COALESCE(v.symbol,'')) LIKE '%'||lower($1)||'%' ESCAPE '\'
+         OR lower(COALESCE(v.display_name,v.name,'')) LIKE '%'||lower($1)||'%' ESCAPE '\' OR lower(COALESCE(v.display_symbol, v.symbol, '')) LIKE '%'||lower($1)||'%' ESCAPE '\' OR lower(v.address)=lower($1)
          OR EXISTS (SELECT 1 FROM offering_tags s WHERE s.offering_id=o.id AND lower(s.tag_value) LIKE '%'||lower($1)||'%' ESCAPE '\')
         ) END)
       AND (cardinality($3::BIGINT[]) = 0 OR EXISTS (
@@ -2743,7 +2787,7 @@ RETURNING id;
 
 --name: list-market-vouchers
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -2757,7 +2801,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-next
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL AND v.id < $1
@@ -2772,7 +2816,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-prev
 WITH page AS MATERIALIZED (
     SELECT * FROM (
-        SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
+        SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.icon_url,
             v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL AND v.id > $1
@@ -2787,7 +2831,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-bounded
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -2802,7 +2846,7 @@ ORDER BY page.id DESC;
 
 --name: list-market-vouchers-next-bounded
 WITH page AS MATERIALIZED (
-    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
+    SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.icon_url,
         v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
     FROM vouchers v
     WHERE v.active AND v.geo_lat IS NOT NULL
@@ -2819,7 +2863,7 @@ ORDER BY page.id DESC;
 --name: list-market-vouchers-prev-bounded
 WITH page AS MATERIALIZED (
     SELECT * FROM (
-        SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
+        SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.icon_url,
             v.location_name, v.geo_lat, v.geo_lng, v.marker_icon, v.marker_color
         FROM vouchers v
         WHERE v.active AND v.geo_lat IS NOT NULL
@@ -2845,7 +2889,7 @@ ORDER BY page.id DESC;
 -- update-voucher-profile that assigns every column needs the current values to
 -- send back, or a save silently clears whichever it could not read.
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
-    v.name AS contract_name, v.symbol, v.decimals, v.owner_address,
+    v.name AS contract_name, v.symbol, v.display_symbol, v.decimals, v.owner_address,
     v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
     v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url,
@@ -2867,7 +2911,7 @@ WHERE lower(v.address) = lower($1) AND v.active;
 -- requireAdmin has already decided the caller may see it.
 --name: admin-get-voucher-by-address
 SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name,
-    v.name AS contract_name, v.symbol, v.decimals, v.owner_address,
+    v.name AS contract_name, v.symbol, v.display_symbol, v.decimals, v.owner_address,
     v.description, v.voucher_uoa, v.voucher_value::TEXT AS voucher_value,
     v.location_name, v.geo_lat, v.geo_lng,
     v.email, v.website, v.phone, v.terms, v.icon_url, v.banner_url, v.active,
@@ -2907,7 +2951,7 @@ SELECT r.id, r.title, r.description,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
             'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
+            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol, 'displaySymbol', v.display_symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -2940,7 +2984,7 @@ SELECT r.id, r.title, r.description,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
             'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
+            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol, 'displaySymbol', v.display_symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -3007,7 +3051,7 @@ SELECT r.id, r.title, r.body, r.description,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
             'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
+            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol, 'displaySymbol', v.display_symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -3072,7 +3116,7 @@ SELECT r.id, r.title, r.body, r.description,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
             'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
+            'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol, 'displaySymbol', v.display_symbol
         ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -3910,7 +3954,7 @@ SELECT * FROM (
 -- Coordinates are deliberately not required for creator vouchers.
 --name: list-want-creator-vouchers
 SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS name,
-    COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol,
+    COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol, v.display_symbol,
     v.decimals,v.icon_url,v.active
 FROM wants w
 JOIN users creator ON creator.id=w.owner_user_id
@@ -3922,7 +3966,7 @@ ORDER BY v.id DESC LIMIT $3;
 
 --name: list-want-creator-vouchers-next
 SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS name,
-    COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol,
+    COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol, v.display_symbol,
     v.decimals,v.icon_url,v.active
 FROM wants w
 JOIN users creator ON creator.id=w.owner_user_id
@@ -3935,7 +3979,7 @@ ORDER BY v.id DESC LIMIT $3;
 --name: list-want-creator-vouchers-prev
 SELECT * FROM (
     SELECT v.id,v.chain_id,v.address,COALESCE(v.display_name,v.name,v.address) AS name,
-        COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol,
+        COALESCE(v.symbol,left(v.address,6)||'…'||right(v.address,4)) AS symbol, v.display_symbol,
         v.decimals,v.icon_url,v.active
     FROM wants w
     JOIN users creator ON creator.id=w.owner_user_id
@@ -4098,7 +4142,8 @@ WITH raw AS MATERIALIZED (
         o.created_at,o.updated_at,
         lower(o.commodity_name) AS direct_name,
         lower(concat_ws(' ',o.commodity_name,o.description,array_to_string(ot.tags,' '),
-            COALESCE(v.display_name,v.name),v.symbol)) AS search_text
+            COALESCE(v.display_name,v.name),COALESCE(v.display_symbol,v.symbol),v.address)) AS search_text,
+        v.display_symbol, v.display_symbol AS voucher_display_symbol, NULL::TEXT AS related_display_symbol
     FROM offerings o JOIN vouchers v ON v.id=o.voucher_id
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags
@@ -4122,8 +4167,9 @@ WITH raw AS MATERIALIZED (
 	        NULL::TEXT,NULL::TEXT,NULL::TEXT,
         v.created_at,v.updated_at,
         lower(COALESCE(v.display_name,v.name,v.address)),
-        lower(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,v.description,
-            array_to_string(vt.tags,' '),related.text))
+        lower(concat_ws(' ',COALESCE(v.display_name,v.name),COALESCE(v.display_symbol,v.symbol),v.address,v.description,
+            array_to_string(vt.tags,' '),related.text)),
+        v.display_symbol, NULL::TEXT, NULL::TEXT
     FROM vouchers v
     LEFT JOIN LATERAL (
         SELECT array_agg(tag ORDER BY tag) AS tags FROM (
@@ -4159,13 +4205,14 @@ WITH raw AS MATERIALIZED (
         p.created_at,p.updated_at,
         lower(COALESCE(p.display_name,p.name,p.address)),
         lower(concat_ws(' ',COALESCE(p.display_name,p.name),p.symbol,p.description,
-            array_to_string(ptags.tags,' '),related.text))
+            array_to_string(ptags.tags,' '),related.text)),
+        NULL::TEXT, NULL::TEXT, NULL::TEXT
     FROM pools p
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM pool_tags x WHERE x.pool_id=p.id
     ) ptags ON true
     LEFT JOIN LATERAL (
-        SELECT string_agg(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,o.commodity_name,o.description),' ') AS text
+        SELECT string_agg(concat_ws(' ',COALESCE(v.display_name,v.name),COALESCE(v.display_symbol,v.symbol),v.address,o.commodity_name,o.description),' ') AS text
         FROM pool_tokens x JOIN vouchers v ON v.id=x.voucher_id AND v.active
         LEFT JOIN offerings o ON o.voucher_id=v.id AND o.available
         WHERE x.pool_id=p.id AND x.is_allowed
@@ -4181,7 +4228,8 @@ WITH raw AS MATERIALIZED (
 	        NULL,NULL,NULL,NULL,NULL,NULL,NULL::BIGINT,NULL::BIGINT,
 	        NULL::TEXT,NULL::TEXT,NULL::TEXT,
         w.created_at,w.updated_at,lower(w.name),
-        lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wtags.tags,' ')))
+        lower(concat_ws(' ',w.name,w.description,w.location_name,array_to_string(wtags.tags,' '))),
+        NULL::TEXT, NULL::TEXT, NULL::TEXT
     FROM wants w
     JOIN users u ON u.id=w.owner_user_id
     LEFT JOIN LATERAL (
@@ -4211,7 +4259,8 @@ WITH raw AS MATERIALIZED (
 	        (SELECT count(*) FROM catalog_vouchers cv JOIN vouchers v ON v.id=cv.voucher_id WHERE cv.catalog_id=c.id AND v.active)::BIGINT,
 	        NULL::TEXT,NULL::TEXT,NULL::TEXT,
         c.created_at,c.updated_at,lower(c.name),
-        lower(concat_ws(' ',c.name,c.description,c.location_name,array_to_string(ctags.tags,' ')))
+        lower(concat_ws(' ',c.name,c.description,c.location_name,array_to_string(ctags.tags,' '))),
+        NULL::TEXT, NULL::TEXT, NULL::TEXT
     FROM catalogs c
     LEFT JOIN LATERAL (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM catalog_tags x WHERE x.catalog_id=c.id
@@ -4236,14 +4285,15 @@ WITH raw AS MATERIALIZED (
 	        COALESCE(related_voucher.symbol,related_pool.symbol),
 	        r.created_at,r.updated_at,lower(r.title),
 	        lower(concat_ws(' ',r.title,r.description,array_to_string(rtags.tags,' '),
-	            related_voucher.name,related_voucher.symbol,related_pool.name,related_pool.symbol))
+	            related_voucher.name,COALESCE(related_voucher.display_symbol,related_voucher.symbol),related_voucher.address,related_pool.name,related_pool.symbol)),
+            NULL::TEXT, NULL::TEXT, related_voucher.display_symbol
 	    FROM reports r
 	    LEFT JOIN LATERAL (
 	        SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags
 	        FROM report_tags x WHERE x.report_id=r.id
 	    ) rtags ON true
 	    LEFT JOIN LATERAL (
-	        SELECT COALESCE(v.display_name,v.name,v.address) AS name,v.symbol
+	        SELECT COALESCE(v.display_name,v.name,v.address) AS name,v.symbol,v.display_symbol,v.address
 	        FROM report_vouchers rv JOIN vouchers v ON v.id=rv.voucher_id
 	        WHERE rv.report_id=r.id ORDER BY v.id LIMIT 1
 	    ) related_voucher ON true
@@ -4353,6 +4403,7 @@ WITH raw AS MATERIALIZED (
 )
 SELECT kind,id,chain_id,address,name,description,symbol,image_url,marker_icon,marker_color,voucher_kind,location_name,geo_lat,geo_lng,
     distance_meters,tags,voucher_address,voucher_name,voucher_symbol,voucher_uoa,
+    display_symbol,voucher_display_symbol,related_display_symbol,
 	    price_in_unit_of_account,unit,pool_count,voucher_count,related_kind,related_name,related_symbol,
 	    rank,created_at,updated_at,
     CASE WHEN $20::BOOLEAN THEN COALESCE((
@@ -4371,7 +4422,7 @@ WITH raw AS MATERIALIZED (
         v.geo_lat::FLOAT8 AS geo_lat,v.geo_lng::FLOAT8 AS geo_lng,
         v.marker_icon::TEXT AS marker_icon,v.marker_color::TEXT AS marker_color,
         COALESCE(vtags.tags,ARRAY[]::TEXT[]) AS tags,
-        lower(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,v.description,
+        lower(concat_ws(' ',COALESCE(v.display_name,v.name),COALESCE(v.display_symbol,v.symbol),v.address,v.description,
             array_to_string(vtags.tags,' '),related.text)) AS search_text
     FROM vouchers v
     LEFT JOIN LATERAL (
@@ -4430,7 +4481,7 @@ WITH raw AS MATERIALIZED (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM pool_tags x WHERE x.pool_id=p.id
     ) ptags ON true
     LEFT JOIN LATERAL (
-        SELECT string_agg(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,o.commodity_name,o.description),' ') AS text
+        SELECT string_agg(concat_ws(' ',COALESCE(v.display_name,v.name),COALESCE(v.display_symbol,v.symbol),v.address,o.commodity_name,o.description),' ') AS text
         FROM pool_tokens x JOIN vouchers v ON v.id=x.voucher_id AND v.active
         LEFT JOIN offerings o ON o.voucher_id=v.id AND o.available
         WHERE x.pool_id=p.id AND x.is_allowed
@@ -4598,7 +4649,7 @@ WITH raw AS MATERIALIZED (
         v.geo_lat::FLOAT8 AS geo_lat,v.geo_lng::FLOAT8 AS geo_lng,
         v.marker_icon::TEXT AS marker_icon,v.marker_color::TEXT AS marker_color,
         COALESCE(vtags.tags,ARRAY[]::TEXT[]) AS tags,
-        lower(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,v.description,
+        lower(concat_ws(' ',COALESCE(v.display_name,v.name),COALESCE(v.display_symbol,v.symbol),v.address,v.description,
             array_to_string(vtags.tags,' '),related.text)) AS search_text
     FROM vouchers v
     LEFT JOIN LATERAL (
@@ -4657,7 +4708,7 @@ WITH raw AS MATERIALIZED (
         SELECT array_agg(x.tag_value ORDER BY x.tag_value) AS tags FROM pool_tags x WHERE x.pool_id=p.id
     ) ptags ON true
     LEFT JOIN LATERAL (
-        SELECT string_agg(concat_ws(' ',COALESCE(v.display_name,v.name),v.symbol,o.commodity_name,o.description),' ') AS text
+        SELECT string_agg(concat_ws(' ',COALESCE(v.display_name,v.name),COALESCE(v.display_symbol,v.symbol),v.address,o.commodity_name,o.description),' ') AS text
         FROM pool_tokens x JOIN vouchers v ON v.id=x.voucher_id AND v.active
         LEFT JOIN offerings o ON o.voucher_id=v.id AND o.available
         WHERE x.pool_id=p.id AND x.is_allowed
@@ -5269,7 +5320,7 @@ SELECT * FROM (
       AND lower(p.address) = lower($2::TEXT)
     UNION ALL
     SELECT 'voucher'::TEXT, v.address,
-        COALESCE(NULLIF(v.display_name, ''), v.name, v.symbol, v.address), v.owner_address
+        COALESCE(NULLIF(v.display_name, ''), v.name, v.display_symbol, v.address), v.owner_address
     FROM vouchers v
     WHERE $1::TEXT = 'voucher' AND v.chain_id = $3::BIGINT AND v.active
       AND lower(v.address) = lower($2::TEXT)
@@ -5288,8 +5339,8 @@ WHERE owner_address IS NOT NULL
 LIMIT 1;
 
 --name: messaging-voucher-by-address
-SELECT v.address, COALESCE(NULLIF(v.display_name, ''), v.name, v.symbol, v.address) AS name,
-    COALESCE(v.symbol, '') AS symbol
+SELECT v.address, COALESCE(NULLIF(v.display_name, ''), v.name, v.display_symbol, v.address) AS name,
+    COALESCE(v.symbol, '') AS symbol, v.display_symbol
 FROM vouchers v
 WHERE v.chain_id = $1::BIGINT AND v.active AND lower(v.address) = lower($2::TEXT);
 
@@ -5580,7 +5631,7 @@ ORDER BY p.id;
 -- heard of.
 --name: load-router-vouchers
 SELECT v.id, v.address,
-    COALESCE(v.symbol, '') AS symbol,
+    COALESCE(v.symbol, '') AS symbol, v.display_symbol,
     COALESCE(v.display_name, v.name, '') AS name,
     v.decimals,
     v.active,

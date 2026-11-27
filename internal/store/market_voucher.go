@@ -13,13 +13,14 @@ type (
 	// larger voucher detail data and the `internal` import artifact, which carries
 	// no market visibility semantics.
 	MarketVoucher struct {
-		ID           uint64  `db:"id"            json:"id"`
-		ChainID      int64   `db:"chain_id"      json:"chainId"`
-		Address      string  `db:"address"       json:"address"`
-		Name         *string `db:"name"          json:"name"`
-		Symbol       *string `db:"symbol"        json:"symbol"`
-		IconURL      *string `db:"icon_url"      json:"iconUrl"`
-		LocationName *string `db:"location_name" json:"locationName"`
+		ID            uint64  `db:"id"            json:"id"`
+		ChainID       int64   `db:"chain_id"      json:"chainId"`
+		Address       string  `db:"address"       json:"address"`
+		Name          *string `db:"name"          json:"name"`
+		Symbol        *string `db:"symbol"        json:"symbol"`
+		DisplaySymbol *string `db:"display_symbol" json:"displaySymbol"`
+		IconURL       *string `db:"icon_url"      json:"iconUrl"`
+		LocationName  *string `db:"location_name" json:"locationName"`
 		// Coordinates are non-nullable because every query filters incomplete rows.
 		GeoLat float64 `db:"geo_lat" json:"geoLat"`
 		GeoLng float64 `db:"geo_lng" json:"geoLng"`
@@ -44,22 +45,23 @@ type (
 		Name    *string `db:"name"          json:"name"`
 		// ContractName is the immutable ERC20 name. Name is the effective catalog
 		// label, which may be an owner-set display-name override.
-		ContractName *string  `db:"contract_name" json:"contractName"`
-		Symbol       *string  `db:"symbol"        json:"symbol"`
-		Decimals     *int     `db:"decimals"      json:"decimals"`
-		OwnerAddress *string  `db:"owner_address" json:"ownerAddress"`
-		Description  *string  `db:"description"   json:"description"`
-		VoucherUOA   *string  `db:"voucher_uoa"   json:"voucherUoa"`
-		VoucherValue *string  `db:"voucher_value" json:"voucherValue"`
-		LocationName *string  `db:"location_name" json:"locationName"`
-		GeoLat       *float64 `db:"geo_lat"       json:"geoLat"`
-		GeoLng       *float64 `db:"geo_lng"       json:"geoLng"`
-		Email        *string  `db:"email"         json:"email"`
-		Website      *string  `db:"website"       json:"website"`
-		Phone        *string  `db:"phone"         json:"phone"`
-		Terms        *string  `db:"terms"         json:"terms"`
-		IconURL      *string  `db:"icon_url"      json:"iconUrl"`
-		BannerURL    *string  `db:"banner_url"    json:"bannerUrl"`
+		ContractName  *string  `db:"contract_name" json:"contractName"`
+		Symbol        *string  `db:"symbol"        json:"symbol"`
+		DisplaySymbol *string  `db:"display_symbol" json:"displaySymbol"`
+		Decimals      *int     `db:"decimals"      json:"decimals"`
+		OwnerAddress  *string  `db:"owner_address" json:"ownerAddress"`
+		Description   *string  `db:"description"   json:"description"`
+		VoucherUOA    *string  `db:"voucher_uoa"   json:"voucherUoa"`
+		VoucherValue  *string  `db:"voucher_value" json:"voucherValue"`
+		LocationName  *string  `db:"location_name" json:"locationName"`
+		GeoLat        *float64 `db:"geo_lat"       json:"geoLat"`
+		GeoLng        *float64 `db:"geo_lng"       json:"geoLng"`
+		Email         *string  `db:"email"         json:"email"`
+		Website       *string  `db:"website"       json:"website"`
+		Phone         *string  `db:"phone"         json:"phone"`
+		Terms         *string  `db:"terms"         json:"terms"`
+		IconURL       *string  `db:"icon_url"      json:"iconUrl"`
+		BannerURL     *string  `db:"banner_url"    json:"bannerUrl"`
 		// Never null on the wire: the statement COALESCEs to an empty array, so a
 		// client can iterate without a nil check and an untagged voucher is
 		// distinguishable from one whose tags failed to load only by the request

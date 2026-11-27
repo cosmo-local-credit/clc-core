@@ -322,7 +322,7 @@ func (a *API) creditRoutesHandler(c *echo.Context) error {
 	}
 	result := freshnessFields(view.Freshness)
 	result["target"] = map[string]any{
-		"address": targetToken.Address.Hex(), "symbol": targetToken.Symbol, "decimals": targetToken.Decimals,
+		"address": targetToken.Address.Hex(), "symbol": targetToken.Symbol, "displaySymbol": targetToken.DisplaySymbol, "decimals": targetToken.Decimals,
 	}
 	result["complete"] = view.Complete
 	result["omitted"] = view.Omitted
@@ -586,7 +586,7 @@ func (a *API) adminRouterGraphHandler(c *echo.Context) error {
 		for _, id := range snap.PoolEdges(int32(i)) {
 			e := snap.Edges[id]
 			edge := map[string]any{
-				"voucher": snap.Tokens[e.Token].Address.Hex(), "symbol": snap.Tokens[e.Token].Symbol,
+				"voucher": snap.Tokens[e.Token].Address.Hex(), "symbol": snap.Tokens[e.Token].Symbol, "displaySymbol": snap.Tokens[e.Token].DisplaySymbol,
 				"allowed": e.Allowed, "limit": e.Limit.Dec(), "priceIndex": nil,
 				"balance": nil, "feesHeld": nil, "balanceBlock": e.BalanceBlock,
 			}

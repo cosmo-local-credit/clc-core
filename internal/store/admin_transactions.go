@@ -37,6 +37,7 @@ type (
 		Voucher       string    `db:"voucher"      json:"voucher"`
 		VoucherName   string    `db:"-"            json:"voucherName"`
 		VoucherSymbol string    `db:"-"            json:"voucherSymbol"`
+		DisplaySymbol *string   `db:"-" json:"displaySymbol"`
 		// Null when the local catalog has no entry for the voucher. Null rather
 		// than zero: a caller that cannot tell the two apart renders a raw
 		// integer as a whole-unit amount, which is wrong by six orders of
@@ -60,17 +61,19 @@ type (
 		Type     string    `db:"-"         json:"type"`
 		Pool     string    `db:"pool"      json:"pool"`
 		// The account that sent the transaction, not the pool.
-		Initiator       string `db:"initiator"    json:"initiator"`
-		TokenIn         string `db:"token_in"  json:"tokenIn"`
-		TokenInSymbol   string `db:"-"         json:"tokenInSymbol"`
-		TokenInDecimals *uint8 `db:"-"         json:"tokenInDecimals"`
-		AmountIn        string `db:"amount_in" json:"amountIn"`
+		Initiator            string  `db:"initiator"    json:"initiator"`
+		TokenIn              string  `db:"token_in"  json:"tokenIn"`
+		TokenInSymbol        string  `db:"-"         json:"tokenInSymbol"`
+		TokenInDisplaySymbol *string `db:"-" json:"tokenInDisplaySymbol"`
+		TokenInDecimals      *uint8  `db:"-"         json:"tokenInDecimals"`
+		AmountIn             string  `db:"amount_in" json:"amountIn"`
 		// The three out-side fields are null for a deposit, which is one-sided:
 		// nothing leaves the pool and no fee is charged.
-		TokenOut         *string `db:"token_out"  json:"tokenOut"`
-		TokenOutSymbol   string  `db:"-"          json:"tokenOutSymbol"`
-		TokenOutDecimals *uint8  `db:"-"          json:"tokenOutDecimals"`
-		AmountOut        *string `db:"amount_out" json:"amountOut"`
+		TokenOut              *string `db:"token_out"  json:"tokenOut"`
+		TokenOutSymbol        string  `db:"-"          json:"tokenOutSymbol"`
+		TokenOutDisplaySymbol *string `db:"-" json:"tokenOutDisplaySymbol"`
+		TokenOutDecimals      *uint8  `db:"-"          json:"tokenOutDecimals"`
+		AmountOut             *string `db:"amount_out" json:"amountOut"`
 		// Denominated in TokenOut, and excluding the protocol fee, which the
 		// indexer only records for pools that emit SwapSettlement.
 		Fee *string `db:"fee" json:"fee"`

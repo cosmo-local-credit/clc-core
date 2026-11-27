@@ -26,6 +26,7 @@ type (
 		ID            uint64    `db:"id"              json:"id"`
 		TokenAddress  string    `db:"token_address"   json:"tokenAddress"`
 		TokenSymbol   string    `db:"-"               json:"tokenSymbol"`
+		DisplaySymbol *string   `db:"-" json:"displaySymbol"`
 		TokenName     string    `db:"-"               json:"tokenName"`
 		TokenDecimals uint8     `db:"-"               json:"tokenDecimals"`
 		Balance       string    `db:"balance"         json:"balance"`
@@ -49,6 +50,7 @@ type (
 		RecipientAddress string    `db:"recipient_address"    json:"recipientAddress"`
 		TokenAddress     string    `db:"contract_address"     json:"tokenAddress"`
 		TokenSymbol      string    `db:"-"                    json:"tokenSymbol"`
+		DisplaySymbol    *string   `db:"-" json:"displaySymbol"`
 		TokenName        string    `db:"-"                    json:"tokenName"`
 		TokenDecimals    uint8     `db:"-"                    json:"tokenDecimals"`
 		Amount           string    `db:"amount"               json:"amount"`

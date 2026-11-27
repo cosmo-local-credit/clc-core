@@ -41,13 +41,14 @@ type (
 	}
 
 	TokenRow struct {
-		ID          uint64
-		Address     string
-		Symbol      string
-		Name        string
-		Decimals    *int
-		Active      bool
-		VoucherType string
+		ID            uint64
+		Address       string
+		Symbol        string
+		DisplaySymbol *string
+		Name          string
+		Decimals      *int
+		Active        bool
+		VoucherType   string
 	}
 
 	EdgeRow struct {
@@ -80,11 +81,12 @@ type (
 	// Token is a voucher in the graph. Graph records use dense indexes,
 	// assigned at build time, as ids.
 	Token struct {
-		DBID     uint64
-		Address  common.Address
-		Symbol   string
-		Name     string
-		Decimals uint8
+		DBID          uint64
+		Address       common.Address
+		Symbol        string
+		DisplaySymbol *string
+		Name          string
+		Decimals      uint8
 		// HasDecimals is false when the catalog does not know them; such a
 		// voucher cannot be quoted.
 		HasDecimals bool
@@ -575,7 +577,7 @@ func (st *State) Build(cfg BuildConfig, version uint64, fees *FeeBook) *Snapshot
 	for _, id := range tokenIDs {
 		row := st.Tokens[id]
 		addr := common.HexToAddress(row.Address)
-		token := Token{DBID: row.ID, Address: addr, Symbol: row.Symbol, Name: row.Name, Active: row.Active}
+		token := Token{DBID: row.ID, Address: addr, Symbol: row.Symbol, DisplaySymbol: row.DisplaySymbol, Name: row.Name, Active: row.Active}
 		if row.Decimals != nil && *row.Decimals >= 0 && *row.Decimals <= 77 {
 			token.Decimals, token.HasDecimals = uint8(*row.Decimals), true
 		}

@@ -22,6 +22,7 @@ type (
 		Status             string    `db:"status"               json:"status"`
 		Address            *string   `db:"address"              json:"address"`
 		Symbol             string    `db:"symbol"               json:"symbol"`
+		DisplaySymbol      *string   `db:"display_symbol"       json:"displaySymbol"`
 		Name               string    `db:"name"                 json:"name"`
 		Decimals           uint8     `db:"decimals"             json:"decimals"`
 		Admin              string    `db:"admin"                json:"admin"`
@@ -72,6 +73,7 @@ func (pg *Pg) InsertDeployedToken(ctx context.Context, tx pgx.Tx, dt DeployedTok
 		dt.BannerURL,
 		dt.MarkerIcon,
 		dt.MarkerColor,
+		dt.DisplaySymbol,
 	).Scan(&id); err != nil {
 		return id, err
 	}
@@ -112,6 +114,9 @@ func (pg *Pg) UpsertVoucherFromDeploy(ctx context.Context, tx pgx.Tx, deployedTo
 		return voucherID, err
 	}
 
+	if _, err := tx.Exec(ctx, pg.queries.ReleasePromotedVoucherDisplayClaim, deployedTokenID); err != nil {
+		return 0, err
+	}
 	return voucherID, nil
 }
 

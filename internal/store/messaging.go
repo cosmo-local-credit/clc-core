@@ -106,9 +106,10 @@ type (
 	}
 
 	MessagingVoucher struct {
-		Address string `db:"address"`
-		Name    string `db:"name"`
-		Symbol  string `db:"symbol"`
+		Address       string  `db:"address"`
+		Name          string  `db:"name"`
+		Symbol        string  `db:"symbol"`
+		DisplaySymbol *string `db:"display_symbol"`
 	}
 
 	// ConversationMembers is a conversation row with its members' addresses,

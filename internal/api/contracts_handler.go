@@ -271,6 +271,23 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 		})
 	}
 
+	displaySymbol, valid := normalizeDisplaySymbol(req.DisplaySymbol)
+	if !valid {
+		return invalidDisplaySymbol(c)
+	}
+	preferredNative := req.Symbol
+	if displaySymbol != nil {
+		preferredNative = *displaySymbol
+	} else {
+		normalized, valid := store.NormalizeVoucherDisplaySymbol(req.Symbol)
+		if !valid {
+			return invalidDisplaySymbol(c)
+		}
+		// Preserve the old request's exact contract ticker while explicitly
+		// persisting its equivalent CLC label.
+		displaySymbol = &normalized
+	}
+
 	callerType, _ := c.Get("callerType").(string)
 	callerUserID, _ := c.Get("callerUserID").(uint64)
 
@@ -321,14 +338,16 @@ func (a *API) deployTokenHandler(c *echo.Context) error {
 	}
 
 	trackingID := uuid.NewString()
-	if err := a.store.ReserveDeploymentIdentity(ctx, tx, trackingID, "voucher", req.Name, req.Symbol); err != nil {
+	native, err := a.store.ReserveVoucherDeploymentSymbols(ctx, tx, trackingID, preferredNative, *displaySymbol, req.DisplaySymbol != nil)
+	if err != nil {
 		return handlePostgresError(c, err)
 	}
 
 	_, err = a.queueClient.InsertTx(ctx, tx, worker.DeployTokenArgs{
 		TrackingID:            trackingID,
 		Name:                  req.Name,
-		Symbol:                req.Symbol,
+		Symbol:                native,
+		DisplaySymbol:         displaySymbol,
 		Decimals:              req.Decimals,
 		Owner:                 req.Owner,
 		ExpiryTimestamp:       req.ExpiryTimestamp,

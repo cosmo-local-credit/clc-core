@@ -116,7 +116,11 @@ func TestRetirementLifecycle(t *testing.T) {
 			require.NotEmpty(t, result["requests"])
 			restore := "/api/v2/admin/" + kind + "s/" + address + "/restore"
 			a.marketMapCache.set(cacheKey, store.MarketMapResult{})
-			response, _ = offeringRequest(t, a, http.MethodPut, restore, admin, map[string]any{"reason": "Approved return"})
+			restoreBody := map[string]any{"reason": "Approved return"}
+			if kind == "voucher" {
+				restoreBody["displaySymbol"] = "ZQRREQ"
+			}
+			response, _ = offeringRequest(t, a, http.MethodPut, restore, admin, restoreBody)
 			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 			_, cached = a.marketMapCache.get(cacheKey)
 			require.False(t, cached, "a restoration must invalidate public map results")
