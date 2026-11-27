@@ -27,9 +27,12 @@ jobs:
     # on passing while proving nothing: a trigram index quietly demoted to a row filter,
     # a widened visibility predicate, or a facet count that stops matching its own filter
     # would all land green. The service container is what keeps those guarantees real.
+    #
+    # Use the same PostgreSQL image as staging. A migration that needs an extension
+    # staging lacks must fail here, not in a restart loop after deploy.
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -62,17 +65,18 @@ jobs:
           CORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/clc_core
         run: go test -p 1 ./... -count=1 -timeout 900s
 
-      # Require successful events for both critical DB tests: missing names and
+      # Require successful events for the critical DB tests: missing names and
       # skipped tests must fail just as loudly as failed assertions.
       - name: fail if the database suites were skipped
         env:
           CORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/clc_core
         run: |
           set -euo pipefail
-          go test -p 1 ./internal/store/ ./internal/api/ \
-            -run '^(TestVoucherSearchRetainsTrigramIndexUnderGenericPlan|TestMarketMapFractionalViewportEndpointDB)$' \
+          go test -p 1 ./migrations/ ./internal/store/ ./internal/api/ \
+            -run '^(TestMigrationsApplyToFreshDatabaseDB|TestVoucherSearchRetainsTrigramIndexUnderGenericPlan|TestMarketMapFractionalViewportEndpointDB)$' \
             -count=1 -json -timeout 300s | tee /tmp/discovery-tests.jsonl
           jq -e -s '
+            any(.[]; .Action == "pass" and .Test == "TestMigrationsApplyToFreshDatabaseDB") and
             any(.[]; .Action == "pass" and .Test == "TestVoucherSearchRetainsTrigramIndexUnderGenericPlan") and
             any(.[]; .Action == "pass" and .Test == "TestMarketMapFractionalViewportEndpointDB") and
             all(.[]; .Action != "skip")

@@ -14,7 +14,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Watchtower deploys each :develop image to staging. Core applies migrations
+  # at startup and exits if one fails, so never publish an image whose
+  # migrations the staging PostgreSQL image cannot apply.
+  migrations:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: clc_core
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      # A skipped test must fail this gate as loudly as a failed one.
+      - name: apply migrations to a fresh database
+        env:
+          CORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/clc_core
+        run: |
+          set -euo pipefail
+          go test ./migrations/ -count=1 -json -timeout 300s | tee /tmp/migration-tests.jsonl
+          jq -e -s '
+            any(.[]; .Action == "pass" and .Test == "TestMigrationsApplyToFreshDatabaseDB") and
+            any(.[]; .Action == "pass" and .Test == "TestMigrationsUseDeployedExtensions") and
+            all(.[]; .Action != "skip" and .Action != "fail")
+          ' /tmp/migration-tests.jsonl
+
   docker:
+    needs: migrations
     runs-on: ubuntu-24.04
     permissions:
       contents: read
