@@ -42,7 +42,7 @@ func (a *API) retirementPreview(ctx context.Context, tx pgx.Tx, resource store.R
 		return a.retirementPreviewReader(ctx, tx, resource)
 	}
 	preview := store.RetirementPreview{ResourceType: resource.ResourceType, ResourceAddress: resource.Address,
-		ChainID: resource.ChainID, OwnerAddress: resource.OwnerAddress, Active: resource.Active, Symbol: resource.Symbol,
+		ChainID: resource.ChainID, OwnerAddress: resource.OwnerAddress, Active: resource.Active, Symbol: resource.Symbol, DisplaySymbol: resource.DisplaySymbol,
 		Decimals: resource.Decimals, CheckedAt: time.Now().UTC()}
 	if a.chainProvider == nil || a.chainProvider.Client == nil {
 		return preview, errors.New("chain balance checks are unavailable")

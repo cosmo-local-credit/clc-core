@@ -227,6 +227,7 @@ func (a *API) enrichVoucherTransactions(ctx context.Context, rows []store.AdminV
 		if !ok {
 			continue
 		}
+		rows[i].DisplaySymbol = m.DisplaySymbol
 		if m.Symbol != nil {
 			rows[i].VoucherSymbol = *m.Symbol
 		}
@@ -267,6 +268,7 @@ func (a *API) enrichPoolTransactions(ctx context.Context, rows []store.AdminPool
 	}
 	for i := range rows {
 		if m, ok := meta[strings.ToLower(rows[i].TokenIn)]; ok {
+			rows[i].TokenInDisplaySymbol = m.DisplaySymbol
 			if m.Symbol != nil {
 				rows[i].TokenInSymbol = *m.Symbol
 			}
@@ -276,6 +278,7 @@ func (a *API) enrichPoolTransactions(ctx context.Context, rows []store.AdminPool
 			continue
 		}
 		if m, ok := meta[strings.ToLower(*rows[i].TokenOut)]; ok {
+			rows[i].TokenOutDisplaySymbol = m.DisplaySymbol
 			if m.Symbol != nil {
 				rows[i].TokenOutSymbol = *m.Symbol
 			}

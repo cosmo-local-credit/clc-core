@@ -13,12 +13,13 @@ type (
 	// facts (balances, transfers) with token metadata. Fields are pointers
 	// because catalog rows imported from sparse sources may lack them.
 	VoucherMetadata struct {
-		Active   bool    `db:"active"`
-		Address  string  `db:"address"`
-		Symbol   *string `db:"symbol"`
-		Name     *string `db:"name"`
-		Decimals *int32  `db:"decimals"`
-		IconURL  *string `db:"icon_url"`
+		Active        bool    `db:"active"`
+		Address       string  `db:"address"`
+		Symbol        *string `db:"symbol"`
+		DisplaySymbol *string `db:"display_symbol"`
+		Name          *string `db:"name"`
+		Decimals      *int32  `db:"decimals"`
+		IconURL       *string `db:"icon_url"`
 		// VoucherValue and VoucherUOA are the issuer's stated rate: one voucher
 		// is worth VoucherValue VoucherUOA. Either may be unset.
 		VoucherValue *string `db:"voucher_value"`
@@ -37,21 +38,22 @@ type (
 	// empty string clears it, matching the image-field compatibility rule.
 	// Symbol, decimals and owner_address remain chain facts.
 	VoucherProfile struct {
-		DisplayName  *string
-		Description  *string
-		VoucherUOA   *string
-		VoucherValue *float64
-		Email        *string
-		Website      *string
-		Phone        *string
-		Terms        *string
-		LocationName *string
-		GeoLat       *float64
-		GeoLng       *float64
-		IconURL      *string
-		BannerURL    *string
-		MarkerIcon   *string
-		MarkerColor  *string
+		DisplaySymbol *string
+		DisplayName   *string
+		Description   *string
+		VoucherUOA    *string
+		VoucherValue  *float64
+		Email         *string
+		Website       *string
+		Phone         *string
+		Terms         *string
+		LocationName  *string
+		GeoLat        *float64
+		GeoLng        *float64
+		IconURL       *string
+		BannerURL     *string
+		MarkerIcon    *string
+		MarkerColor   *string
 	}
 )
 
@@ -141,6 +143,7 @@ func (pg *Pg) UpdateVoucherProfile(
 		profile.BannerURL,
 		profile.MarkerIcon,
 		profile.MarkerColor,
+		profile.DisplaySymbol,
 	).Scan(&id)
 	return id, err
 }

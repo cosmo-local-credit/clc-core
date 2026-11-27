@@ -36,17 +36,18 @@ type (
 	// incomplete rows. This one does not — an ungeolocated voucher is exactly
 	// the kind the console has to be able to reach.
 	AdminVoucher struct {
-		ID           uint64   `db:"id"            json:"id"`
-		ChainID      int64    `db:"chain_id"      json:"chainId"`
-		Address      string   `db:"address"       json:"address"`
-		Name         *string  `db:"name"          json:"name"`
-		Symbol       *string  `db:"symbol"        json:"symbol"`
-		IconURL      *string  `db:"icon_url"      json:"iconUrl"`
-		LocationName *string  `db:"location_name" json:"locationName"`
-		GeoLat       *float64 `db:"geo_lat"       json:"geoLat"`
-		GeoLng       *float64 `db:"geo_lng"       json:"geoLng"`
-		Kind         string   `db:"kind"          json:"kind"`
-		Active       bool     `db:"active"        json:"active"`
+		ID            uint64   `db:"id"            json:"id"`
+		ChainID       int64    `db:"chain_id"      json:"chainId"`
+		Address       string   `db:"address"       json:"address"`
+		Name          *string  `db:"name"          json:"name"`
+		Symbol        *string  `db:"symbol"        json:"symbol"`
+		DisplaySymbol *string  `db:"display_symbol" json:"displaySymbol"`
+		IconURL       *string  `db:"icon_url"      json:"iconUrl"`
+		LocationName  *string  `db:"location_name" json:"locationName"`
+		GeoLat        *float64 `db:"geo_lat"       json:"geoLat"`
+		GeoLng        *float64 `db:"geo_lng"       json:"geoLng"`
+		Kind          string   `db:"kind"          json:"kind"`
+		Active        bool     `db:"active"        json:"active"`
 	}
 
 	// AdminVoucherDetail is the console's read of one voucher: the public detail
@@ -72,7 +73,7 @@ const (
 	// Same candidate-first shape as marketVoucherPageProjection, and the same
 	// derivation of `kind`, with `active` added.
 	adminVoucherPageProjection = `
-SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.icon_url,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol, v.icon_url,
     v.location_name, v.geo_lat, v.geo_lng, v.active,
     'voucher'::TEXT AS kind
 FROM page

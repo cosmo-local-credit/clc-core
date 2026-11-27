@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/cosmo-local-credit/clc-core/internal/store"
 	apiresp "github.com/cosmo-local-credit/clc-core/pkg/api"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -174,9 +175,18 @@ func handleConflictError(c *echo.Context, description string) error {
 }
 
 func handlePostgresError(c *echo.Context, err error) error {
+	if errors.Is(err, store.ErrNativeSymbolUnavailable) {
+		return handleConflictError(c, "No contract ticker is available for this symbol")
+	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
 		switch pgErr.ConstraintName {
+		case "clc_display_symbol_key":
+			return c.JSON(http.StatusConflict, apiresp.ErrResponse{
+				Ok: false, ErrCode: apiresp.ErrCodeConflict,
+				Description: "This voucher symbol is already in use",
+				Result:      map[string]any{"field": "displaySymbol"},
+			})
 		case "identity_claims_name_key", "identity_claims_owner_key":
 			return handleConflictError(c, "name or symbol is already in use")
 		case "token_tag_pkey", "token_tag_value_lower_idx", "offering_unit_pkey", "offering_unit_value_lower_idx", "unit_of_account_pkey", "unit_of_account_value_lower_idx":

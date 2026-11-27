@@ -71,16 +71,7 @@ func poolTextMatchesCTE(args *sqlArgs, filter CatalogFilter) string {
 // searchPredicateForPlaceholder returns a displayed-name/symbol search while
 // reusing an already-bound escaped search term.
 func searchPredicateForPlaceholder(filter CatalogFilter, table, placeholder string) string {
-	name := table + ".name"
-	if table == "search_pool" || table == "search_voucher" {
-		name = "COALESCE(" + table + ".display_name, " + table + ".name)"
-	}
-	if filter.prefixOnly() {
-		return "(lower(" + name + ") LIKE lower(" + placeholder + ") || '%' ESCAPE '\\'" +
-			"\n            OR lower(" + table + ".symbol) LIKE lower(" + placeholder + ") || '%' ESCAPE '\\')"
-	}
-	return "(lower(" + name + ") LIKE '%' || lower(" + placeholder + ") || '%' ESCAPE '\\'" +
-		"\n            OR lower(" + table + ".symbol) LIKE '%' || lower(" + placeholder + ") || '%' ESCAPE '\\')"
+	return catalogLabelPredicate(filter, table, placeholder, table == "search_voucher")
 }
 
 // composePoolPage builds one filtered pool page. A search term materializes
@@ -224,12 +215,12 @@ func composePoolVoucherCounts(filter CatalogFilter) composed {
 			poolTagPredicate(args, filter),
 		) + `
 )
-SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol,
     COUNT(*) AS match_count
 FROM candidates c
 INNER JOIN pool_tokens pv ON pv.pool_id = c.id AND pv.is_allowed
 INNER JOIN vouchers v ON v.id = pv.voucher_id AND v.active
-GROUP BY v.id, v.display_name, v.chain_id, v.address, v.name, v.symbol
+GROUP BY v.id, v.display_name, v.chain_id, v.address, v.name, v.symbol, v.display_symbol
 ORDER BY lower(COALESCE(v.display_name, v.name)), v.id;`
 
 	return composed{sql: sql, args: args.values}

@@ -64,14 +64,15 @@ type (
 	// pages. Internal database ids drive the opaque numeric cursor but callers
 	// navigate with ResourceID (an address for on-chain resources, an id otherwise).
 	PublicProfileResource struct {
-		ID          uint64  `db:"id"          json:"id"`
-		ResourceID  string  `db:"resource_id" json:"resourceId"`
-		Kind        string  `db:"kind"        json:"kind"`
-		Name        string  `db:"name"        json:"name"`
-		ImageURL    *string `db:"image_url"   json:"imageUrl,omitempty"`
-		Description *string `db:"description" json:"description,omitempty"`
-		Symbol      *string `db:"symbol"      json:"symbol,omitempty"`
-		Management  string  `db:"management" json:"management"`
+		ID            uint64  `db:"id"          json:"id"`
+		ResourceID    string  `db:"resource_id" json:"resourceId"`
+		Kind          string  `db:"kind"        json:"kind"`
+		Name          string  `db:"name"        json:"name"`
+		ImageURL      *string `db:"image_url"   json:"imageUrl,omitempty"`
+		Description   *string `db:"description" json:"description,omitempty"`
+		Symbol        *string `db:"symbol"      json:"symbol,omitempty"`
+		DisplaySymbol *string `db:"display_symbol" json:"displaySymbol"`
+		Management    string  `db:"management" json:"management"`
 	}
 
 	PublicProfileReference struct {

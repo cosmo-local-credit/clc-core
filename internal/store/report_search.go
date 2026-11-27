@@ -43,7 +43,7 @@ const (
 	COALESCE((
 	    SELECT jsonb_agg(jsonb_build_object(
 	        'id', v.id, 'chainId', v.chain_id, 'address', v.address,
-	        'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol
+	        'name', COALESCE(v.display_name, v.name), 'symbol', v.symbol, 'displaySymbol', v.display_symbol
 	    ) ORDER BY v.id)
         FROM report_vouchers rv
         INNER JOIN vouchers v ON v.id = rv.voucher_id
@@ -437,12 +437,12 @@ func composeReportVoucherCounts(filter CatalogFilter) composed {
 			reportCreditablePoolPredicate(args, filter),
 		) + `
 )
-SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol,
+SELECT v.id, v.chain_id, v.address, COALESCE(v.display_name, v.name) AS name, v.symbol, v.display_symbol,
     COUNT(*) AS match_count
 FROM candidates c
 INNER JOIN report_vouchers rv ON rv.report_id = c.id
 INNER JOIN vouchers v ON v.id = rv.voucher_id
-GROUP BY v.id, v.display_name, v.chain_id, v.address, v.name, v.symbol
+GROUP BY v.id, v.display_name, v.chain_id, v.address, v.name, v.symbol, v.display_symbol
 ORDER BY lower(COALESCE(v.display_name, v.name)), v.id;`
 
 	return composed{sql: sql, args: args.values}

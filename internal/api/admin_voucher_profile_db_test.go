@@ -316,3 +316,63 @@ func TestAdminUpdateVoucherProfileRefusesANonSuperadmin(t *testing.T) {
 		t.Fatalf("status = %d, want 401 or 403, body = %s", res.Code, res.Body.String())
 	}
 }
+
+func TestAdminVoucherDisplaySymbolWrite(t *testing.T) {
+	a, token := newAdminAPI(t)
+	address, _, cleanup := seedEditableVoucherFixture(t, a)
+	defer cleanup()
+
+	ctx := context.Background()
+	pool := a.store.Pool()
+	var conflictID uint64
+	err := pool.QueryRow(ctx, `
+        INSERT INTO pools (chain_id, address, name, symbol)
+        VALUES (42220, '0x' || lpad(to_hex((random() * 1e18)::BIGINT), 40, '0'),
+            'Symbol write conflict fixture', 'ZQVCF')
+        RETURNING id`).Scan(&conflictID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, "DELETE FROM pools WHERE id=$1", conflictID); err != nil {
+			t.Error(err)
+		}
+	})
+
+	for _, tc := range []struct {
+		input  string
+		status int
+	}{
+		{" zqvcf ", http.StatusConflict},
+		{"", http.StatusBadRequest},
+		{"bad-é", http.StatusBadRequest},
+		{" zqvnew ", http.StatusOK},
+		{"ZQVNEW", http.StatusOK},
+	} {
+		res, result := putVoucherProfile(t, a, token, address, map[string]any{"displaySymbol": tc.input})
+		if res.Code != tc.status {
+			t.Fatalf("%q: status = %d, wanted %d, body = %s", tc.input, res.Code, tc.status, res.Body)
+		}
+		if tc.status == http.StatusOK {
+			if voucher := voucherFromResult(t, result); voucher["displaySymbol"] != "ZQVNEW" {
+				t.Fatalf("saved label missing: %+v", voucher)
+			}
+		} else {
+			var envelope struct {
+				Result map[string]any `json:"result"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &envelope); err != nil || envelope.Result["field"] != "displaySymbol" {
+				t.Errorf("missing field marker in error %s", res.Body)
+			}
+		}
+	}
+
+	res, result := putVoucherProfile(t, a, token, address, map[string]any{})
+	if res.Code != http.StatusOK || voucherFromResult(t, result)["displaySymbol"] != "ZQVNEW" {
+		t.Fatalf("legacy omission erased the label: status=%d body=%s", res.Code, res.Body)
+	}
+	var native string
+	if err := pool.QueryRow(ctx, "SELECT symbol FROM vouchers WHERE address=$1", address).Scan(&native); err != nil || native != "ZQV" {
+		t.Fatalf("underlying native ticker changed: native=%q err=%v", native, err)
+	}
+}

@@ -187,18 +187,21 @@ func TestSymbolsLookupReadsCatalogAndOpenDeployments(t *testing.T) {
 	tests := []struct {
 		kind   string
 		prefix string
+		scope  string
 		want   []string
 	}{
 		{kind: "voucher", prefix: "zqsy", want: []string{"ZQSY", "ZQSY1", "ZQSY2"}},
 		{kind: "pool", prefix: "ZQPL", want: []string{"ZQPL", "ZQPL1"}},
+		{kind: "voucher", prefix: "ZQSY", scope: "display", want: []string{"ZQSY", "ZQSY2"}},
+		{kind: "voucher", prefix: "ZQPL", scope: "display", want: []string{"ZQPL", "ZQPL1"}},
 		// Both creation flows must see claims from the shared symbol namespace.
 		{kind: "voucher", prefix: "ZQPL", want: []string{"ZQPL", "ZQPL1"}},
 		{kind: "pool", prefix: "ZQSY", want: []string{"ZQSY", "ZQSY1", "ZQSY2"}},
 	}
 	for _, tc := range tests {
-		t.Run(fmt.Sprintf("%s_%s", tc.kind, tc.prefix), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s_%s_%s", tc.kind, tc.prefix, tc.scope), func(t *testing.T) {
 			res, result := offeringRequest(t, a, http.MethodGet,
-				"/api/v2/symbols?kind="+tc.kind+"&prefix="+tc.prefix, token, nil)
+				"/api/v2/symbols?kind="+tc.kind+"&prefix="+tc.prefix+"&scope="+tc.scope, token, nil)
 			if res.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200 body=%s", res.Code, res.Body.String())
 			}
@@ -223,6 +226,8 @@ func TestSymbolsLookupValidatesAndRequiresAuthentication(t *testing.T) {
 		"/api/v2/symbols",
 		"/api/v2/symbols?kind=token&prefix=ZQSY",
 		"/api/v2/symbols?kind=voucher&prefix=ZQ-SY",
+		"/api/v2/symbols?kind=voucher&prefix=ZQSY&scope=invalid",
+		"/api/v2/symbols?kind=pool&prefix=ZQPL&scope=display",
 		"/api/v2/symbols?kind=voucher&prefix=TOOLONG",
 	} {
 		res, _ := offeringRequest(t, a, http.MethodGet, target, token, nil)

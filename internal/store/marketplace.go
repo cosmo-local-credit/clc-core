@@ -17,6 +17,7 @@ type (
 		Name                 string    `db:"name" json:"name"`
 		Description          *string   `db:"description" json:"description"`
 		Symbol               *string   `db:"symbol" json:"symbol"`
+		DisplaySymbol        *string   `db:"display_symbol" json:"displaySymbol"`
 		ImageURL             *string   `db:"image_url" json:"imageUrl"`
 		MarkerIcon           *string   `db:"marker_icon" json:"markerIcon"`
 		MarkerColor          *string   `db:"marker_color" json:"markerColor"`
@@ -29,6 +30,7 @@ type (
 		VoucherAddress       *string   `db:"voucher_address" json:"voucherAddress"`
 		VoucherName          *string   `db:"voucher_name" json:"voucherName"`
 		VoucherSymbol        *string   `db:"voucher_symbol" json:"voucherSymbol"`
+		VoucherDisplaySymbol *string   `db:"voucher_display_symbol" json:"voucherDisplaySymbol"`
 		VoucherUOA           *string   `db:"voucher_uoa" json:"voucherUoa"`
 		PriceInUnitOfAccount *string   `db:"price_in_unit_of_account" json:"priceInUnitOfAccount"`
 		Unit                 *string   `db:"unit" json:"unit"`
@@ -37,6 +39,7 @@ type (
 		RelatedKind          *string   `db:"related_kind" json:"relatedKind"`
 		RelatedName          *string   `db:"related_name" json:"relatedName"`
 		RelatedSymbol        *string   `db:"related_symbol" json:"relatedSymbol"`
+		RelatedDisplaySymbol *string   `db:"related_display_symbol" json:"relatedDisplaySymbol"`
 		Rank                 int       `db:"rank" json:"-"`
 		CreatedAt            time.Time `db:"created_at" json:"createdAt"`
 		UpdatedAt            time.Time `db:"updated_at" json:"updatedAt"`

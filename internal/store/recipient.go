@@ -276,7 +276,7 @@ func (pg *Pg) ReserveDeploymentIdentity(ctx context.Context, tx pgx.Tx, tracking
 			return err
 		}
 	}
-	_, err := tx.Exec(ctx, `SELECT claim_identity('symbol', $1, $2, 'deploy:' || $3)`, symbol, kind, trackingID)
+	_, err := pg.reserveDeploymentSymbols(ctx, tx, trackingID, kind, symbol, symbol, false)
 	return err
 }
 

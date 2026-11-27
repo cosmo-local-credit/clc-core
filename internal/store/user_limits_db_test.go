@@ -225,7 +225,7 @@ func TestResourceLimitsOffersOnRetiredVouchersDB(t *testing.T) {
 	user, err := pg.InsertUser(ctx, tx, User{EthereumAddress: "0x1234567890123456789012345678901234567890", Email: "retired-offers@test.example", Role: "USER", Status: "APPROVED"})
 	require.NoError(t, err)
 	oldID := seedMarketVoucher(t, tx, 0, 0, true, "Produce", "Produce", "Training")
-	_, err = tx.Exec(ctx, `UPDATE vouchers SET owner_address=$1 WHERE id=$2`, user.EthereumAddress, oldID)
+	_, err = tx.Exec(ctx, `UPDATE vouchers SET owner_address=$1,display_symbol='ZXDQUO' WHERE id=$2`, user.EthereumAddress, oldID)
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, `UPDATE offerings SET seller_address=$1 WHERE voucher_id=$2`, user.EthereumAddress, oldID)
 	require.NoError(t, err)
@@ -306,11 +306,11 @@ func TestResourceLimitsConcurrentVoucherRestoresDB(t *testing.T) {
 		require.NoError(t, err)
 	}()
 	var addresses []string
-	for range 2 {
+	for _, label := range []string{"ZXDQA", "ZXDQB"} {
 		var id uint64
 		var address string
-		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO vouchers(chain_id,address,active,owner_address)
-			VALUES(42220,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),false,$1) RETURNING id,address`, seller).Scan(&id, &address))
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO vouchers(chain_id,address,active,owner_address,display_symbol)
+			VALUES(42220,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),false,$1,$2) RETURNING id,address`, seller, label).Scan(&id, &address))
 		voucherIDs = append(voucherIDs, id)
 		addresses = append(addresses, address)
 		_, err := pool.Exec(ctx, `INSERT INTO offerings(voucher_id,seller_address,commodity_name,description,quantity,available)

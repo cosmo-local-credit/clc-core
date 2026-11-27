@@ -79,7 +79,7 @@ func seedFivefoldVouchers(t *testing.T, tx pgx.Tx) {
 	// then picked an index scan or a hash join depending on how much autovacuum
 	// had done since the last run — it failed 4 runs in 10 in isolation.
 	rebuild := dropIndexesForScaleSeeding(t, tx,
-		"vouchers_active_display_name_trgm_idx", "vouchers_active_symbol_trgm_idx",
+		"vouchers_active_display_name_trgm_idx", "vouchers_active_effective_symbol_trgm_idx",
 		"offerings_voucher_id_idx", "offering_tags_tag_offering_idx")
 
 	// Names combine a 20-word and a 10-word vocabulary plus the row number, so
@@ -316,7 +316,7 @@ func TestVoucherSearchRetainsTrigramIndexUnderGenericPlan(t *testing.T) {
 		query := composeMarketVoucherPage(nil, tc.filter, tc.page, 5000, 100)
 		plan := explainGenericPlan(t, tx, query.sql)
 
-		assertIndexDrives(t, label, plan, "vouchers_active_display_name_trgm_idx")
+		assertIndexDrives(t, label, plan, "vouchers_active_display_name_trgm_idx", "vouchers_active_effective_symbol_trgm_idx")
 
 		// The backward primary-key walk is the plan this shape exists to avoid.
 		if strings.Contains(plan, "Index Scan Backward using vouchers_pkey") {

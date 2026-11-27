@@ -39,6 +39,12 @@ type (
 	}
 )
 
+var (
+	// ErrVoucherDisplaySymbolRequired means that a retired legacy Voucher has
+	// no valid label to reclaim without an explicit replacement.
+	ErrVoucherDisplaySymbolRequired = errors.New("a display symbol is required to restore this voucher")
+)
+
 func (e *ResourceLimitError) Error() string {
 	return fmt.Sprintf("%s creation limit reached (%d of %d used)", e.Resource, e.Used, e.Limit)
 }
@@ -167,6 +173,12 @@ func (pg *Pg) RestoreVoucherWithinLimits(ctx context.Context, tx pgx.Tx, address
 // RestoreVoucherWithinLimitsChanged reports the state transition under the
 // voucher lock so an audit event cannot be lost to a concurrent retirement.
 func (pg *Pg) RestoreVoucherWithinLimitsChanged(ctx context.Context, tx pgx.Tx, address string) (bool, error) {
+	return pg.RestoreVoucherWithinLimitsWithSymbolChanged(ctx, tx, address, nil)
+}
+
+// RestoreVoucherWithinLimitsWithSymbolChanged reclaims the previous label, or
+// takes an explicit replacement, in the same transaction as the restoration.
+func (pg *Pg) RestoreVoucherWithinLimitsWithSymbolChanged(ctx context.Context, tx pgx.Tx, address string, displaySymbol *string) (bool, error) {
 	voucher, err := pg.GetAdminVoucherByAddress(ctx, tx, address)
 	if err != nil {
 		return false, err
@@ -193,8 +205,12 @@ func (pg *Pg) RestoreVoucherWithinLimitsChanged(ctx context.Context, tx pgx.Tx, 
 			return false, err
 		}
 	}
-	if err := pg.SetVoucherActive(ctx, tx, voucher.ID, true); err != nil {
+	labelUpdate, err := tx.Exec(ctx, pg.queries.RestoreVoucherActive, voucher.ID, displaySymbol)
+	if err != nil {
 		return false, err
+	}
+	if labelUpdate.RowsAffected() == 0 {
+		return false, ErrVoucherDisplaySymbolRequired
 	}
 	for _, id := range userIDs {
 		after, err := pg.GetUserResourceUsage(ctx, tx, id)

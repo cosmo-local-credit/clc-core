@@ -1051,6 +1051,12 @@ paths:
                                 type:
                                 - string
                                 - 'null'
+                              displaySymbol:
+                                type: &id001
+                                - string
+                                - 'null'
+                                description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                  The native symbol field is unchanged.
                               iconUrl:
                                 type:
                                 - string
@@ -2478,6 +2484,10 @@ paths:
                               type:
                               - string
                               - 'null'
+                            displaySymbol:
+                              type: *id001
+                              description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                The native symbol field is unchanged.
                             imageUrl:
                               type:
                               - string
@@ -2529,6 +2539,10 @@ paths:
                               - string
                               - 'null'
                               description: For an offering row only.
+                            voucherDisplaySymbol:
+                              type: *id001
+                              description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                The native symbol field is unchanged.
                             voucherUoa:
                               type:
                               - string
@@ -2569,6 +2583,10 @@ paths:
                               - string
                               - 'null'
                               description: The symbol of the first related resource for a post row.
+                            relatedDisplaySymbol:
+                              type: *id001
+                              description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                The native symbol field is unchanged.
                             createdAt:
                               type: string
                               format: date-time
@@ -4195,6 +4213,11 @@ paths:
                   description: Trimmed, inner spaces collapsed. Must not be blank. Maximum 120 characters.
                 symbol:
                   type: string
+                  description: Legacy native-symbol input. If displaySymbol is absent, the trimmed value must be 3 to 6 ASCII
+                    letters or digits. If displaySymbol is supplied, the server selects a distinct native symbol when needed.
+                displaySymbol:
+                  type: string
+                  description: Editable CLC voucher symbol. Trimmed and uppercased; 3 to 6 ASCII letters or digits.
                 decimals:
                   type: string
                   description: Send an integer from 0 to 255 as a string. The API does not check the format (see Late checks).
@@ -4314,7 +4337,8 @@ paths:
           description: 'E07: No platform contract row exists for the configured chain.'
         '409':
           $ref: '#/components/responses/Conflict'
-          description: 'E16: The voucher name is in use, or the name or symbol is already claimed.'
+          description: 'E16: The voucher name is in use, or the name or symbol is already claimed. A CLC display symbol collision
+            has result.field=displaySymbol.'
         '429':
           $ref: '#/components/responses/TooManyRequests'
           description: 'E11: The user reached the voucher limit. The result object has resource (vouchers), used and limit.'
@@ -4859,6 +4883,14 @@ paths:
         schema:
           type: string
         description: 1 to 6 letters or digits.
+      - name: scope
+        in: query
+        required: false
+        description: Voucher-only. Scope the lookup to the editable CLC symbol namespace. Omission uses the legacy lookup.
+        schema:
+          type: string
+          enum:
+          - display
       responses:
         '200':
           description: Taken symbols
@@ -4896,7 +4928,7 @@ paths:
                   - FARM1
         '400':
           $ref: '#/components/responses/BadRequest'
-          description: E04:.
+          description: E04:. Invalid scope, or use of display scope with kind=pool, returns E04.
         '401':
           $ref: '#/components/responses/Unauthorized'
           description: 'E06: The credential is missing or not valid.'
@@ -6680,6 +6712,10 @@ paths:
                   type: string
                   maxLength: 120
                   description: At most 120 characters. The server trims it.
+                displaySymbol:
+                  type: string
+                  description: Editable CLC voucher symbol. Trimmed and uppercased; 3 to 6 ASCII letters or digits. Omission
+                    preserves the current value.
                 description:
                   type: string
                   maxLength: 500
@@ -6774,7 +6810,8 @@ paths:
           description: 'E03: The voucher does not exist.'
         '409':
           $ref: '#/components/responses/Conflict'
-          description: 'E16: The voucher is retired, or another voucher or pending token already uses the display name.'
+          description: 'E16: The voucher is retired, or another voucher or pending token already uses the display name. E16
+            with result.field=displaySymbol means the editable CLC label is occupied.'
       security:
       - cookieAuth: []
   /api/v2/pretium/trigger-onramp:
@@ -7289,6 +7326,10 @@ paths:
                             tokenSymbol:
                               type: string
                               description: From the catalog.
+                            displaySymbol:
+                              type: *id001
+                              description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                The native symbol field is unchanged.
                             tokenName:
                               type: string
                               description: From the catalog.
@@ -7604,6 +7645,10 @@ paths:
                               tokenSymbol:
                                 type: string
                                 description: The token.
+                              displaySymbol:
+                                type: *id001
+                                description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                  The native symbol field is unchanged.
                               tokenName:
                                 type: string
                                 description: The token.
@@ -7789,6 +7834,10 @@ paths:
                                   tokenSymbol:
                                     type: string
                                     description: From the catalog.
+                                  displaySymbol:
+                                    type: *id001
+                                    description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                      The native symbol field is unchanged.
                                   tokenDecimals:
                                     type: number
                                     description: From the catalog.
@@ -7827,6 +7876,10 @@ paths:
                                   tokenSymbol:
                                     type: string
                                     description: From the catalog.
+                                  displaySymbol:
+                                    type: *id001
+                                    description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                      The native symbol field is unchanged.
                                   tokenDecimals:
                                     type: number
                                     description: From the catalog.
@@ -8216,6 +8269,10 @@ paths:
                               symbol:
                                 type: string
                                 description: Symbol, or a short form of the address if there is none.
+                              displaySymbol:
+                                type: *id001
+                                description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                  The native symbol field is unchanged.
                               decimals:
                                 type:
                                 - number
@@ -8322,6 +8379,10 @@ paths:
                                 type: string
                               symbol:
                                 type: string
+                              displaySymbol:
+                                type: *id001
+                                description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                  The native symbol field is unchanged.
                               name:
                                 type: string
                               decimals:
@@ -8928,6 +8989,10 @@ paths:
                             type: string
                           symbol:
                             type: string
+                          displaySymbol:
+                            type: *id001
+                            description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The
+                              native symbol field is unchanged.
                           decimals:
                             type: integer
                       complete:
@@ -11068,6 +11133,10 @@ paths:
                   type: string
                   maxLength: 120
                   description: Maximum 120 characters. Omit it to keep the old value. Send '""' to remove the override.
+                displaySymbol:
+                  type: string
+                  description: Editable CLC voucher symbol. Trimmed and uppercased; 3 to 6 ASCII letters or digits. Omission
+                    preserves the current value.
                 description:
                   type: string
                   maxLength: 500
@@ -11177,7 +11246,7 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
           description: 'E16: Another voucher has the same displayName. The description is a voucher with this name already
-            exists.'
+            exists. E16 with result.field=displaySymbol means the editable CLC label is occupied.'
       security:
       - cookieAuth: []
   /api/v2/admin/vouchers:
@@ -11280,6 +11349,10 @@ paths:
                                 - string
                                 - 'null'
                                 description: Symbol.
+                              displaySymbol:
+                                type: *id001
+                                description: Editable CLC voucher symbol. A null value means no editable symbol is assigned.
+                                  The native symbol field is unchanged.
                               iconUrl:
                                 type:
                                 - string
@@ -11426,8 +11499,8 @@ paths:
       tags:
       - Admin
       summary: Return a retired voucher to the public catalog
-      description: 'Return a retired voucher to the public catalog. The route has no owner version. The request has no body.
-        Access: Administrative.'
+      description: 'Returns a retired voucher to the public catalog. Reclaims the previous CLC symbol when available, or a
+        replacement chosen by the administrator. The native contract symbol stays unchanged. Access: Administrative.'
       operationId: putAdminVouchersByAddressRestore
       parameters:
       - name: address
@@ -11436,6 +11509,19 @@ paths:
         schema:
           type: string
         description: Account address.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 2000
+                displaySymbol:
+                  type: string
+                  description: Editable CLC voucher symbol. Trimmed and uppercased; 3 to 6 ASCII letters or digits.
       responses:
         '200':
           description: The voucher is active again.
@@ -11458,7 +11544,7 @@ paths:
                 - description
         '400':
           $ref: '#/components/responses/BadRequest'
-          description: 'E04: address is not valid.'
+          description: 'E04: address or displaySymbol is not valid, or an unmapped legacy ticker needs a replacement. Symbol errors set result.field to displaySymbol.'
         '401':
           $ref: '#/components/responses/Unauthorized'
           description: 'E06: The credential is missing or not valid.'
@@ -11468,6 +11554,10 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
           description: 'E07: The catalog does not hold this address.'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: 'E16: The previous or requested editable CLC symbol is occupied. Choose a replacement. result.field
+            is displaySymbol.'
         '429':
           $ref: '#/components/responses/TooManyRequests'
           description: 'E11: The restore puts a user over a limit. The response has result with resource (vouchers or offers),
@@ -15255,6 +15345,10 @@ components:
           type: string
         symbol:
           type: string
+        displaySymbol:
+          type: *id001
+          description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The native symbol field
+            is unchanged.
         name:
           type: string
         decimals:
@@ -15426,6 +15520,10 @@ components:
         voucherSymbol:
           type: string
           description: Symbol from the local catalog. An empty string if the catalog does not know the voucher.
+        displaySymbol:
+          type: *id001
+          description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The native symbol field
+            is unchanged.
         voucherDecimals:
           type:
           - integer
@@ -15495,6 +15593,10 @@ components:
           type:
           - string
           - 'null'
+        displaySymbol:
+          type: *id001
+          description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The native symbol field
+            is unchanged.
         voucherUoa:
           type:
           - string
@@ -15799,6 +15901,10 @@ components:
           - string
           - 'null'
           description: Symbol.
+        displaySymbol:
+          type: *id001
+          description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The native symbol field
+            is unchanged.
         active:
           type: boolean
           description: '''false'' for a retired voucher.'
@@ -15905,6 +16011,10 @@ components:
                 type:
                 - string
                 - 'null'
+              displaySymbol:
+                type: *id001
+                description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The native symbol
+                  field is unchanged.
           description: Linked vouchers.
         pools:
           type: array
@@ -16083,6 +16193,10 @@ components:
           type: string
         tokenSymbol:
           type: string
+        displaySymbol:
+          type: *id001
+          description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The native symbol field
+            is unchanged.
         tokenName:
           type: string
         tokenDecimals:
@@ -16182,6 +16296,10 @@ components:
           type:
           - string
           - 'null'
+        displaySymbol:
+          type: *id001
+          description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The native symbol field
+            is unchanged.
         decimals:
           type:
           - integer
@@ -16436,6 +16554,10 @@ components:
           type: string
         symbol:
           type: string
+        displaySymbol:
+          type: *id001
+          description: Editable CLC voucher symbol. A null value means no editable symbol is assigned. The native symbol field
+            is unchanged.
         management:
           type: string
           enum:
