@@ -55,6 +55,52 @@ without a separate label acquires its normalized native ticker as the CLC
 label if it is valid and available. Otherwise supply a valid replacement on
 restoration. Native deployment identities stay reserved independently.
 
+## Require a saved display symbol after both backfills
+
+Keep this step out of the initial schema 087 rollout. First deploy a Core
+build that preserves the saved display symbol on legacy deployment replay.
+Finish the reviewed active backfill independently in staging and production.
+For any retired Voucher still missing a label, use an explicit chain/address
+mapping in a transaction guarded by the expected old values and retired
+status. Copy its valid historical label, or have a replacement reviewed if
+the old ticker is invalid. The retired row does not reserve the label.
+
+Before enabling the requirement, take a fresh read-only readiness report
+for **both** databases:
+
+```sh
+go run ./cmd/voucher-symbols --check-required
+```
+
+The report must be `[]` in both environments. In addition to active
+collisions and missing catalog labels, it checks unresolved labels on
+unpromoted deployments and actionable queue jobs. Resolve those through the
+existing deployment process before enabling the requirement. Use the
+reported tracking/job identifiers and consult the operator responsible for
+the deployment before changing a queued job or a submitted transaction.
+
+Run the following during a quiet window against staging first, then
+production after staging passes. The command uses the intended database
+from `CORE_VOUCHER_SYMBOLS_DSN`, rechecks readiness with catalog writes and
+deployment processing locked, then sets `NOT NULL` on
+`vouchers.display_symbol` in the same transaction. If the database is busy,
+the command exits without queuing behind a transaction. Retry in a quiet
+window. It leaves deployment history nullable and never rewrites or infers
+catalog labels. Core startup does not run this command.
+
+```sh
+go run ./cmd/voucher-symbols --enforce-required
+go run ./cmd/voucher-symbols --check-required
+```
+
+Confirm normal create/edit and retirement/reuse/restore. After restoring
+a database from an earlier snapshot, repeat the readiness and enforcement
+steps as needed. The readiness report alone does not attest that the
+constraint is installed. Keep schema
+087 and the reviewed mappings in place. If the required-column change must
+be reverted by an operator, only drop the `NOT NULL` attribute on
+`vouchers.display_symbol`. Keep the stored labels and both claim namespaces.
+
 Roll back client code first if necessary. After schema 087 is applied, use a
 Core rollback build compatible with that migration. An 086-only image cannot
 initialize a database that has applied 087. Retain the reviewed mapping and

@@ -16,6 +16,12 @@ func TestVoucherDisplaySymbolLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
 
+	// Enforce the rollout invariant for every write in this test without
+	// changing the shared schema or requiring unrelated legacy fixtures to pass.
+	_, err = tx.Exec(ctx, `ALTER TABLE vouchers ADD CONSTRAINT required_lifecycle_label
+		CHECK (display_symbol IS NOT NULL) NOT VALID`)
+	require.NoError(t, err)
+
 	original := randomAddress(t, tx)
 	var oldID uint64
 	require.NoError(t, tx.QueryRow(ctx, `
@@ -193,4 +199,69 @@ func TestVoucherDisplaySymbolPromotionRetainedOnReplay(t *testing.T) {
 	taken, err = pg.ListTakenDisplaySymbols(ctx, tx, current)
 	require.NoError(t, err)
 	require.Empty(t, taken, "a confirmed deployment must not reserve the old label after retirement")
+}
+
+func TestVoucherDisplaySymbolPromotionReplaysLegacyTickerWithRequiredLabel(t *testing.T) {
+	pg := recipientTestStore(t)
+	ctx := context.Background()
+	tx, err := pg.Pool().Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+
+	// Enforce the planned insert check without rewriting unrelated legacy
+	// fixture rows already present in the integration database.
+	_, err = tx.Exec(ctx, `ALTER TABLE vouchers ADD CONSTRAINT test_display_symbol_required
+		CHECK (display_symbol IS NOT NULL) NOT VALID`)
+	require.NoError(t, err)
+
+	platformID := platformContractID(t, tx, "ERC20")
+	admin := randomAddress(t, tx)
+	stageLegacy := func(symbol string) (uint64, string) {
+		t.Helper()
+		otxID := seedDeployOTX(t, tx, TOKEN_PROXY_DEPLOY)
+		id, err := pg.InsertDeployedToken(ctx, tx, DeployedToken{
+			OTXID: otxID, PlatformContractID: platformID,
+			Symbol: symbol, Name: "Legacy promotion fixture", Decimals: 6, Admin: admin,
+		})
+		require.NoError(t, err)
+		address := randomAddress(t, tx)
+		_, err = pg.ConfirmDeployedToken(ctx, tx, otxID, address)
+		require.NoError(t, err)
+		return id, address
+	}
+
+	const legacyTicker = "ZX.DL"
+	const approvedLabel = "ZXDREP"
+	deployed, address := stageLegacy(legacyTicker)
+	var existingID uint64
+	require.NoError(t, tx.QueryRow(ctx, `
+		INSERT INTO vouchers(chain_id,address,name,symbol,display_symbol)
+		SELECT chain_id,$2,'Reviewed legacy voucher',$3,$4 FROM platform_contracts WHERE id=$1
+		RETURNING id`, platformID, address, legacyTicker, approvedLabel).Scan(&existingID))
+	replayed, err := pg.UpsertVoucherFromDeploy(ctx, tx, deployed)
+	require.NoError(t, err)
+	require.Equal(t, existingID, replayed)
+	var publishedLabel, nativeTicker string
+	require.NoError(t, tx.QueryRow(ctx, `
+		SELECT v.display_symbol,v.symbol FROM vouchers v
+		JOIN deployed_tokens d ON d.voucher_id=v.id WHERE d.id=$1`, deployed).Scan(&publishedLabel, &nativeTicker))
+	require.Equal(t, approvedLabel, publishedLabel)
+	require.Equal(t, legacyTicker, nativeTicker)
+
+	unreviewed, target := stageLegacy("ZX.BAD")
+	attempt, err := tx.Begin(ctx)
+	require.NoError(t, err)
+	defer attempt.Rollback(ctx)
+	_, err = pg.UpsertVoucherFromDeploy(ctx, attempt, unreviewed)
+	var violation *pgconn.PgError
+	require.ErrorAs(t, err, &violation)
+	require.Equal(t, "test_display_symbol_required", violation.ConstraintName)
+	require.NoError(t, attempt.Rollback(ctx))
+	var catalogued, linked bool
+	require.NoError(t, tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM vouchers WHERE address=$2),
+		       EXISTS (SELECT 1 FROM deployed_tokens WHERE id=$1 AND voucher_id IS NOT NULL)`,
+		unreviewed, target).Scan(&catalogued, &linked))
+	require.False(t, catalogued)
+	require.False(t, linked)
 }

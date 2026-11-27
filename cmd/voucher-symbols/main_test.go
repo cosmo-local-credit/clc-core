@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/tern/v2/migrate"
 
 	"github.com/stretchr/testify/require"
@@ -97,4 +98,51 @@ func TestApplyReviewedVoucherLabelsDB(t *testing.T) {
 	require.Equal(t, "ABC1", display)
 	require.NoError(t, conn.QueryRow(ctx, "SELECT count(display_symbol) FROM vouchers").Scan(&assigned))
 	require.Equal(t, 3, assigned)
+
+	// A retired record is outside the active backfill but still needs a label
+	// before the catalog field can be made mandatory.
+	const retired = "0x0000000000000000000000000000000000000004"
+	_, err = conn.Exec(ctx, `INSERT INTO vouchers (chain_id, address, symbol, active)
+		VALUES (100, $1, 'REST', false)`, retired)
+	require.NoError(t, err)
+	require.ErrorContains(t, enforceRequiredSymbols(ctx, conn), "1 Voucher symbol issue(s)")
+	var required bool
+	require.NoError(t, conn.QueryRow(ctx, `SELECT attnotnull FROM pg_attribute
+		WHERE attrelid = 'vouchers'::regclass AND attname = 'display_symbol'`).Scan(&required))
+	require.False(t, required)
+
+	// A historical label may coincide with an active label. It does not
+	// reserve the symbol, and therefore does not block enforcement.
+	_, err = conn.Exec(ctx, "UPDATE vouchers SET display_symbol='DEF' WHERE address=$1", retired)
+	require.NoError(t, err)
+
+	reader, err := pgx.ConnectConfig(ctx, config)
+	require.NoError(t, err)
+	defer reader.Close(ctx)
+	readTx, err := reader.Begin(ctx)
+	require.NoError(t, err)
+	defer readTx.Rollback(ctx)
+	_, err = readTx.Exec(ctx, "LOCK TABLE vouchers IN ACCESS SHARE MODE")
+	require.NoError(t, err)
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, enforceRequiredSymbols(ctx, conn), &pgErr)
+	require.Equal(t, "55P03", pgErr.Code, "enforcement must yield to a live Voucher read")
+	require.NoError(t, readTx.Rollback(ctx))
+
+	require.NoError(t, enforceRequiredSymbols(ctx, conn))
+	require.NoError(t, enforceRequiredSymbols(ctx, conn), "rerunning the operator step is safe")
+	require.NoError(t, conn.QueryRow(ctx, `SELECT attnotnull FROM pg_attribute
+		WHERE attrelid = 'vouchers'::regclass AND attname = 'display_symbol'`).Scan(&required))
+	require.True(t, required)
+
+	_, err = conn.Exec(ctx, `INSERT INTO vouchers (chain_id, address, symbol)
+		VALUES (100, '0x0000000000000000000000000000000000000005', 'MISS')`)
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "23502", pgErr.Code)
+	_, err = conn.Exec(ctx, "UPDATE vouchers SET display_symbol=NULL WHERE address=$1", retired)
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "23502", pgErr.Code)
+	_, err = conn.Exec(ctx, "UPDATE vouchers SET display_symbol=' ' WHERE address=$1", retired)
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "23514", pgErr.Code)
 }

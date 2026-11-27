@@ -1,4 +1,4 @@
-// Audit existing Voucher labels and apply an explicitly reviewed backfill.
+// Audit and backfill Voucher labels, then enforce the required catalog field.
 package main
 
 import (
@@ -56,9 +56,17 @@ func main() {
 func run() error {
 	applyPath := flag.String("apply", "", "JSON file of reviewed assignments (default: read-only audit)")
 	checkOnly := flag.Bool("check", false, "exit nonzero when active Voucher labels still need review")
+	checkRequired := flag.Bool("check-required", false, "audit readiness for a non-null catalog display symbol")
+	enforceRequired := flag.Bool("enforce-required", false, "set NOT NULL after the readiness audit passes")
 	flag.Parse()
-	if flag.NArg() != 0 || (*applyPath != "" && *checkOnly) {
-		return errors.New("use read-only audit, --check, or --apply FILE")
+	modes := 0
+	for _, selected := range []bool{*applyPath != "", *checkOnly, *checkRequired, *enforceRequired} {
+		if selected {
+			modes++
+		}
+	}
+	if flag.NArg() != 0 || modes > 1 {
+		return errors.New("use one mode: audit (default), --check, --apply FILE, --check-required, or --enforce-required")
 	}
 	dsn := os.Getenv("CORE_VOUCHER_SYMBOLS_DSN")
 	if dsn == "" {
@@ -80,17 +88,37 @@ func run() error {
 		}
 		return applyAssignments(ctx, conn, plan)
 	}
+	if *enforceRequired {
+		if err := enforceRequiredSymbols(ctx, conn); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stdout, "Voucher display symbols are required by PostgreSQL.")
+		return nil
+	}
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly, IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	if *checkRequired {
+		issues, err := auditRequired(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if err := encoder.Encode(issues); err != nil {
+			return err
+		}
+		if len(issues) != 0 {
+			return fmt.Errorf("%d Voucher symbol issue(s) block enforcement", len(issues))
+		}
+		return tx.Commit(ctx)
+	}
 	rows, err := audit(ctx, tx)
 	if err != nil {
 		return err
 	}
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(rows); err != nil {
 		return err
 	}
