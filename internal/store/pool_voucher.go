@@ -26,6 +26,7 @@ type (
 		Address             string    `db:"address"                json:"address"`
 		Name                *string   `db:"name"                   json:"name"`
 		Symbol              *string   `db:"symbol"                 json:"symbol"`
+		DisplaySymbol       *string   `db:"display_symbol" json:"displaySymbol"`
 		Decimals            *int32    `db:"decimals"               json:"decimals"`
 		OwnerAddress        *string   `db:"owner_address"          json:"ownerAddress"`
 		VoucherType         *string   `db:"voucher_type"           json:"voucherType"`

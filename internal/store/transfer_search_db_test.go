@@ -2,10 +2,11 @@ package store
 
 import (
 	"context"
-	"github.com/georgysavva/scany/v2/pgxscan"
-	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
+
+	"github.com/georgysavva/scany/v2/pgxscan"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTransferHistorySearchDB(t *testing.T) {
@@ -16,8 +17,8 @@ func TestTransferHistorySearchDB(t *testing.T) {
  CREATE TEMP TABLE tx(id BIGINT, tx_hash TEXT, success BOOLEAN, date_block TIMESTAMP) ON COMMIT DROP;
  CREATE TEMP TABLE token_transfer(id BIGINT, tx_id BIGINT, contract_address TEXT, transfer_value NUMERIC,
  sender_address TEXT, recipient_address TEXT) ON COMMIT DROP;
- CREATE TEMP TABLE vouchers(address TEXT, display_name TEXT, name TEXT, symbol TEXT, active BOOLEAN) ON COMMIT DROP;
- INSERT INTO vouchers VALUES ('voucher','Old voucher','chain name','OLD',false), ('unrelated',NULL,'Other','NEW',true);
+ CREATE TEMP TABLE vouchers(address TEXT, display_name TEXT, name TEXT, symbol TEXT, display_symbol TEXT, active BOOLEAN) ON COMMIT DROP;
+ INSERT INTO vouchers VALUES ('voucher','Legacy voucher','chain name','NATIVE','OLD',false), ('unrelated',NULL,'Other','NEW',NULL,true);
  INSERT INTO tx SELECT n, 'hash-'||lpad(n::text,3,'0'),true,'2026-10-01' FROM generate_series(1,100) n;
  INSERT INTO token_transfer SELECT n,n,'unrelated',1,'peer','owner' FROM generate_series(10,100) n;
  INSERT INTO token_transfer VALUES
@@ -35,6 +36,9 @@ func TestTransferHistorySearchDB(t *testing.T) {
 	bySymbol, err := pg.ListTransferSearchTokens(ctx, tx, mustFilter(t, "OLD", nil, TagMatchAny))
 	require.NoError(t, err)
 	require.Equal(t, tokens, bySymbol)
+	byContractSymbol, err := pg.ListTransferSearchTokens(ctx, tx, mustFilter(t, "native", nil, TagMatchAny))
+	require.NoError(t, err)
+	require.Empty(t, byContractSymbol)
 	// The display override is the name shown on the transfer row.
 	byHiddenName, err := pg.ListTransferSearchTokens(ctx, tx, mustFilter(t, "chain name", nil, TagMatchAny))
 	require.NoError(t, err)

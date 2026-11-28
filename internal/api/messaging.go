@@ -142,9 +142,10 @@ type (
 	}
 
 	messagingVoucherContext struct {
-		Address string `json:"address"`
-		Name    string `json:"name"`
-		Symbol  string `json:"symbol"`
+		Address       string  `json:"address"`
+		Name          string  `json:"name"`
+		Symbol        string  `json:"symbol"`
+		DisplaySymbol *string `json:"displaySymbol"`
 	}
 
 	messagingResourceContext struct {

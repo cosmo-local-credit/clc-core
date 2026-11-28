@@ -48,14 +48,15 @@ type (
 	// Want's related-voucher list. Ownership remains a server-side relationship;
 	// the public row does not repeat the creator's address.
 	WantCreatorVoucher struct {
-		ID       uint64  `db:"id"       json:"id"`
-		ChainID  int64   `db:"chain_id" json:"chainId"`
-		Address  string  `db:"address"  json:"address"`
-		Name     string  `db:"name"     json:"name"`
-		Symbol   string  `db:"symbol"   json:"symbol"`
-		Decimals *int    `db:"decimals" json:"decimals"`
-		IconURL  *string `db:"icon_url" json:"iconUrl"`
-		Active   bool    `db:"active"   json:"active"`
+		ID            uint64  `db:"id"       json:"id"`
+		ChainID       int64   `db:"chain_id" json:"chainId"`
+		Address       string  `db:"address"  json:"address"`
+		Name          string  `db:"name"     json:"name"`
+		Symbol        string  `db:"symbol"   json:"symbol"`
+		DisplaySymbol *string `db:"display_symbol" json:"displaySymbol"`
+		Decimals      *int    `db:"decimals" json:"decimals"`
+		IconURL       *string `db:"icon_url" json:"iconUrl"`
+		Active        bool    `db:"active"   json:"active"`
 	}
 
 	// WantCreatorPool contains only what the related-pool row renders. Pool

@@ -70,7 +70,7 @@ func TestRetirementRestoreReportsLockedTransitionDB(t *testing.T) {
 			ctx := context.Background()
 			var id uint64
 			var address string
-			require.NoError(t, pool.QueryRow(ctx, "INSERT INTO "+kind+"s(chain_id,address,active) VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),true) RETURNING id,address").Scan(&id, &address))
+			require.NoError(t, pool.QueryRow(ctx, "INSERT INTO "+kind+"s(chain_id,address,active,symbol) VALUES(100,'0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'),true,'ZXDRLT') RETURNING id,address").Scan(&id, &address))
 			defer func() {
 				_, e := pool.Exec(ctx, "DELETE FROM retirement_events WHERE "+kind+"_id=$1", id)
 				require.NoError(t, e)

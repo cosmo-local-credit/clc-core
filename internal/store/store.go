@@ -19,6 +19,7 @@ type (
 		SearchRecipients(context.Context, pgx.Tx, string, int64, string) ([]Recipient, error)
 		ResolveRecipient(context.Context, pgx.Tx, string, int64, bool) (Recipient, error)
 		ReserveDeploymentIdentity(context.Context, pgx.Tx, string, string, string, string) error
+		ReserveVoucherDeploymentSymbols(context.Context, pgx.Tx, string, string, string, bool) (string, error)
 		ReconcileDeploymentIdentities(context.Context, pgx.Tx) error
 		Pool() *pgxpool.Pool
 		Bootstrap() error
@@ -43,6 +44,7 @@ type (
 		GetDeployedTokenByAddress(context.Context, pgx.Tx, string) (DeployedToken, error)
 		GetDeployedTokenByTrackingID(context.Context, pgx.Tx, string) (DeployedToken, error)
 		ListTakenVoucherSymbols(context.Context, pgx.Tx, string) ([]string, error)
+		ListTakenDisplaySymbols(context.Context, pgx.Tx, string) ([]string, error)
 		VoucherDisplayNameTaken(context.Context, pgx.Tx, string, *string) (bool, error)
 		ListTokenTags(context.Context, pgx.Tx) ([]string, error)
 		FindTokenTag(context.Context, pgx.Tx, string) (string, error)
@@ -78,6 +80,7 @@ type (
 		SetVoucherActive(context.Context, pgx.Tx, uint64, bool) error
 		RestoreVoucherWithinLimits(context.Context, pgx.Tx, string) error
 		RestoreVoucherWithinLimitsChanged(context.Context, pgx.Tx, string) (bool, error)
+		RestoreVoucherWithinLimitsWithSymbolChanged(context.Context, pgx.Tx, string, *string) (bool, error)
 		RestorePoolWithinLimits(context.Context, pgx.Tx, string) error
 		RestorePoolWithinLimitsChanged(context.Context, pgx.Tx, string) (bool, error)
 		ReplaceVoucherTags(context.Context, pgx.Tx, uint64, []string) error

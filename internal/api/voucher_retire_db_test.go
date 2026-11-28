@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -94,7 +95,7 @@ func TestVoucherRestoreRejectsOfferQuotaAndRollsBack(t *testing.T) {
         VALUES($1,$2,'Restore quota','',1,true)`, fx.ownedID, offeringOwnerAddress)
 	require.NoError(t, err)
 	requestAndApproveVoucher(t, a, fx.ownedAddress, owner, operator)
-	res, _ := offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vouchers/"+fx.ownedAddress+"/restore", operator, nil)
+	res, _ := offeringRequest(t, a, http.MethodPut, "/api/v2/admin/vouchers/"+fx.ownedAddress+"/restore", operator, map[string]any{"displaySymbol": "ZQRFIT"})
 	require.Equal(t, http.StatusTooManyRequests, res.Code, res.Body.String())
 	var active bool
 	require.NoError(t, a.store.Pool().QueryRow(ctx, `SELECT active FROM vouchers WHERE id=$1`, fx.ownedID).Scan(&active))
@@ -234,9 +235,9 @@ func TestRetiredVoucherLeavesThePublicCatalogAndComesBack(t *testing.T) {
 		t.Fatal("a retired voucher must not appear under status=active")
 	}
 
-	// Restore puts it back everywhere.
+	// Restore puts it back everywhere with a valid CLC label.
 	restored, restoredResult := offeringRequest(t, a,
-		http.MethodPut, "/api/v2/admin/vouchers/"+fx.ownedAddress+"/restore", operator, nil)
+		http.MethodPut, "/api/v2/admin/vouchers/"+fx.ownedAddress+"/restore", operator, map[string]any{"displaySymbol": "ZQRLIF"})
 	if restored.Code != http.StatusOK {
 		t.Fatalf("restore = %d, want 200 body=%s", restored.Code, restored.Body.String())
 	}
@@ -246,6 +247,57 @@ func TestRetiredVoucherLeavesThePublicCatalogAndComesBack(t *testing.T) {
 	}
 	if res, _ := offeringRequest(t, a, http.MethodGet, "/api/v2/vouchers/"+fx.ownedAddress, "", nil); res.Code != http.StatusOK {
 		t.Fatalf("public detail after restore = %d, want 200 body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestVoucherRestoreLegacyDisplaySymbol(t *testing.T) {
+	a, priv := newOfferingAPI(t)
+	operator := offeringToken(t, priv, offeringOperatorAddr, "SUPERADMIN")
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name        string
+		native      string
+		want        string
+		replacement bool
+	}{
+		{name: "valid native ticker", native: " zQRLY ", want: "ZQRLY"},
+		{name: "invalid native ticker", native: "old display text", want: "ZQRNEW", replacement: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var id uint64
+			var address string
+			pool := a.store.Pool()
+			require.NoError(t, pool.QueryRow(ctx, `
+				INSERT INTO vouchers(chain_id, address, name, symbol, active)
+				VALUES (100, '0x'||lpad(to_hex((random()*1e18)::bigint),40,'0'), $1, $2, FALSE)
+				RETURNING id, address`, "Legacy restore symbol fixture", tc.native).Scan(&id, &address))
+			t.Cleanup(func() {
+				for _, query := range []string{"DELETE FROM retirement_events WHERE voucher_id=$1", "DELETE FROM vouchers WHERE id=$1"} {
+					_, err := pool.Exec(ctx, query, id)
+					require.NoError(t, err)
+				}
+			})
+			path := "/api/v2/admin/vouchers/" + address + "/restore"
+			response, result := offeringRequest(t, a, http.MethodPut, path, operator, nil)
+			if tc.replacement {
+				require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+				var envelope struct {
+					Result map[string]any `json:"result"`
+				}
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+				require.Equal(t, "displaySymbol", envelope.Result["field"])
+				var active bool
+				require.NoError(t, pool.QueryRow(ctx, "SELECT active FROM vouchers WHERE id=$1", id).Scan(&active))
+				require.False(t, active)
+				response, result = offeringRequest(t, a, http.MethodPut, path, operator, map[string]any{"displaySymbol": tc.want})
+			}
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			require.Equal(t, tc.want, voucherFromResult(t, result)["displaySymbol"])
+			var native, label string
+			require.NoError(t, pool.QueryRow(ctx, "SELECT symbol, display_symbol FROM vouchers WHERE id=$1", id).Scan(&native, &label))
+			require.Equal(t, tc.native, native)
+			require.Equal(t, tc.want, label)
+		})
 	}
 }
 

@@ -93,6 +93,8 @@ func TestMigrationFiles(t *testing.T) {
 	assert.Contains(t, sqlFiles, "083_post_contact_requests.sql")
 	assert.Contains(t, sqlFiles, "084_conversation_deletions.sql")
 	assert.Contains(t, sqlFiles, "085_public_profiles.sql")
+	assert.Contains(t, sqlFiles, "086_regional_authority.sql")
+	assert.Contains(t, sqlFiles, "087_voucher_display_symbols.sql")
 	assert.Contains(t, sqlFiles, "040_editable_vocabulary.sql")
 	assert.Contains(t, sqlFiles, "041_recipient_identities.sql")
 	assert.Contains(t, sqlFiles, "042_recipient_lookup_indexes.sql")
@@ -202,7 +204,9 @@ func TestMigrationFiles(t *testing.T) {
 				name == "082_safe_approval_milestones.sql" ||
 				name == "083_post_contact_requests.sql" ||
 				name == "084_conversation_deletions.sql" ||
-				name == "085_public_profiles.sql",
+				name == "085_public_profiles.sql" ||
+				name == "086_regional_authority.sql" ||
+				name == "087_voucher_display_symbols.sql",
 			"unexpected migration file %s", name,
 		)
 	}
@@ -297,6 +301,8 @@ func TestMigrationSequenceLoads(t *testing.T) {
 		"083_post_contact_requests.sql",
 		"084_conversation_deletions.sql",
 		"085_public_profiles.sql",
+		"086_regional_authority.sql",
+		"087_voucher_display_symbols.sql",
 	}, files)
 }
 

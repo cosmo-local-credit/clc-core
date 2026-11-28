@@ -12,15 +12,16 @@ import (
 // retired and unlocated vouchers and therefore uses nullable profile fields.
 type (
 	OwnedVoucher struct {
-		ID           uint64  `db:"id"            json:"id"`
-		ChainID      int64   `db:"chain_id"      json:"chainId"`
-		Address      string  `db:"address"       json:"address"`
-		Name         string  `db:"name"          json:"name"`
-		Symbol       string  `db:"symbol"        json:"symbol"`
-		Decimals     *int    `db:"decimals"      json:"decimals"`
-		IconURL      *string `db:"icon_url"      json:"iconUrl"`
-		OwnerAddress string  `db:"owner_address" json:"ownerAddress"`
-		Active       bool    `db:"active"        json:"active"`
+		ID            uint64  `db:"id"            json:"id"`
+		ChainID       int64   `db:"chain_id"      json:"chainId"`
+		Address       string  `db:"address"       json:"address"`
+		Name          string  `db:"name"          json:"name"`
+		Symbol        string  `db:"symbol"        json:"symbol"`
+		DisplaySymbol *string `db:"display_symbol" json:"displaySymbol"`
+		Decimals      *int    `db:"decimals"      json:"decimals"`
+		IconURL       *string `db:"icon_url"      json:"iconUrl"`
+		OwnerAddress  string  `db:"owner_address" json:"ownerAddress"`
+		Active        bool    `db:"active"        json:"active"`
 	}
 )
 

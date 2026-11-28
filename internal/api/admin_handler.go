@@ -610,6 +610,14 @@ func (a *API) adminUpdateVoucherProfileHandler(c *echo.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
+	voucherRow, err := a.store.LockVoucherForOfferingCreate(ctx, tx, address)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !voucherRow.Active) {
+		return voucherProfileNotFoundError(c)
+	}
+	if err != nil {
+		return handlePostgresError(c, err)
+	}
+
 	// The complete detail row is what the authenticated console caches, so the
 	// response can be written straight into that private cache.
 	voucher, handled, err := a.saveVoucherProfile(c, ctx, tx, address, req)
@@ -618,6 +626,10 @@ func (a *API) adminUpdateVoucherProfileHandler(c *echo.Context) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+
+	if req.DisplaySymbol != nil {
+		a.marketMapCache.clear()
 	}
 
 	return c.JSON(http.StatusOK, apiresp.OKResponse{

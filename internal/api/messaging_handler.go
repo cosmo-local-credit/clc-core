@@ -288,7 +288,7 @@ func (a *API) validateMessageContext(ctx context.Context, tx pgx.Tx, recipientAd
 			return nil, err
 		}
 		snapshot.ProposedVoucher = &messagingVoucherContext{
-			Address: common.HexToAddress(voucher.Address).Hex(), Name: voucher.Name, Symbol: voucher.Symbol,
+			Address: common.HexToAddress(voucher.Address).Hex(), Name: voucher.Name, Symbol: voucher.Symbol, DisplaySymbol: voucher.DisplaySymbol,
 		}
 	}
 	encoded, err := json.Marshal(snapshot)

@@ -45,11 +45,12 @@ type (
 	// ReportVoucher names a voucher a report is linked to. Only what a list row
 	// or a detail card renders — the full voucher is a separate lookup.
 	ReportVoucher struct {
-		ID      uint64  `json:"id"`
-		ChainID int64   `json:"chainId"`
-		Address string  `json:"address"`
-		Name    *string `json:"name"`
-		Symbol  *string `json:"symbol"`
+		ID            uint64  `json:"id"`
+		ChainID       int64   `json:"chainId"`
+		Address       string  `json:"address"`
+		Name          *string `json:"name"`
+		Symbol        *string `json:"symbol"`
+		DisplaySymbol *string `json:"displaySymbol"`
 	}
 
 	ReportPool struct {

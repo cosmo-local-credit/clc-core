@@ -48,7 +48,7 @@ services:
   watchtower:
     image: containrrr/watchtower:latest
     restart: unless-stopped
-    command: --interval 120 --label-enable --cleanup --rolling-restart
+    command: --interval 120 --label-enable --cleanup --rolling-restart --include-restarting
     environment:
       WATCHTOWER_REGISTRY_AUTH: "true"
       DOCKER_API_VERSION: "1.41"
